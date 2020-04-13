@@ -5,7 +5,7 @@ mod astclimb;
 mod rtltc;
 mod types;
 
-use crate::rtltc::TypChecker;
+use crate::rtltc::LolaTypChecker;
 use front::ast::LolaSpec;
 use front::parse::{SourceMapper, StreamlabParser};
 use front::reporting::Handler;
@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::option::Option;
 use std::path::{Path, PathBuf};
+use front::FrontendConfig;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -49,12 +50,18 @@ fn main() {
         let spec = &p;
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
+
         //let ir = front::parse(&name, &p, front::FrontendConfig::default());
-        let tt = match ast {
+        let lola_spec = match ast {
             Err(why) => panic!("parsing error: {}", why), //TODO
-            Ok(parsed_spec) => TypChecker::new(&parsed_spec).generate_raw_table(),
+            Ok(parsed_spec) => parsed_spec,
         };
 
-        print!("{:#?}", tt);
+        let mut na = front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
+        let mut decl_table: front::analysis::naming::DeclarationTable= na.check(&lola_spec);
+
+        let checker = LolaTypChecker::new(&lola_spec,decl_table);
+
+        print!("{:#?}", checker.generate_raw_table());
     }
 }

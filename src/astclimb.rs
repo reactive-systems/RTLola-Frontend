@@ -2,9 +2,11 @@ use super::*;
 extern crate regex;
 
 use crate::types::{IAbstractType, RecursiveType};
-use front::ast::{ExpressionKind, TypeKind};
+use front::ast::{ExpressionKind, TypeKind, FunctionName, Output};
 use front::ast::{Expression, LitKind, Literal};
+use front::analysis::naming::{DeclarationTable, Declaration};
 use rusttyc::{Abstract, TcKey, TypeChecker};
+use front::ty::{ValueTy, TypeConstraint};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -13,11 +15,12 @@ pub struct Variable {
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct Context {
+pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<IAbstractType, Variable>,
+    pub decl: DeclarationTable<'a>,
 }
 
-impl Context {
+impl <'a> Context<'a> {
     pub fn expression_infere(
         &mut self,
         exp: &Expression,
@@ -95,18 +98,11 @@ impl Context {
                     WindowOperation::Count => {
                         //self.tyc.fork(); //TODO
                         //check for bool case
-                        let res = self.tyc.impose(ex_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(ex_key.captures(IAbstractType::Bool));
+                        //OR
+                        //self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
 
-                        /*if let res {
-                            Err(e) => {
-                                //rollback
-                                // case für num
-                            }
-
-                        }
-
-*/
-
+                        self.tyc.impose(term_key.captures(IAbstractType::UInteger(1)));
                     }
                     //all others :<T:Num>  -> T
                     _ => {
@@ -156,7 +152,7 @@ impl Context {
                         self.tyc.impose(term_key.unify_with(left_key));
                         self.tyc.impose(term_key.unify_with(right_key));
                     }
-                    // Num x NUm -> Bool COMPERATORS
+                    // Num x NUm -> Bool COMPARATORS
                     BinOp::Eq |
                     BinOp::Lt |
                     BinOp::Le |
@@ -216,15 +212,57 @@ impl Context {
                 unimplemented!()
             }
             ExpressionKind::Function(name, types, args) => {
+                //transform Type into new internal types.
+                let types_vec :Vec<IAbstractType> = types.iter().map(|t| type_kind_match(&t.kind)).collect();
                 // check for name in context
-                //TODO
+                let decl = self.decl.get(&exp.id).expect("declaration checked by naming analysis");
+                match decl {
+                    Declaration::Func(fun_decl) => {
+                        //Generics
+                        let generics: TcKey<IAbstractType> = fun_decl.generics
+                            .iter()
+                            .map(|gen| {
+                                let gen_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+                                match &gen {
+                                    ValueTy::Constr(tc) => {
+                                        let cons = match_constraint(tc);
+                                        self.tyc.impose(gen_key.captures(cons));
+                                    }
+                                    _ => unreachable!()
+                                };
+                                gen_key
+                            })
+                            .collect();
+
+                        let params: Vec<IAbstractType> = fun_decl.parameters.clone().iter().map(
+                            |p| {
+                                replace_type(p)
+                            }
+                        ).collect();
+
+                        for ((arg,param_type), type_value) in args.iter().zip(fun_decl.parameters.iter()).zip(types_vec.iter()) {
+                            let arg_key = self.expression_infere(&*arg)?;
+                            self.tyc.impose(arg_key.captures(type_value.clone()));
+
+                            self.tyc.impose(arg_key.captures(value_type_match(param_type)));
+
+
+                            //let declared_param_type = fun_decl.
+                        }
+                    },
+                    Declaration::ParamOut(out) => {
+                        unimplemented!()
+                    }
+                    _ => unreachable!("ensured by naming analysis"),
+                };
+                // create matching function declaration
                 //type check each argument
-                for (arg,t) in args.iter().zip(types.iter()) {
+                /*for (arg,t) in args.iter().zip(types.iter()) {
                     let sub_ex_key = self.expression_infere(&*arg)?;
 
-                    self.tyc.impose(sub_ex_key.captures(typekind_match(t.kind.clone())));
+                    self.tyc.impose(sub_ex_key.captures(typekind_match(&t.kind.clone())));
 
-                }
+                }*/
             }
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
             ExpressionKind::Aggregation(_, _, _) => unimplemented!(),
@@ -263,7 +301,21 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     )))
 }
 
-fn typekind_match(kind: TypeKind) -> IAbstractType {
+fn type_kind_match(kind: &TypeKind) -> IAbstractType {
+    //TODO
+    unimplemented!()
+}
+fn value_type_match(vt: &ValueTy) -> IAbstractType {
+    //TODO
+    unimplemented!()
+}
+
+fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
+    //TODO
+    unimplemented!()
+}
+
+fn replace_type(vt: &ValueTy) -> IAbstractType {
     //TODO
     unimplemented!()
 }
