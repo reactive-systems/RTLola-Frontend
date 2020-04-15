@@ -36,6 +36,7 @@ impl <'a> Context<'a> {
                 self.tyc.impose(term_key.captures(literal_type));
             }
             ExpressionKind::Ident(id) => {
+                //let decl = self.decl[&exp.id];
                 return Ok(self.tyc.get_var_key(&Variable {
                     name: id.name.clone(),
                 }));
@@ -213,7 +214,7 @@ impl <'a> Context<'a> {
             }
             ExpressionKind::Function(name, types, args) => {
                 //transform Type into new internal types.
-                let types_vec :Vec<IAbstractType> = types.iter().map(|t| type_kind_match(&t.kind)).collect();
+                let types_vec :Vec<IAbstractType> = types.iter().map(|t| self.type_kind_match(&t.kind)).collect();
                 // check for name in context
                 let decl = self.decl.get(&exp.id).expect("declaration checked by naming analysis").clone();
                 match decl {
@@ -248,14 +249,14 @@ impl <'a> Context<'a> {
                     Declaration::ParamOut(out) => {
                         let params :&[Parameter] = out.params.as_slice();
 
-                        let param_types: Vec<IAbstractType> = params.iter().map(|p| type_kind_match(&p.ty.kind)).collect();
+                        let param_types: Vec<IAbstractType> = params.iter().map(|p| self.type_kind_match(&p.ty.kind)).collect();
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
                             let arg_key = self.expression_infere(&*arg)?;
                             self.tyc.impose(arg_key.captures(param_t.clone()));
                         }
 
-                        self.tyc.impose(term_key.captures(type_kind_match(&out.ty.kind)));
+                        self.tyc.impose(term_key.captures(self.type_kind_match(&out.ty.kind)));
 
                     }
                     _ => unreachable!("ensured by naming analysis"),
@@ -274,6 +275,19 @@ impl <'a> Context<'a> {
             to[*idx as usize]
         } else {
             self.tyc.new_term_key()
+        }
+    }
+
+
+    fn type_kind_match(&self, kind: &TypeKind) -> IAbstractType {
+        match kind {
+            TypeKind::Simple(_) => IAbstractType::TString,
+            TypeKind::Tuple(v) => IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t.kind)).collect()),
+            TypeKind::Optional(op) => IAbstractType::Option( self.type_kind_match(&op.kind).into()),
+            TypeKind::Inferred => {
+                //TODO
+                unimplemented!()
+            }
         }
     }
 }
@@ -305,22 +319,6 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
         "Non matching String Literal: {}",
         value_str
     )))
-}
-
-fn type_kind_match(kind: &TypeKind) -> IAbstractType {
-    match kind {
-        TypeKind::Simple(_) => IAbstractType::TString,
-        TypeKind::Tuple(v) => IAbstractType::Tuple(v.iter().map(|t| type_kind_match(&t.kind)).collect()),
-        TypeKind::Optional(op) => IAbstractType::Option(type_kind_match(&op.kind).into()),
-        TypeKind::Inferred => {
-            //TODO
-            unimplemented!()
-        }
-    }
-}
-fn value_type_match(vt: &ValueTy) -> IAbstractType {
-    //TODO
-    unimplemented!()
 }
 
 fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
