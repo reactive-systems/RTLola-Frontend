@@ -2,7 +2,7 @@ use super::*;
 extern crate regex;
 
 use crate::types::{IAbstractType, RecursiveType};
-use front::ast::{ExpressionKind, TypeKind, FunctionName, Output};
+use front::ast::{ExpressionKind, TypeKind, FunctionName, Output, Parameter};
 use front::ast::{Expression, LitKind, Literal};
 use front::analysis::naming::{DeclarationTable, Declaration};
 use rusttyc::{Abstract, TcKey, TypeChecker};
@@ -215,11 +215,11 @@ impl <'a> Context<'a> {
                 //transform Type into new internal types.
                 let types_vec :Vec<IAbstractType> = types.iter().map(|t| type_kind_match(&t.kind)).collect();
                 // check for name in context
-                let decl = self.decl.get(&exp.id).expect("declaration checked by naming analysis");
+                let decl = self.decl.get(&exp.id).expect("declaration checked by naming analysis").clone();
                 match decl {
                     Declaration::Func(fun_decl) => {
                         //Generics
-                        let generics: TcKey<IAbstractType> = fun_decl.generics
+                        let generics: Vec<TcKey<IAbstractType>> = fun_decl.generics
                             .iter()
                             .map(|gen| {
                                 let gen_key: TcKey<IAbstractType> = self.tyc.new_term_key();
@@ -232,43 +232,49 @@ impl <'a> Context<'a> {
                                 };
                                 gen_key
                             })
-                            .collect();
+                            .collect::<Vec<TcKey<IAbstractType>>>();
 
-                        let params: Vec<IAbstractType> = fun_decl.parameters.clone().iter().map(
-                            |p| {
-                                replace_type(p)
-                            }
-                        ).collect();
-
-                        for ((arg,param_type), type_value) in args.iter().zip(fun_decl.parameters.iter()).zip(types_vec.iter()) {
+                        for (arg,param) in args.iter().zip(fun_decl.parameters.iter()) {
+                            let p = self.replace_type(param, &generics);
                             let arg_key = self.expression_infere(&*arg)?;
-                            self.tyc.impose(arg_key.captures(type_value.clone()));
-
-                            self.tyc.impose(arg_key.captures(value_type_match(param_type)));
-
-
-                            //let declared_param_type = fun_decl.
+                            self.tyc.impose(arg_key.unify_with(p));
                         }
+
+                        let return_type = self.replace_type(&fun_decl.return_type,&generics);
+
+                        self.tyc.impose(term_key.unify_with(return_type));
+
                     },
                     Declaration::ParamOut(out) => {
-                        unimplemented!()
+                        let params :&[Parameter] = out.params.as_slice();
+
+                        let param_types: Vec<IAbstractType> = params.iter().map(|p| type_kind_match(&p.ty.kind)).collect();
+
+                        for (arg, param_t) in args.iter().zip(param_types.iter()) {
+                            let arg_key = self.expression_infere(&*arg)?;
+                            self.tyc.impose(arg_key.captures(param_t.clone()));
+                        }
+
+                        self.tyc.impose(term_key.captures(type_kind_match(&out.ty.kind)));
+
                     }
                     _ => unreachable!("ensured by naming analysis"),
                 };
-                // create matching function declaration
-                //type check each argument
-                /*for (arg,t) in args.iter().zip(types.iter()) {
-                    let sub_ex_key = self.expression_infere(&*arg)?;
-
-                    self.tyc.impose(sub_ex_key.captures(typekind_match(&t.kind.clone())));
-
-                }*/
             }
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
             ExpressionKind::Aggregation(_, _, _) => unimplemented!(),
         };
         Ok(term_key)
         //Err(String::from("Error"))
+    }
+
+
+    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey<IAbstractType>]) -> TcKey<IAbstractType> {
+        if let ValueTy::Param(idx, _) = vt {
+            to[*idx as usize]
+        } else {
+            self.tyc.new_term_key()
+        }
     }
 }
 
@@ -302,8 +308,15 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
 }
 
 fn type_kind_match(kind: &TypeKind) -> IAbstractType {
-    //TODO
-    unimplemented!()
+    match kind {
+        TypeKind::Simple(_) => IAbstractType::TString,
+        TypeKind::Tuple(v) => IAbstractType::Tuple(v.iter().map(|t| type_kind_match(&t.kind)).collect()),
+        TypeKind::Optional(op) => IAbstractType::Option(type_kind_match(&op.kind).into()),
+        TypeKind::Inferred => {
+            //TODO
+            unimplemented!()
+        }
+    }
 }
 fn value_type_match(vt: &ValueTy) -> IAbstractType {
     //TODO
@@ -311,11 +324,6 @@ fn value_type_match(vt: &ValueTy) -> IAbstractType {
 }
 
 fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
-    //TODO
-    unimplemented!()
-}
-
-fn replace_type(vt: &ValueTy) -> IAbstractType {
     //TODO
     unimplemented!()
 }
