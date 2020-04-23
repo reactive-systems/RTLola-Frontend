@@ -2,11 +2,13 @@ use super::*;
 extern crate regex;
 
 use crate::types::{IAbstractType, RecursiveType};
-use front::ast::{ExpressionKind, TypeKind, FunctionName, Output, Parameter};
-use front::ast::{Expression, LitKind, Literal};
-use front::analysis::naming::{DeclarationTable, Declaration};
+use front::analysis::naming::{Declaration, DeclarationTable};
+use front::ast::{Expression, LitKind, Literal, Type};
+use front::ast::{ExpressionKind, FunctionName, Output, Parameter, TypeKind};
+use front::parse::NodeId;
+use front::ty::{TypeConstraint, ValueTy};
 use rusttyc::{Abstract, TcKey, TypeChecker};
-use front::ty::{ValueTy, TypeConstraint};
+use std::collections::HashMap;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -17,10 +19,11 @@ impl rusttyc::TcVar for Variable {}
 
 pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<IAbstractType, Variable>,
-    pub decl: DeclarationTable<'a>,
+    pub(crate) decl: DeclarationTable<'a>,
+    pub(crate) node_key: HashMap<NodeId, TcKey<IAbstractType>>,
 }
 
-impl <'a> Context<'a> {
+impl<'a> Context<'a> {
     pub fn expression_infere(
         &mut self,
         exp: &Expression,
@@ -45,10 +48,10 @@ impl <'a> Context<'a> {
                 use front::ast::StreamAccessKind::*;
                 let ex_key = self.expression_infere(&*ex)?;
                 let ty = IAbstractType::Any; //TODO FIXME
-                //match kind {
-                    //Sync => IAbstractType::Option(Box::new(self.tyc.get_type(ex_key))), //TODO change when no longer everything is optional
-                    //Optional | Hold => IAbstractType::Option(Box::new(self.tyc.get_type(ex_key))),
-                //};
+                                             //match kind {
+                                             //Sync => IAbstractType::Option(Box::new(self.tyc.get_type(ex_key))), //TODO change when no longer everything is optional
+                                             //Optional | Hold => IAbstractType::Option(Box::new(self.tyc.get_type(ex_key))),
+                                             //};
                 self.tyc.impose(term_key.captures(ty));
             }
             ExpressionKind::Default(ex, default) => {
@@ -65,8 +68,7 @@ impl <'a> Context<'a> {
             }
             ExpressionKind::Offset(expr, offset) => {
                 let ex_key = self.expression_infere(&*expr)?; // X
-                //Want build: Option<X>
-
+                                                              //Want build: Option<X>
 
                 //TODO check for different result per offset
                 let m_key = self.tyc.new_monad_key(RecursiveType::Option);
@@ -92,9 +94,7 @@ impl <'a> Context<'a> {
                 use front::ast::WindowOperation;
                 match aggr {
                     //Min|Max <T:Num> T -> Option<T>
-                    WindowOperation::Min | WindowOperation::Max => {
-
-                    }
+                    WindowOperation::Min | WindowOperation::Max => {}
                     //Count: (Num|Bool) -> uint
                     WindowOperation::Count => {
                         //self.tyc.fork(); //TODO
@@ -103,14 +103,13 @@ impl <'a> Context<'a> {
                         //OR
                         //self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.captures(IAbstractType::UInteger(1)));
+                        self.tyc
+                            .impose(term_key.captures(IAbstractType::UInteger(1)));
                     }
                     //all others :<T:Num>  -> T
                     _ => {
-                        self.tyc
-                            .impose(ex_key.captures(IAbstractType::Numeric));
-                        self.tyc
-                            .impose(term_key.unify_with(ex_key));
+                        self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(term_key.unify_with(ex_key));
                     }
                 }
             }
@@ -121,12 +120,7 @@ impl <'a> Context<'a> {
                 use front::ast::BinOp;
                 match op {
                     // Num x Num -> Num
-                    BinOp::Add |
-                    BinOp::Sub |
-                    BinOp::Mul |
-                    BinOp::Div |
-                    BinOp::Rem |
-                    BinOp::Pow => {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
                         self.tyc.impose(left_key.captures(IAbstractType::Numeric));
                         self.tyc.impose(right_key.captures(IAbstractType::Numeric));
 
@@ -134,19 +128,14 @@ impl <'a> Context<'a> {
                         self.tyc.impose(term_key.unify_with(right_key));
                     }
                     // Bool x Bool -> Bool
-                    BinOp::And |
-                    BinOp::Or => {
+                    BinOp::And | BinOp::Or => {
                         self.tyc.impose(left_key.captures(IAbstractType::Bool));
                         self.tyc.impose(right_key.captures(IAbstractType::Bool));
 
                         self.tyc.impose(term_key.captures(IAbstractType::Bool));
                     }
                     // Num x Num -> Num
-                    BinOp::BitXor |
-                    BinOp::BitAnd |
-                    BinOp::BitOr |
-                    BinOp::Shl |
-                    BinOp::Shr => {
+                    BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr | BinOp::Shl | BinOp::Shr => {
                         self.tyc.impose(left_key.captures(IAbstractType::Numeric));
                         self.tyc.impose(right_key.captures(IAbstractType::Numeric));
 
@@ -154,12 +143,7 @@ impl <'a> Context<'a> {
                         self.tyc.impose(term_key.unify_with(right_key));
                     }
                     // Num x NUm -> Bool COMPARATORS
-                    BinOp::Eq |
-                    BinOp::Lt |
-                    BinOp::Le |
-                    BinOp::Ne |
-                    BinOp::Ge |
-                    BinOp::Gt => {
+                    BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
                         self.tyc.impose(left_key.captures(IAbstractType::Numeric));
                         self.tyc.impose(right_key.captures(IAbstractType::Numeric));
 
@@ -173,20 +157,18 @@ impl <'a> Context<'a> {
                 use front::ast::UnOp;
                 match op {
                     //Num -> Num
-                    UnOp::BitNot |
-                    UnOp::Neg => {
+                    UnOp::BitNot | UnOp::Neg => {
                         self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
 
                         self.tyc.impose(term_key.unify_with(ex_key));
-                    },
+                    }
                     // Bool -> Bool
                     UnOp::Not => {
                         self.tyc.impose(ex_key.captures(IAbstractType::Bool));
 
                         self.tyc.impose(term_key.captures(IAbstractType::Bool));
-                    },
+                    }
                 }
-
             }
             ExpressionKind::Ite(cond, cons, alt) => {
                 let cond_key = self.expression_infere(&*cond)?; // Bool
@@ -200,27 +182,29 @@ impl <'a> Context<'a> {
                 self.tyc.impose(term_key.unify_with(alt_key));
                 //TODO Backpropagation now internal ?
             }
-            ExpressionKind::MissingExpression => {
-                unreachable!()
-            }
+            ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(vec) => {
                 unimplemented!() //TODO
             }
-            ExpressionKind::Field(_, _) => {
-                unimplemented!()
-            }
-            ExpressionKind::Method(_, _, _, _) => {
-                unimplemented!()
-            }
+            ExpressionKind::Field(_, _) => unimplemented!(),
+            ExpressionKind::Method(_, _, _, _) => unimplemented!(),
             ExpressionKind::Function(name, types, args) => {
                 //transform Type into new internal types.
-                let types_vec :Vec<IAbstractType> = types.iter().map(|t| self.type_kind_match(&t.kind)).collect();
+                let types_vec: Vec<IAbstractType> = types
+                    .iter()
+                    .map(|t| self.type_kind_match(&t))
+                    .collect();
                 // check for name in context
-                let decl = self.decl.get(&exp.id).expect("declaration checked by naming analysis").clone();
+                let decl = self
+                    .decl
+                    .get(&exp.id)
+                    .expect("declaration checked by naming analysis")
+                    .clone();
                 match decl {
                     Declaration::Func(fun_decl) => {
                         //Generics
-                        let generics: Vec<TcKey<IAbstractType>> = fun_decl.generics
+                        let generics: Vec<TcKey<IAbstractType>> = fun_decl
+                            .generics
                             .iter()
                             .map(|gen| {
                                 let gen_key: TcKey<IAbstractType> = self.tyc.new_term_key();
@@ -229,35 +213,37 @@ impl <'a> Context<'a> {
                                         let cons = match_constraint(tc);
                                         self.tyc.impose(gen_key.captures(cons));
                                     }
-                                    _ => unreachable!()
+                                    _ => unreachable!(),
                                 };
                                 gen_key
                             })
                             .collect::<Vec<TcKey<IAbstractType>>>();
 
-                        for (arg,param) in args.iter().zip(fun_decl.parameters.iter()) {
+                        for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
                             let p = self.replace_type(param, &generics);
                             let arg_key = self.expression_infere(&*arg)?;
                             self.tyc.impose(arg_key.unify_with(p));
                         }
 
-                        let return_type = self.replace_type(&fun_decl.return_type,&generics);
+                        let return_type = self.replace_type(&fun_decl.return_type, &generics);
 
                         self.tyc.impose(term_key.unify_with(return_type));
-
-                    },
+                    }
                     Declaration::ParamOut(out) => {
-                        let params :&[Parameter] = out.params.as_slice();
+                        let params: &[Parameter] = out.params.as_slice();
 
-                        let param_types: Vec<IAbstractType> = params.iter().map(|p| self.type_kind_match(&p.ty.kind)).collect();
+                        let param_types: Vec<IAbstractType> = params
+                            .iter()
+                            .map(|p| self.type_kind_match(&p.ty))
+                            .collect();
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
                             let arg_key = self.expression_infere(&*arg)?;
                             self.tyc.impose(arg_key.captures(param_t.clone()));
                         }
 
-                        self.tyc.impose(term_key.captures(self.type_kind_match(&out.ty.kind)));
-
+                        self.tyc
+                            .impose(term_key.captures(self.type_kind_match(&out.ty)));
                     }
                     _ => unreachable!("ensured by naming analysis"),
                 };
@@ -265,10 +251,10 @@ impl <'a> Context<'a> {
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
             ExpressionKind::Aggregation(_, _, _) => unimplemented!(),
         };
+        self.node_key.insert(exp.id, term_key);
         Ok(term_key)
         //Err(String::from("Error"))
     }
-
 
     fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey<IAbstractType>]) -> TcKey<IAbstractType> {
         if let ValueTy::Param(idx, _) = vt {
@@ -278,12 +264,17 @@ impl <'a> Context<'a> {
         }
     }
 
-
-    fn type_kind_match(&self, kind: &TypeKind) -> IAbstractType {
+    fn type_kind_match(&self, t: &Type) -> IAbstractType {
+        let kind = &t.kind;
         match kind {
-            TypeKind::Simple(_) => IAbstractType::TString,
-            TypeKind::Tuple(v) => IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t.kind)).collect()),
-            TypeKind::Optional(op) => IAbstractType::Option( self.type_kind_match(&op.kind).into()),
+            TypeKind::Simple(_) => {
+
+                IAbstractType::TString, //TODO
+            }
+            TypeKind::Tuple(v) => {
+                IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t)).collect())
+            }
+            TypeKind::Optional(op) => IAbstractType::Option(self.type_kind_match(&op).into()),
             TypeKind::Inferred => {
                 //TODO
                 unimplemented!()

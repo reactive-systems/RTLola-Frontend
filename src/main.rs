@@ -9,13 +9,13 @@ use crate::rtltc::LolaTypChecker;
 use front::ast::LolaSpec;
 use front::parse::{SourceMapper, StreamlabParser};
 use front::reporting::Handler;
+use front::FrontendConfig;
 use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::option::Option;
 use std::path::{Path, PathBuf};
-use front::FrontendConfig;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -57,10 +57,11 @@ fn main() {
             Ok(parsed_spec) => parsed_spec,
         };
 
-        let mut na = front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
-        let mut decl_table: front::analysis::naming::DeclarationTable= na.check(&lola_spec);
+        let mut na =
+            front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
+        let mut decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
 
-        let checker = LolaTypChecker::new(&lola_spec,decl_table);
+        let checker = LolaTypChecker::new(&lola_spec, decl_table);
 
         print!("{:#?}", checker.generate_raw_table());
     }

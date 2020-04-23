@@ -15,7 +15,7 @@ pub enum IAbstractType {
     Option(Box<IAbstractType>),
 }
 
-#[derive(Copy,Clone,Eq,PartialEq,)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RecursiveType {
     Option,
     Tuple(u8),
@@ -25,11 +25,10 @@ pub enum RecursiveType {
 impl rusttyc::TypeVariant for RecursiveType {
     fn arity(self) -> u8 {
         match self {
-            RecursiveType::Tuple(l)=>  l,
+            RecursiveType::Tuple(l) => l,
             RecursiveType::Option => 1,
             RecursiveType::Other => 0,
         }
-
     }
 }
 
@@ -97,7 +96,6 @@ impl rusttyc::Abstract for IAbstractType {
             } //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
         }
     }
-
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
