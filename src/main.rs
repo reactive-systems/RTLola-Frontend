@@ -3,7 +3,8 @@ extern crate streamlab_frontend as front;
 
 mod astclimb;
 mod rtltc;
-mod types;
+mod value_types;
+mod pacing_types;
 
 use crate::rtltc::LolaTypChecker;
 use front::ast::LolaSpec;

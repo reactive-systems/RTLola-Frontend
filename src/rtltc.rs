@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::astclimb::Variable;
-use crate::types::IAbstractType;
+use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::LolaSpec;
 use rusttyc::{Abstract, TypeChecker};
