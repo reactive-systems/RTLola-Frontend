@@ -41,11 +41,46 @@ impl <Var:Eq + Clone> ActivationCondition<Var> {
             }
         }
     }
+
+    fn normalize_cnf(&self) -> ActivationCondition<Var>{
+        use ActivationCondition::*;
+        match self {
+            Conjunction(disjs) => {
+                let mut new_ac:Vec<ActivationCondition<Var>> = disjs.iter().map(ActivationCondition::normalize_cnf).collect();
+                new_ac.sort();
+                new_ac.dedup();
+                new_ac.retain(|ac| match ac {ActivationCondition::True => false, _ => true});
+                Conjunction(new_ac)
+            },
+            Disjunction(lits) => {
+                let mut new_lits = lits.clone();
+                new_lits.sort();
+                new_lits.dedup();
+                let is_true = new_lits.iter().any(|ac| match ac {ActivationCondition::True => true, _ => false});
+                if is_true {
+                    ActivationCondition::True
+                } else {
+                    Disjunction(new_lits)
+                }
+            }
+            x => x.clone(),
+        }
+    }
 }
 
 impl <Var: Eq+Clone> PartialEq for ActivationCondition<Var> {
     fn eq(&self, other: &Self) -> bool{
-        true // Todo: Implement me
+        use ActivationCondition::*;
+        match (self, other) {
+            (True, True) => true,
+            (True, x ) | (x, True) => false,
+            (Stream(x), Stream(y)) => x == y,
+            (Stream(x), y ) | (y, Stream(x)) => false,
+            (Disjunction(lhs), Disjunction(rhs)) => lhs == rhs,
+            (Disjunction(x), y ) | (y, Disjunction(x)) => false,
+            (Conjunction(lhs), Conjunction(rhs)) => lhs == rhs,
+            (Conjunction(x), y ) | (y, Conjunction(x)) => false,
+        }
     }
 }
 impl <Var: Eq+Clone> Eq for ActivationCondition<Var> {}
@@ -70,7 +105,7 @@ pub enum AbstractPacingType{
     Any
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecursivePacingType {
     Other
 }
@@ -94,8 +129,9 @@ impl rusttyc::Abstract for AbstractPacingType {
         match (self, other) {
             (Event(ac), Periodic(f)) | (Periodic(f), Event(ac)) => Err(UnificationError::MixedEventPeriodic(ac, f)),
             (Event(ac1), Event(ac2)) => {
+                // Assumption: ac1 and ac2 are in CNF
                 use ActivationCondition::*;
-                let res = match (ac1, ac2) {
+                let mut res = match (ac1, ac2) {
                     (True, x) | (x, True)=> x,
                     (Stream(x), Stream(y)) => Conjunction(vec![Stream(x),Stream(y)]),
                     (Stream(x), Conjunction(other)) | (Conjunction(other), Stream(x)) => {
@@ -103,16 +139,27 @@ impl rusttyc::Abstract for AbstractPacingType {
                         new_ac.push(Stream(x));
                         Conjunction(new_ac)
                     },
+                    (Stream(x), Disjunction(dis)) | (Disjunction(dis), Stream(x)) => {
+                        Conjunction(vec![Stream(x), Disjunction(dis.clone())])
+                    }
                     (Conjunction(lhs), Conjunction(rhs)) => {
                         let mut new_ac = lhs.clone();
                         new_ac.append(&mut rhs.clone());
                         Conjunction(new_ac)
                     },
-                    _ => return Err(UnificationError::Other("Unimplemented!".into()))
+                    (Disjunction(lhs), Disjunction(rhs)) => {
+                        Conjunction(vec![Disjunction(lhs), Disjunction(rhs)])
+                    }
+                    (Disjunction(dis), Conjunction(con)) | (Conjunction(con), Disjunction(dis)) => {
+                        let mut new_ac = con.clone();
+                        new_ac.push(Disjunction(dis.clone()));
+                        Conjunction(new_ac)
+                    }
                     //output a @ i1
                     //output c @ 1 Hz
                     // output b @ c = a + c
                 };
+                res.normalize_cnf();
                 Ok(Event(res))
             },
             _ => Err(UnificationError::Other("Unimplemented!".into()))
