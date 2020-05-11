@@ -269,7 +269,7 @@ impl<'a> Context<'a> {
         match kind {
             TypeKind::Simple(_) => {
 
-                IAbstractType::TString, //TODO
+                IAbstractType::TString//TODO
             }
             TypeKind::Tuple(v) => {
                 IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t)).collect())
