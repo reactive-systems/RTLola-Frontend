@@ -26,7 +26,30 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
 
-    pub fn infer_constant(
+    pub fn new(ast: &LolaSpec, decl: DeclarationTable<'a>) -> Self {
+        let mut tyc = TypeChecker::new();
+        let mut node_key = HashMap::new();
+
+        for input in ast.inputs {
+            node_key.insert(input.id,tyc.get_var_key(Variable(input.name.name.clone())));
+        }
+
+        for cons in ast.constants {
+            node_key.insert(cons.id,tyc.get_var_key(Variable(cons.name.name.clone())));
+        }
+
+        for out in ast.outputs {
+            node_key.insert(out.id,tyc.get_var_key(Variable(out.name.name.clone())));
+        }
+
+        Context {
+            tyc,
+            decl,
+            node_key,
+        }
+    }
+
+    pub fn constant_infer(
         &mut self,
         cons: &Constant,
     ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Error> {

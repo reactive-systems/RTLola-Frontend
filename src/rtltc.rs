@@ -37,14 +37,12 @@ impl<'a> LolaTypChecker<'a> {
 
     fn value_type_infer(&self) {
         let value_tyc = rusttyc::TypeChecker::new();
-        let node_mapping = HashSet::new();
-        let mut ctx = Context{tyc: value_tyc, decl: self.decl, node_key: node_mapping};
+
+        let mut ctx = Context::new(tyc, self.decl);
 
         for constant in self.ast.constants {
-            ctx.infer_constant(&constant);
+            ctx.constant_infer(&constant);
         }
-
-
 
         for output in self.ast.outputs {
             ctx.expression_infer(&output.expression, None);
