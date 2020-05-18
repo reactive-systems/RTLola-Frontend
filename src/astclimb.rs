@@ -9,6 +9,7 @@ use front::parse::NodeId;
 use front::ty::{TypeConstraint, ValueTy};
 use rusttyc::{Abstract, TcKey, TypeChecker};
 use std::collections::HashMap;
+use front::ast::Constant;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -18,17 +19,43 @@ pub struct Variable {
 impl rusttyc::TcVar for Variable {}
 
 pub struct Context<'a> {
-    pub(crate) tyc: TypeChecker<IAbstractType, Variable>,
-    pub(crate) decl: DeclarationTable<'a>,
-    pub(crate) node_key: HashMap<NodeId, TcKey<IAbstractType>>, //TODO initialisiere tabelle
+    pub tyc: TypeChecker<IAbstractType, Variable>,
+    pub decl: DeclarationTable<'a>,
+    pub node_key: HashMap<NodeId, TcKey<IAbstractType>>, //TODO initialisiere tabelle
 }
 
 impl<'a> Context<'a> {
-    pub fn expression_infere(
+
+    pub fn infer_constant(
         &mut self,
-        exp: &Expression,
+        cons: &Constant,
     ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Error> {
         let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+        //Annotated Type
+        if let Some(t) = &cons.ty {
+            let annotaded_type_replaced = self.type_kind_match(t);
+            self.tyc.impose(term_key.captures(annotaded_type_replaced));
+        }
+        //Type from Literal
+        let lit_type = self.match_lit_kind(cons.literal.kind.clone());
+        self.tyc.impose(term_key.captures(lit_type));
+
+        self.node_key.insert(cons.id,term_key);
+        return Ok(term_key);
+    }
+
+
+
+
+    pub fn expression_infer(
+        &mut self,
+        exp: &Expression,
+        target_type: Option<IAbstractType>,
+    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Error> {
+        let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+        if let Some(t) = target_type {
+            self.tyc.impose(term_key.captures(t));
+        }
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
@@ -50,7 +77,7 @@ impl<'a> Context<'a> {
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
-                let ex_key = self.expression_infere(&*ex)?;
+                let ex_key = self.expression_infer(&*ex, None)?;
                  match kind {
                      Sync => {
                          //Sync access just returns the stream type
@@ -65,8 +92,8 @@ impl<'a> Context<'a> {
                  };
             }
             ExpressionKind::Default(ex, default) => {
-                let ex_key = self.expression_infere(&*ex)?; //Option<X>
-                let def_key = self.expression_infere(&*default)?; // Y
+                let ex_key = self.expression_infer(&*ex, None)?; //Option<X>
+                let def_key = self.expression_infer(&*default, None)?; // Y
 
                 let m_key = self.tyc.new_monad_key(RecursiveType::Option);
                 self.tyc.impose(m_key.key().unify_with(ex_key));
@@ -77,7 +104,7 @@ impl<'a> Context<'a> {
                 self.tyc.impose(result_constraint);
             }
             ExpressionKind::Offset(expr, offset) => {
-                let ex_key = self.expression_infere(&*expr)?; // X
+                let ex_key = self.expression_infer(&*expr, None)?; // X
                                                               //Want build: Option<X>
 
                 //TODO check for different offset - there are no realtime offsets so far
@@ -92,8 +119,8 @@ impl<'a> Context<'a> {
                 wait,
                 aggregation: aggr,
             } => {
-                let ex_key = self.expression_infere(&*expr)?;
-                let duration_key = self.expression_infere(&*duration)?;
+                let ex_key = self.expression_infer(&*expr, None)?;
+                let duration_key = self.expression_infer(&*duration, None)?;
 
                 self.tyc
                     .impose(duration_key.captures(IAbstractType::Numeric));
@@ -136,8 +163,8 @@ impl<'a> Context<'a> {
                 }
             }
             ExpressionKind::Binary(op, left, right) => {
-                let left_key = self.expression_infere(&*left)?; // X
-                let right_key = self.expression_infere(&*right)?; // X
+                let left_key = self.expression_infer(&*left, None)?; // X
+                let right_key = self.expression_infer(&*right, None)?; // X
 
                 use front::ast::BinOp;
                 match op {
@@ -176,7 +203,7 @@ impl<'a> Context<'a> {
                 }
             }
             ExpressionKind::Unary(op, expr) => {
-                let ex_key = self.expression_infere(&*expr)?; // expr
+                let ex_key = self.expression_infer(&*expr, None)?; // expr
 
                 use front::ast::UnOp;
                 match op {
@@ -195,12 +222,12 @@ impl<'a> Context<'a> {
                 }
             }
             ExpressionKind::Ite(cond, cons, alt) => {
-                let cond_key = self.expression_infere(&*cond)?; // Bool
-                let cons_key = self.expression_infere(&*cons)?; // X
-                let alt_key = self.expression_infere(&*alt)?; // X
+                let cond_key = self.expression_infer(&*cond, Some(IAbstractType::Bool))?; // Bool
+                let cons_key = self.expression_infer(&*cons, None)?; // X
+                let alt_key = self.expression_infer(&*alt, None)?; // X
 
                 //Bool x T x T -> T
-                self.tyc.impose(cond_key.captures(IAbstractType::Bool));
+                //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
 
                 self.tyc.impose(term_key.unify_with(cons_key));
                 self.tyc.impose(term_key.unify_with(alt_key));
@@ -249,7 +276,7 @@ impl<'a> Context<'a> {
 
                         for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
                             let p = self.replace_type(param, &generics);
-                            let arg_key = self.expression_infere(&*arg)?;
+                            let arg_key = self.expression_infer(&*arg, None)?;
                             self.tyc.impose(arg_key.unify_with(p));
                         }
 
@@ -264,7 +291,7 @@ impl<'a> Context<'a> {
                             params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
-                            let arg_key = self.expression_infere(&*arg)?;
+                            let arg_key = self.expression_infer(&*arg, None)?;
                             self.tyc.impose(arg_key.captures(param_t.clone()));
                         }
 
