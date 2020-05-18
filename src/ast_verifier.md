@@ -1,0 +1,2 @@
+- Check declared AC only over inputs
+- Check declared AC only logical operators
