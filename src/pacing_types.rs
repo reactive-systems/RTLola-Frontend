@@ -3,13 +3,16 @@ use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::frequency::hertz;
 use rusttyc::Abstract;
 use front::parse::NodeId;
+use front::ast::Expression;
 
 #[derive(Debug, Clone)]
 pub enum ActivationCondition<Var: Eq + Clone> {
     Conjunction(Vec<Self>),
     Disjunction(Vec<Self>),
+    Negation(Self),
     Stream(Var),
     True,
+    False
 }
 
 impl <Var:Eq + Clone> ActivationCondition<Var> {
@@ -65,6 +68,15 @@ impl <Var:Eq + Clone> ActivationCondition<Var> {
             }
             x => x.clone(),
         }
+    }
+
+    fn parse(ast_expr: Option<Expression>) -> Self{
+        if ast_expr.is_none()
+        {
+            return ActivationCondition::True;
+        }
+        let ast_expr = ast_expr.unwrap();
+
     }
 }
 

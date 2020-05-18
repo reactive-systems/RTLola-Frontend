@@ -11,3 +11,5 @@ streamlab-frontend= {path = "../lolaparser/frontend"}
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" , branch="variants"}
 regex = "*"
 uom = { version = "0.25.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+num = "0.2"     # infinite precision rationals
+biodivine-lib-bdd = "0.1.0"
