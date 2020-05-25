@@ -1,7 +1,7 @@
 use super::*;
 extern crate regex;
 
-use crate::types::{IAbstractType, RecursiveType};
+use crate::value_types::{IAbstractType, RecursiveType};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Expression, LitKind, Literal, Type};
 use front::ast::{ExpressionKind, FunctionName, Output, Parameter, TypeKind};
