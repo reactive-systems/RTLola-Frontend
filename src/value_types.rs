@@ -33,14 +33,14 @@ impl rusttyc::TypeVariant for RecursiveType {
 }
 
 impl rusttyc::Abstract for IAbstractType {
-    type Error = String;
+    type Err = String;
     type Variant = RecursiveType;
 
     fn unconstrained() -> Self {
         IAbstractType::Any
     }
 
-    fn meet(self, other: Self) -> Result<Self, Self::Error> {
+    fn meet(self, other: Self) -> Result<Self, Self::Err> {
         use IAbstractType::*;
         match (self, other) {
             (Any, other) | (other, Any) => Ok(other.clone()),

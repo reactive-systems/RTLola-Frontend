@@ -52,7 +52,7 @@ impl<'a> Context<'a> {
     pub fn constant_infer(
         &mut self,
         cons: &Constant,
-    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Error> {
+    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Err> {
         let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
         //Annotated Type
         if let Some(t) = &cons.ty {
@@ -74,7 +74,7 @@ impl<'a> Context<'a> {
         &mut self,
         exp: &Expression,
         target_type: Option<IAbstractType>,
-    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Error> {
+    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Err> {
         let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
         if let Some(t) = target_type {
             self.tyc.impose(term_key.captures(t));
@@ -414,17 +414,17 @@ impl<'a> Context<'a> {
             }
             ValueTy::Infer(_) => unreachable!(),
             ValueTy::Constr(c) => {
-                use front::ty::TypeConstraint;
+                use front::ty::TypeConstraint::*;
                 match c {
                     //TODO check equatable and comparable
-                    TypeConstraint::Integer => IAbstractType::Integer(1),
-                    TypeConstraint::SignedInteger => IAbstractType::Integer(1),
-                    TypeConstraint::UnsignedInteger => IAbstractType::UInteger(1),
-                    TypeConstraint::FloatingPoint => IAbstractType::Float(1),
-                    TypeConstraint::Numeric => IAbstractType::Numeric,
-                    TypeConstraint::Equatable => IAbstractType::Any,
-                    TypeConstraint::Comparable => IAbstractType::Numeric,
-                    TypeConstraint::Unconstrained => IAbstractType::Any,
+                    Integer => IAbstractType::Integer(1),
+                    SignedInteger => IAbstractType::Integer(1),
+                    UnsignedInteger => IAbstractType::UInteger(1),
+                    FloatingPoint => IAbstractType::Float(1),
+                    Numeric => IAbstractType::Numeric,
+                    Equatable => IAbstractType::Any,
+                    Comparable => IAbstractType::Numeric,
+                    Unconstrained => IAbstractType::Any,
                 }
             }
             ValueTy::Param(_, _) => unimplemented!("Param case should only be addressed in replace_type(...)"),

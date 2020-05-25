@@ -1,7 +1,7 @@
 extern crate rusttyc;
 extern crate streamlab_frontend as front;
 
-mod astclimb;
+mod value_ast_climber;
 mod rtltc;
 mod value_types;
 mod pacing_types;
