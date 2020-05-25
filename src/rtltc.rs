@@ -29,26 +29,26 @@ impl<'a> LolaTypChecker<'a> {
 
     }
 
-    fn pacing_type_infer(){
+    fn pacing_type_infer(&mut self){
         //TODO insert florians code
 
     }
 
 
     fn value_type_infer(&self) {
-        let value_tyc = rusttyc::TypeChecker::new();
+        //let value_tyc = rusttyc::TypeChecker::new();
 
-        let mut ctx = Context::new(tyc, self.decl);
+        let mut ctx = Context::new(&self.ast, self.declarations.clone());
 
-        for constant in self.ast.constants {
+        for constant in &self.ast.constants {
             ctx.constant_infer(&constant);
         }
 
-        for output in self.ast.outputs {
+        for output in &self.ast.outputs {
             ctx.expression_infer(&output.expression, None);
         }
 
-        for trigger in self.ast.trigger {
+        for trigger in &self.ast.trigger {
             ctx.expression_infer(&trigger.expression, Some(IAbstractType::Bool));
         }
 
