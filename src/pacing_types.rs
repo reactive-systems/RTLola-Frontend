@@ -2,8 +2,7 @@ use super::*;
 use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::frequency::hertz;
 use num::{CheckedDiv, Integer};
-use rusttyc::Abstract;
-use front::parse::{NodeId, Span};
+use front::parse::{Span};
 use front::ast::{Expression, ExpressionKind, LitKind, BinOp, UnOp};
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
 use std::convert::TryFrom;
@@ -129,26 +128,16 @@ pub enum AbstractPacingType{
     Any
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecursivePacingType {
-    Other
-}
-
-impl rusttyc::TypeVariant for RecursivePacingType {
-    fn arity(self) -> u8 {
-        0
-    }
-}
 
 impl rusttyc::Abstract for AbstractPacingType {
-    type Error = UnificationError;
-    type Variant = RecursivePacingType;
+    type Err = UnificationError;
+    type Variant = rusttyc::Niladic;
 
     fn unconstrained() -> Self {
         AbstractPacingType::Any
     }
 
-    fn meet(self, other: Self) -> Result<Self, Self::Error> {
+    fn meet(self, other: Self) -> Result<Self, Self::Err> {
         use AbstractPacingType::*;
         match (self, other) {
             (Any, x) | (x, Any) => Ok(x),

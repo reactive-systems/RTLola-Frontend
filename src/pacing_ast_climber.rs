@@ -3,11 +3,10 @@ extern crate regex;
 
 use crate::pacing_types::{AbstractPacingType, Freq};
 use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{Expression, LitKind, Literal, Type};
-use front::ast::{LolaSpec, ExpressionKind, FunctionName, Output, Parameter, TypeKind};
+use front::ast::{Expression};
+use front::ast::{LolaSpec, ExpressionKind};
 use front::parse::NodeId;
-use front::ty::{TypeConstraint, ValueTy};
-use rusttyc::{Abstract, TcKey, TypeChecker};
+use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 
@@ -57,7 +56,7 @@ impl<'a> Context<'a> {
     pub fn expression_infer(
         &mut self,
         exp: &Expression,
-    ) -> Result<TcKey<AbstractPacingType>, <AbstractPacingType as rusttyc::Abstract>::Error> {
+    ) -> Result<TcKey<AbstractPacingType>, <AbstractPacingType as rusttyc::Abstract>::Err> {
         let term_key: TcKey<AbstractPacingType> = self.tyc.new_term_key();
         use AbstractPacingType::*;
         match &exp.kind {
@@ -82,11 +81,10 @@ impl<'a> Context<'a> {
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
                 let ex_key = self.expression_infer(ex)?;
-                let ty = match kind {
-                    Sync => self.tyc.impose(term_key.unify_with(ex_key)),
-                    Optional | Hold => self.tyc.impose(term_key.captures(Any)),
+                match kind {
+                    Sync => self.tyc.impose(term_key.unify_with(ex_key))?,
+                    Optional | Hold => self.tyc.impose(term_key.captures(Any))?,
                 };
-
             }
             ExpressionKind::Default(ex, default) => {
                 let ex_key = self.expression_infer(&*ex)?; //Option<X>
