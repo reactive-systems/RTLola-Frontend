@@ -1,7 +1,8 @@
 use super::*;
 
-use crate::value_types::IAbstractType;
+use crate::pacing_ast_climber::Context as PacingContext;
 use crate::value_ast_climber::Context;
+use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::LolaSpec;
 
@@ -23,14 +24,29 @@ impl<'a> LolaTypChecker<'a> {
         //TODO imports
         self.value_type_infer();
         self.pacing_type_infer();
-
     }
 
-    fn pacing_type_infer(&mut self){
-        //TODO insert florians code
+    fn pacing_type_infer(&mut self) {
+        let mut ctx = PacingContext::new(&self.ast, &self.declarations);
 
+        for input in &self.ast.inputs {
+            ctx.input_infer(input);
+        }
+
+        for constant in &self.ast.constants {
+            ctx.constant_infer(constant);
+        }
+
+        for output in &self.ast.outputs {
+            ctx.output_infer(output);
+        }
+
+        for trigger in &self.ast.trigger {
+            ctx.trigger_infer(trigger);
+        }
+
+        let tt = ctx.tyc.type_check();
     }
-
 
     fn value_type_infer(&self) {
         //let value_tyc = rusttyc::TypeChecker::new();
@@ -48,7 +64,6 @@ impl<'a> LolaTypChecker<'a> {
         for trigger in &self.ast.trigger {
             ctx.expression_infer(&trigger.expression, Some(IAbstractType::Bool));
         }
-
     }
 
     pub fn generate_raw_table(&self) -> Vec<(i32, front::ty::Ty)> {

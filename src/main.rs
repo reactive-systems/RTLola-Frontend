@@ -1,15 +1,15 @@
 extern crate rusttyc;
 extern crate streamlab_frontend as front;
 
-mod value_ast_climber;
-mod rtltc;
-mod value_types;
-mod pacing_types;
 mod pacing_ast_climber;
+mod pacing_types;
+mod rtltc;
+mod value_ast_climber;
+mod value_types;
 
 use crate::rtltc::LolaTypChecker;
 use front::ast::LolaSpec;
-use front::parse::{SourceMapper};
+use front::parse::SourceMapper;
 use front::reporting::Handler;
 use front::FrontendConfig;
 use std::env;

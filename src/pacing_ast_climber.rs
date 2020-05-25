@@ -1,14 +1,14 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{AbstractPacingType, Freq};
-use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{Expression};
-use front::ast::{LolaSpec, ExpressionKind};
-use front::parse::NodeId;
-use rusttyc::{TcKey, TcErr, TypeChecker};
-use std::collections::HashMap;
+use crate::pacing_types::{parse_abstract_type, AbstractPacingType, Freq};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
+use front::analysis::naming::{Declaration, DeclarationTable};
+use front::ast::{Constant, Expression, Input, Output, Trigger};
+use front::ast::{ExpressionKind, LolaSpec};
+use front::parse::NodeId;
+use rusttyc::{TcErr, TcKey, TypeChecker};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Variable(String);
@@ -17,40 +17,85 @@ impl rusttyc::TcVar for Variable {}
 
 pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
-    pub(crate) decl: DeclarationTable<'a>,
+    pub(crate) decl: &'a DeclarationTable<'a>,
     pub(crate) node_key: HashMap<NodeId, TcKey<AbstractPacingType>>,
     pub(crate) bdd_vars: BddVariableSet,
 }
 
 impl<'a> Context<'a> {
-    pub fn new(ast: &LolaSpec, decl: DeclarationTable<'a>) -> Context<'a>{
+    pub fn new(ast: &LolaSpec, decl: &'a DeclarationTable<'a>) -> Context<'a> {
         let mut bdd_var_builder = BddVariableSetBuilder::new();
         let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
 
-        for input in &ast.inputs{
+        for input in &ast.inputs {
             bdd_var_builder.make_variable(input.name.name.as_str());
             let key = tyc.get_var_key(&Variable(input.name.name.clone()));
             node_key.insert(input.id, key);
         }
-        for output in &ast.outputs{
+        for output in &ast.outputs {
             bdd_var_builder.make_variable(output.name.name.as_str());
             let key = tyc.get_var_key(&Variable(output.name.name.clone()));
             node_key.insert(output.id, key);
         }
-        for ast_const in &ast.constants{
+        for ast_const in &ast.constants {
             bdd_var_builder.make_variable(ast_const.name.name.as_str());
             let key = tyc.get_var_key(&Variable(ast_const.name.name.clone()));
             node_key.insert(ast_const.id, key);
         }
         let bdd_vars = bdd_var_builder.build();
 
-        Context{
+        Context {
             tyc,
             decl,
             node_key,
             bdd_vars,
         }
+    }
+
+    pub fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
+        let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(input.name.name.as_str()));
+        let input_key = self.node_key[&input.id];
+        self.tyc.impose(input_key.captures_abstract(ac))
+    }
+
+    pub fn constant_infer(&mut self, constant: &Constant) -> Result<(), TcErr<AbstractPacingType>> {
+        let ac = AbstractPacingType::Event(self.bdd_vars.mk_true());
+        let const_key = self.node_key[&constant.id];
+        self.tyc.impose(const_key.captures_abstract(ac))
+    }
+
+    pub fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TcErr<AbstractPacingType>> {
+        let ex_key = self.expression_infer(&trigger.expression)?;
+        let trigger_key = self.tyc.new_term_key();
+        self.node_key.insert(trigger.id, trigger_key);
+        self.tyc.impose(trigger_key.is_more_conc_than(ex_key))
+    }
+
+    pub fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
+        // Type declared AC
+        let declared_ac = match parse_abstract_type(output.extend.expr.as_ref(), &self.bdd_vars) {
+            Ok(b) => b,
+            Err((reason, span)) => {
+                // Todo: Handle properly once the interface is done
+                unimplemented!();
+            }
+        };
+        let declared_ac_key = self.tyc.new_term_key();
+        self.tyc
+            .impose(declared_ac_key.captures_abstract(declared_ac))?;
+        self.node_key.insert(output.extend.id, declared_ac_key);
+
+        // Type Expression
+        let exp_key = self.expression_infer(&output.expression)?;
+
+        // Infer resulting type
+        let output_key = self.node_key[&output.id];
+        self.tyc.impose(output_key.is_more_conc_than(exp_key))?;
+        self.tyc
+            .impose(output_key.is_more_conc_than(declared_ac_key))?;
+        self.tyc
+            .impose(output_key.resolves_to_same_type(declared_ac_key))
     }
 
     pub fn expression_infer(
@@ -60,11 +105,11 @@ impl<'a> Context<'a> {
         let term_key: TcKey<AbstractPacingType> = self.tyc.new_term_key();
         use AbstractPacingType::*;
         match &exp.kind {
-            ExpressionKind::Lit(lit) => {
+            ExpressionKind::Lit(_) => {
                 let literal_type = Event(self.bdd_vars.mk_true());
                 self.tyc.impose(term_key.captures_abstract(literal_type))?;
             }
-            ExpressionKind::Ident(id) => {
+            ExpressionKind::Ident(_) => {
                 let decl = self.decl[&exp.id];
                 let node_id = match decl {
                     Declaration::Const(c) => c.id,
@@ -76,13 +121,13 @@ impl<'a> Context<'a> {
                     }
                 };
                 let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.equals(key))?;
+                self.tyc.impose(term_key.is_more_conc_than(key))?;
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
                 let ex_key = self.expression_infer(ex)?;
                 match kind {
-                    Sync => self.tyc.impose(term_key.equals(ex_key))?,
+                    Sync => self.tyc.impose(term_key.is_more_conc_than(ex_key))?,
                     Optional | Hold => self.tyc.impose(term_key.captures_abstract(Any))?,
                 };
             }
@@ -93,32 +138,27 @@ impl<'a> Context<'a> {
                 self.tyc.impose(term_key.is_more_conc_than(ex_key))?;
                 self.tyc.impose(term_key.is_more_conc_than(def_key))?;
             }
-            ExpressionKind::Offset(expr, offset) => {
+            ExpressionKind::Offset(expr, _) => {
                 let ex_key = self.expression_infer(&*expr)?; // X
 
-                self.tyc.impose(term_key.equals(ex_key))?;
-
+                self.tyc.impose(term_key.is_more_conc_than(ex_key))?;
             }
-            ExpressionKind::SlidingWindowAggregation {
-                expr,
-                duration,
-                wait,
-                aggregation: aggr,
-            } => {
-                self.tyc.impose(term_key.captures_abstract(AbstractPacingType::Periodic(Freq::Any)))?;
+            ExpressionKind::SlidingWindowAggregation { .. } => {
+                self.tyc
+                    .impose(term_key.captures_abstract(AbstractPacingType::Periodic(Freq::Any)))?;
                 // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
             }
-            ExpressionKind::Binary(op, left, right) => {
+            ExpressionKind::Binary(_, left, right) => {
                 let left_key = self.expression_infer(&*left)?; // X
                 let right_key = self.expression_infer(&*right)?; // X
 
                 self.tyc.impose(term_key.is_more_conc_than(left_key))?;
                 self.tyc.impose(term_key.is_more_conc_than(right_key))?;
             }
-            ExpressionKind::Unary(op, expr) => {
+            ExpressionKind::Unary(_, expr) => {
                 let ex_key = self.expression_infer(&*expr)?; // expr
 
-                self.tyc.impose(term_key.equals(ex_key))?;
+                self.tyc.impose(term_key.is_more_conc_than(ex_key))?;
             }
             ExpressionKind::Ite(cond, cons, alt) => {
                 let cond_key = self.expression_infer(&*cond)?;
@@ -131,7 +171,7 @@ impl<'a> Context<'a> {
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(elements) => {
-                for element in elements{
+                for element in elements {
                     let element_key = self.expression_infer(&*element)?;
                     self.tyc.impose(term_key.is_more_conc_than(element_key))?;
                 }
@@ -141,12 +181,12 @@ impl<'a> Context<'a> {
                 let body_key = self.expression_infer(&*body)?;
                 self.tyc.impose(term_key.is_more_conc_than(body_key))?;
 
-                for arg in args{
+                for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.tyc.impose(term_key.is_more_conc_than(arg_key))?;
                 }
-            },
-            ExpressionKind::Function(name, types, args) => {
+            }
+            ExpressionKind::Function(_, _, args) => {
                 // check for name in context
                 let decl = self
                     .decl
@@ -158,11 +198,10 @@ impl<'a> Context<'a> {
                     Declaration::ParamOut(out) => {
                         let output_key = self.node_key[&out.id];
                         self.tyc.impose(term_key.is_more_conc_than(output_key))?;
-
                     }
-                    _ => {},
+                    _ => {}
                 };
-                for arg in args{
+                for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.tyc.impose(term_key.is_more_conc_than(arg_key))?;
                 }

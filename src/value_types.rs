@@ -1,5 +1,5 @@
 use super::*;
-use rusttyc::{ReificationError};
+use rusttyc::ReificationError;
 use std::cmp::max;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -15,7 +15,7 @@ pub enum IAbstractType {
     Option(Box<IAbstractType>),
 }
 
-#[derive(Debug,Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RecursiveType {
     Option,
     Tuple(u8),
