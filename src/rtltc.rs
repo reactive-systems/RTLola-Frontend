@@ -1,12 +1,9 @@
 use super::*;
 
-use crate::value_ast_climber::Variable;
 use crate::value_types::IAbstractType;
 use crate::value_ast_climber::Context;
 use front::analysis::naming::DeclarationTable;
 use front::ast::LolaSpec;
-use rusttyc::{Abstract, TypeChecker};
-use std::collections::HashSet;
 
 #[derive()]
 pub struct LolaTypChecker<'a> {

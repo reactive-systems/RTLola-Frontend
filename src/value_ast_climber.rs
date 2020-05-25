@@ -3,11 +3,11 @@ extern crate regex;
 
 use crate::value_types::{IAbstractType, RecursiveType};
 use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{Expression, LitKind, Literal, Type};
-use front::ast::{ExpressionKind, FunctionName, Output, Parameter, TypeKind};
+use front::ast::{Expression, LitKind, Type};
+use front::ast::{ExpressionKind, Parameter, TypeKind};
 use front::parse::NodeId;
 use front::ty::{TypeConstraint, ValueTy};
-use rusttyc::{Abstract, TcKey, TypeChecker};
+use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
 use front::ast::Constant;
 

@@ -9,13 +9,13 @@ mod pacing_ast_climber;
 
 use crate::rtltc::LolaTypChecker;
 use front::ast::LolaSpec;
-use front::parse::{SourceMapper, StreamlabParser};
+use front::parse::{SourceMapper};
 use front::reporting::Handler;
 use front::FrontendConfig;
 use std::env;
 use std::error::Error;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::option::Option;
 use std::path::{Path, PathBuf};
 
