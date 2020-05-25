@@ -57,11 +57,11 @@ impl<'a> Context<'a> {
         //Annotated Type
         if let Some(t) = &cons.ty {
             let annotaded_type_replaced = self.type_kind_match(t);
-            self.tyc.impose(term_key.captures(annotaded_type_replaced));
+            self.tyc.impose(term_key.captures_abstract(annotaded_type_replaced));
         }
         //Type from Literal
         let lit_type = self.match_lit_kind(cons.literal.kind.clone());
-        self.tyc.impose(term_key.captures(lit_type));
+        self.tyc.impose(term_key.captures_abstract(lit_type));
 
         self.node_key.insert(cons.id,term_key);
         return Ok(term_key);
@@ -77,12 +77,12 @@ impl<'a> Context<'a> {
     ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Err> {
         let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
         if let Some(t) = target_type {
-            self.tyc.impose(term_key.captures(t));
+            self.tyc.impose(term_key.captures_abstract(t));
         }
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
-                self.tyc.impose(term_key.captures(literal_type));
+                self.tyc.impose(term_key.captures_abstract(literal_type));
             }
             ExpressionKind::Ident(id) => {
                 let decl = self.decl[&exp.id];
@@ -96,7 +96,7 @@ impl<'a> Context<'a> {
                     }
                 };
                 let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.unify_with(key));
+                self.tyc.impose(term_key.equals(key));
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
@@ -104,13 +104,13 @@ impl<'a> Context<'a> {
                  match kind {
                      Sync => {
                          //Sync access just returns the stream type
-                         self.tyc.impose(term_key.unify_with(ex_key));
+                         self.tyc.impose(term_key.equals(ex_key));
                      },
                      Optional | Hold => {
                          //Optional and Hold return Option<X> Type
                          let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                         self.tyc.impose(m_key.child().unify_with(ex_key));
-                         self.tyc.impose(term_key.unify_with(m_key.key()));
+                         self.tyc.impose(m_key.child().equals(ex_key));
+                         self.tyc.impose(term_key.equals(m_key.key()));
                      },
                  };
             }
@@ -119,11 +119,11 @@ impl<'a> Context<'a> {
                 let def_key = self.expression_infer(&*default, None)?; // Y
 
                 let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                self.tyc.impose(m_key.key().unify_with(ex_key));
-                self.tyc.impose(m_key.child().unify_with(def_key));
+                self.tyc.impose(m_key.key().equals(ex_key));
+                self.tyc.impose(m_key.child().equals(def_key));
 
                 // meet(X,Y)
-                let result_constraint = term_key.unify_with(def_key);
+                let result_constraint = term_key.equals(def_key);
                 self.tyc.impose(result_constraint);
             }
             ExpressionKind::Offset(expr, offset) => {
@@ -132,9 +132,9 @@ impl<'a> Context<'a> {
 
                 //TODO check for different offset - there are no realtime offsets so far
                 let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                self.tyc.impose(m_key.child().unify_with(ex_key));
+                self.tyc.impose(m_key.child().equals(ex_key));
                 //m_key.key().captures( t -> Option(t));
-                self.tyc.impose(term_key.unify_with(m_key.key()));
+                self.tyc.impose(term_key.equals(m_key.key()));
             }
             ExpressionKind::SlidingWindowAggregation {
                 expr,
@@ -146,41 +146,41 @@ impl<'a> Context<'a> {
                 let duration_key = self.expression_infer(&*duration, None)?;
 
                 self.tyc
-                    .impose(duration_key.captures(IAbstractType::Numeric));
+                    .impose(duration_key.captures_abstract(IAbstractType::Numeric));
 
                 use front::ast::WindowOperation;
                 match aggr {
                     //Min|Max|Avg <T:Num> T -> Option<T>
                     WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
                         let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                        self.tyc.impose(m_key.child().unify_with(ex_key));
-                        self.tyc.impose(term_key.unify_with(m_key.key()));
+                        self.tyc.impose(m_key.child().equals(ex_key));
+                        self.tyc.impose(term_key.equals(m_key.key()));
                     }
                     //Count: Any -> uint
                     WindowOperation::Count => {
-                        self.tyc.impose(ex_key.captures(IAbstractType::Any));
+                        self.tyc.impose(ex_key.captures_abstract(IAbstractType::Any));
                         self.tyc
-                            .impose(term_key.captures(IAbstractType::UInteger(1)));
+                            .impose(term_key.captures_abstract(IAbstractType::UInteger(1)));
                     }
                     //all others :<T:Num>  -> T
                     WindowOperation::Integral => {
-                        self.tyc.impose(ex_key.captures(IAbstractType::Float(1))); //TODO maybe numeric
+                        self.tyc.impose(ex_key.captures_abstract(IAbstractType::Float(1))); //TODO maybe numeric
                         if *wait {
                             let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                            self.tyc.impose(m_key.child().unify_with(ex_key));
-                            self.tyc.impose(term_key.unify_with(m_key.key()));
+                            self.tyc.impose(m_key.child().equals(ex_key));
+                            self.tyc.impose(term_key.equals(m_key.key()));
                         } else {
-                            self.tyc.impose(term_key.unify_with(ex_key));
+                            self.tyc.impose(term_key.equals(ex_key));
                         }
                     }
                     WindowOperation::Sum | WindowOperation::Product => {
-                        self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(ex_key.captures_abstract(IAbstractType::Numeric));
                         if *wait {
                             let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                            self.tyc.impose(m_key.child().unify_with(ex_key));
-                            self.tyc.impose(term_key.unify_with(m_key.key()));
+                            self.tyc.impose(m_key.child().equals(ex_key));
+                            self.tyc.impose(term_key.equals(m_key.key()));
                         } else {
-                            self.tyc.impose(term_key.unify_with(ex_key));
+                            self.tyc.impose(term_key.equals(ex_key));
                         }
                     }
                 }
@@ -193,35 +193,35 @@ impl<'a> Context<'a> {
                 match op {
                     // Num x Num -> Num
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
-                        self.tyc.impose(left_key.captures(IAbstractType::Numeric));
-                        self.tyc.impose(right_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(left_key.captures_abstract(IAbstractType::Numeric));
+                        self.tyc.impose(right_key.captures_abstract(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.unify_with(left_key));
-                        self.tyc.impose(term_key.unify_with(right_key));
+                        self.tyc.impose(term_key.equals(left_key));
+                        self.tyc.impose(term_key.equals(right_key));
                     }
                     // Bool x Bool -> Bool
                     BinOp::And | BinOp::Or => {
-                        self.tyc.impose(left_key.captures(IAbstractType::Bool));
-                        self.tyc.impose(right_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(left_key.captures_abstract(IAbstractType::Bool));
+                        self.tyc.impose(right_key.captures_abstract(IAbstractType::Bool));
 
-                        self.tyc.impose(term_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(term_key.captures_abstract(IAbstractType::Bool));
                     }
                     // Num x Num -> Num
                     BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr | BinOp::Shl | BinOp::Shr => {
-                        self.tyc.impose(left_key.captures(IAbstractType::Numeric));
-                        self.tyc.impose(right_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(left_key.captures_abstract(IAbstractType::Numeric));
+                        self.tyc.impose(right_key.captures_abstract(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.unify_with(left_key));
-                        self.tyc.impose(term_key.unify_with(right_key));
+                        self.tyc.impose(term_key.equals(left_key));
+                        self.tyc.impose(term_key.equals(right_key));
                     }
                     // Num x Num -> Bool COMPARATORS
                     BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
-                        self.tyc.impose(left_key.captures(IAbstractType::Numeric));
-                        self.tyc.impose(right_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(left_key.captures_abstract(IAbstractType::Numeric));
+                        self.tyc.impose(right_key.captures_abstract(IAbstractType::Numeric));
                         //TODO need unify left & right ?
-                        self.tyc.impose(left_key.unify_with(right_key));
+                        self.tyc.impose(left_key.equals(right_key));
 
-                        self.tyc.impose(term_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(term_key.captures_abstract(IAbstractType::Bool));
                     }
                 }
             }
@@ -232,15 +232,15 @@ impl<'a> Context<'a> {
                 match op {
                     //Num -> Num
                     UnOp::BitNot | UnOp::Neg => {
-                        self.tyc.impose(ex_key.captures(IAbstractType::Numeric));
+                        self.tyc.impose(ex_key.captures_abstract(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.unify_with(ex_key));
+                        self.tyc.impose(term_key.equals(ex_key));
                     }
                     // Bool -> Bool
                     UnOp::Not => {
-                        self.tyc.impose(ex_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(ex_key.captures_abstract(IAbstractType::Bool));
 
-                        self.tyc.impose(term_key.captures(IAbstractType::Bool));
+                        self.tyc.impose(term_key.captures_abstract(IAbstractType::Bool));
                     }
                 }
             }
@@ -252,8 +252,8 @@ impl<'a> Context<'a> {
                 //Bool x T x T -> T
                 //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
 
-                self.tyc.impose(term_key.unify_with(cons_key));
-                self.tyc.impose(term_key.unify_with(alt_key));
+                self.tyc.impose(term_key.equals(cons_key));
+                self.tyc.impose(term_key.equals(alt_key));
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(vec) => {
@@ -282,7 +282,7 @@ impl<'a> Context<'a> {
                                 match &gen {
                                     ValueTy::Constr(tc) => {
                                         let cons = match_constraint(tc);
-                                        self.tyc.impose(gen_key.captures(cons));
+                                        self.tyc.impose(gen_key.captures_abstract(cons));
                                     }
                                     _ => unreachable!(),
                                 };
@@ -292,20 +292,20 @@ impl<'a> Context<'a> {
 
                         for (t,gen) in types_vec.iter().zip(generics.iter()) {
                             let t_key = self.tyc.new_term_key();
-                            self.tyc.impose(t_key.captures(t.clone()));
-                            self.tyc.impose(t_key.unify_with(*gen));
+                            self.tyc.impose(t_key.captures_abstract(t.clone()));
+                            self.tyc.impose(t_key.equals(*gen));
                         }
                         //FOR: type.captures(generic)
 
                         for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
                             let p = self.replace_type(param, &generics);
                             let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.unify_with(p));
+                            self.tyc.impose(arg_key.equals(p));
                         }
 
                         let return_type = self.replace_type(&fun_decl.return_type, &generics);
 
-                        self.tyc.impose(term_key.unify_with(return_type));
+                        self.tyc.impose(term_key.equals(return_type));
                     }
                     Declaration::ParamOut(out) => {
                         let params: &[Parameter] = out.params.as_slice();
@@ -315,11 +315,11 @@ impl<'a> Context<'a> {
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
                             let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.captures(param_t.clone()));
+                            self.tyc.impose(arg_key.captures_abstract(param_t.clone()));
                         }
 
                         self.tyc
-                            .impose(term_key.captures(self.type_kind_match(&out.ty)));
+                            .impose(term_key.captures_abstract(self.type_kind_match(&out.ty)));
                     }
                     _ => unreachable!("ensured by naming analysis"),
                 };
@@ -341,12 +341,12 @@ impl<'a> Context<'a> {
             }
             ValueTy::Constr(c) => {
                 let key = self.tyc.new_term_key();
-                self.tyc.impose(key.captures(match_constraint(c)));
+                self.tyc.impose(key.captures_abstract(match_constraint(c)));
                 key
             }
             _ if vt.is_primitive() => {
                 let key = self.tyc.new_term_key();
-                self.tyc.impose(key.captures(self.value_type_match(vt)));
+                self.tyc.impose(key.captures_abstract(self.value_type_match(vt)));
                 key
             }
             _ => unreachable!("replace for {}",vt),
@@ -445,19 +445,19 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     let int_parse = value_str.parse::<i64>();
     if let Ok(n) = int_parse {
         return Ok(IAbstractType::Integer(
-            64 - int_parse.ok().unwrap().leading_zeros(),
+            64 - n.leading_zeros(),
         ));
     }
     let uint_parse = value_str.parse::<u64>();
-    if let Ok(n) = uint_parse {
+    if let Ok(u) = uint_parse {
         return Ok(IAbstractType::UInteger(
-            64 - int_parse.ok().unwrap().leading_zeros(),
+            64 - u.leading_zeros(),
         ));
     }
     let float_parse = value_str.parse::<f64>();
-    if let Ok(n) = uint_parse {
+    if let Ok(f) = float_parse {
         return Ok(IAbstractType::Float(
-            64 - int_parse.ok().unwrap().leading_zeros(),
+            64 - f.leading_zeros(),
         ));
     }
     let pat = regex::Regex::new("\"*\"").unwrap(); //TODO simplify , check first and last character

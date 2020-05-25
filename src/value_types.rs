@@ -46,9 +46,6 @@ impl rusttyc::Abstract for IAbstractType {
             (Any, other) | (other, Any) => Ok(other.clone()),
             (Integer(l), Integer(r)) => Ok(Integer(max(r, l))),
             (UInteger(l), UInteger(r)) => Ok(UInteger(max(r, l))),
-            (UInteger(u), other) | (other, UInteger(u)) => {
-                Err(String::from(format!("UInt not unifiable with {:?}", other)))
-            }
             (Float(l), Float(r)) => Ok(Float(max(l, r))),
             (Float(i), Integer(u)) | (Integer(u), Float(i)) => Ok(Float(max(i, u))),
             (Bool, Bool) => Ok(Bool),
@@ -59,13 +56,16 @@ impl rusttyc::Abstract for IAbstractType {
             (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(w)),
             (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(i)),
             (Numeric, Numeric) => Ok(Numeric),
+            (UInteger(u), other) | (other, UInteger(u)) => {
+                Err(String::from(format!("UInt not unifiable with {:?}", other)))
+            }
             (Tuple(lv), Tuple(rv)) => {
                 if lv.len() != rv.len() {
                     return Err(String::from(
                         "Tuple unification demands equal number of arguments",
                     ));
                 }
-                let (recursive_result, errors): (Vec<Result<Self, Self::Error>>, Vec<_>) = lv
+                let (recursive_result, errors): (Vec<Result<Self, Self::Err>>, Vec<_>) = lv
                     .iter()
                     .zip(rv.iter())
                     .map(|(l, r)| Self::meet(l.clone(), r.clone()))
