@@ -457,7 +457,7 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     let float_parse = value_str.parse::<f64>();
     if let Ok(f) = float_parse {
         return Ok(IAbstractType::Float(
-            64 - f.leading_zeros(),
+            64
         ));
     }
     let pat = regex::Regex::new("\"*\"").unwrap(); //TODO simplify , check first and last character
