@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
-use crate::value_ast_climber::Context;
+use crate::value_ast_climber::ValueContext;
 use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::LolaSpec;
@@ -51,7 +51,7 @@ impl<'a> LolaTypChecker<'a> {
     fn value_type_infer(&self) {
         //let value_tyc = rusttyc::TypeChecker::new();
 
-        let mut ctx = Context::new(&self.ast, self.declarations.clone());
+        let mut ctx = ValueContext::new(&self.ast, self.declarations.clone());
 
         for constant in &self.ast.constants {
             ctx.constant_infer(&constant);
@@ -64,6 +64,8 @@ impl<'a> LolaTypChecker<'a> {
         for trigger in &self.ast.trigger {
             ctx.expression_infer(&trigger.expression, Some(IAbstractType::Bool));
         }
+
+        let tt = ctx.tyc.type_check();
     }
 
     pub fn generate_raw_table(&self) -> Vec<(i32, front::ty::Ty)> {

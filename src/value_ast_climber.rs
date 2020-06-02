@@ -18,13 +18,13 @@ pub struct Variable {
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct Context<'a> {
+pub struct ValueContext<'a> {
     pub tyc: TypeChecker<IAbstractType, Variable>,
     pub decl: DeclarationTable<'a>,
     pub node_key: HashMap<NodeId, TcKey<IAbstractType>>, //TODO initialisiere tabelle
 }
 
-impl<'a> Context<'a> {
+impl<'a> ValueContext<'a> {
     pub fn new(ast: &LolaSpec, decl: DeclarationTable<'a>) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = HashMap::new();
@@ -56,7 +56,7 @@ impl<'a> Context<'a> {
             );
         }
 
-        Context {
+        ValueContext {
             tyc,
             decl,
             node_key,
