@@ -1,5 +1,5 @@
 extern crate rusttyc;
-extern crate streamlab_frontend as front;
+extern crate rtlola_frontend as front;
 
 mod pacing_ast_climber;
 mod pacing_types;
@@ -29,12 +29,12 @@ fn main() {
         let path = Path::new(&input);
         let display = path.display();
         let mut file = match File::open(&path) {
-            Err(why) => panic!("couldn't open {}: {}", display, why.description()),
+            Err(why) => panic!("couldn't open {}: {}", display, why),
             Ok(f) => f,
         };
         let mut prog = String::new();
         match file.read_to_string(&mut prog) {
-            Err(why) => panic!("couldn't read {}: {}", display, why.description()),
+            Err(why) => panic!("couldn't read {}: {}", display, why),
             Ok(_) => (),
         }
 
