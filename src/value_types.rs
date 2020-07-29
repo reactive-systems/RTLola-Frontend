@@ -1,6 +1,6 @@
 use super::*;
-use rusttyc::ReificationError;
 use std::cmp::max;
+use rusttyc::types::{ReificationErr,Abstract};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum IAbstractType {
@@ -22,19 +22,8 @@ pub enum RecursiveType {
     Other,
 }
 
-impl rusttyc::TypeVariant for RecursiveType {
-    fn arity(self) -> u8 {
-        match self {
-            RecursiveType::Tuple(l) => l,
-            RecursiveType::Option => 1,
-            RecursiveType::Other => 0,
-        }
-    }
-}
-
-impl rusttyc::Abstract for IAbstractType {
+impl Abstract for IAbstractType {
     type Err = String;
-    type Variant = RecursiveType;
 
     fn unconstrained() -> Self {
         IAbstractType::Any
@@ -96,6 +85,38 @@ impl rusttyc::Abstract for IAbstractType {
             } //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
         }
     }
+
+    fn arity(&self) -> std::option::Option<usize> {
+        match self {
+            IAbstractType::Option(_) => Some(1),
+            IAbstractType::Tuple(t) => Some(t.len()),
+            _ => None,
+        }
+    }
+
+    fn nth_child(&self, n: usize) -> &Self {
+        match self {
+            IAbstractType::Option(op) => &*op,
+            IAbstractType::Tuple(vec) => &vec[n],
+            _ => unreachable!()
+        }
+    }
+
+    fn with_children<I>(&self, children: I) -> Self where
+        I: IntoIterator<Item=Self> {
+        let mut it = children.into_iter();
+        match self {
+            IAbstractType::Option(op ) => IAbstractType::Option(it.next().expect("")),
+            IAbstractType::Tuple(v) => IAbstractType::Tuple({
+                let mut v = Vec::new();
+                for t in it {
+                    v.push(t);
+                }
+                v
+            }),
+            t => t.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -117,46 +138,46 @@ pub enum IConcreteType {
 }
 use IConcreteType::*;
 
-impl rusttyc::TryReifiable for IAbstractType {
+impl rusttyc::types::TryReifiable for IAbstractType {
     type Reified = IConcreteType;
 
-    fn try_reify(&self) -> Result<Self::Reified, ReificationError> {
+    fn try_reify(&self) -> Result<Self::Reified, ReificationErr> {
         match self {
-            IAbstractType::Any => Err(ReificationError::TooGeneral("Cannot reify `Any`.".to_string())),
+            IAbstractType::Any => Err(ReificationErr::TooGeneral("Cannot reify `Any`.".to_string())),
             IAbstractType::Integer(w) if *w <= 8 => Ok(IConcreteType::Integer8),
             IAbstractType::Integer(w) if *w <= 16 => Ok(IConcreteType::Integer16),
             IAbstractType::Integer(w) if *w <= 32 => Ok(IConcreteType::Integer32),
             IAbstractType::Integer(w) if *w <= 64 => Ok(IConcreteType::Integer64),
             IAbstractType::Integer(w) => {
-                Err(ReificationError::Conflicting(format!("Integer too wide, {}-bit not supported.", w)))
+                Err(ReificationErr::Conflicting(format!("Integer too wide, {}-bit not supported.", w)))
             }
             IAbstractType::UInteger(w) if *w <= 8  => Ok(IConcreteType::UInteger8),
             IAbstractType::UInteger(w) if *w <= 16 => Ok(IConcreteType::UInteger16),
             IAbstractType::UInteger(w) if *w <= 32 => Ok(IConcreteType::UInteger32),
             IAbstractType::UInteger(w) if *w <= 64 => Ok(IConcreteType::UInteger64),
             IAbstractType::UInteger(w) => {
-                Err(ReificationError::Conflicting(format!("UInteger too wide, {}-bit not supported.", w)))
+                Err(ReificationErr::Conflicting(format!("UInteger too wide, {}-bit not supported.", w)))
             }
             IAbstractType::Float(w) if *w <= 32 => Ok(IConcreteType::Float32),
             IAbstractType::Float(w) if *w <= 64 => Ok(IConcreteType::Float64),
             IAbstractType::Float(w) => {
-                Err(ReificationError::Conflicting(format!("Floating point number too wide, {}-bit not supported.", w)))
+                Err(ReificationErr::Conflicting(format!("Floating point number too wide, {}-bit not supported.", w)))
             }
-            IAbstractType::Numeric => Err(ReificationError::TooGeneral(
+            IAbstractType::Numeric => Err(ReificationErr::TooGeneral(
                 "Cannot reify a numeric value. Either define a default (int/fixed) or restrict type.".to_string(),
             )),
             IAbstractType::Bool => Ok(IConcreteType::Bool),
             IAbstractType::Tuple(sub_types) => {
-                let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationError>>, Vec<_>) = sub_types
+                let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationErr>>, Vec<_>) = sub_types
                     .iter()
-                    .map(|v| rusttyc::TryReifiable::try_reify(v))
+                    .map(|v| rusttyc::types::TryReifiable::try_reify(v))
                     .partition(Result::is_ok);
                 if errors.len() > 0 {
-                    let error_unwraped: Vec<ReificationError> =
+                    let error_unwraped: Vec<ReificationErr> =
                         errors.into_iter().map(Result::unwrap_err).collect();
                     return Err(match &error_unwraped[0] {
-                        rusttyc::ReificationError::Conflicting(s) => rusttyc::ReificationError::Conflicting(s.clone()),
-                        rusttyc::ReificationError::TooGeneral(s) => rusttyc::ReificationError::TooGeneral(s.clone()),
+                        ReificationErr::Conflicting(s) => ReificationErr::Conflicting(s.clone()),
+                        ReificationErr::TooGeneral(s) => ReificationErr::TooGeneral(s.clone()),
                     })
                 } else {
                     Ok(Tuple(
@@ -166,7 +187,7 @@ impl rusttyc::TryReifiable for IAbstractType {
             }
             IAbstractType::TString => Ok(IConcreteType::TString),
             IAbstractType::Option(inner_type) => {
-                let res: Result<IConcreteType, ReificationError> = Self::try_reify(&**inner_type);
+                let res: Result<IConcreteType, ReificationErr> = Self::try_reify(&**inner_type);
                 match res {
                     Err(e) => Err(e),
                     Ok(ty) => Ok(IConcreteType::Option(Box::new(ty))),
@@ -176,7 +197,7 @@ impl rusttyc::TryReifiable for IAbstractType {
     }
 }
 
-impl rusttyc::Generalizable for IConcreteType {
+impl rusttyc::types::Generalizable for IConcreteType {
     type Generalized = IAbstractType;
 
     fn generalize(&self) -> Self::Generalized {

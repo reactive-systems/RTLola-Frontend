@@ -9,6 +9,7 @@ use front::ast::{ExpressionKind, Parameter, TypeKind};
 use front::parse::NodeId;
 use front::ty::{TypeConstraint, ValueTy};
 use rusttyc::{TcKey, TypeChecker};
+use rusttyc::types::{Abstract};
 use std::collections::HashMap;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -66,8 +67,8 @@ impl<'a> ValueContext<'a> {
     pub fn constant_infer(
         &mut self,
         cons: &Constant,
-    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Err> {
-        let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+    ) -> Result<TcKey, <IAbstractType as Abstract>::Err> {
+        let term_key: TcKey = self.tyc.new_term_key();
         //Annotated Type
         if let Some(t) = &cons.ty {
             let annotaded_type_replaced = self.type_kind_match(t);
@@ -86,8 +87,8 @@ impl<'a> ValueContext<'a> {
         &mut self,
         exp: &Expression,
         target_type: Option<IAbstractType>,
-    ) -> Result<TcKey<IAbstractType>, <IAbstractType as rusttyc::Abstract>::Err> {
-        let term_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+    ) -> Result<TcKey, <IAbstractType as rusttyc::Abstract>::Err> {
+        let term_key: TcKey = self.tyc.new_term_key();
         if let Some(t) = target_type {
             self.tyc.impose(term_key.captures_abstract(t));
         }
