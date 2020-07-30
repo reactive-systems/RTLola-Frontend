@@ -1,15 +1,13 @@
-# RTLola
+# RTLola Frontend
+
+Copyright (C) Universität des Saarlandes 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.
 
 RTLola is a monitoring framework.  It consist of a parser, analyzer, and interpreter for the RTLola specification language.
 
-## Modules
+# Usage
+Add this crate as a dependency to your project and check the documentation for instruction on how to transform a specification file into an intermediate representation.
 
-The implementation is split into the following modules
-
-* `frontend`: parsing, type checking, analysis, and lowering into an Intermediate Representation
-* `interpreter`: an interpreter that runs a monitor based on the Intermediate Representation from the `frontend` 
-
-## Documentation
+# Documentation
 
 * Syntax `doc/syntax.md`
 * Development `doc/development.md`

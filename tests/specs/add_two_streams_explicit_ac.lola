@@ -1,6 +1,0 @@
-input a: Int64
-input b: Int64
-
-output c @ a := a + b.hold().defaults(to: 0)
-
-trigger c > 2 "c is too large"
