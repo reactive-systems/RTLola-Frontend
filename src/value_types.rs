@@ -95,10 +95,11 @@ impl Abstract for IAbstractType {
     }
 
     fn nth_child(&self, n: usize) -> &Self {
+        use IAbstractType::*;
         match self {
-            IAbstractType::Option(op) => &*op,
-            IAbstractType::Tuple(vec) => &vec[n],
-            _ => unreachable!()
+            Option(op) => &*op,
+            Tuple(vec) => &vec[n],
+            Any | Numeric | Integer(_) | UInteger(_) | Float(_) | Bool | TString => unreachable!()
         }
     }
 
@@ -107,13 +108,7 @@ impl Abstract for IAbstractType {
         let mut it = children.into_iter();
         match self {
             IAbstractType::Option(op ) => IAbstractType::Option(it.next().expect("")),
-            IAbstractType::Tuple(v) => IAbstractType::Tuple({
-                let mut v = Vec::new();
-                for t in it {
-                    v.push(t);
-                }
-                v
-            }),
+            IAbstractType::Tuple(v) => IAbstractType::Tuple(it.collect()),
             t => t.clone(),
         }
     }
