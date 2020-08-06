@@ -5,18 +5,21 @@ use crate::value_ast_climber::ValueContext;
 use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::RTLolaAst;
+use front::reporting::Handler;
 
 #[derive()]
-pub struct LolaTypChecker {
+pub struct LolaTypChecker<'a> {
     pub(crate) ast: RTLolaAst,
     pub(crate) declarations: DeclarationTable,
+    pub(crate) handler: &'a Handler,
 }
 
-impl LolaTypChecker {
-    pub fn new(spec: &RTLolaAst, declarations: DeclarationTable) -> Self {
+impl<'a> LolaTypChecker<'a> {
+    pub fn new(spec: &RTLolaAst, declarations: DeclarationTable, handler: &'a Handler) -> Self {
         LolaTypChecker {
             ast: spec.clone(),
             declarations: declarations.clone(),
+            handler
         }
     }
 
@@ -70,5 +73,35 @@ impl LolaTypChecker {
 
     pub fn generate_raw_table(&self) -> Vec<(i32, front::ty::Ty)> {
         vec![]
+    }
+}
+
+
+#[cfg(test)]
+mod value_type_tests {
+    use std::path::PathBuf;
+    use crate::LolaTypChecker;
+
+    fn check_set_up(spec: &str) -> usize {
+
+        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let spec = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
+            Ok(s) => s,
+            Err(e) => panic!("Spech {} cannot be parsed: {}",spec,s),
+        };
+
+        let mut na = front::analysis::naming::NamingAnalysis::new(&handler, front::FrontendConfig::default());
+        let mut dec = na.check(&spec);
+        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
+        let mut ltc = LolaTypChecker::new(&spec, dec, &handler);
+        ltc.check();
+        handler.emitted_errors()
+
+    }
+
+    #[test]
+    fn simple_input() {
+        let spec = "input i: Int8";
+        assert_eq!(0, check_set_up(spec));
     }
 }

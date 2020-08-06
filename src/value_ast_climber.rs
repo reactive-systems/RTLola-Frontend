@@ -130,9 +130,6 @@ impl ValueContext {
                         }
                     };
                     self.tyc.impose(ex_key.equate_with(inner_key));
-                        //let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                        //self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                        //self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
                     }
                 };
             }
@@ -325,9 +322,8 @@ impl ValueContext {
                 //Bool x T x T -> T
                 //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
 
-                self.tyc.impose(term_key.is_meet_of(cons_key,alt_key));
-                self.tyc.impose(term_key.equate_with(alt_key));
-                self.tyc.impose(term_key.equate_with(cons_key));
+                self.tyc.impose(term_key.is_sym_meet_of(cons_key,alt_key));
+                self.tyc.impose(cons_key.equate_with(alt_key));
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(vec) => {

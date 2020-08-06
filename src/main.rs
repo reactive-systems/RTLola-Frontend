@@ -16,6 +16,7 @@ use std::fs::File;
 use std::io::Read;
 use std::option::Option;
 use std::path::{Path, PathBuf};
+use front::parse::SourceMapper;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -48,8 +49,7 @@ fn main() {
         let name = s.clone();
         let p = prog.clone();
         let spec = &p;
-        /*
-        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
 
         let ir = front::parse(&name, &p, front::FrontendConfig::default());
@@ -62,9 +62,8 @@ fn main() {
             front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
         let mut decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
 
-        let checker = LolaTypChecker::new(&lola_spec, decl_table);
+        let checker = LolaTypChecker::new(&lola_spec, decl_table, &handler);
 
         print!("{:#?}", checker.generate_raw_table());
-        */
     }
 }
