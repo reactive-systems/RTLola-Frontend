@@ -3,7 +3,7 @@
 Every node in the abstract syntax tree is assigned a unique id and stores the matching span in the specification.
 */
 
-pub(crate) mod conversion;
+pub mod conversion;
 pub(crate) mod print;
 pub(crate) mod verify;
 

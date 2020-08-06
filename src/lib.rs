@@ -13,11 +13,11 @@
     unused_qualifications
 )]
 
-mod analysis;
+pub mod analysis;
 pub mod ast;
 mod export;
 pub mod ir;
-mod parse;
+pub mod parse;
 mod reporting;
 mod stdlib;
 pub mod ty;

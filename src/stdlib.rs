@@ -8,11 +8,11 @@ use std::collections::HashMap;
 
 /// A (possibly generic) function declaration
 #[derive(Debug, Clone)]
-pub(crate) struct FuncDecl {
-    pub(crate) name: FunctionName,
-    pub(crate) generics: Vec<ValueTy>,
-    pub(crate) parameters: Vec<ValueTy>,
-    pub(crate) return_type: ValueTy,
+pub struct FuncDecl {
+    pub name: FunctionName,
+    pub generics: Vec<ValueTy>,
+    pub parameters: Vec<ValueTy>,
+    pub return_type: ValueTy,
 }
 
 impl FuncDecl {

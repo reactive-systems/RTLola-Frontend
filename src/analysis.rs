@@ -7,7 +7,7 @@
 
 pub(crate) mod graph_based_analysis;
 // pub(crate) mod id_assignment;
-pub(crate) mod naming;
+pub mod naming;
 
 use self::naming::NamingAnalysis;
 use crate::ast;

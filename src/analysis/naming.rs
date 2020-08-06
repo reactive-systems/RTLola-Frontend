@@ -40,7 +40,7 @@ pub(crate) const KEYWORDS: [&str; 26] = [
     "error",
 ];
 
-pub(crate) type DeclarationTable = HashMap<NodeId, Declaration>;
+pub type DeclarationTable = HashMap<NodeId, Declaration>;
 
 pub(crate) struct NamingAnalysis<'b> {
     declarations: ScopedDecl,
@@ -415,7 +415,7 @@ impl ScopedDecl {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Declaration {
+pub enum Declaration {
     Const(Rc<Constant>),
     In(Rc<Input>),
     /// A non-parametric output
