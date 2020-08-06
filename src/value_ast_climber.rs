@@ -8,9 +8,10 @@ use front::ast::{Expression, LitKind, Type};
 use front::ast::{ExpressionKind, Parameter, TypeKind};
 use front::parse::NodeId;
 use front::ty::{TypeConstraint, ValueTy};
-use rusttyc::{TcKey, TypeChecker};
+use rusttyc::{TcKey, TypeChecker, TcErr};
 use rusttyc::types::{Abstract};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -19,14 +20,14 @@ pub struct Variable {
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct ValueContext<'a> {
+pub struct ValueContext {
     pub tyc: TypeChecker<IAbstractType, Variable>,
-    pub decl: DeclarationTable<'a>,
-    pub node_key: HashMap<NodeId, TcKey<IAbstractType>>, //TODO initialisiere tabelle
+    pub decl: DeclarationTable,
+    pub node_key: HashMap<NodeId, TcKey>, //TODO initialisiere tabelle
 }
 
-impl<'a> ValueContext<'a> {
-    pub fn new(ast: &LolaSpec, decl: DeclarationTable<'a>) -> Self {
+impl ValueContext {
+    pub fn new(ast: &RTLolaAst, decl: DeclarationTable) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = HashMap::new();
 
@@ -71,13 +72,13 @@ impl<'a> ValueContext<'a> {
         let term_key: TcKey = self.tyc.new_term_key();
         //Annotated Type
         if let Some(t) = &cons.ty {
-            let annotaded_type_replaced = self.type_kind_match(t);
+            let annotated_type_replaced = self.type_kind_match(t);
             self.tyc
-                .impose(term_key.captures_abstract(annotaded_type_replaced));
+                .impose(term_key.concretizes_explicit(annotated_type_replaced));
         }
         //Type from Literal
         let lit_type = self.match_lit_kind(cons.literal.kind.clone());
-        self.tyc.impose(term_key.captures_abstract(lit_type));
+        self.tyc.impose(term_key.concretizes_explicit(lit_type));
 
         self.node_key.insert(cons.id, term_key);
         return Ok(term_key);
@@ -87,18 +88,18 @@ impl<'a> ValueContext<'a> {
         &mut self,
         exp: &Expression,
         target_type: Option<IAbstractType>,
-    ) -> Result<TcKey, <IAbstractType as rusttyc::Abstract>::Err> {
+    ) -> Result<TcKey, <IAbstractType as rusttyc::types::Abstract>::Err> {
         let term_key: TcKey = self.tyc.new_term_key();
         if let Some(t) = target_type {
-            self.tyc.impose(term_key.captures_abstract(t));
+            self.tyc.impose(term_key.concretizes_explicit(t));
         }
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
-                self.tyc.impose(term_key.captures_abstract(literal_type));
+                self.tyc.impose(term_key.concretizes_explicit(literal_type));
             }
             ExpressionKind::Ident(id) => {
-                let decl = self.decl[&exp.id];
+                let decl = &self.decl[&exp.id];
                 let node_id = match decl {
                     Declaration::Const(c) => c.id,
                     Declaration::Out(out) => out.id,
@@ -109,7 +110,7 @@ impl<'a> ValueContext<'a> {
                     }
                 };
                 let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.is_more_conc_than(key));
+                self.tyc.impose(term_key.equate_with(key));
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
@@ -117,13 +118,21 @@ impl<'a> ValueContext<'a> {
                 match kind {
                     Sync => {
                         //Sync access just returns the stream type
-                        self.tyc.impose(term_key.is_more_conc_than(ex_key));
+                        self.tyc.impose(term_key.concretizes(ex_key));
                     }
                     Optional | Hold => {
                         //Optional and Hold return Option<X> Type
-                        let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                        self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                        self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
+                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                    let inner_key = match self.tyc.get_child_key(term_key,1) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            return Err(self.handler(exp,e));
+                        }
+                    };
+                    self.tyc.impose(ex_key.equate_with(inner_key));
+                        //let m_key = self.tyc.new_monad_key(RecursiveType::Option);
+                        //self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
+                        //self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
                     }
                 };
             }
@@ -131,23 +140,31 @@ impl<'a> ValueContext<'a> {
                 let ex_key = self.expression_infer(&*ex, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
 
-                let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                self.tyc.impose(m_key.key().is_more_conc_than(ex_key));
-                self.tyc.impose(m_key.child().is_more_conc_than(def_key));
 
-                // meet(X,Y)
-                let result_constraint = term_key.is_more_conc_than(def_key);
-                self.tyc.impose(result_constraint);
+                self.tyc.impose( ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                let inner_key = match self.tyc.get_child_key(ex_key,1) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        return Err(self.handler(&*ex,e));
+                    }
+                };
+                self.tyc.impose(def_key.equate_with(inner_key));
+                self.tyc.impose(term_key.equate_with(def_key));
             }
             ExpressionKind::Offset(expr, offset) => {
                 let ex_key = self.expression_infer(&*expr, None)?; // X
                                                                    //Want build: Option<X>
 
                 //TODO check for different offset - there are no realtime offsets so far
-                let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                //m_key.key().captures( t -> Option(t));
-                self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
+                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                let inner_key = match self.tyc.get_child_key(term_key,1) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        return Err(self.handler(exp,e));
+                    }
+                };
+                self.tyc.impose(ex_key.equate_with(inner_key));
+
             }
             ExpressionKind::SlidingWindowAggregation {
                 expr,
@@ -159,48 +176,73 @@ impl<'a> ValueContext<'a> {
                 let duration_key = self.expression_infer(&*duration, None)?;
 
                 self.tyc
-                    .impose(duration_key.captures_abstract(IAbstractType::Numeric));
+                    .impose(duration_key.concretizes_explicit(IAbstractType::Numeric));
 
                 use front::ast::WindowOperation;
                 match aggr {
                     //Min|Max|Avg <T:Num> T -> Option<T>
                     WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
-                        let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                        self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                        self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
+                        self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                        let inner_key = match self.tyc.get_child_key(term_key,1) {
+                            Ok(k) => k,
+                            Err(e) => {
+                                return Err(self.handler(&*exp,e));
+                            }
+                        };
+                        self.tyc.impose(inner_key.equate_with(ex_key));
                     }
                     //Count: Any -> uint
                     WindowOperation::Count => {
                         self.tyc
-                            .impose(ex_key.captures_abstract(IAbstractType::Any));
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Any));
                         self.tyc
-                            .impose(term_key.captures_abstract(IAbstractType::UInteger(1)));
+                            .impose(term_key.concretizes_explicit(IAbstractType::UInteger(1)));
                     }
                     //all others :<T:Num>  -> T
                     WindowOperation::Integral => {
                         self.tyc
-                            .impose(ex_key.captures_abstract(IAbstractType::Float(1))); //TODO maybe numeric
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Float(1))); //TODO maybe numeric
                         if *wait {
-                            let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                            self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                            self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
+                            self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                            let inner_key = match self.tyc.get_child_key(term_key,1) {
+                                Ok(k) => k,
+                                Err(e) => {
+                                    return Err(self.handler(&*exp,e));
+                                }
+                            };
+                            self.tyc.impose(inner_key.equate_with(ex_key));
                         } else {
-                            self.tyc.impose(term_key.is_more_conc_than(ex_key));
+                            self.tyc.impose(term_key.concretizes(ex_key));
                         }
                     }
                     WindowOperation::Sum | WindowOperation::Product => {
                         self.tyc
-                            .impose(ex_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric));
                         if *wait {
-                            let m_key = self.tyc.new_monad_key(RecursiveType::Option);
-                            self.tyc.impose(m_key.child().is_more_conc_than(ex_key));
-                            self.tyc.impose(term_key.is_more_conc_than(m_key.key()));
+                            self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())));
+                            let inner_key = match self.tyc.get_child_key(term_key,1) {
+                                Ok(k) => k,
+                                Err(e) => {
+                                    return Err(self.handler(&*exp,e));
+                                }
+                            };
+                            self.tyc.impose(inner_key.equate_with(ex_key));
                         } else {
-                            self.tyc.impose(term_key.is_more_conc_than(ex_key));
+                            self.tyc.impose(term_key.concretizes(ex_key));
                         }
                     }
+                    //bool -> bool
+                    WindowOperation::Conjunction | WindowOperation::Disjunction => {
+                        self.tyc
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Bool));
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(IAbstractType::Bool));
+                    } //TODO
                 }
             }
+            //TODO
+            ///// implicit widening requieres join operand
+            // a + b -> c c = meet(a,b) then equate a and b with join(a,b) //FIXME
             ExpressionKind::Binary(op, left, right) => {
                 let left_key = self.expression_infer(&*left, None)?; // X
                 let right_key = self.expression_infer(&*right, None)?; // X
@@ -210,44 +252,46 @@ impl<'a> ValueContext<'a> {
                     // Num x Num -> Num
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
                         self.tyc
-                            .impose(left_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(left_key.concretizes_explicit(IAbstractType::Numeric));
                         self.tyc
-                            .impose(right_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(right_key.concretizes_explicit(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.is_more_conc_than(left_key));
-                        self.tyc.impose(term_key.is_more_conc_than(right_key));
+                        self.tyc.impose(term_key.is_meet_of(left_key,right_key));
+                        self.tyc.impose(term_key.equate_with(left_key));
+                        self.tyc.impose(term_key.equate_with(right_key));
                     }
                     // Bool x Bool -> Bool
                     BinOp::And | BinOp::Or => {
                         self.tyc
-                            .impose(left_key.captures_abstract(IAbstractType::Bool));
+                            .impose(left_key.concretizes_explicit(IAbstractType::Bool));
                         self.tyc
-                            .impose(right_key.captures_abstract(IAbstractType::Bool));
+                            .impose(right_key.concretizes_explicit(IAbstractType::Bool));
 
                         self.tyc
-                            .impose(term_key.captures_abstract(IAbstractType::Bool));
+                            .impose(term_key.concretizes_explicit(IAbstractType::Bool));
                     }
                     // Num x Num -> Num
                     BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr | BinOp::Shl | BinOp::Shr => {
                         self.tyc
-                            .impose(left_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(left_key.concretizes_explicit(IAbstractType::Numeric));
                         self.tyc
-                            .impose(right_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(right_key.concretizes_explicit(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.is_more_conc_than(left_key));
-                        self.tyc.impose(term_key.is_more_conc_than(right_key));
+
+                        self.tyc.impose(term_key.is_meet_of(left_key,right_key));
+                        self.tyc.impose(term_key.equate_with(left_key));
+                        self.tyc.impose(term_key.equate_with(right_key));
                     }
                     // Num x Num -> Bool COMPARATORS
                     BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
                         self.tyc
-                            .impose(left_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(left_key.concretizes_explicit(IAbstractType::Numeric));
                         self.tyc
-                            .impose(right_key.captures_abstract(IAbstractType::Numeric));
-                        //TODO need unify left & right ?
-                        self.tyc.impose(left_key.is_more_conc_than(right_key));
+                            .impose(right_key.concretizes_explicit(IAbstractType::Numeric));
+                        self.tyc.impose(left_key.equate_with(right_key));
 
                         self.tyc
-                            .impose(term_key.captures_abstract(IAbstractType::Bool));
+                            .impose(term_key.concretizes_explicit(IAbstractType::Bool));
                     }
                 }
             }
@@ -259,17 +303,17 @@ impl<'a> ValueContext<'a> {
                     //Num -> Num
                     UnOp::BitNot | UnOp::Neg => {
                         self.tyc
-                            .impose(ex_key.captures_abstract(IAbstractType::Numeric));
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric));
 
-                        self.tyc.impose(term_key.is_more_conc_than(ex_key));
+                        self.tyc.impose(term_key.equate_with(ex_key));
                     }
                     // Bool -> Bool
                     UnOp::Not => {
                         self.tyc
-                            .impose(ex_key.captures_abstract(IAbstractType::Bool));
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Bool));
 
                         self.tyc
-                            .impose(term_key.captures_abstract(IAbstractType::Bool));
+                            .impose(term_key.concretizes_explicit(IAbstractType::Bool));
                     }
                 }
             }
@@ -281,8 +325,9 @@ impl<'a> ValueContext<'a> {
                 //Bool x T x T -> T
                 //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
 
-                self.tyc.impose(term_key.is_more_conc_than(cons_key));
-                self.tyc.impose(term_key.is_more_conc_than(alt_key));
+                self.tyc.impose(term_key.is_meet_of(cons_key,alt_key));
+                self.tyc.impose(term_key.equate_with(alt_key));
+                self.tyc.impose(term_key.equate_with(cons_key));
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(vec) => {
@@ -303,65 +348,64 @@ impl<'a> ValueContext<'a> {
                 match &decl {
                     Declaration::Func(fun_decl) => {
                         //Generics
-                        let generics: Vec<TcKey<IAbstractType>> = fun_decl
+                        let generics: Vec<TcKey> = fun_decl
                             .generics
                             .iter()
                             .map(|gen| {
-                                let gen_key: TcKey<IAbstractType> = self.tyc.new_term_key();
+                                let gen_key: TcKey = self.tyc.new_term_key();
                                 match &gen {
                                     ValueTy::Constr(tc) => {
                                         let cons = match_constraint(tc);
-                                        self.tyc.impose(gen_key.captures_abstract(cons));
+                                        self.tyc.impose(gen_key.concretizes_explicit(cons));
                                     }
                                     _ => unreachable!(),
                                 };
                                 gen_key
                             })
-                            .collect::<Vec<TcKey<IAbstractType>>>();
+                            .collect::<Vec<TcKey>>();
 
                         for (t, gen) in types_vec.iter().zip(generics.iter()) {
                             let t_key = self.tyc.new_term_key();
-                            self.tyc.impose(t_key.captures_abstract(t.clone()));
-                            self.tyc.impose(t_key.is_more_conc_than(*gen));
+                            self.tyc.impose(t_key.concretizes_explicit(t.clone()));
+                            self.tyc.impose(t_key.concretizes(*gen));
                         }
                         //FOR: type.captures(generic)
 
                         for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
                             let p = self.replace_type(param, &generics);
                             let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.is_more_conc_than(p));
+                            self.tyc.impose(arg_key.concretizes(p));
                         }
 
                         let return_type = self.replace_type(&fun_decl.return_type, &generics);
 
-                        self.tyc.impose(term_key.is_more_conc_than(return_type));
+                        self.tyc.impose(term_key.concretizes(return_type));
                     }
                     Declaration::ParamOut(out) => {
-                        let params: &[Parameter] = out.params.as_slice();
+                        let params: &[Rc<Parameter>] = out.params.as_slice();
 
                         let param_types: Vec<IAbstractType> =
                             params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
                             let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.captures_abstract(param_t.clone()));
+                            self.tyc.impose(arg_key.concretizes_explicit(param_t.clone()));
                         }
 
                         self.tyc
-                            .impose(term_key.captures_abstract(self.type_kind_match(&out.ty)));
+                            .impose(term_key.concretizes_explicit(self.type_kind_match(&out.ty)));
                     }
                     _ => unreachable!("ensured by naming analysis"),
                 };
             }
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
-            ExpressionKind::Aggregation(_, _, _) => unimplemented!(),
         };
         self.node_key.insert(exp.id, term_key);
         Ok(term_key)
         //Err(String::from("Error"))
     }
 
-    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey<IAbstractType>]) -> TcKey<IAbstractType> {
+    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey]) -> TcKey {
         match vt {
             &ValueTy::Param(idx, _) => to[idx as usize],
             ValueTy::Option(o) => {
@@ -370,13 +414,13 @@ impl<'a> ValueContext<'a> {
             }
             ValueTy::Constr(c) => {
                 let key = self.tyc.new_term_key();
-                self.tyc.impose(key.captures_abstract(match_constraint(c)));
+                self.tyc.impose(key.concretizes_explicit(match_constraint(c)));
                 key
             }
             _ if vt.is_primitive() => {
                 let key = self.tyc.new_term_key();
                 self.tyc
-                    .impose(key.captures_abstract(self.value_type_match(vt)));
+                    .impose(key.concretizes_explicit(self.value_type_match(vt)));
                 key
             }
             _ => unreachable!("replace for {}", vt),
@@ -389,7 +433,7 @@ impl<'a> ValueContext<'a> {
             TypeKind::Simple(_) => {
                 let decl = self.decl[&t.id].clone();
                 if let Declaration::Type(ty) = decl {
-                    self.value_type_match(ty)
+                    self.value_type_match(&ty)
                 } else {
                     unreachable!("ensured by naming analysis")
                 }
@@ -467,6 +511,21 @@ impl<'a> ValueContext<'a> {
             LitKind::Bool(_) => IAbstractType::Bool,
         }
     }
+
+    fn handler(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
+        match err {
+            TcErr::ChildAccessOutOfBound(key,ty,n) => {
+
+            },
+            TcErr::KeyEquation(k1, k2, String) => {
+
+            },
+            TcErr::TypeBound(key,String) => {
+
+            }
+        };
+        "Value-Type-Error: TODO MSG".to_string() //TODO
+    }
 }
 
 fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType, String> {
@@ -494,5 +553,15 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
 
 fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
     //TODO
+    match cons {
+        TypeConstraint::Numeric => IAbstractType::Numeric,
+        TypeConstraint::SignedInteger => IAbstractType::Integer(1),
+        TypeConstraint::UnsignedInteger => IAbstractType::UInteger(1),
+        TypeConstraint::FloatingPoint => IAbstractType::Float(1),
+        TypeConstraint::Integer => {unimplemented!()},
+        TypeConstraint::Equatable => {unimplemented!()},
+        TypeConstraint::Comparable => {unimplemented!()},
+        TypeConstraint::Unconstrained => IAbstractType::Any,
+    };
     unimplemented!()
 }

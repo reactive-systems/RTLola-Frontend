@@ -4,16 +4,16 @@ use crate::pacing_ast_climber::Context as PacingContext;
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
-use front::ast::LolaSpec;
+use front::ast::RTLolaAst;
 
 #[derive()]
-pub struct LolaTypChecker<'a> {
-    pub(crate) ast: LolaSpec,
-    pub(crate) declarations: DeclarationTable<'a>,
+pub struct LolaTypChecker {
+    pub(crate) ast: RTLolaAst,
+    pub(crate) declarations: DeclarationTable,
 }
 
-impl<'a> LolaTypChecker<'a> {
-    pub fn new(spec: &LolaSpec, declarations: DeclarationTable<'a>) -> Self {
+impl LolaTypChecker {
+    pub fn new(spec: &RTLolaAst, declarations: DeclarationTable) -> Self {
         LolaTypChecker {
             ast: spec.clone(),
             declarations: declarations.clone(),

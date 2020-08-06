@@ -5,7 +5,7 @@ use crate::pacing_types::{parse_abstract_type, AbstractPacingType, Freq};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
-use front::ast::{ExpressionKind, LolaSpec};
+use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::NodeId;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
@@ -17,13 +17,13 @@ impl rusttyc::TcVar for Variable {}
 
 pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
-    pub(crate) decl: &'a DeclarationTable<'a>,
-    pub(crate) node_key: HashMap<NodeId, TcKey<AbstractPacingType>>,
+    pub(crate) decl: &'a DeclarationTable,
+    pub(crate) node_key: HashMap<NodeId, TcKey>,
     pub(crate) bdd_vars: BddVariableSet,
 }
 
 impl<'a> Context<'a> {
-    pub fn new(ast: &LolaSpec, decl: &'a DeclarationTable<'a>) -> Context<'a> {
+    pub fn new(ast: &RTLolaAst, decl: &'a DeclarationTable) -> Context<'a> {
         let mut bdd_var_builder = BddVariableSetBuilder::new();
         let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
@@ -101,8 +101,8 @@ impl<'a> Context<'a> {
     pub fn expression_infer(
         &mut self,
         exp: &Expression,
-    ) -> Result<TcKey<AbstractPacingType>, TcErr<AbstractPacingType>> {
-        let term_key: TcKey<AbstractPacingType> = self.tyc.new_term_key();
+    ) -> Result<TcKey, TcErr<AbstractPacingType>> {
+        let term_key: TcKey = self.tyc.new_term_key();
         use AbstractPacingType::*;
         match &exp.kind {
             ExpressionKind::Lit(_) => {
@@ -110,7 +110,7 @@ impl<'a> Context<'a> {
                 self.tyc.impose(term_key.captures_abstract(literal_type))?;
             }
             ExpressionKind::Ident(_) => {
-                let decl = self.decl[&exp.id];
+                let decl = &self.decl[&exp.id];
                 let node_id = match decl {
                     Declaration::Const(c) => c.id,
                     Declaration::Out(out) => out.id,

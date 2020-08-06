@@ -29,21 +29,21 @@ impl Abstract for IAbstractType {
         IAbstractType::Any
     }
 
-    fn meet(self, other: Self) -> Result<Self, Self::Err> {
+    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
         use IAbstractType::*;
         match (self, other) {
             (Any, other) | (other, Any) => Ok(other.clone()),
-            (Integer(l), Integer(r)) => Ok(Integer(max(r, l))),
-            (UInteger(l), UInteger(r)) => Ok(UInteger(max(r, l))),
-            (Float(l), Float(r)) => Ok(Float(max(l, r))),
-            (Float(i), Integer(u)) | (Integer(u), Float(i)) => Ok(Float(max(i, u))),
+            (Integer(l), Integer(r)) => Ok(Integer(max(*r, *l))),
+            (UInteger(l), UInteger(r)) => Ok(UInteger(max(*r, *l))),
+            (Float(l), Float(r)) => Ok(Float(max(*l, *r))),
+            (Float(i), Integer(u)) | (Integer(u), Float(i)) => Ok(Float(max(*i, *u))),
             (Bool, Bool) => Ok(Bool),
             (Bool, other) | (other, Bool) => {
                 Err(String::from(format!("Bool not unifiable with {:?}", other)))
             }
-            (Numeric, Integer(w)) | (Integer(w), Numeric) => Ok(Integer(w)),
-            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(w)),
-            (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(i)),
+            (Numeric, Integer(w)) | (Integer(w), Numeric) => Ok(Integer(*w)),
+            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(*w)),
+            (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(*i)),
             (Numeric, Numeric) => Ok(Numeric),
             (UInteger(u), other) | (other, UInteger(u)) => {
                 Err(String::from(format!("UInt not unifiable with {:?}", other)))
@@ -57,7 +57,7 @@ impl Abstract for IAbstractType {
                 let (recursive_result, errors): (Vec<Result<Self, Self::Err>>, Vec<_>) = lv
                     .iter()
                     .zip(rv.iter())
-                    .map(|(l, r)| Self::meet(l.clone(), r.clone()))
+                    .map(|(l, r)| Self::meet(l, r))
                     .partition(Result::is_ok);
                 if errors.len() > 0 {
                     let error_unwraped: Vec<String> =
@@ -76,7 +76,7 @@ impl Abstract for IAbstractType {
             (TString, _) | (_, TString) => {
                 Err(String::from("String unification only with other Strings"))
             }
-            (Option(l), Option(r)) => match Self::meet(*l, *r) {
+            (Option(l), Option(r)) => match Self::meet(l, r) {
                 Ok(t) => Ok(Option(Box::new(t))),
                 Err(e) => Err(e),
             },
@@ -87,10 +87,17 @@ impl Abstract for IAbstractType {
     }
 
     fn arity(&self) -> std::option::Option<usize> {
+        use IAbstractType::*;
         match self {
-            IAbstractType::Option(_) => Some(1),
-            IAbstractType::Tuple(t) => Some(t.len()),
-            _ => None,
+            Option(_) => Some(1),
+            Tuple(t) => Some(t.len()),
+            Any |
+            Numeric |
+            Integer(_) |
+            UInteger(_) |
+            Float(_) |
+            Bool |
+            TString => Some(0),
         }
     }
 
@@ -107,7 +114,7 @@ impl Abstract for IAbstractType {
         I: IntoIterator<Item=Self> {
         let mut it = children.into_iter();
         match self {
-            IAbstractType::Option(op ) => IAbstractType::Option(it.next().expect("")),
+            IAbstractType::Option(op ) => IAbstractType::Option(it.next().expect("").into()),
             IAbstractType::Tuple(v) => IAbstractType::Tuple(it.collect()),
             t => t.clone(),
         }

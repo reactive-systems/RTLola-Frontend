@@ -8,6 +8,7 @@ use std::convert::TryFrom;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
+use std::hint::unreachable_unchecked;
 
 type ActivationCondition = Bdd;
 
@@ -174,29 +175,41 @@ pub enum AbstractPacingType {
     Any,
 }
 
-impl rusttyc::Abstract for AbstractPacingType {
+impl rusttyc::types::Abstract for AbstractPacingType {
     type Err = UnificationError;
-    type Variant = rusttyc::Niladic;
 
     fn unconstrained() -> Self {
         AbstractPacingType::Any
     }
 
-    fn meet(self, other: Self) -> Result<Self, Self::Err> {
+    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
         use AbstractPacingType::*;
         match (self, other) {
-            (Any, x) | (x, Any) => Ok(x),
+            (Any, x) | (x, Any) => Ok(x.clone()),
             (Event(ac), Periodic(f)) | (Periodic(f), Event(ac)) => {
-                Err(UnificationError::MixedEventPeriodic(ac, f))
+                Err(UnificationError::MixedEventPeriodic(ac.clone(), f.clone()))
             }
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(&ac2))),
             (Periodic(f1), Periodic(f2)) => {
                 if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
                     Ok(Periodic(f1.conjunction(&f2)))
                 } else {
-                    Err(UnificationError::IncompatibleFrequencies(f1, f2))
+                    Err(UnificationError::IncompatibleFrequencies(f1.clone(), f2.clone()))
                 }
             }
         }
+    }
+
+    fn arity(&self) -> Option<usize> {
+        None
+    }
+
+    fn nth_child(&self, n: usize) -> &Self {
+        unreachable!()
+    }
+
+    fn with_children<I>(&self, children: I) -> Self where
+        I: IntoIterator<Item=Self> {
+        unreachable!()
     }
 }

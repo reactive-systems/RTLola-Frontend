@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rtlola-frontend = "0.3.3"
+rtlola-frontend = { path = "../rtlola-frontend" }
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" }
 regex = "*"
 uom = { version = "0.25.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}

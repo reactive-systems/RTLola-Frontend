@@ -8,9 +8,7 @@ mod value_ast_climber;
 mod value_types;
 
 use crate::rtltc::LolaTypChecker;
-use front::ast::LolaSpec;
-use front::parse::SourceMapper;
-use front::reporting::Handler;
+use front::ast::RTLolaAst;
 use front::FrontendConfig;
 use std::env;
 use std::error::Error;
@@ -50,10 +48,11 @@ fn main() {
         let name = s.clone();
         let p = prog.clone();
         let spec = &p;
+        /*
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
 
-        //let ir = front::parse(&name, &p, front::FrontendConfig::default());
+        let ir = front::parse(&name, &p, front::FrontendConfig::default());
         let lola_spec = match ast {
             Err(why) => panic!("parsing error: {}", why), //TODO
             Ok(parsed_spec) => parsed_spec,
@@ -66,5 +65,6 @@ fn main() {
         let checker = LolaTypChecker::new(&lola_spec, decl_table);
 
         print!("{:#?}", checker.generate_raw_table());
+        */
     }
 }
