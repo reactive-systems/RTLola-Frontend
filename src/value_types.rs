@@ -15,13 +15,6 @@ pub enum IAbstractType {
     Option(Box<IAbstractType>),
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum RecursiveType {
-    Option,
-    Tuple(u8),
-    Other,
-}
-
 impl Abstract for IAbstractType {
     type Err = String;
 
