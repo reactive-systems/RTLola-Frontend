@@ -81,13 +81,14 @@ impl<'a> LolaTypChecker<'a> {
 mod value_type_tests {
     use std::path::PathBuf;
     use crate::LolaTypChecker;
+    use front::parse::SourceMapper;
 
     fn check_set_up(spec: &str) -> usize {
 
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let spec = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
             Ok(s) => s,
-            Err(e) => panic!("Spech {} cannot be parsed: {}",spec,s),
+            Err(e) => panic!("Spech {} cannot be parsed: {}",spec,e),
         };
 
         let mut na = front::analysis::naming::NamingAnalysis::new(&handler, front::FrontendConfig::default());
