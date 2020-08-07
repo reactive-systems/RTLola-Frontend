@@ -5,7 +5,7 @@ use crate::value_ast_climber::ValueContext;
 use crate::value_types::IAbstractType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::RTLolaAst;
-use front::reporting::Handler;
+use front::reporting::{Handler, LabeledSpan};
 
 #[derive()]
 pub struct LolaTypChecker<'a> {
@@ -56,16 +56,22 @@ impl<'a> LolaTypChecker<'a> {
 
         let mut ctx = ValueContext::new(&self.ast, self.declarations.clone());
 
+        for input in &self.ast.inputs {
+            if let Err(e) = ctx.input_infer(input){
+                self.handler.error_with_span("Input inference error", LabeledSpan::new(input.span, "Todo",true));
+            }
+        }
+
         for constant in &self.ast.constants {
             ctx.constant_infer(&constant);
         }
 
         for output in &self.ast.outputs {
-            ctx.expression_infer(&output.expression, None);
+            ctx.output_infer(&output);
         }
 
         for trigger in &self.ast.trigger {
-            ctx.expression_infer(&trigger.expression, Some(IAbstractType::Bool));
+            ctx.trigger_infer(trigger);
         }
 
         let tt = ctx.tyc.type_check();

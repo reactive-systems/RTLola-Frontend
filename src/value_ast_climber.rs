@@ -3,7 +3,7 @@ extern crate regex;
 
 use crate::value_types::IAbstractType;
 use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::Constant;
+use front::ast::{Constant, Input, Output, Trigger};
 use front::ast::{Expression, LitKind, Type};
 use front::ast::{ExpressionKind, Parameter, TypeKind};
 use front::parse::NodeId;
@@ -12,6 +12,7 @@ use rusttyc::{TcKey, TypeChecker, TcErr};
 use rusttyc::types::{Abstract};
 use std::collections::HashMap;
 use std::rc::Rc;
+use bimap::BiMap;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -23,13 +24,13 @@ impl rusttyc::TcVar for Variable {}
 pub struct ValueContext {
     pub tyc: TypeChecker<IAbstractType, Variable>,
     pub decl: DeclarationTable,
-    pub node_key: HashMap<NodeId, TcKey>, //TODO initialisiere tabelle
+    pub node_key: BiMap<NodeId, TcKey>, //TODO initialisiere tabelle
 }
 
 impl ValueContext {
     pub fn new(ast: &RTLolaAst, decl: DeclarationTable) -> Self {
         let mut tyc = TypeChecker::new();
-        let mut node_key = HashMap::new();
+        let mut node_key = BiMap::new();
 
         for input in &ast.inputs {
             node_key.insert(
@@ -65,11 +66,31 @@ impl ValueContext {
         }
     }
 
+    pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>>{
+        let term_key: TcKey = *self.node_key.get_by_left(&input.id).expect("");
+        //Annotated Type
+        if let t= &input.ty {
+            let annotated_type_replaced = self.type_kind_match(t);
+            self.tyc
+                .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
+        };
+        let mut param_types = Vec::new();
+        for param in &input.params {
+            let param_key = self.tyc.get_var_key(&Variable{name: param.name.name.clone()});
+            let t = self.type_kind_match(&param.ty);
+            self.tyc.impose(param_key.concretizes_explicit(t))?;
+            param_types.push(param_key);
+        }
+        assert!(param_types.is_empty(),"parametric input types currently not supported");
+        Ok(term_key)
+
+    }
+
     pub fn constant_infer(
         &mut self,
         cons: &Constant,
     ) -> Result<TcKey, TcErr<IAbstractType>>  {
-        let term_key: TcKey = self.tyc.new_term_key();
+        let term_key: TcKey = *self.node_key.get_by_left(&cons.id).expect("");
         //Annotated Type
         if let Some(t) = &cons.ty {
             let annotated_type_replaced = self.type_kind_match(t);
@@ -84,7 +105,35 @@ impl ValueContext {
         return Ok(term_key);
     }
 
-    pub fn expression_infer(
+    pub fn output_infer(&mut self, out: &Output) -> Result<TcKey,TcErr<IAbstractType>> {
+        let out_key = *self.node_key.get_by_left(&out.id).expect("Added in constructor");
+
+        if let t= &out.ty {
+            let annotated_type_replaced = self.type_kind_match(t);
+            self.tyc
+                .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
+        };
+        let mut param_types = Vec::new();
+        for param in &out.params {
+            let param_key = self.tyc.get_var_key(&Variable{ name: param.name.name.clone()});
+            let t = self.type_kind_match(&param.ty);
+            self.tyc.impose(param_key.concretizes_explicit(t))?;
+            param_types.push(param_key);
+        }
+
+        let expression_key = self.expression_infer(&out.expression,None)?;
+        self.tyc.impose(out_key.concretizes(expression_key))?;
+        Ok(out_key)
+    }
+
+    pub fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TcErr<IAbstractType>> {
+        let tr_key = *self.node_key.get_by_left(&tr.id).expect("Added in constructor");
+        let expression_key = self.expression_infer(&tr.expression,Some(IAbstractType::Bool))?;
+        self.tyc.impose(tr_key.concretizes(expression_key))?;
+        Ok(tr_key)
+    }
+
+    fn expression_infer(
         &mut self,
         exp: &Expression,
         target_type: Option<IAbstractType>,
@@ -109,8 +158,8 @@ impl ValueContext {
                         unreachable!("ensured by naming analysis {:?}", decl)
                     }
                 };
-                let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.equate_with(key))?;
+                let key = self.node_key.get_by_left(&node_id).expect("Value should be contained");
+                self.tyc.impose(term_key.equate_with(*key))?;
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
@@ -476,19 +525,19 @@ impl ValueContext {
         }
     }
 
-    fn handler(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
-        match err {
+    fn handle_error(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
+        let msg = match err {
             TcErr::ChildAccessOutOfBound(key,ty,n) => {
-
+                format!("Invalid child-type access by {:?}: {}-th child for {:?}",self.node_key.get_by_right(&key),n,ty)
             },
             TcErr::KeyEquation(k1, k2, msg) => {
-
+                format!("Incompatible Type for equation of {:?} and {:?}: {}",self.node_key.get_by_right(&k1),self.node_key.get_by_right(&k2),msg)
             },
             TcErr::TypeBound(key,msg) => {
-
+                format!("Invalid type bound enforced on {:?}: {}",self.node_key.get_by_right(&key),msg)
             }
         };
-        "Value-Type-Error: TODO MSG".to_string() //TODO
+        msg
     }
 }
 
