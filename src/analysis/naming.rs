@@ -42,7 +42,7 @@ pub(crate) const KEYWORDS: [&str; 26] = [
 
 pub type DeclarationTable = HashMap<NodeId, Declaration>;
 
-pub(crate) struct NamingAnalysis<'b> {
+pub struct NamingAnalysis<'b> {
     declarations: ScopedDecl,
     type_declarations: ScopedDecl,
     fun_declarations: ScopedDecl,
@@ -51,7 +51,7 @@ pub(crate) struct NamingAnalysis<'b> {
 }
 
 impl<'b> NamingAnalysis<'b> {
-    pub(crate) fn new(handler: &'b Handler, config: FrontendConfig) -> Self {
+    pub fn new(handler: &'b Handler, config: FrontendConfig) -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
         for (name, ty) in ValueTy::primitive_types(config.ty) {
@@ -160,7 +160,7 @@ impl<'b> NamingAnalysis<'b> {
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
-    pub(crate) fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
+    pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
         stdlib::import_implicit_module(&mut self.fun_declarations);
         for import in &spec.imports {
             match import.name.name.as_str() {

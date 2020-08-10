@@ -826,7 +826,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
  * Transforms a textual representation of a Lola specification into
  * an AST representation.
  */
-pub(crate) fn parse<'a, 'b>(
+pub fn parse<'a, 'b>(
     content: &'a str,
     handler: &'b Handler,
     config: FrontendConfig,
@@ -899,7 +899,7 @@ impl<'a> From<pest::Span<'a>> for Span {
 
 /// A mapper from `Span` to actual source code
 #[derive(Debug)]
-pub(crate) struct SourceMapper {
+pub struct SourceMapper {
     path: PathBuf,
     content: String,
 }
@@ -934,7 +934,7 @@ pub(crate) struct CharSpan {
 }
 
 impl SourceMapper {
-    pub(crate) fn new(path: PathBuf, content: &str) -> SourceMapper {
+    pub fn new(path: PathBuf, content: &str) -> SourceMapper {
         SourceMapper { path, content: content.to_string() }
     }
 

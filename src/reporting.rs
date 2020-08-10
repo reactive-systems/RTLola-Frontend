@@ -12,7 +12,7 @@ use termcolor::{ColorChoice, StandardStream, WriteColor};
 
 /// A handler is responsible for emitting warnings and errors
 #[derive(Debug)]
-pub(crate) struct Handler {
+pub struct Handler {
     error_count: RefCell<usize>,
     warning_count: RefCell<usize>,
     emitter: RefCell<Box<dyn Emitter>>,
@@ -20,7 +20,7 @@ pub(crate) struct Handler {
 }
 
 impl Handler {
-    pub(crate) fn new(mapper: SourceMapper) -> Self {
+    pub fn new(mapper: SourceMapper) -> Self {
         Handler {
             error_count: RefCell::new(0),
             warning_count: RefCell::new(0),
@@ -29,11 +29,11 @@ impl Handler {
         }
     }
 
-    pub(crate) fn contains_error(&self) -> bool {
+    pub fn contains_error(&self) -> bool {
         self.emitted_errors() > 0
     }
 
-    pub(crate) fn emitted_errors(&self) -> usize {
+    pub fn emitted_errors(&self) -> usize {
         *self.error_count.borrow()
     }
 
@@ -76,7 +76,7 @@ impl Handler {
         });
     }
 
-    pub(crate) fn error(&self, message: &str) {
+    pub fn error(&self, message: &str) {
         self.emit(&Diagnostic {
             level: Error,
             message: message.to_owned(),
@@ -86,7 +86,7 @@ impl Handler {
         });
     }
 
-    pub(crate) fn error_with_span(&self, message: &str, span: LabeledSpan) {
+    pub fn error_with_span(&self, message: &str, span: LabeledSpan) {
         self.emit(&Diagnostic {
             level: Error,
             message: message.to_owned(),
@@ -375,14 +375,14 @@ impl Level {
 
 /// Show a label (message) next to the position in source code
 #[derive(Debug, Clone)]
-pub(crate) struct LabeledSpan {
+pub struct LabeledSpan {
     span: Span,
     label: Option<String>,
     primary: bool,
 }
 
 impl LabeledSpan {
-    pub(crate) fn new(span: Span, label: &str, primary: bool) -> Self {
+    pub fn new(span: Span, label: &str, primary: bool) -> Self {
         LabeledSpan { span, label: Some(label.to_string()), primary }
     }
 }

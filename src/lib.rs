@@ -18,7 +18,7 @@ pub mod ast;
 mod export;
 pub mod ir;
 pub mod parse;
-mod reporting;
+pub mod reporting;
 mod stdlib;
 pub mod ty;
 
