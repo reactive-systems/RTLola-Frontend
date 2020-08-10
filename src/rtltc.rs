@@ -2,10 +2,16 @@ use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
 use crate::value_ast_climber::ValueContext;
-use crate::value_types::IAbstractType;
+use crate::value_types::{IAbstractType, IConcreteType};
 use front::analysis::naming::DeclarationTable;
 use front::ast::RTLolaAst;
 use front::reporting::{Handler, LabeledSpan};
+use rusttyc::types::{AbstractTypeTable, ReifiedTypeTable};
+use bimap::BiMap;
+use front::parse::NodeId;
+use rusttyc::TcKey;
+use std::collections::HashMap;
+use std::hash::Hash;
 
 #[derive()]
 pub struct LolaTypChecker<'a> {
@@ -51,7 +57,7 @@ impl<'a> LolaTypChecker<'a> {
         let tt = ctx.tyc.type_check();
     }
 
-    fn value_type_infer(&self) {
+    fn value_type_infer(&self) -> Result<HashMap<NodeId,IConcreteType>,String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
         let mut ctx = ValueContext::new(&self.ast, self.declarations.clone());
@@ -74,7 +80,23 @@ impl<'a> LolaTypChecker<'a> {
             ctx.trigger_infer(trigger);
         }
 
-        let tt = ctx.tyc.type_check();
+        let tt_r = ctx.tyc.type_check();
+        if let Err(tc_err) = tt_r {
+            return Err("TODO".to_string());
+        }
+        let tt = tt_r.ok().expect("");
+        let rtt_r = tt.try_reified();
+        if let Err(a) = rtt_r {
+            return Err("TypeTable not reifiable: ValueType not constrained enough".to_string());
+        }
+        let rtt : ReifiedTypeTable<IConcreteType> = rtt_r.ok().expect("");
+        let bm = ctx.node_key;
+        let mut result_map = HashMap::new();
+        for (nid,k) in bm.iter() {
+            result_map.insert(*nid,rtt[*k].clone());
+        }
+        Ok(result_map)
+
     }
 
     pub fn generate_raw_table(&self) -> Vec<(i32, front::ty::Ty)> {
@@ -88,27 +110,77 @@ mod value_type_tests {
     use std::path::PathBuf;
     use crate::LolaTypChecker;
     use front::parse::SourceMapper;
+    use std::collections::HashMap;
+    use std::collections::hash_map::RandomState;
+    use rusttyc::types::ReifiedTypeTable;
+    use front::parse::{NodeId};
+    use front::RTLolaAst;
+    use front::reporting::Handler;
+    use front::analysis::naming::Declaration;
+    use crate::value_types::IConcreteType;
 
-    fn check_set_up(spec: &str) -> usize {
+    struct Test_Box {
+        pub spec: RTLolaAst,
+        pub dec: HashMap<NodeId, Declaration>,
+        pub handler: Handler,
+    }
 
+    fn setup_ast(spec: &str) -> Test_Box {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
-        let spec = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
+        let spec :RTLolaAst = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}",spec,e),
         };
-
         let mut na = front::analysis::naming::NamingAnalysis::new(&handler, front::FrontendConfig::default());
         let mut dec = na.check(&spec);
         assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
-        let mut ltc = LolaTypChecker::new(&spec, dec, &handler);
+        Test_Box {spec, dec, handler}
+    }
+
+    fn complete_check(spec: &str) -> usize {
+        let test_box = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
         ltc.check();
-        handler.emitted_errors()
+        test_box.handler.emitted_errors()
+    }
+
+    fn check_value_type(spec:&str) -> (Test_Box,HashMap<NodeId,IConcreteType>) {
+        let test_box = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let tt_result = ltc.value_type_infer();
+        assert!(tt_result.is_ok(),"Expect Valid Input");
+        let tt = tt_result.expect("");
+        (test_box,tt)
 
     }
 
     #[test]
     fn simple_input() {
         let spec = "input i: Int8";
-        assert_eq!(0, check_set_up(spec));
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn direct_implication() {
+        let spec = "input i: Int8\noutput o := i";
+        let (tb,result_map) = check_value_type(spec);
+        let input_id = tb.spec.inputs[0].id;
+        let output_id = tb.spec.outputs[0].id;
+        assert_eq!(result_map[&input_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&output_id], IConcreteType::Integer8);
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn integer_addition() {
+        let spec = "input i: Int8\ninput i1: Int16\noutput o := i + 1";
+        let (tb,result_map) = check_value_type(spec);
+        let input_i_id = tb.spec.inputs[0].id;
+        let input_i1_id = tb.spec.inputs[1].id;
+        let output_id = tb.spec.outputs[0].id;
+        assert_eq!(result_map[&input_i_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&input_i1_id], IConcreteType::Integer16);
+        assert_eq!(result_map[&output_id], IConcreteType::Integer16);
+        assert_eq!(0, complete_check(spec));
     }
 }

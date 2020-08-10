@@ -456,8 +456,7 @@ impl ValueContext {
             }
             TypeKind::Optional(op) => IAbstractType::Option(self.type_kind_match(&op).into()),
             TypeKind::Inferred => {
-                //TODO
-                unimplemented!()
+                IAbstractType::Any
             }
         }
     }
@@ -525,7 +524,24 @@ impl ValueContext {
         }
     }
 
-    fn handle_error(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
+    pub(crate) fn handle_error(&self, err : TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err {
+        let msg = match err {
+            TcErr::ChildAccessOutOfBound(key,ty,n) => {
+                format!("Invalid child-type access by {:?}: {}-th child for {:?}",self.node_key.get_by_right(&key),n,ty)
+            },
+            TcErr::KeyEquation(k1, k2, msg) => {
+                format!("Incompatible Type for equation of {:?} and {:?}: {}",self.node_key.get_by_right(&k1),self.node_key.get_by_right(&k2),msg)
+            },
+            TcErr::TypeBound(key,msg) => {
+                format!("Invalid type bound enforced on {:?}: {}",self.node_key.get_by_right(&key),msg)
+            }
+        };
+        msg
+
+    }
+
+    pub(crate) fn handle_exp_error(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
+        //TODO include Expression
         let msg = match err {
             TcErr::ChildAccessOutOfBound(key,ty,n) => {
                 format!("Invalid child-type access by {:?}: {}-th child for {:?}",self.node_key.get_by_right(&key),n,ty)
