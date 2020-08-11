@@ -860,7 +860,7 @@ impl PartialEq for Ident {
 pub struct NodeId(u32);
 
 impl NodeId {
-    pub(crate) fn new(x: usize) -> NodeId {
+    pub fn new(x: usize) -> NodeId {
         assert!(x < (u32::max_value() as usize));
         NodeId(x as u32)
     }
