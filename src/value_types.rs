@@ -1,12 +1,13 @@
 use super::*;
+use rusttyc::types::{Abstract, ReificationErr};
 use std::cmp::max;
-use rusttyc::types::{ReificationErr,Abstract};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum IAbstractType {
     Any,
     Numeric,
-    Integer(u32),
+    Integer,
+    SInteger(u32),
     UInteger(u32),
     Float(u32),
     Bool,
@@ -26,20 +27,27 @@ impl Abstract for IAbstractType {
         use IAbstractType::*;
         match (self, other) {
             (Any, other) | (other, Any) => Ok(other.clone()),
-            (Integer(l), Integer(r)) => Ok(Integer(max(*r, *l))),
+            (Numeric, Numeric) => Ok(Numeric),
+            (Integer, Integer) => Ok(Integer),
+            (SInteger(l), SInteger(r)) => Ok(SInteger(max(*r, *l))),
             (UInteger(l), UInteger(r)) => Ok(UInteger(max(*r, *l))),
             (Float(l), Float(r)) => Ok(Float(max(*l, *r))),
-            (Float(i), Integer(u)) | (Integer(u), Float(i)) => Ok(Float(max(*i, *u))),
+            (Float(i), SInteger(u)) | (SInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
             (Bool, Bool) => Ok(Bool),
             (Bool, other) | (other, Bool) => {
                 Err(String::from(format!("Bool not unifiable with {:?}", other)))
             }
-            (Numeric, Integer(w)) | (Integer(w), Numeric) => Ok(Integer(*w)),
+            (Numeric, Integer) | (Integer, Numeric) => Ok(Integer),
+            (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok(SInteger(*w)),
             (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(*w)),
             (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(*i)),
-            (Numeric, Numeric) => Ok(Numeric),
+            (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok(SInteger(*x)),
+            (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok(UInteger(*x)),
+            (Integer, other) | (other, Integer) => {
+                Err(format!("Integer and non-Integer {:?}", other))
+            }
             (UInteger(u), other) | (other, UInteger(u)) => {
-                Err(String::from(format!("UInt not unifiable with {:?}", other)))
+                Err(format!("UInt not unifiable with {:?}", other))
             }
             (Tuple(lv), Tuple(rv)) => {
                 if lv.len() != rv.len() {
@@ -84,13 +92,9 @@ impl Abstract for IAbstractType {
         match self {
             Option(_) => Some(1),
             Tuple(t) => Some(t.len()),
-            Any |
-            Numeric |
-            Integer(_) |
-            UInteger(_) |
-            Float(_) |
-            Bool |
-            TString => Some(0),
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString => {
+                Some(0)
+            }
         }
     }
 
@@ -99,15 +103,19 @@ impl Abstract for IAbstractType {
         match self {
             Option(op) => &*op,
             Tuple(vec) => &vec[n],
-            Any | Numeric | Integer(_) | UInteger(_) | Float(_) | Bool | TString => unreachable!()
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString => {
+                unreachable!()
+            }
         }
     }
 
-    fn with_children<I>(&self, children: I) -> Self where
-        I: IntoIterator<Item=Self> {
+    fn with_children<I>(&self, children: I) -> Self
+    where
+        I: IntoIterator<Item = Self>,
+    {
         let mut it = children.into_iter();
         match self {
-            IAbstractType::Option(op ) => IAbstractType::Option(it.next().expect("").into()),
+            IAbstractType::Option(op) => IAbstractType::Option(it.next().expect("").into()),
             IAbstractType::Tuple(v) => IAbstractType::Tuple(it.collect()),
             t => t.clone(),
         }
@@ -139,11 +147,11 @@ impl rusttyc::types::TryReifiable for IAbstractType {
     fn try_reify(&self) -> Result<Self::Reified, ReificationErr> {
         match self {
             IAbstractType::Any => Err(ReificationErr::TooGeneral("Cannot reify `Any`.".to_string())),
-            IAbstractType::Integer(w) if *w <= 8 => Ok(IConcreteType::Integer8),
-            IAbstractType::Integer(w) if *w <= 16 => Ok(IConcreteType::Integer16),
-            IAbstractType::Integer(w) if *w <= 32 => Ok(IConcreteType::Integer32),
-            IAbstractType::Integer(w) if *w <= 64 => Ok(IConcreteType::Integer64),
-            IAbstractType::Integer(w) => {
+            IAbstractType::SInteger(w) if *w <= 8 => Ok(IConcreteType::Integer8),
+            IAbstractType::SInteger(w) if *w <= 16 => Ok(IConcreteType::Integer16),
+            IAbstractType::SInteger(w) if *w <= 32 => Ok(IConcreteType::Integer32),
+            IAbstractType::SInteger(w) if *w <= 64 => Ok(IConcreteType::Integer64),
+            IAbstractType::SInteger(w) => {
                 Err(ReificationErr::Conflicting(format!("Integer too wide, {}-bit not supported.", w)))
             }
             IAbstractType::UInteger(w) if *w <= 8  => Ok(IConcreteType::UInteger8),
@@ -160,6 +168,9 @@ impl rusttyc::types::TryReifiable for IAbstractType {
             }
             IAbstractType::Numeric => Err(ReificationErr::TooGeneral(
                 "Cannot reify a numeric value. Either define a default (int/fixed) or restrict type.".to_string(),
+            )),
+            IAbstractType::Integer => Err(ReificationErr::TooGeneral(
+                "Cannot reify an Integer value. Either define a default (int/uint) or restrict type.".to_string(),
             )),
             IAbstractType::Bool => Ok(IConcreteType::Bool),
             IAbstractType::Tuple(sub_types) => {
@@ -199,10 +210,10 @@ impl rusttyc::types::Generalizable for IConcreteType {
         match self {
             IConcreteType::Float64 => IAbstractType::Float(64),
             IConcreteType::Float32 => IAbstractType::Float(32),
-            IConcreteType::Integer8 => IAbstractType::Integer(8),
-            IConcreteType::Integer16 => IAbstractType::Integer(16),
-            IConcreteType::Integer32 => IAbstractType::Integer(32),
-            IConcreteType::Integer64 => IAbstractType::Integer(64),
+            IConcreteType::Integer8 => IAbstractType::SInteger(8),
+            IConcreteType::Integer16 => IAbstractType::SInteger(16),
+            IConcreteType::Integer32 => IAbstractType::SInteger(32),
+            IConcreteType::Integer64 => IAbstractType::SInteger(64),
             IConcreteType::UInteger8 => IAbstractType::UInteger(8),
             IConcreteType::UInteger16 => IAbstractType::UInteger(16),
             IConcreteType::UInteger32 => IAbstractType::UInteger(32),

@@ -1,5 +1,5 @@
-extern crate rusttyc;
 extern crate rtlola_frontend as front;
+extern crate rusttyc;
 
 mod pacing_ast_climber;
 mod pacing_types;
@@ -9,6 +9,7 @@ mod value_types;
 
 use crate::rtltc::LolaTypChecker;
 use front::ast::RTLolaAst;
+use front::parse::SourceMapper;
 use front::FrontendConfig;
 use std::env;
 use std::error::Error;
@@ -16,7 +17,6 @@ use std::fs::File;
 use std::io::Read;
 use std::option::Option;
 use std::path::{Path, PathBuf};
-use front::parse::SourceMapper;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
