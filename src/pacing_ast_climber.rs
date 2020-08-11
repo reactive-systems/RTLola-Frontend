@@ -1,7 +1,9 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{parse_abstract_type, AbstractPacingType, Freq};
+use crate::pacing_types::{
+    parse_abstract_type, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
+};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
@@ -54,7 +56,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
-        let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(input.name.name.as_str()));
+        let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(&input.id.to_string()));
         let input_key = self.node_key[&input.id];
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
@@ -91,7 +93,8 @@ impl<'a> Context<'a> {
 
         // Infer resulting type
         let output_key = self.node_key[&output.id];
-        self.tyc.impose(output_key.is_meet_of(declared_ac_key, exp_key))
+        self.tyc
+            .impose(output_key.is_meet_of(declared_ac_key, exp_key))
     }
 
     pub fn expression_infer(
@@ -103,7 +106,8 @@ impl<'a> Context<'a> {
         match &exp.kind {
             ExpressionKind::Lit(_) => {
                 let literal_type = Event(self.bdd_vars.mk_true());
-                self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
+                self.tyc
+                    .impose(term_key.concretizes_explicit(literal_type))?;
             }
             ExpressionKind::Ident(_) => {
                 let decl = &self.decl[&exp.id];
@@ -140,8 +144,9 @@ impl<'a> Context<'a> {
                 self.tyc.impose(term_key.equate_with(ex_key))?;
             }
             ExpressionKind::SlidingWindowAggregation { .. } => {
-                self.tyc
-                    .impose(term_key.concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)))?;
+                self.tyc.impose(
+                    term_key.concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)),
+                )?;
                 // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
             }
             ExpressionKind::Binary(_, left, right) => {
@@ -160,17 +165,25 @@ impl<'a> Context<'a> {
                 let cons_key = self.expression_infer(&*cons)?;
                 let alt_key = self.expression_infer(&*alt)?;
 
-                self.tyc.impose(term_key.is_meet_of_all(&vec![cond_key, cons_key, alt_key]))?;
+                self.tyc
+                    .impose(term_key.is_meet_of_all(&vec![cond_key, cons_key, alt_key]))?;
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(elements) => {
-                let ele_keys: Vec<TcKey> = elements.iter().map(|e| self.expression_infer(&*e)).collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
+                let ele_keys: Vec<TcKey> = elements
+                    .iter()
+                    .map(|e| self.expression_infer(&*e))
+                    .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>(
+                )?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
             ExpressionKind::Field(_, _) => unimplemented!(),
             ExpressionKind::Method(body, _, _, args) => {
                 let body_key = self.expression_infer(&*body)?;
-                let mut arg_keys: Vec<TcKey> = args.iter().map(|e| self.expression_infer(&*e)).collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
+                let mut arg_keys: Vec<TcKey> =
+                    args.iter()
+                        .map(|e| self.expression_infer(&*e))
+                        .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
                 arg_keys.push(body_key);
                 self.tyc.impose(term_key.is_meet_of_all(&arg_keys))?;
             }
@@ -204,79 +217,73 @@ impl<'a> Context<'a> {
 
 #[cfg(test)]
 mod pacing_type_tests {
-    use std::path::PathBuf;
+    use crate::pacing_types::{AbstractPacingType, ActivationCondition, ConcretePacingType};
     use crate::LolaTypChecker;
-    use front::parse::SourceMapper;
-    use std::collections::HashMap;
-    use front::parse::{NodeId};
-    use front::RTLolaAst;
-    use front::reporting::Handler;
+    use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
     use front::analysis::naming::Declaration;
-    use crate::pacing_types::AbstractPacingType;
-    use biodivine_lib_bdd::{Bdd, BddVariableSet, BddVariableSetBuilder};
+    use front::parse::NodeId;
+    use front::parse::SourceMapper;
+    use front::reporting::Handler;
+    use front::RTLolaAst;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
-    struct Test_Box {
-        pub spec: RTLolaAst,
-        pub dec: HashMap<NodeId, Declaration>,
-        pub handler: Handler,
-    }
-
-    fn setup_ast(spec: &str) -> Test_Box {
+    fn setup_ast(spec: &str) -> (RTLolaAst, HashMap<NodeId, Declaration>, Handler) {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
-        let spec :RTLolaAst = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
-            Ok(s) => s,
-            Err(e) => panic!("Spech {} cannot be parsed: {}",spec,e),
-        };
-        let mut na = front::analysis::naming::NamingAnalysis::new(&handler, front::FrontendConfig::default());
-        let mut dec = na.check(&spec);
-        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
-        Test_Box {spec, dec, handler}
+        let spec: RTLolaAst =
+            match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
+                Ok(s) => s,
+                Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
+            };
+        let mut na = front::analysis::naming::NamingAnalysis::new(
+            &handler,
+            front::FrontendConfig::default(),
+        );
+        let dec = na.check(&spec);
+        assert!(
+            !handler.contains_error(),
+            "Spec produces errors in naming analysis."
+        );
+        (spec, dec, handler)
     }
 
     fn num_errors(spec: &str) -> usize {
-        let test_box = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
-        ltc.pacing_type_infer();
-        return test_box.handler.emitted_errors();
-    }
-
-    fn build_var_set(ast: &RTLolaAst) -> BddVariableSet{
-        let mut bdd_var_builder = BddVariableSetBuilder::new();
-        for input in &ast.inputs {
-            bdd_var_builder.make_variable(input.name.name.as_str());
-        }
-        bdd_var_builder.build()
-    }
-
-    fn assert_event_type(tt: &HashMap<NodeId, AbstractPacingType>, var_set: &BddVariableSet, id: NodeId, type_str: &str){
-        let expected = AbstractPacingType::Event(var_set.eval_expression_string(type_str));
-        assert_eq!(tt[&id], expected, "Expected: <{}>, Got: <{}>", expected.to_string(var_set), tt[&id].to_string(var_set));
-        println!("Expected: <{}>, Got: <{}>", expected.to_string(var_set), tt[&id].to_string(var_set));
+        let (spec, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&spec, dec.clone(), &handler);
+        ltc.pacing_type_infer().unwrap();
+        return handler.emitted_errors();
     }
 
     #[test]
     fn test_input() {
         assert_eq!(num_errors("input i: Int8"), 0);
     }
-    
+
     #[test]
     fn test_input_ac() {
-        let test_box = setup_ast("input i: Int8");
-        let var_set = build_var_set(&test_box.spec);
-        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let spec = "input i: Int8";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
-        let ast = &test_box.spec;
-        //assert_event_type(&tt, &var_set, ast.inputs[0].id, "i");
+        assert_eq!(num_errors(spec), 0);
+        assert_eq!(
+            tt[&ast.inputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
     }
 
     #[test]
     fn test_ac_conjunction() {
-        let test_box = setup_ast("input a: Int8\n input b: Int8 \n output o := a + b");
-        let var_set = build_var_set(&test_box.spec);
-        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let spec = "input a: Int8\n input b: Int8 \n output o := a + b";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
-        let ast = &test_box.spec;
-        //assert_event_type(&tt, &var_set, ast.outputs[0].id, "a & b");
+        assert_eq!(num_errors(spec), 0);
+        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
+        let ac_b = ActivationCondition::Stream(ast.inputs[1].id);
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Conjunction(vec![ac_a, ac_b]))
+        );
     }
-
 }

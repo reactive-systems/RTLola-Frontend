@@ -1,15 +1,12 @@
-use biodivine_lib_bdd::{Bdd, BddVariableSet};
 use biodivine_lib_bdd::boolean_expression::BooleanExpression;
-use front::ast::{BinOp, Expression, ExpressionKind, LitKind, UnOp};
-use front::parse::NodeId;
-use front::parse::Span;
+use biodivine_lib_bdd::{Bdd, BddVariableSet};
+use front::ast::{BinOp, Expression, ExpressionKind, LitKind};
+use front::parse::{NodeId, Span};
 use num::{CheckedDiv, Integer};
 use std::convert::TryFrom;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
-use std::collections::HashMap;
-
 
 /// Parses either a periodic or an event based pacing type from an expression
 pub fn parse_abstract_type(
@@ -40,10 +37,7 @@ pub fn parse_abstract_type(
     }
 }
 
-fn parse_ac(
-    ast_expr: &Expression,
-    var_set: &BddVariableSet,
-) -> Result<Bdd, (String, Span)> {
+fn parse_ac(ast_expr: &Expression, var_set: &BddVariableSet) -> Result<Bdd, (String, Span)> {
     use ExpressionKind::*;
     match &ast_expr.kind {
         Lit(l) => match l.kind {
@@ -156,7 +150,7 @@ pub enum UnificationError {
 
 // Abstract Type Definition
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AbstractPacingType{
+pub enum AbstractPacingType {
     /// An event stream is extended when its activation condition is satisfied.
     Event(Bdd),
     /// A real-time stream is extended periodically.
@@ -184,7 +178,10 @@ impl rusttyc::types::Abstract for AbstractPacingType {
                 if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
                     Ok(Periodic(f1.conjunction(&f2)))
                 } else {
-                    Err(UnificationError::IncompatibleFrequencies(f1.clone(), f2.clone()))
+                    Err(UnificationError::IncompatibleFrequencies(
+                        f1.clone(),
+                        f2.clone(),
+                    ))
                 }
             }
         }
@@ -198,25 +195,20 @@ impl rusttyc::types::Abstract for AbstractPacingType {
         unreachable!()
     }
 
-    fn with_children<I>(&self, _children: I) -> Self where
-        I: IntoIterator<Item=Self> {
+    fn with_children<I>(&self, _children: I) -> Self
+    where
+        I: IntoIterator<Item = Self>,
+    {
         unreachable!()
     }
 }
 
 impl AbstractPacingType {
-    pub(crate) fn to_string(&self, vars: &BddVariableSet) -> String{
-        match self{
-            AbstractPacingType::Event(b) => {
-                format!("Event({})", b.to_boolean_expression(vars))
-            },
-            AbstractPacingType::Periodic(freq) => {
-                format!("Periodic({})", freq)
-            },
-            AbstractPacingType::Any => 
-            {
-                "Any".to_string()
-            }
+    pub(crate) fn to_string(&self, vars: &BddVariableSet) -> String {
+        match self {
+            AbstractPacingType::Event(b) => format!("Event({})", b.to_boolean_expression(vars)),
+            AbstractPacingType::Periodic(freq) => format!("Periodic({})", freq),
+            AbstractPacingType::Any => "Any".to_string(),
         }
     }
 }
@@ -239,16 +231,15 @@ pub enum ActivationCondition {
     /**
     Whenever the specified stream produces a new value.
     */
-    Stream(u32),
+    Stream(NodeId),
     /**
     Whenever an event-based stream produces a new value.
     */
     True,
 }
 
-/*
 impl ActivationCondition {
-    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, String>{
+    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, String> {
         use BooleanExpression::*;
         match exp {
             Const(b) => {
@@ -259,34 +250,76 @@ impl ActivationCondition {
                 }
             }
             Variable(s) => {
-                let id = s.parse::<u32>();
-                match id{
-                    Ok(i) => Ok(ActivationCondition::Stream(i)),
-                    Err(_) => Err("Wrong Variable in AC".to_string())
+                let id = s.parse::<usize>();
+                match id {
+                    Ok(i) => Ok(ActivationCondition::Stream(NodeId::new(i))),
+                    Err(_) => Err("Wrong Variable in AC".to_string()),
                 }
             }
             And(left, right) => {
                 let l = ActivationCondition::from_expression(*left)?;
                 let r = ActivationCondition::from_expression(*right)?;
                 match (l, r) {
-                    (ActivationCondition::Conjunction(mut left), ActivationCondition::Conjunction(mut right)) => {
+                    (
+                        ActivationCondition::Conjunction(mut left),
+                        ActivationCondition::Conjunction(mut right),
+                    ) => {
                         left.append(&mut right);
                         Ok(ActivationCondition::Conjunction(left))
-                    },
-                    (ActivationCondition::Conjunction(mut other_con), other_ac) |
-                    (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
+                    }
+                    (ActivationCondition::Conjunction(mut other_con), other_ac)
+                    | (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
                         other_con.push(other_ac);
                         Ok(ActivationCondition::Conjunction(other_con))
-                    },
-
+                    }
+                    (a, b) => Ok(ActivationCondition::Conjunction(vec![a, b])),
                 }
             }
+            Or(left, right) => {
+                let l = ActivationCondition::from_expression(*left)?;
+                let r = ActivationCondition::from_expression(*right)?;
+                match (l, r) {
+                    (
+                        ActivationCondition::Disjunction(mut left),
+                        ActivationCondition::Disjunction(mut right),
+                    ) => {
+                        left.append(&mut right);
+                        Ok(ActivationCondition::Disjunction(left))
+                    }
+                    (ActivationCondition::Disjunction(mut other_con), other_ac)
+                    | (other_ac, ActivationCondition::Disjunction(mut other_con)) => {
+                        other_con.push(other_ac);
+                        Ok(ActivationCondition::Disjunction(other_con))
+                    }
+                    (a, b) => Ok(ActivationCondition::Disjunction(vec![a, b])),
+                }
+            }
+            _ => Err("Unsupported Operation in AC".to_string()),
         }
     }
 }
-*/
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum ConcretePacingType {
     Event(ActivationCondition),
-    Periodic(UOM_Frequency)
+    Periodic(UOM_Frequency),
+}
+
+impl ConcretePacingType {
+    pub(crate) fn from_abstract(
+        abs_t: AbstractPacingType,
+        vars: &BddVariableSet,
+    ) -> Result<Self, String> {
+        match abs_t {
+            AbstractPacingType::Any => Err("Cannot concretize 'Any'.".to_string()),
+            AbstractPacingType::Event(b) => {
+                ActivationCondition::from_expression(b.to_boolean_expression(vars))
+                    .map(|ac| ConcretePacingType::Event(ac))
+            }
+            AbstractPacingType::Periodic(freq) => match freq {
+                Freq::Fixed(f) => Ok(ConcretePacingType::Periodic(f.clone())),
+                Freq::Any => Err("Cannot concretize 'Any' frequency.".to_string()),
+            },
+        }
+    }
 }

@@ -1,20 +1,17 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
-use crate::pacing_types::{AbstractPacingType, ConcretePacingType, Freq, ActivationCondition};
+use crate::pacing_types::ConcretePacingType;
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::{IAbstractType, IConcreteType};
-use bimap::BiMap;
 use front::analysis::naming::DeclarationTable;
 use front::ast::RTLolaAst;
 use front::parse::NodeId;
 use front::reporting::{Handler, LabeledSpan};
-use rusttyc::types::{AbstractTypeTable, ReifiedTypeTable};
-use rusttyc::TcKey;
+use rusttyc::types::ReifiedTypeTable;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-#[derive()]
 pub struct LolaTypChecker<'a> {
     pub(crate) ast: RTLolaAst,
     pub(crate) declarations: DeclarationTable,
@@ -36,29 +33,31 @@ impl<'a> LolaTypChecker<'a> {
         self.pacing_type_infer();
     }
 
-    pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId,ConcretePacingType>,String> {
+    pub(crate) fn pacing_type_infer(
+        &mut self,
+    ) -> Result<HashMap<NodeId, ConcretePacingType>, String> {
         let mut ctx = PacingContext::new(&self.ast, &self.declarations);
 
         for input in &self.ast.inputs {
-            if ctx.input_infer(input).is_err(){
+            if ctx.input_infer(input).is_err() {
                 self.handler.error("Typecheck error on inputs");
             }
         }
 
         for constant in &self.ast.constants {
-            if ctx.constant_infer(constant).is_err(){
+            if ctx.constant_infer(constant).is_err() {
                 self.handler.error("Typecheck error on constants");
             }
         }
 
         for output in &self.ast.outputs {
-            if ctx.output_infer(output).is_err(){
+            if ctx.output_infer(output).is_err() {
                 self.handler.error("Typecheck error on outputs");
             }
         }
 
         for trigger in &self.ast.trigger {
-            if ctx.trigger_infer(trigger).is_err(){
+            if ctx.trigger_infer(trigger).is_err() {
                 self.handler.error("Typecheck error on triggers");
             }
         }
@@ -72,30 +71,24 @@ impl<'a> LolaTypChecker<'a> {
             }
         };
 
-        if self.handler.contains_error(){
+        let ctt: HashMap<NodeId, ConcretePacingType> = ctx
+            .node_key
+            .into_iter()
+            .filter_map(|(id, key)| {
+                match ConcretePacingType::from_abstract(tt[key].clone(), &vars) {
+                    Ok(ct) => Some((id, ct)),
+                    Err(e) => {
+                        self.handler.error(&e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        if self.handler.contains_error() {
             return Err("Typecheck error".to_string());
         }
-        let tt:HashMap<NodeId,ConcretePacingType> = ctx.node_key.clone().iter()
-        .filter_map(|(id, key)| match &tt[*key] {
-            AbstractPacingType::Any => {
-                self.handler.error("Typetable contained 'Any'");
-                None
-            },
-            AbstractPacingType::Periodic(freq) => {
-                match freq {
-                    Freq::Any => {
-                        self.handler.error("Typetable contained 'Any' frequency");
-                        None
-                    },
-                    Freq::Fixed(f) => Some((*id, ConcretePacingType::Periodic(f.clone())))
-                }
-            },
-            AbstractPacingType::Event(b) => {
-                let expr = b.to_boolean_expression(&vars);
-                Some((*id, ConcretePacingType::Event(ActivationCondition::True)))
-            }
-        }).collect();
-        Ok(tt)
+        Ok(ctt)
     }
 
     fn value_type_infer(&self) -> Result<HashMap<NodeId, IConcreteType>, String> {
@@ -272,7 +265,7 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.spec.outputs[0].id;
         //assert_eq!(0, complete_check(spec)); //TODO FIXME: pacing types cant handle params in expr
-        assert_eq!(0,tb.handler.emitted_errors());
+        assert_eq!(0, tb.handler.emitted_errors());
         assert_eq!(result_map[&output_id], IConcreteType::UInteger8);
     }
 
@@ -295,5 +288,4 @@ mod value_type_tests {
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&cons_id], IConcreteType::Float32);
     }
-
 }
