@@ -4,6 +4,7 @@ extern crate regex;
 use crate::pacing_types::{
     parse_abstract_type, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
 };
+use bimap::{BiMap, Overwritten};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
@@ -20,14 +21,14 @@ impl rusttyc::TcVar for Variable {}
 pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
     pub(crate) decl: &'a DeclarationTable,
-    pub(crate) node_key: HashMap<NodeId, TcKey>,
+    pub(crate) node_key: BiMap<NodeId, TcKey>,
     pub(crate) bdd_vars: BddVariableSet,
 }
 
 impl<'a> Context<'a> {
     pub fn new(ast: &RTLolaAst, decl: &'a DeclarationTable) -> Context<'a> {
         let mut bdd_var_builder = BddVariableSetBuilder::new();
-        let mut node_key = HashMap::new();
+        let mut node_key = BiMap::new();
         let mut tyc = TypeChecker::new();
 
         for input in &ast.inputs {
@@ -57,13 +58,13 @@ impl<'a> Context<'a> {
 
     pub fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(&input.id.to_string()));
-        let input_key = self.node_key[&input.id];
+        let input_key = self.node_key.get_by_left(&input.id).unwrap();
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
 
     pub fn constant_infer(&mut self, constant: &Constant) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(self.bdd_vars.mk_true());
-        let const_key = self.node_key[&constant.id];
+        let const_key = self.node_key.get_by_left(&constant.id).unwrap();
         self.tyc.impose(const_key.concretizes_explicit(ac))
     }
 
@@ -76,13 +77,14 @@ impl<'a> Context<'a> {
 
     pub fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
         // Type declared AC
-        let declared_ac = match parse_abstract_type(output.extend.expr.as_ref(), &self.bdd_vars) {
-            Ok(b) => b,
-            Err((reason, span)) => {
-                // Todo: Handle properly once the interface is done
-                unimplemented!();
-            }
-        };
+        let declared_ac =
+            match parse_abstract_type(output.extend.expr.as_ref(), &self.bdd_vars, self.decl) {
+                Ok(b) => b,
+                Err((reason, span)) => {
+                    // Todo: Handle properly once the interface is done
+                    unimplemented!("{}", reason);
+                }
+            };
         let declared_ac_key = self.tyc.new_term_key();
         self.tyc
             .impose(declared_ac_key.concretizes_explicit(declared_ac))?;
@@ -92,9 +94,12 @@ impl<'a> Context<'a> {
         let exp_key = self.expression_infer(&output.expression)?;
 
         // Infer resulting type
-        let output_key = self.node_key[&output.id];
+        let output_key = self.node_key.get_by_left(&output.id).unwrap();
         self.tyc
-            .impose(output_key.is_meet_of(declared_ac_key, exp_key))
+            .impose(output_key.is_meet_of(declared_ac_key, exp_key))?;
+
+        // Todo: How to check implication?
+        self.tyc.impose(output_key.equate_with(declared_ac_key))
     }
 
     pub fn expression_infer(
@@ -105,7 +110,7 @@ impl<'a> Context<'a> {
         use AbstractPacingType::*;
         match &exp.kind {
             ExpressionKind::Lit(_) => {
-                let literal_type = Event(self.bdd_vars.mk_true());
+                let literal_type = Any;
                 self.tyc
                     .impose(term_key.concretizes_explicit(literal_type))?;
             }
@@ -120,26 +125,25 @@ impl<'a> Context<'a> {
                         unreachable!("ensured by naming analysis {:?}", decl)
                     }
                 };
-                let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.equate_with(key))?;
+                let key = self.node_key.get_by_left(&node_id).unwrap();
+                self.tyc.impose(term_key.equate_with(*key))?;
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
                 let ex_key = self.expression_infer(ex)?;
                 match kind {
-                    Sync => self.tyc.impose(term_key.equate_with(ex_key))?,
-                    Optional | Hold => self.tyc.impose(term_key.concretizes_explicit(Any))?,
+                    Optional | Sync => self.tyc.impose(term_key.equate_with(ex_key))?,
+                    Hold => self.tyc.impose(term_key.concretizes_explicit(Any))?,
                 };
             }
             ExpressionKind::Default(ex, default) => {
-                self.expression_infer(&*ex)?; //Option<X>
-                let def_key = self.expression_infer(&*default)?; // Y
+                let ex_key = self.expression_infer(&*ex)?;
+                let def_key = self.expression_infer(&*default)?;
 
-                // Is this correct?
-                self.tyc.impose(term_key.equate_with(def_key))?;
+                self.tyc.impose(term_key.is_meet_of(ex_key, def_key))?;
             }
             ExpressionKind::Offset(expr, _) => {
-                let ex_key = self.expression_infer(&*expr)?; // X
+                let ex_key = self.expression_infer(&*expr)?;
 
                 self.tyc.impose(term_key.equate_with(ex_key))?;
             }
@@ -197,8 +201,8 @@ impl<'a> Context<'a> {
 
                 match decl {
                     Declaration::ParamOut(out) => {
-                        let output_key = self.node_key[&out.id];
-                        self.tyc.impose(term_key.concretizes(output_key))?;
+                        let output_key = self.node_key.get_by_left(&out.id).unwrap();
+                        self.tyc.impose(term_key.concretizes(*output_key))?;
                     }
                     _ => {}
                 };
@@ -216,6 +220,12 @@ impl<'a> Context<'a> {
 }
 
 #[cfg(test)]
+/*
+Todo:
+- Constant not constant
+- aggregations
+- parameters
+ */
 mod pacing_type_tests {
     use crate::pacing_types::{AbstractPacingType, ActivationCondition, ConcretePacingType};
     use crate::LolaTypChecker;
@@ -225,15 +235,19 @@ mod pacing_type_tests {
     use front::parse::SourceMapper;
     use front::reporting::Handler;
     use front::RTLolaAst;
+    use num::rational::Rational64 as Rational;
+    use num::FromPrimitive;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use uom::si::frequency::hertz;
+    use uom::si::rational64::Frequency as UOM_Frequency;
 
     fn setup_ast(spec: &str) -> (RTLolaAst, HashMap<NodeId, Declaration>, Handler) {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let spec: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
                 Ok(s) => s,
-                Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
+                Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
             };
         let mut na = front::analysis::naming::NamingAnalysis::new(
             &handler,
@@ -250,17 +264,12 @@ mod pacing_type_tests {
     fn num_errors(spec: &str) -> usize {
         let (spec, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypChecker::new(&spec, dec.clone(), &handler);
-        ltc.pacing_type_infer().unwrap();
+        ltc.pacing_type_infer();
         return handler.emitted_errors();
     }
 
     #[test]
-    fn test_input() {
-        assert_eq!(num_errors("input i: Int8"), 0);
-    }
-
-    #[test]
-    fn test_input_ac() {
+    fn test_input_simple() {
         let spec = "input i: Int8";
         let (ast, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
@@ -273,7 +282,7 @@ mod pacing_type_tests {
     }
 
     #[test]
-    fn test_ac_conjunction() {
+    fn test_output_simple() {
         let spec = "input a: Int8\n input b: Int8 \n output o := a + b";
         let (ast, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
@@ -285,5 +294,161 @@ mod pacing_type_tests {
             tt[&ast.outputs[0].id],
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![ac_a, ac_b]))
         );
+    }
+
+    #[test]
+    fn test_constant_simple() {
+        let spec = "constant c: UInt8 := -2";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+        assert_eq!(
+            tt[&ast.constants[0].id],
+            ConcretePacingType::Event(ActivationCondition::True)
+        );
+    }
+
+    #[test]
+    fn test_trigger_simple() {
+        let spec = "input a: Int8\n trigger a == 42";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
+        assert_eq!(tt[&ast.trigger[0].id], ConcretePacingType::Event(ac_a));
+    }
+
+    #[test]
+    fn test_disjunction_annotated() {
+        let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := 1";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
+        let ac_b = ActivationCondition::Stream(ast.inputs[1].id);
+        assert_eq!(num_errors(spec), 0);
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Disjunction(vec![ac_a, ac_b]))
+        );
+    }
+
+    #[test]
+    fn test_frequency_simple() {
+        let spec = "output a: UInt8 @10Hz := 0";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+                Rational::from_u8(10).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_frequency_conjunction() {
+        let spec = "output a: Int32 @10Hz := 0\noutput b: Int32 @5Hz := 0\noutput x := a+b";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+
+        assert_eq!(
+            tt[&ast.outputs[2].id],
+            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+                Rational::from_u8(5).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_get_not_possible() {
+        // it should not be possible to use get with RealTime and EventBased streams
+        let spec = "input a: Int32\noutput x: Int32 @ 1Hz := 0\noutput y:Int32 @ a := x.get().defaults(to: 0)";
+        assert_eq!(num_errors(spec), 1);
+        let spec = "input a: Int32\noutput x: Int32 @ a := 0\noutput y:Int32 @ 1Hz := x.get().defaults(to: 0)";
+        assert_eq!(num_errors(spec), 1);
+    }
+
+    #[test]
+    fn test_normalization_event_streams() {
+        let spec = "input a: Int32\ninput b: Int32\ninput c: Int32\noutput x := a + b\noutput y := x + x + c";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+        // node ids can be verified using `rtlola-analyze spec.lola ast`
+        //  input `a` has NodeId =  1
+        let a_id = NodeId::new(1);
+        //  input `b` has NodeId =  3
+        let b_id = NodeId::new(3);
+        //  input `c` has NodeId =  5
+        let c_id = NodeId::new(5);
+        // output `x` has NodeId = 11
+        let x_id = NodeId::new(11);
+        // output `y` has NodeId = 19
+        let y_id = NodeId::new(19);
+
+        assert_eq!(
+            tt[&x_id],
+            ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
+                ActivationCondition::Stream(a_id),
+                ActivationCondition::Stream(b_id)
+            ]))
+        );
+
+        assert_eq!(
+            tt[&y_id],
+            ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
+                ActivationCondition::Stream(a_id),
+                ActivationCondition::Stream(b_id),
+                ActivationCondition::Stream(c_id)
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_realtime_stream_integer_offset() {
+        let spec = "output b @2Hz := b[-1].defaults(to: 0)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_realtime_stream_integer_offset_faster() {
+        let spec =
+            "output a @4Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
+        // equivalent to b[-500ms].defaults(to: 0) + a[-250ms].defaults(to: 0)
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_realtime_stream_integer_offset_incompatible() {
+        let spec =
+            "output a @3Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
+        // does not work, a[-1] is not guaranteed to exist
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_realtime_stream_integer_offset_sample_and_hold() {
+        let spec = "
+            output a @3Hz := 0
+            output a_offset := a[-1].defaults(to: 0)
+            output b @2Hz := b[-1].defaults(to: 0) + a_offset.hold().defaults(to: 0)
+        ";
+        // workaround using sample and hold
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    #[ignore] // Fix me
+    fn test_no_direct_access_possible() {
+        let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := a";
+        assert_eq!(1, num_errors(spec));
     }
 }

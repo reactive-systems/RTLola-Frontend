@@ -65,8 +65,8 @@ impl<'a> LolaTypChecker<'a> {
         let vars = ctx.bdd_vars.clone();
         let tt = match ctx.tyc.type_check() {
             Ok(t) => t,
-            Err(_) => {
-                self.handler.error("Typecheck error");
+            Err(e) => {
+                self.handler.error(&format!("Typecheck error: {:?}", e));
                 return Err("Typecheck error".to_string());
             }
         };
@@ -87,6 +87,9 @@ impl<'a> LolaTypChecker<'a> {
 
         if self.handler.contains_error() {
             return Err("Typecheck error".to_string());
+        }
+        for (id, t) in &ctt {
+            println!("ID: {}, Type: {:?}", id, t);
         }
         Ok(ctt)
     }

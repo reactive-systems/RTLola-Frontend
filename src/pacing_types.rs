@@ -1,5 +1,6 @@
 use biodivine_lib_bdd::boolean_expression::BooleanExpression;
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
+use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{BinOp, Expression, ExpressionKind, LitKind};
 use front::parse::{NodeId, Span};
 use num::{CheckedDiv, Integer};
@@ -9,18 +10,19 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 /// Parses either a periodic or an event based pacing type from an expression
-pub fn parse_abstract_type(
+pub fn parse_abstract_type<'a>(
     ast_expr: Option<&Expression>,
     var_set: &BddVariableSet,
+    decl: &'a DeclarationTable,
 ) -> Result<AbstractPacingType, (String, Span)> {
     if ast_expr.is_none() {
-        return Ok(AbstractPacingType::Event(var_set.mk_true()));
+        return Ok(AbstractPacingType::Any);
     }
     let ast_expr = ast_expr.unwrap();
     match &ast_expr.kind {
         ExpressionKind::Lit(l) => match l.kind {
             LitKind::Bool(_) => {
-                let ac = parse_ac(ast_expr, var_set)?;
+                let ac = parse_ac(ast_expr, var_set, decl)?;
                 Ok(AbstractPacingType::Event(ac))
             }
             _ => {
@@ -31,13 +33,17 @@ pub fn parse_abstract_type(
             }
         },
         _ => {
-            let ac = parse_ac(ast_expr, var_set)?;
+            let ac = parse_ac(ast_expr, var_set, decl)?;
             Ok(AbstractPacingType::Event(ac))
         }
     }
 }
 
-fn parse_ac(ast_expr: &Expression, var_set: &BddVariableSet) -> Result<Bdd, (String, Span)> {
+fn parse_ac<'a>(
+    ast_expr: &Expression,
+    var_set: &BddVariableSet,
+    decl: &'a DeclarationTable,
+) -> Result<Bdd, (String, Span)> {
     use ExpressionKind::*;
     match &ast_expr.kind {
         Lit(l) => match l.kind {
@@ -50,10 +56,22 @@ fn parse_ac(ast_expr: &Expression, var_set: &BddVariableSet) -> Result<Bdd, (Str
             }
             _ => Err(("Unexpected literal in activation condition".into(), l.span)),
         },
-        Ident(i) => Ok(var_set.mk_var_by_name(i.name.as_str())),
+        Ident(i) => {
+            let declartation = &decl[&ast_expr.id];
+            let id = match declartation {
+                Declaration::Const(c) => c.id,
+                Declaration::Out(out) => out.id,
+                Declaration::ParamOut(param) => param.id,
+                Declaration::In(input) => input.id,
+                Declaration::Type(_) | Declaration::Param(_) | Declaration::Func(_) => {
+                    unreachable!("ensured by naming analysis {:?}", decl)
+                }
+            };
+            Ok(var_set.mk_var_by_name(&id.to_string()))
+        }
         Binary(op, l, r) => {
-            let ac_l = parse_ac(l, var_set)?;
-            let ac_r = parse_ac(r, var_set)?;
+            let ac_l = parse_ac(l, var_set, decl)?;
+            let ac_r = parse_ac(r, var_set, decl)?;
             use BinOp::*;
             match op {
                 And => Ok(ac_l.and(&ac_r)),
@@ -65,6 +83,7 @@ fn parse_ac(ast_expr: &Expression, var_set: &BddVariableSet) -> Result<Bdd, (Str
                 )),
             }
         }
+        ParenthesizedExpression(_, exp, _) => parse_ac(exp, var_set, decl),
         _ => Err((
             "Unexpected expression in activation condition".into(),
             ast_expr.span,
@@ -265,11 +284,15 @@ impl ActivationCondition {
                         ActivationCondition::Conjunction(mut right),
                     ) => {
                         left.append(&mut right);
+                        left.dedup();
+                        left.sort();
                         Ok(ActivationCondition::Conjunction(left))
                     }
                     (ActivationCondition::Conjunction(mut other_con), other_ac)
                     | (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
                         other_con.push(other_ac);
+                        other_con.dedup();
+                        other_con.sort();
                         Ok(ActivationCondition::Conjunction(other_con))
                     }
                     (a, b) => Ok(ActivationCondition::Conjunction(vec![a, b])),
@@ -284,11 +307,15 @@ impl ActivationCondition {
                         ActivationCondition::Disjunction(mut right),
                     ) => {
                         left.append(&mut right);
+                        left.dedup();
+                        left.sort();
                         Ok(ActivationCondition::Disjunction(left))
                     }
                     (ActivationCondition::Disjunction(mut other_con), other_ac)
                     | (other_ac, ActivationCondition::Disjunction(mut other_con)) => {
                         other_con.push(other_ac);
+                        other_con.dedup();
+                        other_con.sort();
                         Ok(ActivationCondition::Disjunction(other_con))
                     }
                     (a, b) => Ok(ActivationCondition::Disjunction(vec![a, b])),
@@ -301,8 +328,12 @@ impl ActivationCondition {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum ConcretePacingType {
+    /// The stream / expression can be evaluated whenever the activation condition is satisfied.
     Event(ActivationCondition),
+    /// The stream / expression can be evaluated with a fixed frequency.
     Periodic(UOM_Frequency),
+    /// The stream / expression can always be evaluated.
+    Constant,
 }
 
 impl ConcretePacingType {
@@ -311,7 +342,7 @@ impl ConcretePacingType {
         vars: &BddVariableSet,
     ) -> Result<Self, String> {
         match abs_t {
-            AbstractPacingType::Any => Err("Cannot concretize 'Any'.".to_string()),
+            AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(b) => {
                 ActivationCondition::from_expression(b.to_boolean_expression(vars))
                     .map(|ac| ConcretePacingType::Event(ac))
