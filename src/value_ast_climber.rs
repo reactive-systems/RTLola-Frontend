@@ -2,17 +2,17 @@ use super::*;
 extern crate regex;
 
 use crate::value_types::IAbstractType;
+use bimap::BiMap;
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Input, Output, Trigger};
 use front::ast::{Expression, LitKind, Type};
 use front::ast::{ExpressionKind, Parameter, TypeKind};
 use front::parse::NodeId;
 use front::ty::{TypeConstraint, ValueTy};
-use rusttyc::{TcKey, TypeChecker, TcErr};
-use rusttyc::types::{Abstract};
+use rusttyc::types::Abstract;
+use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 use std::rc::Rc;
-use bimap::BiMap;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -66,30 +66,31 @@ impl ValueContext {
         }
     }
 
-    pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>>{
+    pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self.node_key.get_by_left(&input.id).expect("");
         //Annotated Type
-        if let t= &input.ty {
+        if let t = &input.ty {
             let annotated_type_replaced = self.type_kind_match(t);
             self.tyc
                 .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
         };
         let mut param_types = Vec::new();
         for param in &input.params {
-            let param_key = self.tyc.get_var_key(&Variable{name: param.name.name.clone()});
+            let param_key = self.tyc.get_var_key(&Variable {
+                name: param.name.name.clone(),
+            });
             let t = self.type_kind_match(&param.ty);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             param_types.push(param_key);
         }
-        assert!(param_types.is_empty(),"parametric input types currently not supported");
+        assert!(
+            param_types.is_empty(),
+            "parametric input types currently not supported"
+        );
         Ok(term_key)
-
     }
 
-    pub fn constant_infer(
-        &mut self,
-        cons: &Constant,
-    ) -> Result<TcKey, TcErr<IAbstractType>>  {
+    pub fn constant_infer(&mut self, cons: &Constant) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self.node_key.get_by_left(&cons.id).expect("");
         //Annotated Type
         if let Some(t) = &cons.ty {
@@ -105,30 +106,42 @@ impl ValueContext {
         return Ok(term_key);
     }
 
-    pub fn output_infer(&mut self, out: &Output) -> Result<TcKey,TcErr<IAbstractType>> {
-        let out_key = *self.node_key.get_by_left(&out.id).expect("Added in constructor");
+    pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
+        let out_key = *self
+            .node_key
+            .get_by_left(&out.id)
+            .expect("Added in constructor");
 
-        if let t= &out.ty {
+        if let t = &out.ty {
             let annotated_type_replaced = self.type_kind_match(t);
             self.tyc
                 .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
         };
+
         let mut param_types = Vec::new();
         for param in &out.params {
-            let param_key = self.tyc.get_var_key(&Variable{ name: param.name.name.clone()});
+            let param_key = self.tyc.get_var_key(&Variable {
+                name: param.name.name.clone(),
+            });
+            self.node_key.insert(param.id,param_key);
+
             let t = self.type_kind_match(&param.ty);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             param_types.push(param_key);
         }
 
-        let expression_key = self.expression_infer(&out.expression,None)?;
-        self.tyc.impose(out_key.concretizes(expression_key))?;
+        let expression_key = self.expression_infer(&out.expression, None)?;
+
+        self.tyc.impose(out_key.equate_with(expression_key))?;
         Ok(out_key)
     }
 
     pub fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TcErr<IAbstractType>> {
-        let tr_key = *self.node_key.get_by_left(&tr.id).expect("Added in constructor");
-        let expression_key = self.expression_infer(&tr.expression,Some(IAbstractType::Bool))?;
+        let tr_key = *self
+            .node_key
+            .get_by_left(&tr.id)
+            .expect("Added in constructor");
+        let expression_key = self.expression_infer(&tr.expression, Some(IAbstractType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
@@ -145,7 +158,8 @@ impl ValueContext {
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
-                self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
+                self.tyc
+                    .impose(term_key.concretizes_explicit(literal_type))?;
             }
             ExpressionKind::Ident(id) => {
                 let decl = &self.decl[&exp.id];
@@ -154,11 +168,15 @@ impl ValueContext {
                     Declaration::Out(out) => out.id,
                     Declaration::ParamOut(param) => param.id,
                     Declaration::In(input) => input.id,
-                    Declaration::Type(_) | Declaration::Param(_) | Declaration::Func(_) => {
+                    Declaration::Param(p) => p.id,
+                    Declaration::Type(_) |  Declaration::Func(_) => {
                         unreachable!("ensured by naming analysis {:?}", decl)
                     }
                 };
-                let key = self.node_key.get_by_left(&node_id).expect("Value should be contained");
+                let key = self
+                    .node_key
+                    .get_by_left(&node_id)
+                    .expect("Value should be contained");
                 self.tyc.impose(term_key.equate_with(*key))?;
             }
             ExpressionKind::StreamAccess(ex, kind) => {
@@ -171,9 +189,12 @@ impl ValueContext {
                     }
                     Optional | Hold => {
                         //Optional and Hold return Option<X> Type
-                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                    let inner_key = self.tyc.get_child_key(term_key,1) ?;
-                    self.tyc.impose(ex_key.equate_with(inner_key))?;
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(IAbstractType::Option(
+                                IAbstractType::Any.into(),
+                            )))?;
+                        let inner_key = self.tyc.get_child_key(term_key, 1)?;
+                        self.tyc.impose(ex_key.equate_with(inner_key))?;
                     }
                 };
             }
@@ -181,9 +202,10 @@ impl ValueContext {
                 let ex_key = self.expression_infer(&*ex, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
 
-
-                self.tyc.impose( ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                let inner_key = self.tyc.get_child_key(ex_key,1) ?;
+                self.tyc.impose(
+                    ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                )?;
+                let inner_key = self.tyc.get_child_key(ex_key, 1)?;
                 self.tyc.impose(def_key.equate_with(inner_key))?;
                 self.tyc.impose(term_key.equate_with(def_key))?;
             }
@@ -192,10 +214,11 @@ impl ValueContext {
                                                                    //Want build: Option<X>
 
                 //TODO check for different offset - there are no realtime offsets so far
-                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                let inner_key = self.tyc.get_child_key(term_key,1) ?;
+                self.tyc.impose(
+                    term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                )?;
+                let inner_key = self.tyc.get_child_key(term_key, 1)?;
                 self.tyc.impose(ex_key.equate_with(inner_key))?;
-
             }
             ExpressionKind::SlidingWindowAggregation {
                 expr,
@@ -213,8 +236,11 @@ impl ValueContext {
                 match aggr {
                     //Min|Max|Avg <T:Num> T -> Option<T>
                     WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
-                        self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                        let inner_key = self.tyc.get_child_key(term_key,1) ?;
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(IAbstractType::Option(
+                                IAbstractType::Any.into(),
+                            )))?;
+                        let inner_key = self.tyc.get_child_key(term_key, 1)?;
                         self.tyc.impose(inner_key.equate_with(ex_key))?;
                     }
                     //Count: Any -> uint
@@ -229,8 +255,10 @@ impl ValueContext {
                         self.tyc
                             .impose(ex_key.concretizes_explicit(IAbstractType::Float(1)))?; //TODO maybe numeric
                         if *wait {
-                            self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                            let inner_key = self.tyc.get_child_key(term_key,1) ?;
+                            self.tyc.impose(term_key.concretizes_explicit(
+                                IAbstractType::Option(IAbstractType::Any.into()),
+                            ))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 1)?;
                             self.tyc.impose(inner_key.equate_with(ex_key))?;
                         } else {
                             self.tyc.impose(term_key.concretizes(ex_key))?;
@@ -240,8 +268,10 @@ impl ValueContext {
                         self.tyc
                             .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?;
                         if *wait {
-                            self.tyc.impose( term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
-                            let inner_key = self.tyc.get_child_key(term_key,1) ?;
+                            self.tyc.impose(term_key.concretizes_explicit(
+                                IAbstractType::Option(IAbstractType::Any.into()),
+                            ))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 1)?;
                             self.tyc.impose(inner_key.equate_with(ex_key))?;
                         } else {
                             self.tyc.impose(term_key.concretizes(ex_key))?;
@@ -272,7 +302,7 @@ impl ValueContext {
                         self.tyc
                             .impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
 
-                        self.tyc.impose(term_key.is_meet_of(left_key,right_key))?;
+                        self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                         self.tyc.impose(term_key.equate_with(left_key))?;
                         self.tyc.impose(term_key.equate_with(right_key))?;
                     }
@@ -293,8 +323,7 @@ impl ValueContext {
                         self.tyc
                             .impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
 
-
-                        self.tyc.impose(term_key.is_meet_of(left_key,right_key))?;
+                        self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                         self.tyc.impose(term_key.equate_with(left_key))?;
                         self.tyc.impose(term_key.equate_with(right_key))?;
                     }
@@ -341,7 +370,8 @@ impl ValueContext {
                 //Bool x T x T -> T
                 //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
 
-                self.tyc.impose(term_key.is_sym_meet_of(cons_key,alt_key))?;
+                self.tyc
+                    .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
                 self.tyc.impose(cons_key.equate_with(alt_key))?;
             }
             ExpressionKind::MissingExpression => unreachable!(),
@@ -351,6 +381,7 @@ impl ValueContext {
             ExpressionKind::Field(_, _) => unimplemented!(),
             ExpressionKind::Method(_, _, _, _) => unimplemented!(),
             ExpressionKind::Function(name, types, args) => {
+                dbg!("Function Infer");
                 //transform Type into new internal types.
                 let types_vec: Vec<IAbstractType> =
                     types.iter().map(|t| self.type_kind_match(&t)).collect();
@@ -362,6 +393,7 @@ impl ValueContext {
                     .clone();
                 match &decl {
                     Declaration::Func(fun_decl) => {
+                        dbg!("Dec::Func");
                         //Generics
                         let generics: Vec<TcKey> = fun_decl
                             .generics
@@ -373,11 +405,11 @@ impl ValueContext {
                                         let cons = match_constraint(tc);
                                         self.tyc.impose(gen_key.concretizes_explicit(cons))
                                     }
-                                    _ => unreachable!(),
+                                    _ => unreachable!("function declarations are not user-definable and currently, only constraints are allowed for generic types"),
                                 };
-                                rusttyc_result.map(|_ | gen_key)
+                                rusttyc_result.map(|_| gen_key)
                             })
-                            .collect::<Result<Vec<TcKey>,TcErr<IAbstractType>>>()?;
+                            .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
                         for (t, gen) in types_vec.iter().zip(generics.iter()) {
                             let t_key = self.tyc.new_term_key();
@@ -397,18 +429,30 @@ impl ValueContext {
                         self.tyc.impose(term_key.concretizes(return_type))?;
                     }
                     Declaration::ParamOut(out) => {
+                        //dbg!("Decl::Paramout");
                         let params: &[Rc<Parameter>] = out.params.as_slice();
+                        let param_out_tckey = self.tyc.get_var_key(&Variable {
+                            name: out.name.name.clone(),
+                        });
+                        //dbg!(params);
 
                         let param_types: Vec<IAbstractType> =
                             params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
 
                         for (arg, param_t) in args.iter().zip(param_types.iter()) {
-                            let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.concretizes_explicit(param_t.clone()))?;
+                            dbg!(arg, param_t);
+                            let arg_key = self.expression_infer(&*arg, Some(param_t.clone()))?;
+                            //dbg!(arg_key);
+
+                            self.tyc
+                                .impose(arg_key.concretizes_explicit(param_t.clone()))?;
                         }
 
+                        let annotated_type = self.type_kind_match(&out.ty);
+                        dbg!(&annotated_type);
                         self.tyc
-                            .impose(term_key.concretizes_explicit(self.type_kind_match(&out.ty)))?;
+                            .impose(term_key.concretizes_explicit(annotated_type))?;
+                        self.tyc.impose(term_key.concretizes(param_out_tckey));
                     }
                     _ => unreachable!("ensured by naming analysis"),
                 };
@@ -420,7 +464,7 @@ impl ValueContext {
         //Err(String::from("Error"))
     }
 
-    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey]) -> Result<TcKey,TcErr<IAbstractType>> {
+    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey]) -> Result<TcKey, TcErr<IAbstractType>> {
         match vt {
             &ValueTy::Param(idx, _) => Ok(to[idx as usize]),
             ValueTy::Option(o) => {
@@ -429,12 +473,15 @@ impl ValueContext {
             }
             ValueTy::Constr(c) => {
                 let key = self.tyc.new_term_key();
-                self.tyc.impose(key.concretizes_explicit(match_constraint(c))).map(|_| key)
+                self.tyc
+                    .impose(key.concretizes_explicit(match_constraint(c)))
+                    .map(|_| key)
             }
             _ if vt.is_primitive() => {
                 let key = self.tyc.new_term_key();
                 self.tyc
-                    .impose(key.concretizes_explicit(self.value_type_match(vt))).map(|_| key)
+                    .impose(key.concretizes_explicit(self.value_type_match(vt)))
+                    .map(|_| key)
             }
             _ => unreachable!("replace for {}", vt),
         }
@@ -455,9 +502,7 @@ impl ValueContext {
                 IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t)).collect())
             }
             TypeKind::Optional(op) => IAbstractType::Option(self.type_kind_match(&op).into()),
-            TypeKind::Inferred => {
-                IAbstractType::Any
-            }
+            TypeKind::Inferred => IAbstractType::Any,
         }
     }
 
@@ -467,10 +512,10 @@ impl ValueContext {
             ValueTy::Int(i) => {
                 use front::ty::IntTy;
                 match i {
-                    IntTy::I8 => IAbstractType::Integer(8),
-                    IntTy::I16 => IAbstractType::Integer(16),
-                    IntTy::I32 => IAbstractType::Integer(32),
-                    IntTy::I64 => IAbstractType::Integer(64),
+                    IntTy::I8 => IAbstractType::SInteger(8),
+                    IntTy::I16 => IAbstractType::SInteger(16),
+                    IntTy::I32 => IAbstractType::SInteger(32),
+                    IntTy::I64 => IAbstractType::SInteger(64),
                 }
             }
             ValueTy::UInt(u) => {
@@ -499,8 +544,8 @@ impl ValueContext {
                 use front::ty::TypeConstraint::*;
                 match c {
                     //TODO check equatable and comparable
-                    Integer => IAbstractType::Integer(1),
-                    SignedInteger => IAbstractType::Integer(1),
+                    Integer => IAbstractType::SInteger(1),
+                    SignedInteger => IAbstractType::SInteger(1),
                     UnsignedInteger => IAbstractType::UInteger(1),
                     FloatingPoint => IAbstractType::Float(1),
                     Numeric => IAbstractType::Numeric,
@@ -517,41 +562,63 @@ impl ValueContext {
     }
 
     fn match_lit_kind(&self, lit: LitKind) -> IAbstractType {
-        match lit {
+        dbg!(match lit {
             LitKind::Str(_) | LitKind::RawStr(_) => IAbstractType::TString,
             LitKind::Numeric(n, post) => get_abstract_type_of_string_value(&n).expect(""),
             LitKind::Bool(_) => IAbstractType::Bool,
-        }
+        })
     }
 
-    pub(crate) fn handle_error(&self, err : TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err {
+    pub(crate) fn handle_error(
+        &self,
+        err: TcErr<IAbstractType>,
+    ) -> <IAbstractType as Abstract>::Err {
         let msg = match err {
-            TcErr::ChildAccessOutOfBound(key,ty,n) => {
-                format!("Invalid child-type access by {:?}: {}-th child for {:?}",self.node_key.get_by_right(&key),n,ty)
-            },
-            TcErr::KeyEquation(k1, k2, msg) => {
-                format!("Incompatible Type for equation of {:?} and {:?}: {}",self.node_key.get_by_right(&k1),self.node_key.get_by_right(&k2),msg)
-            },
-            TcErr::TypeBound(key,msg) => {
-                format!("Invalid type bound enforced on {:?}: {}",self.node_key.get_by_right(&key),msg)
-            }
+            TcErr::ChildAccessOutOfBound(key, ty, n) => format!(
+                "Invalid child-type access by {:?}: {}-th child for {:?}",
+                self.node_key.get_by_right(&key),
+                n,
+                ty
+            ),
+            TcErr::KeyEquation(k1, k2, msg) => format!(
+                "Incompatible Type for equation of {:?} and {:?}: {}",
+                self.node_key.get_by_right(&k1),
+                self.node_key.get_by_right(&k2),
+                msg
+            ),
+            TcErr::TypeBound(key, msg) => format!(
+                "Invalid type bound enforced on {:?}: {}",
+                self.node_key.get_by_right(&key),
+                msg
+            ),
         };
         msg
-
     }
 
-    pub(crate) fn handle_exp_error(&self, exp: &Expression, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err{
+    pub(crate) fn handle_exp_error(
+        &self,
+        exp: &Expression,
+        err: TcErr<IAbstractType>,
+    ) -> <IAbstractType as Abstract>::Err {
         //TODO include Expression
         let msg = match err {
-            TcErr::ChildAccessOutOfBound(key,ty,n) => {
-                format!("Invalid child-type access by {:?}: {}-th child for {:?}",self.node_key.get_by_right(&key),n,ty)
-            },
-            TcErr::KeyEquation(k1, k2, msg) => {
-                format!("Incompatible Type for equation of {:?} and {:?}: {}",self.node_key.get_by_right(&k1),self.node_key.get_by_right(&k2),msg)
-            },
-            TcErr::TypeBound(key,msg) => {
-                format!("Invalid type bound enforced on {:?}: {}",self.node_key.get_by_right(&key),msg)
-            }
+            TcErr::ChildAccessOutOfBound(key, ty, n) => format!(
+                "Invalid child-type access by {:?}: {}-th child for {:?}",
+                self.node_key.get_by_right(&key),
+                n,
+                ty
+            ),
+            TcErr::KeyEquation(k1, k2, msg) => format!(
+                "Incompatible Type for equation of {:?} and {:?}: {}",
+                self.node_key.get_by_right(&k1),
+                self.node_key.get_by_right(&k2),
+                msg
+            ),
+            TcErr::TypeBound(key, msg) => format!(
+                "Invalid type bound enforced on {:?}: {}",
+                self.node_key.get_by_right(&key),
+                msg
+            ),
         };
         msg
     }
@@ -559,16 +626,21 @@ impl ValueContext {
 
 fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType, String> {
     let int_parse = value_str.parse::<i64>();
+    let uint_parse = value_str.parse::<u64>();
+    if let (Ok(n), Ok(u)) = (&int_parse, &uint_parse) {
+        return Ok(IAbstractType::Numeric);
+    }
+    /*
     if let Ok(n) = int_parse {
         return Ok(IAbstractType::Integer(64 - n.leading_zeros()));
     }
-    let uint_parse = value_str.parse::<u64>();
     if let Ok(u) = uint_parse {
         return Ok(IAbstractType::UInteger(64 - u.leading_zeros()));
     }
+    */
     let float_parse = value_str.parse::<f64>();
     if let Ok(f) = float_parse {
-        return Ok(IAbstractType::Float(64));
+        return Ok(IAbstractType::Float(32));
     }
     let pat = regex::Regex::new("\"*\"").unwrap(); //TODO simplify , check first and last character
     if pat.is_match(value_str) {
@@ -584,12 +656,12 @@ fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
     //TODO
     match cons {
         TypeConstraint::Numeric => IAbstractType::Numeric,
-        TypeConstraint::SignedInteger => IAbstractType::Integer(1),
+        TypeConstraint::SignedInteger => IAbstractType::SInteger(1),
         TypeConstraint::UnsignedInteger => IAbstractType::UInteger(1),
         TypeConstraint::FloatingPoint => IAbstractType::Float(1),
-        TypeConstraint::Integer => {unimplemented!()},
-        TypeConstraint::Equatable => {unimplemented!()},
-        TypeConstraint::Comparable => {unimplemented!()},
+        TypeConstraint::Integer => IAbstractType::Integer,
+        TypeConstraint::Equatable => unimplemented!(),
+        TypeConstraint::Comparable => unimplemented!(),
         TypeConstraint::Unconstrained => IAbstractType::Any,
     };
     unimplemented!()
