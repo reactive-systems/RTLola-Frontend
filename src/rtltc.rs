@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
+use crate::pacing_types::{AbstractPacingType, ConcretePacingType, Freq, ActivationCondition};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::{IAbstractType, IConcreteType};
 use front::analysis::naming::DeclarationTable;
@@ -35,26 +36,66 @@ impl<'a> LolaTypChecker<'a> {
         self.pacing_type_infer();
     }
 
-    fn pacing_type_infer(&mut self) {
+    pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId,ConcretePacingType>,String> {
         let mut ctx = PacingContext::new(&self.ast, &self.declarations);
 
         for input in &self.ast.inputs {
-            ctx.input_infer(input);
+            if ctx.input_infer(input).is_err(){
+                self.handler.error("Typecheck error on inputs");
+            }
         }
 
         for constant in &self.ast.constants {
-            ctx.constant_infer(constant);
+            if ctx.constant_infer(constant).is_err(){
+                self.handler.error("Typecheck error on constants");
+            }
         }
 
         for output in &self.ast.outputs {
-            ctx.output_infer(output);
+            if ctx.output_infer(output).is_err(){
+                self.handler.error("Typecheck error on outputs");
+            }
         }
 
         for trigger in &self.ast.trigger {
-            ctx.trigger_infer(trigger);
+            if ctx.trigger_infer(trigger).is_err(){
+                self.handler.error("Typecheck error on triggers");
+            }
         }
 
-        let tt = ctx.tyc.type_check();
+        let vars = ctx.bdd_vars.clone();
+        let tt = match ctx.tyc.type_check() {
+            Ok(t) => t,
+            Err(_) => {
+                self.handler.error("Typecheck error");
+                return Err("Typecheck error".to_string());
+            }
+        };
+
+        if self.handler.contains_error(){
+            return Err("Typecheck error".to_string());
+        }
+        let tt:HashMap<NodeId,ConcretePacingType> = ctx.node_key.clone().iter()
+        .filter_map(|(id, key)| match &tt[*key] {
+            AbstractPacingType::Any => {
+                self.handler.error("Typetable contained 'Any'");
+                None
+            },
+            AbstractPacingType::Periodic(freq) => {
+                match freq {
+                    Freq::Any => {
+                        self.handler.error("Typetable contained 'Any' frequency");
+                        None
+                    },
+                    Freq::Fixed(f) => Some((*id, ConcretePacingType::Periodic(f.clone())))
+                }
+            },
+            AbstractPacingType::Event(b) => {
+                let expr = b.to_boolean_expression(&vars);
+                Some((*id, ConcretePacingType::Event(ActivationCondition::True)))
+            }
+        }).collect();
+        Ok(tt)
     }
 
     fn value_type_infer(&self) -> Result<HashMap<NodeId,IConcreteType>,String> {

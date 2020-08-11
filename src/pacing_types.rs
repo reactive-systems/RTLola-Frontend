@@ -1,16 +1,15 @@
-use super::*;
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
-use front::ast::conversion;
+use biodivine_lib_bdd::boolean_expression::BooleanExpression;
 use front::ast::{BinOp, Expression, ExpressionKind, LitKind, UnOp};
+use front::parse::NodeId;
 use front::parse::Span;
 use num::{CheckedDiv, Integer};
 use std::convert::TryFrom;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
-use std::hint::unreachable_unchecked;
+use std::collections::HashMap;
 
-type ActivationCondition = Bdd;
 
 /// Parses either a periodic or an event based pacing type from an expression
 pub fn parse_abstract_type(
@@ -44,7 +43,7 @@ pub fn parse_abstract_type(
 fn parse_ac(
     ast_expr: &Expression,
     var_set: &BddVariableSet,
-) -> Result<ActivationCondition, (String, Span)> {
+) -> Result<Bdd, (String, Span)> {
     use ExpressionKind::*;
     match &ast_expr.kind {
         Lit(l) => match l.kind {
@@ -68,16 +67,6 @@ fn parse_ac(
                 Eq => Ok(ac_l.iff(&ac_r)),
                 _ => Err((
                     "Unexpected binary operator in activation condition".into(),
-                    ast_expr.span,
-                )),
-            }
-        }
-        Unary(op, l) => {
-            let ac_l = parse_ac(l, var_set)?;
-            match op {
-                UnOp::Not => Ok(ac_l.not()),
-                _ => Err((
-                    "Unexpected unary operator in activation condition".into(),
                     ast_expr.span,
                 )),
             }
@@ -160,15 +149,16 @@ impl Freq {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnificationError {
-    MixedEventPeriodic(ActivationCondition, Freq),
+    MixedEventPeriodic(Bdd, Freq),
     IncompatibleFrequencies(Freq, Freq),
     Other(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AbstractPacingType {
+// Abstract Type Definition
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AbstractPacingType{
     /// An event stream is extended when its activation condition is satisfied.
-    Event(ActivationCondition),
+    Event(Bdd),
     /// A real-time stream is extended periodically.
     Periodic(Freq),
     /// An undetermined type that can be unified into either of the other options.
@@ -204,12 +194,99 @@ impl rusttyc::types::Abstract for AbstractPacingType {
         None
     }
 
-    fn nth_child(&self, n: usize) -> &Self {
+    fn nth_child(&self, _n: usize) -> &Self {
         unreachable!()
     }
 
-    fn with_children<I>(&self, children: I) -> Self where
+    fn with_children<I>(&self, _children: I) -> Self where
         I: IntoIterator<Item=Self> {
         unreachable!()
     }
+}
+
+impl AbstractPacingType {
+    pub(crate) fn to_string(&self, vars: &BddVariableSet) -> String{
+        match self{
+            AbstractPacingType::Event(b) => {
+                format!("Event({})", b.to_boolean_expression(vars))
+            },
+            AbstractPacingType::Periodic(freq) => {
+                format!("Periodic({})", freq)
+            },
+            AbstractPacingType::Any => 
+            {
+                "Any".to_string()
+            }
+        }
+    }
+}
+
+// Concrete Type Definition
+
+/**
+The activation condition describes when an event-based stream produces a new value.
+*/
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+pub enum ActivationCondition {
+    /**
+    When all of the activation conditions is true.
+    */
+    Conjunction(Vec<Self>),
+    /**
+    When one of the activation conditions is true.
+    */
+    Disjunction(Vec<Self>),
+    /**
+    Whenever the specified stream produces a new value.
+    */
+    Stream(u32),
+    /**
+    Whenever an event-based stream produces a new value.
+    */
+    True,
+}
+
+/*
+impl ActivationCondition {
+    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, String>{
+        use BooleanExpression::*;
+        match exp {
+            Const(b) => {
+                if b {
+                    Ok(ActivationCondition::True)
+                } else {
+                    Err("False in Activation Condition".to_string())
+                }
+            }
+            Variable(s) => {
+                let id = s.parse::<u32>();
+                match id{
+                    Ok(i) => Ok(ActivationCondition::Stream(i)),
+                    Err(_) => Err("Wrong Variable in AC".to_string())
+                }
+            }
+            And(left, right) => {
+                let l = ActivationCondition::from_expression(*left)?;
+                let r = ActivationCondition::from_expression(*right)?;
+                match (l, r) {
+                    (ActivationCondition::Conjunction(mut left), ActivationCondition::Conjunction(mut right)) => {
+                        left.append(&mut right);
+                        Ok(ActivationCondition::Conjunction(left))
+                    },
+                    (ActivationCondition::Conjunction(mut other_con), other_ac) |
+                    (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
+                        other_con.push(other_ac);
+                        Ok(ActivationCondition::Conjunction(other_con))
+                    },
+
+                }
+            }
+        }
+    }
+}
+*/
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+pub enum ConcretePacingType {
+    Event(ActivationCondition),
+    Periodic(UOM_Frequency)
 }

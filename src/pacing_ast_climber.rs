@@ -29,17 +29,17 @@ impl<'a> Context<'a> {
         let mut tyc = TypeChecker::new();
 
         for input in &ast.inputs {
-            bdd_var_builder.make_variable(input.name.name.as_str());
+            bdd_var_builder.make_variable(&input.id.to_string());
             let key = tyc.get_var_key(&Variable(input.name.name.clone()));
             node_key.insert(input.id, key);
         }
         for output in &ast.outputs {
-            bdd_var_builder.make_variable(output.name.name.as_str());
+            bdd_var_builder.make_variable(&output.id.to_string());
             let key = tyc.get_var_key(&Variable(output.name.name.clone()));
             node_key.insert(output.id, key);
         }
         for ast_const in &ast.constants {
-            bdd_var_builder.make_variable(ast_const.name.name.as_str());
+            bdd_var_builder.make_variable(&ast_const.id.to_string());
             let key = tyc.get_var_key(&Variable(ast_const.name.name.clone()));
             node_key.insert(ast_const.id, key);
         }
@@ -200,4 +200,83 @@ impl<'a> Context<'a> {
         Ok(term_key)
         //Err(String::from("Error"))
     }
+}
+
+#[cfg(test)]
+mod pacing_type_tests {
+    use std::path::PathBuf;
+    use crate::LolaTypChecker;
+    use front::parse::SourceMapper;
+    use std::collections::HashMap;
+    use front::parse::{NodeId};
+    use front::RTLolaAst;
+    use front::reporting::Handler;
+    use front::analysis::naming::Declaration;
+    use crate::pacing_types::AbstractPacingType;
+    use biodivine_lib_bdd::{Bdd, BddVariableSet, BddVariableSetBuilder};
+
+    struct Test_Box {
+        pub spec: RTLolaAst,
+        pub dec: HashMap<NodeId, Declaration>,
+        pub handler: Handler,
+    }
+
+    fn setup_ast(spec: &str) -> Test_Box {
+        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let spec :RTLolaAst = match front::parse::parse(spec,&handler, front::FrontendConfig::default()) {
+            Ok(s) => s,
+            Err(e) => panic!("Spech {} cannot be parsed: {}",spec,e),
+        };
+        let mut na = front::analysis::naming::NamingAnalysis::new(&handler, front::FrontendConfig::default());
+        let mut dec = na.check(&spec);
+        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
+        Test_Box {spec, dec, handler}
+    }
+
+    fn num_errors(spec: &str) -> usize {
+        let test_box = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        ltc.pacing_type_infer();
+        return test_box.handler.emitted_errors();
+    }
+
+    fn build_var_set(ast: &RTLolaAst) -> BddVariableSet{
+        let mut bdd_var_builder = BddVariableSetBuilder::new();
+        for input in &ast.inputs {
+            bdd_var_builder.make_variable(input.name.name.as_str());
+        }
+        bdd_var_builder.build()
+    }
+
+    fn assert_event_type(tt: &HashMap<NodeId, AbstractPacingType>, var_set: &BddVariableSet, id: NodeId, type_str: &str){
+        let expected = AbstractPacingType::Event(var_set.eval_expression_string(type_str));
+        assert_eq!(tt[&id], expected, "Expected: <{}>, Got: <{}>", expected.to_string(var_set), tt[&id].to_string(var_set));
+        println!("Expected: <{}>, Got: <{}>", expected.to_string(var_set), tt[&id].to_string(var_set));
+    }
+
+    #[test]
+    fn test_input() {
+        assert_eq!(num_errors("input i: Int8"), 0);
+    }
+    
+    #[test]
+    fn test_input_ac() {
+        let test_box = setup_ast("input i: Int8");
+        let var_set = build_var_set(&test_box.spec);
+        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        let ast = &test_box.spec;
+        //assert_event_type(&tt, &var_set, ast.inputs[0].id, "i");
+    }
+
+    #[test]
+    fn test_ac_conjunction() {
+        let test_box = setup_ast("input a: Int8\n input b: Int8 \n output o := a + b");
+        let var_set = build_var_set(&test_box.spec);
+        let mut ltc = LolaTypChecker::new( &test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        let ast = &test_box.spec;
+        //assert_event_type(&tt, &var_set, ast.outputs[0].id, "a & b");
+    }
+
 }
