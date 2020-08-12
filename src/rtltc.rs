@@ -115,7 +115,13 @@ impl<'a> LolaTypChecker<'a> {
         }
 
         for constant in &self.ast.constants {
-            ctx.constant_infer(&constant);
+            if let Err(e) = ctx.constant_infer(constant) {
+                self.handler.error_with_span(
+                    "Output inference error",
+                    LabeledSpan::new(constant.span, "Todo", true),
+                );
+                return Err(ctx.handle_error(e));
+            }
         }
 
         for output in &self.ast.outputs {
@@ -129,7 +135,13 @@ impl<'a> LolaTypChecker<'a> {
         }
 
         for trigger in &self.ast.trigger {
-            ctx.trigger_infer(trigger);
+            if let Err(e) = ctx.trigger_infer(trigger) {
+                self.handler.error_with_span(
+                    "Output inference error",
+                    LabeledSpan::new(trigger.span, "Todo", true),
+                );
+                return Err(ctx.handle_error(e));
+            }
         }
 
         let tt_r = ctx.tyc.type_check();
@@ -217,6 +229,16 @@ mod value_type_tests {
         (test_box, tt)
     }
 
+    fn check_expect_error(spec: &str) -> Test_Box {
+        let test_box = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let tt_result = ltc.value_type_infer();
+        dbg!(&tt_result);
+        assert!(tt_result.is_err());
+        test_box
+
+    }
+
     #[test]
     fn simple_input() {
         let spec = "input i: Int8";
@@ -296,5 +318,145 @@ mod value_type_tests {
         let cons_id = tb.spec.constants[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&cons_id], IConcreteType::Float32);
+    }
+
+    #[test]
+    fn simple_const_float16() {
+        let spec = "constant c: Float16 := 2.1";
+        let (tb, result_map) = check_value_type(spec);
+        let cons_id = tb.spec.constants[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&cons_id], IConcreteType::Float32);
+    }
+
+    #[test]
+    fn simple_const_int() {
+        let spec = "constant c: Int8 := 3";
+        let (tb, result_map) = check_value_type(spec);
+        let cons_id = tb.spec.constants[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&cons_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn simple_const_faulty() {
+        let spec = "constant c: Int8 := true";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_signedness() {
+        let spec = "constant c: UInt8 := -2";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_incorrect_float() {
+        let spec = "constant c: UInt8 := 2.3";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn simple_valid_coersion() { //TODO does not check output type, only validity
+        for spec in &[
+            "constant c: Int8 := 1\noutput o: Int32 := c",
+            "constant c: UInt16 := 1\noutput o: UInt64 := c",
+            "constant c: Float32 := 1.0\noutput o: Float64 := c",
+        ] {
+            let (tb, result_map) = check_value_type(spec);
+            assert_eq!(0, complete_check(spec));
+        }
+    }
+
+    #[test]
+    fn simple_invalid_coersion() {
+        let spec = "constant c: Int32 := 1\noutput o: Int8 := c";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn simple_trigger() {
+        let spec = "trigger false";
+        let (tb, result_map) = check_value_type(spec);
+        let tr_id = tb.spec.trigger[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&tr_id], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn simple_trigger_message() {
+        let spec = "trigger false \"alert always\"";
+        let (tb, result_map) = check_value_type(spec);
+        let tr_id = tb.spec.trigger[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&tr_id], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn faulty_trigger() {
+        let spec = "trigger 1";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn simple_binary() {
+        let spec = "output o: Int8 := 3 + 5";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn simple_binary_input() {
+        let spec = "input i: Int8\noutput o: Int8 := 3 + i";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn simple_unary() {
+        let spec = "output o := !false \n\
+                           output u: Bool := !false";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let out_id_2 = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+        assert_eq!(result_map[&out_id_2], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn simple_unary_faulty() {
+        // The negation should return a bool even if the underlying expression is wrong.
+        // Thus, there is only one error here.
+        let spec = "output o: Bool := !3";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn simple_binary_faulty() {
+        let spec = "output o: Float32 := false + 2.5";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn simple_ite() {
+        let spec = "output o: Int8 := if false then 1 else 2";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
 }

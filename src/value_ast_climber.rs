@@ -59,6 +59,19 @@ impl ValueContext {
             );
         }
 
+        for (ix,tr) in ast.trigger.iter().enumerate() {
+            let n = match &tr.name {
+                Some(ident) => ident.name.clone(),
+                None => format!("trigger_{}",ix),
+            };
+            node_key.insert(
+                tr.id,
+                tyc.get_var_key(&Variable {
+                    name: n,
+                }),
+            );
+        }
+
         ValueContext {
             tyc,
             decl,
@@ -91,16 +104,19 @@ impl ValueContext {
     }
 
     pub fn constant_infer(&mut self, cons: &Constant) -> Result<TcKey, TcErr<IAbstractType>> {
-        let term_key: TcKey = *self.node_key.get_by_left(&cons.id).expect("");
+        let term_key: TcKey = *self.node_key.get_by_left(&cons.id).expect("Added in constructor");
         //Annotated Type
         if let Some(t) = &cons.ty {
             let annotated_type_replaced = self.type_kind_match(t);
+            dbg!(&annotated_type_replaced);
             self.tyc
                 .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
         }
         //Type from Literal
         let lit_type = self.match_lit_kind(cons.literal.kind.clone());
+        dbg!(&lit_type);
         self.tyc.impose(term_key.concretizes_explicit(lit_type))?;
+        dbg!("END CONSTANT");
 
         self.node_key.insert(cons.id, term_key);
         return Ok(term_key);
@@ -114,6 +130,7 @@ impl ValueContext {
 
         if let t = &out.ty {
             let annotated_type_replaced = self.type_kind_match(t);
+            dbg!(&annotated_type_replaced);
             self.tyc
                 .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
         };
@@ -155,9 +172,11 @@ impl ValueContext {
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
+        dbg!(&exp.kind);
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
+                dbg!(&literal_type);
                 self.tyc
                     .impose(term_key.concretizes_explicit(literal_type))?;
             }
