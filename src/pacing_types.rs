@@ -301,7 +301,11 @@ impl rusttyc::types::Abstract for AbstractPacingType {
             )),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(&ac2))),
             (Periodic(f1), Periodic(f2)) => {
-                if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
+                if let Freq::Any = f1 {
+                    Ok(Periodic(f2.clone()))
+                } else if let Freq::Any = f2 {
+                    Ok(Periodic(f1.clone()))
+                } else if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
                     Ok(Periodic(f1.conjunction(&f2)))
                 } else {
                     Err(UnificationError::IncompatibleFrequencies(
@@ -456,7 +460,7 @@ impl ConcretePacingType {
             }
             AbstractPacingType::Periodic(freq) => match freq {
                 Freq::Fixed(f) => Ok(ConcretePacingType::Periodic(f.clone())),
-                Freq::Any => Err("Cannot concretize 'Any' frequency.".to_string()),
+                Freq::Any => Ok(ConcretePacingType::Constant),
             },
         }
     }

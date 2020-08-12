@@ -124,17 +124,22 @@ impl<'a> Context<'a> {
             }
             ExpressionKind::Ident(_) => {
                 let decl = &self.decl[&exp.id];
-                let node_id = match decl {
-                    Declaration::Const(c) => c.id,
-                    Declaration::Out(out) => out.id,
-                    Declaration::ParamOut(param) => param.id,
-                    Declaration::In(input) => input.id,
-                    Declaration::Type(_) | Declaration::Param(_) | Declaration::Func(_) => {
-                        unreachable!("ensured by naming analysis {:?}", decl)
-                    }
-                };
-                let key = self.node_key[&node_id];
-                self.tyc.impose(term_key.equate_with(key))?;
+                if let Declaration::Param(_) = decl {
+                    self.tyc
+                        .impose(term_key.concretizes_explicit(AbstractPacingType::Any))?;
+                } else {
+                    let node_id = match decl {
+                        Declaration::Const(c) => c.id,
+                        Declaration::Out(out) => out.id,
+                        Declaration::ParamOut(param) => param.id,
+                        Declaration::In(input) => input.id,
+                        Declaration::Type(_) | Declaration::Param(_) | Declaration::Func(_) => {
+                            unreachable!("ensured by naming analysis {:?}", decl)
+                        }
+                    };
+                    let key = self.node_key[&node_id];
+                    self.tyc.impose(term_key.equate_with(key))?;
+                }
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
@@ -457,6 +462,98 @@ mod pacing_type_tests {
     #[ignore] // Fix me
     fn test_no_direct_access_possible() {
         let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := a";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_parametric_output() {
+        let spec =
+            "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        let i_type = ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id));
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(tt[&ast.outputs[0].id], i_type);
+        assert_eq!(tt[&ast.outputs[1].id], i_type);
+    }
+
+    #[test]
+    fn test_parametric_output_parameter() {
+        let spec = "output x(a: UInt8, b: Bool) := a";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+    }
+
+    #[test]
+    fn test_trigonometric() {
+        let spec = "import math\noutput o: Float32 := sin(2.0)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+    }
+
+    #[test]
+    fn test_tuple() {
+        let spec = "output out: (Int8, Bool) := (14, false)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+    }
+
+    #[test]
+    fn test_tuple_access() {
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
+    }
+
+    #[test]
+    fn test_input_offset() {
+        let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
+    }
+
+    #[test]
+    fn test_window() {
+        let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+                Rational::from_u8(5).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    #[ignore] // Fix me
+    fn test_window_untimed() {
+        let spec = "input in: Int8\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
         assert_eq!(1, num_errors(spec));
     }
 }
