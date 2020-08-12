@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
-use crate::pacing_types::ConcretePacingType;
+use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::{IAbstractType, IConcreteType};
 use front::analysis::naming::DeclarationTable;
@@ -37,28 +37,34 @@ impl<'a> LolaTypChecker<'a> {
         &mut self,
     ) -> Result<HashMap<NodeId, ConcretePacingType>, String> {
         let mut ctx = PacingContext::new(&self.ast, &self.declarations);
+        let mut input_names: HashMap<NodeId, &str> = self
+            .ast
+            .inputs
+            .iter()
+            .map(|i| (i.id, i.name.name.as_str()))
+            .collect();
 
         for input in &self.ast.inputs {
-            if ctx.input_infer(input).is_err() {
-                self.handler.error("Typecheck error on inputs");
+            if let Err(e) = ctx.input_infer(input) {
+                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
         for constant in &self.ast.constants {
-            if ctx.constant_infer(constant).is_err() {
-                self.handler.error("Typecheck error on constants");
+            if let Err(e) = ctx.constant_infer(constant) {
+                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
         for output in &self.ast.outputs {
-            if ctx.output_infer(output).is_err() {
-                self.handler.error("Typecheck error on outputs");
+            if let Err(e) = ctx.output_infer(output) {
+                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
         for trigger in &self.ast.trigger {
-            if ctx.trigger_infer(trigger).is_err() {
-                self.handler.error("Typecheck error on triggers");
+            if let Err(e) = ctx.trigger_infer(trigger) {
+                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
@@ -66,7 +72,7 @@ impl<'a> LolaTypChecker<'a> {
         let tt = match ctx.tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                self.handler.error(&format!("Typecheck error: {:?}", e));
+                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
                 return Err("Typecheck error".to_string());
             }
         };

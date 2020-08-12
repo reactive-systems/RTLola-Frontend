@@ -3,8 +3,11 @@ use biodivine_lib_bdd::{Bdd, BddVariableSet};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{BinOp, Expression, ExpressionKind, LitKind};
 use front::parse::{NodeId, Span};
+use front::reporting::{Handler, LabeledSpan};
 use num::{CheckedDiv, Integer};
+use rusttyc::{TcErr, TcKey};
 use std::convert::TryFrom;
+use uom::lib::collections::HashMap;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -162,9 +165,108 @@ impl Freq {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnificationError {
-    MixedEventPeriodic(Bdd, Freq),
-    IncompatibleFrequencies(Freq, Freq),
+    MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
+    IncompatibleFrequencies(AbstractPacingType, AbstractPacingType),
     Other(String),
+}
+
+fn bdd_to_string(bdd: &Bdd, vars: &BddVariableSet, input_names: &HashMap<NodeId, &str>) -> String {
+    let exp = bdd.to_boolean_expression(vars);
+    bexp_to_string(exp, input_names)
+}
+fn bexp_to_string(exp: BooleanExpression, input_names: &HashMap<NodeId, &str>) -> String {
+    use BooleanExpression::*;
+    match exp {
+        Const(b) => {
+            if b {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
+        }
+        Variable(s) => {
+            let id = NodeId::new(s.parse::<usize>().unwrap());
+            input_names[&id].to_string()
+        }
+        Not(exp) => format!("!{}", bexp_to_string(*exp, input_names)),
+        And(l, r) => format!(
+            "({} & {})",
+            bexp_to_string(*l, input_names),
+            bexp_to_string(*r, input_names)
+        ),
+        Or(l, r) => format!(
+            "({} | {})",
+            bexp_to_string(*l, input_names),
+            bexp_to_string(*r, input_names)
+        ),
+        Xor(l, r) => format!(
+            "({} ^ {})",
+            bexp_to_string(*l, input_names),
+            bexp_to_string(*r, input_names)
+        ),
+        Imp(l, r) => format!(
+            "({} -> {})",
+            bexp_to_string(*l, input_names),
+            bexp_to_string(*r, input_names)
+        ),
+        Iff(l, r) => format!(
+            "({} <-> {})",
+            bexp_to_string(*l, input_names),
+            bexp_to_string(*r, input_names)
+        ),
+    }
+}
+
+impl UnificationError {
+    pub(crate) fn to_string(
+        &self,
+        bdd_vars: &BddVariableSet,
+        input_name: &HashMap<NodeId, &str>,
+    ) -> String {
+        use UnificationError::*;
+        match self {
+            Other(s) => s.clone(),
+            IncompatibleFrequencies(f1, f2) => format!(
+                "Found incompatible frequencies: '{}' and '{}'",
+                f1.to_string(bdd_vars, input_name),
+                f2.to_string(bdd_vars, input_name)
+            ),
+            MixedEventPeriodic(t1, t2) => format!(
+                "Mixed event and periodic type: '{}' and '{}'",
+                t1.to_string(bdd_vars, input_name),
+                t2.to_string(bdd_vars, input_name)
+            ),
+        }
+    }
+}
+
+pub(crate) fn emit_error(
+    tce: &TcErr<AbstractPacingType>,
+    handler: &Handler,
+    vars: &BddVariableSet,
+    spans: &HashMap<TcKey, Span>,
+    names: &HashMap<NodeId, &str>,
+) {
+    match tce {
+        TcErr::KeyEquation(k1, k2, err) => {
+            let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
+            let span = LabeledSpan::new(spans[k1], "here", true);
+            handler.error_with_span(msg, span);
+        }
+        TcErr::TypeBound(k1, err) => {
+            let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
+            let span = LabeledSpan::new(spans[k1], "here", true);
+            handler.error_with_span(msg, span);
+        }
+        TcErr::ChildAccessOutOfBound(key, ty, idx) => {
+            let msg = &format!(
+                "Child type out of bounds for type: {}",
+                ty.to_string(vars, names)
+            );
+            let span = LabeledSpan::new(spans[key], "here", true);
+            handler.error_with_span(msg, span);
+        }
+    }
 }
 
 // Abstract Type Definition
@@ -189,17 +291,22 @@ impl rusttyc::types::Abstract for AbstractPacingType {
         use AbstractPacingType::*;
         match (self, other) {
             (Any, x) | (x, Any) => Ok(x.clone()),
-            (Event(ac), Periodic(f)) | (Periodic(f), Event(ac)) => {
-                Err(UnificationError::MixedEventPeriodic(ac.clone(), f.clone()))
-            }
+            (Event(ac), Periodic(f)) => Err(UnificationError::MixedEventPeriodic(
+                Event(ac.clone()),
+                Periodic(f.clone()),
+            )),
+            (Periodic(f), Event(ac)) => Err(UnificationError::MixedEventPeriodic(
+                Periodic(f.clone()),
+                Event(ac.clone()),
+            )),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(&ac2))),
             (Periodic(f1), Periodic(f2)) => {
                 if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
                     Ok(Periodic(f1.conjunction(&f2)))
                 } else {
                     Err(UnificationError::IncompatibleFrequencies(
-                        f1.clone(),
-                        f2.clone(),
+                        Periodic(f1.clone()),
+                        Periodic(f2.clone()),
                     ))
                 }
             }
@@ -223,9 +330,9 @@ impl rusttyc::types::Abstract for AbstractPacingType {
 }
 
 impl AbstractPacingType {
-    pub(crate) fn to_string(&self, vars: &BddVariableSet) -> String {
+    pub(crate) fn to_string(&self, vars: &BddVariableSet, names: &HashMap<NodeId, &str>) -> String {
         match self {
-            AbstractPacingType::Event(b) => format!("Event({})", b.to_boolean_expression(vars)),
+            AbstractPacingType::Event(b) => format!("Event({})", bdd_to_string(b, vars, names)),
             AbstractPacingType::Periodic(freq) => format!("Periodic({})", freq),
             AbstractPacingType::Any => "Any".to_string(),
         }

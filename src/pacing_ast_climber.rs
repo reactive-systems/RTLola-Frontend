@@ -9,7 +9,7 @@ use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
-use front::parse::NodeId;
+use front::parse::{NodeId, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 
@@ -21,30 +21,35 @@ impl rusttyc::TcVar for Variable {}
 pub struct Context<'a> {
     pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
     pub(crate) decl: &'a DeclarationTable,
-    pub(crate) node_key: BiMap<NodeId, TcKey>,
+    pub(crate) node_key: HashMap<NodeId, TcKey>,
     pub(crate) bdd_vars: BddVariableSet,
+    pub(crate) key_span: HashMap<TcKey, Span>,
 }
 
 impl<'a> Context<'a> {
     pub fn new(ast: &RTLolaAst, decl: &'a DeclarationTable) -> Context<'a> {
         let mut bdd_var_builder = BddVariableSetBuilder::new();
-        let mut node_key = BiMap::new();
+        let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
+        let mut key_span = HashMap::new();
 
         for input in &ast.inputs {
             bdd_var_builder.make_variable(&input.id.to_string());
             let key = tyc.get_var_key(&Variable(input.name.name.clone()));
             node_key.insert(input.id, key);
+            key_span.insert(key, input.span);
         }
         for output in &ast.outputs {
             bdd_var_builder.make_variable(&output.id.to_string());
             let key = tyc.get_var_key(&Variable(output.name.name.clone()));
             node_key.insert(output.id, key);
+            key_span.insert(key, output.span);
         }
         for ast_const in &ast.constants {
             bdd_var_builder.make_variable(&ast_const.id.to_string());
             let key = tyc.get_var_key(&Variable(ast_const.name.name.clone()));
             node_key.insert(ast_const.id, key);
+            key_span.insert(key, ast_const.span);
         }
         let bdd_vars = bdd_var_builder.build();
 
@@ -53,18 +58,19 @@ impl<'a> Context<'a> {
             decl,
             node_key,
             bdd_vars,
+            key_span,
         }
     }
 
     pub fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(&input.id.to_string()));
-        let input_key = self.node_key.get_by_left(&input.id).unwrap();
+        let input_key = self.node_key[&input.id];
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
 
     pub fn constant_infer(&mut self, constant: &Constant) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(self.bdd_vars.mk_true());
-        let const_key = self.node_key.get_by_left(&constant.id).unwrap();
+        let const_key = self.node_key[&constant.id];
         self.tyc.impose(const_key.concretizes_explicit(ac))
     }
 
@@ -72,6 +78,7 @@ impl<'a> Context<'a> {
         let ex_key = self.expression_infer(&trigger.expression)?;
         let trigger_key = self.tyc.new_term_key();
         self.node_key.insert(trigger.id, trigger_key);
+        self.key_span.insert(trigger_key, trigger.span);
         self.tyc.impose(trigger_key.concretizes(ex_key))
     }
 
@@ -89,12 +96,13 @@ impl<'a> Context<'a> {
         self.tyc
             .impose(declared_ac_key.concretizes_explicit(declared_ac))?;
         self.node_key.insert(output.extend.id, declared_ac_key);
+        self.key_span.insert(declared_ac_key, output.extend.span);
 
         // Type Expression
         let exp_key = self.expression_infer(&output.expression)?;
 
         // Infer resulting type
-        let output_key = self.node_key.get_by_left(&output.id).unwrap();
+        let output_key = self.node_key[&output.id];
         self.tyc
             .impose(output_key.is_meet_of(declared_ac_key, exp_key))?;
 
@@ -125,8 +133,8 @@ impl<'a> Context<'a> {
                         unreachable!("ensured by naming analysis {:?}", decl)
                     }
                 };
-                let key = self.node_key.get_by_left(&node_id).unwrap();
-                self.tyc.impose(term_key.equate_with(*key))?;
+                let key = self.node_key[&node_id];
+                self.tyc.impose(term_key.equate_with(key))?;
             }
             ExpressionKind::StreamAccess(ex, kind) => {
                 use front::ast::StreamAccessKind::*;
@@ -154,13 +162,13 @@ impl<'a> Context<'a> {
                 // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
             }
             ExpressionKind::Binary(_, left, right) => {
-                let left_key = self.expression_infer(&*left)?; // X
-                let right_key = self.expression_infer(&*right)?; // X
+                let left_key = self.expression_infer(&*left)?;
+                let right_key = self.expression_infer(&*right)?;
 
                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
             }
             ExpressionKind::Unary(_, expr) => {
-                let ex_key = self.expression_infer(&*expr)?; // expr
+                let ex_key = self.expression_infer(&*expr)?;
 
                 self.tyc.impose(term_key.equate_with(ex_key))?;
             }
@@ -201,8 +209,8 @@ impl<'a> Context<'a> {
 
                 match decl {
                     Declaration::ParamOut(out) => {
-                        let output_key = self.node_key.get_by_left(&out.id).unwrap();
-                        self.tyc.impose(term_key.concretizes(*output_key))?;
+                        let output_key = self.node_key[&out.id];
+                        self.tyc.impose(term_key.concretizes(output_key))?;
                     }
                     _ => {}
                 };
@@ -214,8 +222,8 @@ impl<'a> Context<'a> {
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
         };
         self.node_key.insert(exp.id, term_key);
+        self.key_span.insert(term_key, exp.span);
         Ok(term_key)
-        //Err(String::from("Error"))
     }
 }
 
