@@ -33,11 +33,9 @@ impl<'a> LolaTypChecker<'a> {
         self.pacing_type_infer();
     }
 
-    pub(crate) fn pacing_type_infer(
-        &mut self,
-    ) -> Result<HashMap<NodeId, ConcretePacingType>, String> {
+    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
         let mut ctx = PacingContext::new(&self.ast, &self.declarations);
-        let mut input_names: HashMap<NodeId, &str> = self
+        let input_names: HashMap<NodeId, &str> = self
             .ast
             .inputs
             .iter()
@@ -73,18 +71,20 @@ impl<'a> LolaTypChecker<'a> {
             Ok(t) => t,
             Err(e) => {
                 emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
-                return Err("Typecheck error".to_string());
+                return None;
             }
         };
 
+        let key_span = ctx.key_span.clone();
         let ctt: HashMap<NodeId, ConcretePacingType> = ctx
             .node_key
-            .into_iter()
+            .iter()
             .filter_map(|(id, key)| {
-                match ConcretePacingType::from_abstract(tt[key].clone(), &vars) {
-                    Ok(ct) => Some((id, ct)),
+                match ConcretePacingType::from_abstract(tt[*key].clone(), &vars) {
+                    Ok(ct) => Some((*id, ct)),
                     Err(e) => {
-                        self.handler.error(&e);
+                        let ls = LabeledSpan::new(key_span[key], "Cannot infer type.", true);
+                        self.handler.error_with_span(&e, ls);
                         None
                     }
                 }
@@ -92,12 +92,16 @@ impl<'a> LolaTypChecker<'a> {
             .collect();
 
         if self.handler.contains_error() {
-            return Err("Typecheck error".to_string());
+            return None;
         }
-        for (id, t) in &ctt {
-            println!("ID: {}, Type: {:?}", id, t);
+
+        if let Err((reason, span)) = PacingContext::post_process(&self.ast, &ctt) {
+            let ls = LabeledSpan::new(span, "here", true);
+            self.handler.error_with_span(&reason, ls);
+            return None;
         }
-        Ok(ctt)
+
+        Some(ctt)
     }
 
     fn value_type_infer(&self) -> Result<HashMap<NodeId, IConcreteType>, String> {
@@ -236,7 +240,6 @@ mod value_type_tests {
         dbg!(&tt_result);
         assert!(tt_result.is_err());
         test_box
-
     }
 
     #[test]
@@ -360,7 +363,8 @@ mod value_type_tests {
     }
 
     #[test]
-    fn simple_valid_coersion() { //TODO does not check output type, only validity
+    fn simple_valid_coersion() {
+        //TODO does not check output type, only validity
         for spec in &[
             "constant c: Int8 := 1\noutput o: Int32 := c",
             "constant c: UInt16 := 1\noutput o: UInt64 := c",

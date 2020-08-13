@@ -3,6 +3,7 @@ extern crate regex;
 
 use crate::pacing_types::{
     parse_abstract_type, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
+    UnificationError,
 };
 use bimap::{BiMap, Overwritten};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
@@ -10,6 +11,7 @@ use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::{NodeId, Span};
+use front::reporting::{Handler, LabeledSpan};
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 
@@ -27,7 +29,7 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub fn new(ast: &RTLolaAst, decl: &'a DeclarationTable) -> Context<'a> {
+    pub(crate) fn new(ast: &RTLolaAst, decl: &'a DeclarationTable) -> Context<'a> {
         let mut bdd_var_builder = BddVariableSetBuilder::new();
         let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
@@ -62,55 +64,73 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(&input.id.to_string()));
         let input_key = self.node_key[&input.id];
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
 
-    pub fn constant_infer(&mut self, constant: &Constant) -> Result<(), TcErr<AbstractPacingType>> {
-        let ac = AbstractPacingType::Event(self.bdd_vars.mk_true());
+    pub(crate) fn constant_infer(
+        &mut self,
+        constant: &Constant,
+    ) -> Result<(), TcErr<AbstractPacingType>> {
+        let ac = AbstractPacingType::Any;
         let const_key = self.node_key[&constant.id];
         self.tyc.impose(const_key.concretizes_explicit(ac))
     }
 
-    pub fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn trigger_infer(
+        &mut self,
+        trigger: &Trigger,
+    ) -> Result<(), TcErr<AbstractPacingType>> {
         let ex_key = self.expression_infer(&trigger.expression)?;
         let trigger_key = self.tyc.new_term_key();
         self.node_key.insert(trigger.id, trigger_key);
         self.key_span.insert(trigger_key, trigger.span);
-        self.tyc.impose(trigger_key.concretizes(ex_key))
+        self.tyc.impose(trigger_key.equate_with(ex_key))
     }
 
-    pub fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
-        // Type declared AC
-        let declared_ac =
-            match parse_abstract_type(output.extend.expr.as_ref(), &self.bdd_vars, self.decl) {
-                Ok(b) => b,
-                Err((reason, span)) => {
-                    // Todo: Handle properly once the interface is done
-                    unimplemented!("{}", reason);
-                }
-            };
-        let declared_ac_key = self.tyc.new_term_key();
-        self.tyc
-            .impose(declared_ac_key.concretizes_explicit(declared_ac))?;
-        self.node_key.insert(output.extend.id, declared_ac_key);
-        self.key_span.insert(declared_ac_key, output.extend.span);
-
+    pub(crate) fn output_infer(
+        &mut self,
+        output: &Output,
+    ) -> Result<(), TcErr<AbstractPacingType>> {
         // Type Expression
         let exp_key = self.expression_infer(&output.expression)?;
-
-        // Infer resulting type
         let output_key = self.node_key[&output.id];
-        self.tyc
-            .impose(output_key.is_meet_of(declared_ac_key, exp_key))?;
 
-        // Todo: How to check implication?
-        self.tyc.impose(output_key.equate_with(declared_ac_key))
+        // Check if there is a type is annotated
+        if let Some(expr) = output.extend.expr.as_ref() {
+            let annotated_ac_key = self.tyc.new_term_key();
+            self.node_key.insert(output.extend.id, annotated_ac_key);
+            self.key_span.insert(annotated_ac_key, output.extend.span);
+
+            let annotated_ac = match parse_abstract_type(expr, &self.bdd_vars, self.decl) {
+                Ok(b) => b,
+                Err((reason, span)) => {
+                    return Err(TcErr::TypeBound(
+                        annotated_ac_key,
+                        UnificationError::Other(reason),
+                    ));
+                }
+            };
+
+            // Bind key to parsed type
+            // Todo: should be explicit bound
+            self.tyc
+                .impose(annotated_ac_key.concretizes_explicit(annotated_ac))?;
+
+            // Annotated type should be more concrete than inferred type
+            self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
+
+            // Output type is equal to declared type
+            self.tyc.impose(output_key.equate_with(annotated_ac_key))
+        } else {
+            // Output type is equal to inferred type
+            self.tyc.impose(output_key.equate_with(exp_key))
+        }
     }
 
-    pub fn expression_infer(
+    pub(crate) fn expression_infer(
         &mut self,
         exp: &Expression,
     ) -> Result<TcKey, TcErr<AbstractPacingType>> {
@@ -118,15 +138,13 @@ impl<'a> Context<'a> {
         use AbstractPacingType::*;
         match &exp.kind {
             ExpressionKind::Lit(_) => {
-                let literal_type = Any;
-                self.tyc
-                    .impose(term_key.concretizes_explicit(literal_type))?;
+                // Todo: Should be explicit bound
+                self.tyc.impose(term_key.concretizes_explicit(Any))?;
             }
             ExpressionKind::Ident(_) => {
                 let decl = &self.decl[&exp.id];
                 if let Declaration::Param(_) = decl {
-                    self.tyc
-                        .impose(term_key.concretizes_explicit(AbstractPacingType::Any))?;
+                    self.tyc.impose(term_key.concretizes_explicit(Any))?;
                 } else {
                     let node_id = match decl {
                         Declaration::Const(c) => c.id,
@@ -194,7 +212,10 @@ impl<'a> Context<'a> {
                 )?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
-            ExpressionKind::Field(_, _) => unimplemented!(),
+            ExpressionKind::Field(exp, iden) => {
+                let exp_key = self.expression_infer(&*exp)?;
+                self.tyc.impose(term_key.equate_with(exp_key))?;
+            }
             ExpressionKind::Method(body, _, _, args) => {
                 let body_key = self.expression_infer(&*body)?;
                 let mut arg_keys: Vec<TcKey> =
@@ -230,14 +251,32 @@ impl<'a> Context<'a> {
         self.key_span.insert(term_key, exp.span);
         Ok(term_key)
     }
+
+    pub(crate) fn post_process(
+        ast: &RTLolaAst,
+        ctt: &HashMap<NodeId, ConcretePacingType>,
+    ) -> Result<(), (String, Span)> {
+        // That every periodic stream has a frequency
+        for output in &ast.outputs {
+            let ct = &ctt[&output.id];
+            match ct {
+                ConcretePacingType::Periodic => {
+                    return Err((
+                        "This stream is missing a frequency annotation.".to_string(),
+                        output.span,
+                    ))
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 /*
 Todo:
-- Constant not constant
 - aggregations
-- parameters
  */
 mod pacing_type_tests {
     use crate::pacing_types::{AbstractPacingType, ActivationCondition, ConcretePacingType};
@@ -357,7 +396,7 @@ mod pacing_type_tests {
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
             tt[&ast.outputs[0].id],
-            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(10).unwrap()
             ))
         );
@@ -373,7 +412,7 @@ mod pacing_type_tests {
 
         assert_eq!(
             tt[&ast.outputs[2].id],
-            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(5).unwrap()
             ))
         );
@@ -544,16 +583,21 @@ mod pacing_type_tests {
 
         assert_eq!(
             tt[&ast.outputs[0].id],
-            ConcretePacingType::Periodic(UOM_Frequency::new::<hertz>(
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(5).unwrap()
             ))
         );
     }
 
     #[test]
-    #[ignore] // Fix me
     fn test_window_untimed() {
         let spec = "input in: Int8\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_invalid_op_in_ac() {
+        let spec = "input in: Int8\n output out: Int16 @!in := 5";
         assert_eq!(1, num_errors(spec));
     }
 }

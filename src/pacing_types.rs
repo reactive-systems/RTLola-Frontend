@@ -14,14 +14,10 @@ use uom::si::rational64::Frequency as UOM_Frequency;
 
 /// Parses either a periodic or an event based pacing type from an expression
 pub fn parse_abstract_type<'a>(
-    ast_expr: Option<&Expression>,
+    ast_expr: &Expression,
     var_set: &BddVariableSet,
     decl: &'a DeclarationTable,
 ) -> Result<AbstractPacingType, (String, Span)> {
-    if ast_expr.is_none() {
-        return Ok(AbstractPacingType::Any);
-    }
-    let ast_expr = ast_expr.unwrap();
     match &ast_expr.kind {
         ExpressionKind::Lit(l) => match l.kind {
             LitKind::Bool(_) => {
@@ -49,25 +45,24 @@ fn parse_ac<'a>(
 ) -> Result<Bdd, (String, Span)> {
     use ExpressionKind::*;
     match &ast_expr.kind {
-        Lit(l) => match l.kind {
-            LitKind::Bool(b) => {
-                if b {
-                    Ok(var_set.mk_true())
-                } else {
-                    Ok(var_set.mk_false())
-                }
-            }
-            _ => Err(("Unexpected literal in activation condition".into(), l.span)),
-        },
+        Lit(l) => Err((
+            "Literals are not allowed in activation conditions.".into(),
+            l.span,
+        )),
         Ident(i) => {
             let declartation = &decl[&ast_expr.id];
             let id = match declartation {
-                Declaration::Const(c) => c.id,
                 Declaration::Out(out) => out.id,
                 Declaration::ParamOut(param) => param.id,
                 Declaration::In(input) => input.id,
-                Declaration::Type(_) | Declaration::Param(_) | Declaration::Func(_) => {
-                    unreachable!("ensured by naming analysis {:?}", decl)
+                Declaration::Type(_)
+                | Declaration::Param(_)
+                | Declaration::Func(_)
+                | Declaration::Const(_) => {
+                    return Err((
+                        "An activation condition can only refer to inputs or outputs.".into(),
+                        i.span,
+                    ));
                 }
             };
             Ok(var_set.mk_var_by_name(&id.to_string()))
@@ -79,16 +74,15 @@ fn parse_ac<'a>(
             match op {
                 And => Ok(ac_l.and(&ac_r)),
                 Or => Ok(ac_l.or(&ac_r)),
-                Eq => Ok(ac_l.iff(&ac_r)),
                 _ => Err((
-                    "Unexpected binary operator in activation condition".into(),
+                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
                     ast_expr.span,
                 )),
             }
         }
         ParenthesizedExpression(_, exp, _) => parse_ac(exp, var_set, decl),
         _ => Err((
-            "Unexpected expression in activation condition".into(),
+            "An activation condition can only contain literals and binary operators.".into(),
             ast_expr.span,
         )),
     }
@@ -442,7 +436,9 @@ pub enum ConcretePacingType {
     /// The stream / expression can be evaluated whenever the activation condition is satisfied.
     Event(ActivationCondition),
     /// The stream / expression can be evaluated with a fixed frequency.
-    Periodic(UOM_Frequency),
+    FixedPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with any frequency.
+    Periodic,
     /// The stream / expression can always be evaluated.
     Constant,
 }
@@ -459,8 +455,8 @@ impl ConcretePacingType {
                     .map(|ac| ConcretePacingType::Event(ac))
             }
             AbstractPacingType::Periodic(freq) => match freq {
-                Freq::Fixed(f) => Ok(ConcretePacingType::Periodic(f.clone())),
-                Freq::Any => Ok(ConcretePacingType::Constant),
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f.clone())),
+                Freq::Any => Ok(ConcretePacingType::Periodic),
             },
         }
     }
