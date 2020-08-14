@@ -169,9 +169,12 @@ impl rusttyc::types::TryReifiable for IAbstractType {
             IAbstractType::Numeric => Err(ReificationErr::TooGeneral(
                 "Cannot reify a numeric value. Either define a default (int/fixed) or restrict type.".to_string(),
             )),
+            /*
             IAbstractType::Integer => Err(ReificationErr::TooGeneral(
                 "Cannot reify an Integer value. Either define a default (int/uint) or restrict type.".to_string(),
             )),
+            */
+            IAbstractType::Integer => Ok(IConcreteType::Integer32), //TODO REVIEW default case
             IAbstractType::Bool => Ok(IConcreteType::Bool),
             IAbstractType::Tuple(sub_types) => {
                 let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationErr>>, Vec<_>) = sub_types
