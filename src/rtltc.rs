@@ -463,4 +463,56 @@ mod value_type_tests {
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
+
+    #[test]
+    fn simple_ite_compare() {
+        let spec = "output e :Int8 := if 1 == 0 then 0 else -1";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn underspecified_ite_type() {
+        let spec = "output o = if !false then 1.3 else -2.0";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
+    }
+
+    #[test]
+    fn test_ite_condition_faulty() {
+        let spec = "output o: UInt8 := if 3 then 1 else 1";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_ite_arms_incompatible() {
+        let spec = "output o: UInt8 := if true then 1 else false";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_parenthized_expr() {
+        let spec = "input s: String\noutput o: Bool := s[-1].defaults(to: \"\") == \"a\"";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+        assert_eq!(result_map[&in_id], IConcreteType::TString);
+    }
+
+    #[test]
+    fn test_underspecified_type() {
+        let spec = "output o := 2";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+    }
 }

@@ -224,7 +224,7 @@ impl ValueContext {
                 self.tyc.impose(
                     ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
                 )?;
-                let inner_key = self.tyc.get_child_key(ex_key, 1)?;
+                let inner_key = self.tyc.get_child_key(ex_key, 0)?;
                 self.tyc.impose(def_key.equate_with(inner_key))?;
                 self.tyc.impose(term_key.equate_with(def_key))?;
             }
@@ -232,12 +232,20 @@ impl ValueContext {
                 let ex_key = self.expression_infer(&*expr, None)?; // X
                                                                    //Want build: Option<X>
 
-                //TODO check for different offset - there are no realtime offsets so far
-                self.tyc.impose(
-                    term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                )?;
-                let inner_key = self.tyc.get_child_key(term_key, 1)?;
-                self.tyc.impose(ex_key.equate_with(inner_key))?;
+                match offset {
+                    front::ast::Offset::Discrete(_) => {
+                        self.tyc.impose(
+                            term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                        )?;
+                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                        self.tyc.impose(ex_key.equate_with(inner_key))?;
+                    }
+                    front::ast::Offset::RealTime(_,_) => {
+                        //TODO there are no realtime offsets so far
+                        unimplemented!("RealTime offset not yet supported in Value Type inference")
+                    }
+                }
+
             }
             ExpressionKind::SlidingWindowAggregation {
                 expr,
@@ -391,7 +399,7 @@ impl ValueContext {
 
                 self.tyc
                     .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
-                self.tyc.impose(cons_key.equate_with(alt_key))?;
+                //self.tyc.impose(cons_key.equate_with(alt_key))?;
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(vec) => {
@@ -581,6 +589,7 @@ impl ValueContext {
     }
 
     fn match_lit_kind(&self, lit: LitKind) -> IAbstractType {
+        dbg!(&lit);
         dbg!(match lit {
             LitKind::Str(_) | LitKind::RawStr(_) => IAbstractType::TString,
             LitKind::Numeric(n, post) => get_abstract_type_of_string_value(&n).expect(""),
@@ -644,10 +653,19 @@ impl ValueContext {
 }
 
 fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType, String> {
+
+
     let int_parse = value_str.parse::<i64>();
     let uint_parse = value_str.parse::<u64>();
-    if let (Ok(n), Ok(u)) = (&int_parse, &uint_parse) {
-        return Ok(IAbstractType::Numeric);
+    match (&int_parse,&uint_parse) {
+        //TODO default Int64 applied currently
+        (Ok(s),Ok(u)) => return Ok(IAbstractType::SInteger(64 - s.leading_zeros())),
+        (Err(_),Ok(u)) => return Ok(IAbstractType::UInteger(64 - u.leading_zeros())),
+        (Ok(s),Err(_)) => {
+            let n = if s.is_negative() {1} else {0} + s.abs().leading_zeros() ;
+            return Ok(IAbstractType::SInteger(64 -n));
+        },
+        (Err(_),Err(_)) => {},
     }
     /*
     if let Ok(n) = int_parse {
