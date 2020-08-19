@@ -355,10 +355,7 @@ mod pacing_type_tests {
         let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
-        assert_eq!(
-            tt[&ast.constants[0].id],
-            ConcretePacingType::Event(ActivationCondition::True)
-        );
+        assert_eq!(tt[&ast.constants[0].id], ConcretePacingType::Constant);
     }
 
     #[test]
