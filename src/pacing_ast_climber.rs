@@ -597,4 +597,60 @@ mod pacing_type_tests {
         let spec = "input in: Int8\n output out: Int16 @!in := 5";
         assert_eq!(1, num_errors(spec));
     }
+
+    #[test]
+    fn test_timed() {
+        let spec = "output o1: Bool @10Hz:= false\noutput o2: Bool @10Hz:= o1";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_timed_faster() {
+        let spec = "output o1: Bool @20Hz := false\noutput o2: Bool @10Hz:= o1";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_timed_incompatible() {
+        let spec = "output o1: Bool @3Hz := false\noutput o2: Bool@10Hz:= o1";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_timed_binary() {
+        let spec = "output o1: Bool @10Hz:= false\noutput o2: Bool @10Hz:= o1 && true";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_involved() {
+        let spec = "input velo: Float32\n output avg: Float64 @5Hz := velo.aggregate(over_exactly: 1h, using: avg).defaults(to: 10000.0)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_sample_and_hold_noop() {
+        let spec = "input x: UInt8\noutput y: UInt8 @ x := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    #[ignore] // Todo: Decide how to handle the type of y
+    fn test_sample_and_hold_sync() {
+        let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(0, num_errors(spec));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
+    }
+
+    #[test]
+    fn test_sample_and_hold_useful() {
+        let spec = "input x: UInt8\noutput y: UInt8 @1Hz := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_errors(spec));
+    }
 }
