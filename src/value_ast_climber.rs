@@ -130,7 +130,7 @@ impl ValueContext {
 
         if let t = &out.ty {
             let annotated_type_replaced = self.type_kind_match(t);
-            dbg!(&annotated_type_replaced);
+            //dbg!(&annotated_type_replaced);
             self.tyc
                 .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
         };
@@ -138,7 +138,7 @@ impl ValueContext {
         let mut param_types = Vec::new();
         for param in &out.params {
             let param_key = self.tyc.get_var_key(&Variable {
-                name: param.name.name.clone(),
+                name: out.name.name.clone() + "_" + &param.name.name.clone(),
             });
             self.node_key.insert(param.id,param_key);
 
@@ -176,7 +176,7 @@ impl ValueContext {
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
-                dbg!(&literal_type);
+                //dbg!(&literal_type);
                 self.tyc
                     .impose(term_key.concretizes_explicit(literal_type))?;
             }
@@ -456,20 +456,27 @@ impl ValueContext {
                         self.tyc.impose(term_key.concretizes(return_type))?;
                     }
                     Declaration::ParamOut(out) => {
-                        //dbg!("Decl::Paramout");
+                        dbg!("Decl::Paramout");
                         let params: &[Rc<Parameter>] = out.params.as_slice();
                         let param_out_tckey = self.tyc.get_var_key(&Variable {
                             name: out.name.name.clone(),
                         });
-                        //dbg!(params);
+                        dbg!(params);
+
+                        let param_keys: Vec<TcKey> = out.params.iter().map(|p| self.tyc.get_var_key(&Variable {
+                            name: out.name.name.clone() + "_" + &p.name.name.clone(),
+                        })).collect();
 
                         let param_types: Vec<IAbstractType> =
                             params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
-
-                        for (arg, param_t) in args.iter().zip(param_types.iter()) {
-                            dbg!(arg, param_t);
+                        dbg!(&param_types);
+                        for ((arg, param_t),p_key) in args.iter().zip(param_types.iter()).zip(param_keys.iter()) {
                             let arg_key = self.expression_infer(&*arg, Some(param_t.clone()))?;
-                            //dbg!(arg_key);
+                            dbg!(arg, param_t);
+                            self.node_key.insert(arg.id,arg_key);
+                            dbg!(arg.id,arg_key,p_key);
+                            self.tyc.impose(p_key.equate_with(arg_key));
+                            self.tyc.impose(p_key.concretizes_explicit(param_t.clone()));
 
                             self.tyc
                                 .impose(arg_key.concretizes_explicit(param_t.clone()))?;
@@ -614,11 +621,14 @@ impl ValueContext {
                 self.node_key.get_by_right(&k2),
                 msg
             ),
-            TcErr::TypeBound(key, msg) => format!(
+            TcErr::Bound(key,key2, msg) => format!(
                 "Invalid type bound enforced on {:?}: {}",
                 self.node_key.get_by_right(&key),
                 msg
             ),
+            //TODO
+            TcErr::ExactTypeViolation(_, _) => {"TODO".to_string()}
+            TcErr::ConflictingExactBounds(_, _, _) => {"TODO".to_string()}
         };
         msg
     }
@@ -642,11 +652,14 @@ impl ValueContext {
                 self.node_key.get_by_right(&k2),
                 msg
             ),
-            TcErr::TypeBound(key, msg) => format!(
+            TcErr::Bound(key,key2, msg) => format!(
                 "Invalid type bound enforced on {:?}: {}",
                 self.node_key.get_by_right(&key),
                 msg
             ),
+            //TODO
+            TcErr::ExactTypeViolation(_, _) => {"TODO".to_string()}
+            TcErr::ConflictingExactBounds(_, _, _) => {"TODO".to_string()}
         };
         msg
     }
@@ -709,7 +722,7 @@ fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
 #[cfg(test)]
 mod value_type_tests {
     use crate::value_types::IConcreteType;
-    use crate::LolaTypChecker;
+    use crate::LolaTypeChecker;
     use front::analysis::naming::Declaration;
     use front::parse::NodeId;
     use front::parse::SourceMapper;
@@ -747,14 +760,14 @@ mod value_type_tests {
 
     fn complete_check(spec: &str) -> usize {
         let test_box = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         ltc.check();
         test_box.handler.emitted_errors()
     }
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
         let test_box = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         let tt_result = ltc.value_type_infer();
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
@@ -766,7 +779,7 @@ mod value_type_tests {
 
     fn check_expect_error(spec: &str) -> TestBox {
         let test_box = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         let tt_result = ltc.value_type_infer();
         dbg!(&tt_result);
         assert!(tt_result.is_err());
@@ -829,7 +842,7 @@ mod value_type_tests {
         let spec = "output x(a: UInt8, b: Bool) := a";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.spec.outputs[0].id;
-        //assert_eq!(0, complete_check(spec)); //TODO FIXME: pacing types cant handle params in expr
+        assert_eq!(0, complete_check(spec));
         assert_eq!(0, tb.handler.emitted_errors());
         assert_eq!(result_map[&output_id], IConcreteType::UInteger8);
     }
@@ -907,7 +920,7 @@ mod value_type_tests {
     }
 
     #[test]
-    fn simple_invalid_coersion() {
+    fn simple_invalid_coersion() { //TODO fix implicit widening
         let spec = "constant c: Int32 := 1\noutput o: Int8 := c";
         let tb = check_expect_error(spec);
         assert_eq!(1, complete_check(spec));
@@ -1039,7 +1052,7 @@ mod value_type_tests {
     }
 
     #[test]
-    fn test_underspecified_type() {
+    fn test_underspecified_type() { //Default for num literals applied
         let spec = "output o := 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1047,4 +1060,415 @@ mod value_type_tests {
         let res_type = &result_map[&out_id];
         assert!(*res_type == IConcreteType::Integer32 ||  *res_type == IConcreteType::Integer64);
     }
+
+    #[test]
+    fn test_input_lookup() {
+        let spec = "input a: UInt8\n output b: UInt8 := a";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+    }
+
+    #[test]
+    fn test_input_lookup_faulty() {
+        let spec = "input a: UInt8\n output b: Float64 := a";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_stream_lookup() { //TODO FIXME
+        let spec = "output a: UInt8 := 3\n output b: UInt8 := a[0]";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+    }
+
+    #[test]
+    fn test_stream_lookup_faulty() {
+        let spec = "input a: UInt8\n output b: Float64 := a";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_stream_lookup_dft() {
+        let spec = "output a: UInt8 := 3\n output b: UInt8 := a[-1].defaults(to: 3)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+    }
+
+    #[test]
+    fn test_stream_lookup_dft_fault() {
+        let spec = "output a: UInt8 := 3\n output b: Bool := a[-1].defaults(to: false)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+    #[test]
+    #[ignore] // paramertic streams need new design after syntax revision
+    fn test_extend_type() {
+        let spec = "input in: Bool\n output a: Int8 { extend in } := 3";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    #[ignore] // paramertic streams need new design after syntax revision
+    fn test_extend_type_faulty() {
+        let spec = "input in: Int8\n output a: Int8 { extend in } := 3";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_terminate_type() {
+        let spec = "input in: Bool\n output a(b: Bool): Int8 close in := 3";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn test_terminate_type_faulty() {
+        let spec = "input in: Int8\n output a(b: Bool): Int8 close in := 3";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_terminate_type_faulty_ac() {
+        // stream type is not compatible
+        let spec = "input in: Int8 input in2: Bool output a(b: Bool): Int8 @in close in2 := 3";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_param_spec() {
+        let spec = "output a(p1: Int8): Int8 := 3 output b: Int8 := a(3)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn test_param_spec_faulty() {
+        let spec = "output a(p1: Int8): Int8:= 3 output b: Int8 := a(true)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_param_inferred() {
+        let spec = "input i: Int8 output x(param): Int8 := 3 output y: Int8 := x(i)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
+
+    }
+
+    #[test]
+    fn test_param_inferred_conflicting() {
+        let spec = "input i: Int8, j: UInt8 output x(param): Int8 := 3 output y: Int8 := x(i) output z: Int8 := x(j)";
+        let tb = check_expect_error(spec);
+        assert_eq!(complete_check(spec), 1);
+        //assert_eq!(get_type(spec), ValueTy::Int(IntTy::I8)); //TODO
+    }
+
+    #[test]
+    fn test_lookup_incomp() {
+        let spec = "output a(p1: Int8): Int8 := 3\n output b: UInt8 := a(3)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_tuple() {
+        let spec = "output out: (Int8, Bool) := (14, false)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Tuple(vec![IConcreteType::Integer8,IConcreteType::Bool]));
+    }
+
+    #[test]
+    fn test_tuple_faulty() {
+        let spec = "output out: (Int8, Bool) := (14, 3)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_tuple_access() {
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Tuple(vec![IConcreteType::Integer8,IConcreteType::Bool]));
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn test_tuple_access_faulty_type() {
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].0";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_tuple_access_faulty_len() {
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].2";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_optional_type() {
+        let spec = "input in: Int8\noutput out: Int8? := in.offset(by: -1)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Option(IConcreteType::Integer8.into()));
+    }
+
+    #[test]
+    fn test_optional_type_faulty() {
+        let spec = "input in: Int8\noutput out: Int8? := in";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_input_offset() {
+        let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
+    }
+
+    #[test]
+    fn test_tuple_of_tuples() {
+        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Int16 := in[0].0";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        let input_type = IConcreteType::Tuple(vec![IConcreteType::Integer8,IConcreteType::Tuple(vec![IConcreteType::UInteger8,IConcreteType::Bool])]);
+        assert_eq!(result_map[&in_id], input_type);
+        assert_eq!(result_map[&out_id], IConcreteType::Integer16);
+    }
+
+    #[test]
+    fn test_tuple_of_tuples2() {
+        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in[0].1.1";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        let input_type = IConcreteType::Tuple(vec![IConcreteType::Integer8,IConcreteType::Tuple(vec![IConcreteType::UInteger8,IConcreteType::Bool])]);
+        assert_eq!(result_map[&in_id], input_type);
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
+    }
+
+    /* TODO
+    #[test]
+    fn test_window_widening() {
+        let spec = "input in: Int8\n output out: Int64 @5Hz:= in.aggregate(over: 3s, using: Σ)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_window() {
+        let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_window_untimed() {
+        let spec = "input in: Int8\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_window_faulty() {
+        let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 3s, using: Σ)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_window_invalid_duration() {
+        let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 0s, using: Σ)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+        let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: -3s, using: Σ)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    #[ignore] // ignore until implemented
+    fn test_aggregation_implicit_cast() {
+        let spec =
+            "input in: UInt8\n output out: Int16 @5Hz := in.aggregate(over_exactly: 3s, using: Σ).defaults(to: 5)";
+        assert_eq!(0, num_type_errors(spec));
+        let spec =
+            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
+        assert_eq!(0, num_type_errors(spec));
+        let spec =
+            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_aggregation_integer_integral() {
+        let spec =
+            "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+        let spec =
+            "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+        let spec =
+            "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+        assert_eq!(0, num_type_errors(spec));
+        let spec =
+            "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+
+    #[test]
+    fn test_involved() {
+        let spec = "input velo: Float32\n output avg: Float64 @5Hz := velo.aggregate(over_exactly: 1h, using: avg).defaults(to: 10000.0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_rt_offset() {
+        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_rt_offset_regression() {
+        let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to: 0) + 1";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_rt_offset_regression2() {
+        let spec = "
+            output x @ 10Hz := 1
+            output x_diff := x - x.offset(by:-1s).defaults(to: x)
+        ";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_rt_offset_skip() {
+        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+    #[test]
+    fn test_rt_offset_skip2() {
+        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-2s].defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_rt_offset_fail() {
+        let spec = "output a: Int8 @0.5Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, complete_check(spec));
+    }
+
+    #[test]
+    fn test_sample_and_hold_noop() {
+        let spec = "input x: UInt8\noutput y: UInt8 @ x := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_sample_and_hold_sync() {
+        let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_sample_and_hold_useful() {
+        let spec = "input x: UInt8\noutput y: UInt8 @1Hz := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_casting_implicit_types() {
+        let spec = "input x: UInt8\noutput y: Float32 := cast(x)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_casting_explicit_types() {
+        let spec = "input x: Int32\noutput y: UInt32 := cast<Int32,UInt32>(x)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_missing_expression() {
+        // should not produce an error as we want to be able to handle incomplete specs in analysis
+        let spec = "input x: Bool\noutput y: Bool := \ntrigger (y || x)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn infinite_recursion_regression() {
+        // this should fail in type checking as the value type of `c` cannot be determined.
+        let spec = "output c := c.defaults(to:0)";
+        assert_eq!(1, num_type_errors(spec));
+    }
+    */
+    /*
+    #[test]
+    fn test_function_arguments_regression() {
+        let spec = "input a: Int32\ntrigger a > 50";
+        let type_table = type_check(spec);
+        // expression `a > 50` has NodeId = 3
+        let exp_a_gt_50_id = NodeId::new(5);
+        assert_eq!(type_table.get_value_type(exp_a_gt_50_id), &ValueTy::Bool);
+        assert_eq!(type_table.get_func_arg_types(exp_a_gt_50_id), &vec![ValueTy::Int(IntTy::I32)]);
+    }
+    */
 }
