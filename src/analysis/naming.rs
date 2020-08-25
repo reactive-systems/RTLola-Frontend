@@ -42,6 +42,7 @@ pub(crate) const KEYWORDS: [&str; 26] = [
 
 pub type DeclarationTable = HashMap<NodeId, Declaration>;
 
+#[derive(Debug)]
 pub struct NamingAnalysis<'b> {
     declarations: ScopedDecl,
     type_declarations: ScopedDecl,
@@ -365,6 +366,7 @@ impl<'b> NamingAnalysis<'b> {
 }
 
 /// Provides a mapping from `String` to `Declaration` and is able to handle different scopes.
+#[derive(Debug)]
 pub(crate) struct ScopedDecl {
     scopes: Vec<HashMap<String, Declaration>>,
 }

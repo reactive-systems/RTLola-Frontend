@@ -2,7 +2,7 @@
 
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
-    missing_docs,
+//    missing_docs, //TODO readd when typechecker is stable
     missing_debug_implementations,
     missing_copy_implementations,
     trivial_casts,
