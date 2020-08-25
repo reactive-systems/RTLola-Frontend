@@ -107,8 +107,9 @@ impl<'a> Context<'a> {
             let annotated_ac = match parse_abstract_type(expr, &self.bdd_vars, self.decl) {
                 Ok(b) => b,
                 Err((reason, span)) => {
-                    return Err(TcErr::TypeBound(
+                    return Err(TcErr::Bound(
                         annotated_ac_key,
+                        None, //TODO
                         UnificationError::Other(reason),
                     ));
                 }
@@ -280,7 +281,7 @@ Todo:
  */
 mod pacing_type_tests {
     use crate::pacing_types::{AbstractPacingType, ActivationCondition, ConcretePacingType};
-    use crate::LolaTypChecker;
+    use crate::LolaTypeChecker;
     use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
     use front::analysis::naming::Declaration;
     use front::parse::NodeId;
@@ -315,7 +316,7 @@ mod pacing_type_tests {
 
     fn num_errors(spec: &str) -> usize {
         let (spec, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&spec, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&spec, dec.clone(), &handler);
         ltc.pacing_type_infer();
         return handler.emitted_errors();
     }
@@ -324,7 +325,7 @@ mod pacing_type_tests {
     fn test_input_simple() {
         let spec = "input i: Int8";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
@@ -337,7 +338,7 @@ mod pacing_type_tests {
     fn test_output_simple() {
         let spec = "input a: Int8\n input b: Int8 \n output o := a + b";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
@@ -352,7 +353,7 @@ mod pacing_type_tests {
     fn test_constant_simple() {
         let spec = "constant c: UInt8 := -2";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(tt[&ast.constants[0].id], ConcretePacingType::Constant);
@@ -362,7 +363,7 @@ mod pacing_type_tests {
     fn test_trigger_simple() {
         let spec = "input a: Int8\n trigger a == 42";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
@@ -373,7 +374,7 @@ mod pacing_type_tests {
     fn test_disjunction_annotated() {
         let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := 1";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
         let ac_b = ActivationCondition::Stream(ast.inputs[1].id);
@@ -388,7 +389,7 @@ mod pacing_type_tests {
     fn test_frequency_simple() {
         let spec = "output a: UInt8 @10Hz := 0";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
@@ -403,7 +404,7 @@ mod pacing_type_tests {
     fn test_frequency_conjunction() {
         let spec = "output a: Int32 @10Hz := 0\noutput b: Int32 @5Hz := 0\noutput x := a+b";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -428,7 +429,7 @@ mod pacing_type_tests {
     fn test_normalization_event_streams() {
         let spec = "input a: Int32\ninput b: Int32\ninput c: Int32\noutput x := a + b\noutput y := x + x + c";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         // node ids can be verified using `rtlola-analyze spec.lola ast`
@@ -506,7 +507,7 @@ mod pacing_type_tests {
         let spec =
             "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         let i_type = ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id));
         assert_eq!(0, num_errors(spec));
@@ -518,7 +519,7 @@ mod pacing_type_tests {
     fn test_parametric_output_parameter() {
         let spec = "output x(a: UInt8, b: Bool) := a";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
@@ -528,7 +529,7 @@ mod pacing_type_tests {
     fn test_trigonometric() {
         let spec = "import math\noutput o: Float32 := sin(2.0)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
@@ -538,7 +539,7 @@ mod pacing_type_tests {
     fn test_tuple() {
         let spec = "output out: (Int8, Bool) := (14, false)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
@@ -548,7 +549,7 @@ mod pacing_type_tests {
     fn test_tuple_access() {
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -561,7 +562,7 @@ mod pacing_type_tests {
     fn test_input_offset() {
         let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -574,7 +575,7 @@ mod pacing_type_tests {
     fn test_window() {
         let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -639,7 +640,7 @@ mod pacing_type_tests {
     fn test_sample_and_hold_sync() {
         let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
         let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypChecker::new(&ast, dec.clone(), &handler);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(

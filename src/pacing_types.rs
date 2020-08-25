@@ -247,7 +247,7 @@ pub(crate) fn emit_error(
             let span = LabeledSpan::new(spans[k1], "here", true);
             handler.error_with_span(msg, span);
         }
-        TcErr::TypeBound(k1, err) => {
+        TcErr::Bound(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
             let span = LabeledSpan::new(spans[k1], "here", true);
             handler.error_with_span(msg, span);
@@ -260,6 +260,9 @@ pub(crate) fn emit_error(
             let span = LabeledSpan::new(spans[key], "here", true);
             handler.error_with_span(msg, span);
         }
+        //TODO
+        TcErr::ExactTypeViolation(_, _) => {}
+        TcErr::ConflictingExactBounds(_, _, _) => {}
     }
 }
 
