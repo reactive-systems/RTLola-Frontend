@@ -12,15 +12,15 @@ use rusttyc::types::ReifiedTypeTable;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-pub struct LolaTypChecker<'a> {
+pub struct LolaTypeChecker<'a> {
     pub(crate) ast: RTLolaAst,
     pub(crate) declarations: DeclarationTable,
     pub(crate) handler: &'a Handler,
 }
 
-impl<'a> LolaTypChecker<'a> {
+impl<'a> LolaTypeChecker<'a> {
     pub fn new(spec: &RTLolaAst, declarations: DeclarationTable, handler: &'a Handler) -> Self {
-        LolaTypChecker {
+        LolaTypeChecker {
             ast: spec.clone(),
             declarations: declarations.clone(),
             handler,

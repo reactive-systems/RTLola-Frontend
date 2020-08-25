@@ -7,7 +7,7 @@ mod rtltc;
 mod value_ast_climber;
 mod value_types;
 
-use crate::rtltc::LolaTypChecker;
+use crate::rtltc::LolaTypeChecker;
 use front::ast::RTLolaAst;
 use front::parse::SourceMapper;
 use front::FrontendConfig;
@@ -62,7 +62,7 @@ fn main() {
             front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
         let mut decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
 
-        let checker = LolaTypChecker::new(&lola_spec, decl_table, &handler);
+        let checker = LolaTypeChecker::new(&lola_spec, decl_table, &handler);
 
         print!("{:#?}", checker.generate_raw_table());
     }
