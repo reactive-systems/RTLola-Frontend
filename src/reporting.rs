@@ -38,7 +38,7 @@ impl Handler {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn emitted_warnings(&self) -> usize {
+    pub fn emitted_warnings(&self) -> usize {
         *self.warning_count.borrow()
     }
 
@@ -56,7 +56,7 @@ impl Handler {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn warn(&self, message: &str) {
+    pub fn warn(&self, message: &str) {
         self.emit(&Diagnostic {
             level: Warning,
             message: message.to_owned(),
@@ -66,7 +66,7 @@ impl Handler {
         });
     }
 
-    pub(crate) fn warn_with_span(&self, message: &str, span: LabeledSpan) {
+    pub fn warn_with_span(&self, message: &str, span: LabeledSpan) {
         self.emit(&Diagnostic {
             level: Warning,
             message: message.to_owned(),
@@ -96,18 +96,18 @@ impl Handler {
         });
     }
 
-    pub(crate) fn build_error_with_span(&self, message: &str, span: LabeledSpan) -> DiagnosticBuilder<'_> {
+    pub fn build_error_with_span(&self, message: &str, span: LabeledSpan) -> DiagnosticBuilder<'_> {
         let mut builder = DiagnosticBuilder::new(&self, Error, message);
         builder.add_labeled_span(span);
         builder
     }
 
-    pub(crate) fn build_diagnostic(&self, message: &str, level: Level) -> DiagnosticBuilder<'_> {
+    pub fn build_diagnostic(&self, message: &str, level: Level) -> DiagnosticBuilder<'_> {
         DiagnosticBuilder::new(&self, level, message)
     }
 
     #[allow(dead_code)]
-    pub(crate) fn bug_with_span(&self, message: &str, span: LabeledSpan) {
+    pub fn bug_with_span(&self, message: &str, span: LabeledSpan) {
         self.emit(&Diagnostic {
             level: Bug,
             message: message.to_owned(),
@@ -301,7 +301,7 @@ impl StderrEmitter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Level {
+pub enum Level {
     /// A compiler bug
     #[allow(dead_code)]
     Bug,
@@ -318,7 +318,7 @@ pub(crate) enum Level {
 
 /// A structured representation of a user-facing diagnostic.
 #[derive(Debug, Clone)]
-pub(crate) struct Diagnostic {
+pub struct Diagnostic {
     pub(crate) level: Level,
     pub(crate) message: String,
     pub(crate) span: Vec<LabeledSpan>,
@@ -390,7 +390,7 @@ impl LabeledSpan {
 /// Sometimes diagnostics cannot be emitted directly as important information is still missing.
 /// `DiagnosticBuilder` helps in this situations by allowing to incrementally build diagnostics.
 #[derive(Debug)]
-pub(crate) struct DiagnosticBuilder<'a> {
+pub struct DiagnosticBuilder<'a> {
     handler: &'a Handler,
     diagnostic: Diagnostic,
     status: DiagnosticBuilderStatus,
@@ -411,7 +411,7 @@ impl<'a> DiagnosticBuilder<'a> {
         }
     }
 
-    pub(crate) fn emit(&mut self) {
+    pub fn emit(&mut self) {
         assert_eq!(self.status, DiagnosticBuilderStatus::Building);
         self.handler.emit(&self.diagnostic);
         self.status = DiagnosticBuilderStatus::Emitted;
@@ -428,11 +428,11 @@ impl<'a> DiagnosticBuilder<'a> {
         self.diagnostic.sort_spans = false;
     }
 
-    pub(crate) fn add_span_with_label(&mut self, span: Span, label: &str, primary: bool) {
+    pub fn add_span_with_label(&mut self, span: Span, label: &str, primary: bool) {
         self.diagnostic.span.push(LabeledSpan::new(span, label, primary))
     }
 
-    pub(crate) fn add_labeled_span(&mut self, span: LabeledSpan) {
+    pub fn add_labeled_span(&mut self, span: LabeledSpan) {
         self.diagnostic.span.push(span)
     }
 }
