@@ -2,16 +2,14 @@ use super::*;
 extern crate regex;
 
 use crate::pacing_types::{
-    parse_abstract_type, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
+    parse_abstract_type, AbstractPacingType, ConcretePacingType, Freq,
     UnificationError,
 };
-use bimap::{BiMap, Overwritten};
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::{NodeId, Span};
-use front::reporting::{Handler, LabeledSpan};
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 
@@ -106,19 +104,18 @@ impl<'a> Context<'a> {
 
             let annotated_ac = match parse_abstract_type(expr, &self.bdd_vars, self.decl) {
                 Ok(b) => b,
-                Err((reason, span)) => {
+                Err((reason, _span)) => {
                     return Err(TcErr::Bound(
                         annotated_ac_key,
-                        None, //TODO
+                        None,
                         UnificationError::Other(reason),
                     ));
                 }
             };
 
             // Bind key to parsed type
-            // Todo: should be explicit bound
             self.tyc
-                .impose(annotated_ac_key.concretizes_explicit(annotated_ac))?;
+                .impose(annotated_ac_key.has_exactly_type(annotated_ac))?;
 
             // Annotated type should be more concrete than inferred type
             self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
@@ -139,8 +136,7 @@ impl<'a> Context<'a> {
         use AbstractPacingType::*;
         match &exp.kind {
             ExpressionKind::Lit(_) => {
-                // Todo: Should be explicit bound
-                self.tyc.impose(term_key.concretizes_explicit(Any))?;
+                self.tyc.impose(term_key.has_exactly_type(Any))?;
             }
             ExpressionKind::Ident(_) => {
                 let decl = &self.decl[&exp.id];
@@ -213,7 +209,7 @@ impl<'a> Context<'a> {
                 )?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
-            ExpressionKind::Field(exp, iden) => {
+            ExpressionKind::Field(exp, _iden) => {
                 let exp_key = self.expression_infer(&*exp)?;
                 self.tyc.impose(term_key.equate_with(exp_key))?;
             }
@@ -280,9 +276,8 @@ Todo:
 - aggregations
  */
 mod pacing_type_tests {
-    use crate::pacing_types::{AbstractPacingType, ActivationCondition, ConcretePacingType};
+    use crate::pacing_types::{ActivationCondition, ConcretePacingType};
     use crate::LolaTypeChecker;
-    use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
     use front::analysis::naming::Declaration;
     use front::parse::NodeId;
     use front::parse::SourceMapper;
@@ -496,7 +491,6 @@ mod pacing_type_tests {
     }
 
     #[test]
-    #[ignore] // Fix me
     fn test_no_direct_access_possible() {
         let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := a";
         assert_eq!(1, num_errors(spec));

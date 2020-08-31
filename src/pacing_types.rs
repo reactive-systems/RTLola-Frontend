@@ -244,15 +244,23 @@ pub(crate) fn emit_error(
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span = LabeledSpan::new(spans[k1], "here", true);
-            handler.error_with_span(msg, span);
+            let span1 = LabeledSpan::new(spans[k1], "here", true);
+            let span2 = LabeledSpan::new(spans[k2], "and here", true);
+            let mut diag = handler.build_error_with_span(msg, span1);
+            diag.add_labeled_span(span2);
+            diag.emit();
         }
-        TcErr::Bound(k1, k2, err) => {
+        TcErr::Bound(k1, k2o, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span = LabeledSpan::new(spans[k1], "here", true);
-            handler.error_with_span(msg, span);
+            let span1 = LabeledSpan::new(spans[k1], "here", true);
+            let mut diag = handler.build_error_with_span(msg, span1);
+            if let Some(k2) = k2o {
+                let span2 = LabeledSpan::new(spans[k2], "and here", true);
+                diag.add_labeled_span(span2);
+            }
+            diag.emit();
         }
-        TcErr::ChildAccessOutOfBound(key, ty, idx) => {
+        TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
                 "Child type out of bounds for type: {}",
                 ty.to_string(vars, names)
@@ -260,9 +268,23 @@ pub(crate) fn emit_error(
             let span = LabeledSpan::new(spans[key], "here", true);
             handler.error_with_span(msg, span);
         }
-        //TODO
-        TcErr::ExactTypeViolation(_, _) => {}
-        TcErr::ConflictingExactBounds(_, _, _) => {}
+        TcErr::ExactTypeViolation(key, ty) => {
+            let msg = &format!(
+                "Expected type: {}",
+                ty.to_string(vars, names)
+            );
+            let span = LabeledSpan::new(spans[key], "here", true);
+            handler.error_with_span(msg, span);
+        }
+        TcErr::ConflictingExactBounds(key, ty1, ty2) => {
+            let msg = &format!(
+                "Conflicting type bounds: {} and {}",
+                ty1.to_string(vars, names),
+                ty2.to_string(vars, names)
+            );
+            let span = LabeledSpan::new(spans[key], "here", true);
+            handler.error_with_span(msg, span);
+        }
     }
 }
 
@@ -275,6 +297,8 @@ pub enum AbstractPacingType {
     Periodic(Freq),
     /// An undetermined type that can be unified into either of the other options.
     Any,
+    /// An event stream with this type is never evaluated.
+    Never,
 }
 
 impl rusttyc::types::Abstract for AbstractPacingType {
@@ -288,6 +312,7 @@ impl rusttyc::types::Abstract for AbstractPacingType {
         use AbstractPacingType::*;
         match (self, other) {
             (Any, x) | (x, Any) => Ok(x.clone()),
+            (Never, x) | (x, Never) => Ok(x.clone()),
             (Event(ac), Periodic(f)) => Err(UnificationError::MixedEventPeriodic(
                 Event(ac.clone()),
                 Periodic(f.clone()),
@@ -336,6 +361,7 @@ impl AbstractPacingType {
             AbstractPacingType::Event(b) => format!("Event({})", bdd_to_string(b, vars, names)),
             AbstractPacingType::Periodic(freq) => format!("Periodic({})", freq),
             AbstractPacingType::Any => "Any".to_string(),
+            AbstractPacingType::Never => "Never".to_string(),
         }
     }
 }
@@ -461,6 +487,7 @@ impl ConcretePacingType {
                 Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f.clone())),
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
+            AbstractPacingType::Never => Err("Cannot concretize type: never.".to_string()),
         }
     }
 }

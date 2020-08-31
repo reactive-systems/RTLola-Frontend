@@ -106,6 +106,8 @@ impl<'a> LolaTypeChecker<'a> {
             return None;
         }
 
+        dbg!(&ctt);
+
         Some(ctt)
     }
 
