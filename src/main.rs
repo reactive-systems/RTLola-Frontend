@@ -60,10 +60,10 @@ fn main() {
 
         let mut na =
             front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
-        let mut decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
+        let decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
 
-        let checker = LolaTypeChecker::new(&lola_spec, decl_table, &handler);
+        let mut checker = LolaTypeChecker::new(&lola_spec, decl_table, &handler);
 
-        print!("{:#?}", checker.generate_raw_table());
+        print!("{:#?}", checker.check());
     }
 }
