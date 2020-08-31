@@ -46,7 +46,7 @@ impl Abstract for IAbstractType {
             (Integer, other) | (other, Integer) => {
                 Err(format!("Integer and non-Integer {:?}", other))
             }
-            (UInteger(u), other) | (other, UInteger(u)) => {
+            (UInteger(_), other) | (other, UInteger(_)) => {
                 Err(format!("UInt not unifiable with {:?}", other))
             }
             (Tuple(lv), Tuple(rv)) => {
@@ -115,8 +115,8 @@ impl Abstract for IAbstractType {
     {
         let mut it = children.into_iter();
         match self {
-            IAbstractType::Option(op) => IAbstractType::Option(it.next().expect("").into()),
-            IAbstractType::Tuple(v) => IAbstractType::Tuple(it.collect()),
+            IAbstractType::Option(_op) => IAbstractType::Option(it.next().expect("").into()),
+            IAbstractType::Tuple(_v) => IAbstractType::Tuple(it.collect()),
             t => t.clone(),
         }
     }
