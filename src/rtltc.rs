@@ -5,10 +5,11 @@ use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::{IAbstractType, IConcreteType};
 use front::analysis::naming::DeclarationTable;
-use front::ast::RTLolaAst;
-use front::parse::NodeId;
+use front::ast::{Input, Output, RTLolaAst, Trigger};
+use front::parse::{NodeId, Span};
 use front::reporting::{Handler, LabeledSpan};
 use rusttyc::types::ReifiedTypeTable;
+use rusttyc::TcErr;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -29,8 +30,13 @@ impl<'a> LolaTypeChecker<'a> {
 
     pub fn check(&mut self) {
         //TODO imports
-        self.value_type_infer();
-        self.pacing_type_infer();
+        match self.value_type_infer() {
+            Ok(map) => {}
+            Err(e) => {} //TODO,
+        };
+        if let Some(table) = self.pacing_type_infer() {
+            //TODO
+        };
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
@@ -107,50 +113,74 @@ impl<'a> LolaTypeChecker<'a> {
     pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, IConcreteType>, String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
-        let mut ctx = ValueContext::new(&self.ast, self.declarations.clone());
+        let mut ctx = ValueContext::new(&self.ast, self.declarations.clone(), self.handler);
 
         for input in &self.ast.inputs {
             if let Err(e) = ctx.input_infer(input) {
+                let msg = ctx.handle_error(e);
                 self.handler.error_with_span(
                     "Input inference error",
-                    LabeledSpan::new(input.span, "Todo", true),
+                    LabeledSpan::new(input.span, &msg, true),
                 );
+                return Err(msg);
             }
         }
 
         for constant in &self.ast.constants {
             if let Err(e) = ctx.constant_infer(constant) {
+                let msg = ctx.handle_error(e);
                 self.handler.error_with_span(
-                    "Output inference error",
-                    LabeledSpan::new(constant.span, "Todo", true),
+                    "Constant inference error",
+                    LabeledSpan::new(constant.span, &msg, true),
                 );
-                return Err(ctx.handle_error(e));
+                return Err(msg);
             }
         }
 
         for output in &self.ast.outputs {
             if let Err(e) = ctx.output_infer(output) {
+                let msg = ctx.handle_error(e);
                 self.handler.error_with_span(
                     "Output inference error",
-                    LabeledSpan::new(output.span, "Todo", true),
+                    LabeledSpan::new(output.span, &msg, true),
                 );
-                return Err(ctx.handle_error(e));
+                return Err(msg);
             }
         }
 
         for trigger in &self.ast.trigger {
             if let Err(e) = ctx.trigger_infer(trigger) {
+                let msg = ctx.handle_error(e);
                 self.handler.error_with_span(
-                    "Output inference error",
-                    LabeledSpan::new(trigger.span, "Todo", true),
+                    "Trigger inference error",
+                    LabeledSpan::new(trigger.span, &msg, true),
                 );
-                return Err(ctx.handle_error(e));
+                return Err(msg);
             }
         }
 
-        let tt_r = ctx.tyc.type_check();
+        let tt_r = ctx.tyc.clone().type_check();
         if let Err(tc_err) = tt_r {
-            return Err("TODO".to_string());
+            let (error_key, error_key_2) = match tc_err.clone() {
+                //TODO improve
+                TcErr::ChildAccessOutOfBound(key, _ty, _n) => (key, None),
+                TcErr::KeyEquation(k1, k2, _msg) => (k1, Some(k2)),
+                TcErr::Bound(key, key2, _msg) => (key, key2),
+                TcErr::ExactTypeViolation(key, _bound) => (key, None),
+                TcErr::ConflictingExactBounds(key, _bound1, _bound2) => (key, None),
+            };
+            self.handler.error_with_span(
+                "Result inference error",
+                LabeledSpan::new(ctx.key_span[&error_key], "Todo", true),
+            );
+            if let Some(k) = error_key_2 {
+                self.handler.warn_with_span(
+                    "Result inference error - connected warning",
+                    LabeledSpan::new(ctx.key_span[&k], "Todo", false),
+                );
+            }
+            let msg: String = ctx.handle_error(tc_err);
+            return Err(msg);
         }
         let tt = tt_r.ok().expect("");
         let bm = ctx.node_key;
