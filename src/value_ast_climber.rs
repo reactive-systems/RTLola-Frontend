@@ -785,7 +785,7 @@ mod value_type_tests {
     fn complete_check(spec: &str) -> usize {
         let test_box = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
-        ltc.check();
+        ltc.value_type_infer();
         test_box.handler.emitted_errors()
     }
 

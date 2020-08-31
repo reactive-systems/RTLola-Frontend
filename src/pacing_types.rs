@@ -88,80 +88,46 @@ fn parse_ac<'a>(
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum Freq {
-    Any,
-    Fixed(UOM_Frequency),
-}
-
-impl std::fmt::Display for Freq {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Freq::Any => write!(f, "Any"),
-            Freq::Fixed(freq) => write!(
-                f,
-                "{}",
-                freq.clone().into_format_args(
-                    uom::si::frequency::hertz,
-                    uom::fmt::DisplayStyle::Abbreviation
-                )
-            ),
-        }
-    }
-}
-
-impl Freq {
-    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, UnificationError> {
-        let lhs = match self {
-            Freq::Fixed(f) => f,
-            Freq::Any => return Ok(false),
-        };
-        let rhs = match other {
-            Freq::Fixed(f) => f,
-            Freq::Any => return Ok(false),
-        };
-
-        if lhs.get::<hertz>() < rhs.get::<hertz>() {
-            return Ok(false);
-        }
-        match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
-            Some(q) => Ok(q.is_integer()),
-            None => Err(UnificationError::Other(format!(
-                "division of frequencies `{:?}`/`{:?}` failed",
-                &lhs, &rhs
-            ))),
-        }
-    }
-
-    pub(crate) fn conjunction(&self, other: &Freq) -> Freq {
-        let (numer_left, denom_left) = match self {
-            Freq::Any => return other.clone(),
-            Freq::Fixed(f) => (
-                f.get::<hertz>().numer().clone(),
-                f.get::<hertz>().denom().clone(),
-            ),
-        };
-        let (numer_right, denom_right) = match other {
-            Freq::Any => return self.clone(),
-            Freq::Fixed(f) => (
-                f.get::<hertz>().numer().clone(),
-                f.get::<hertz>().denom().clone(),
-            ),
-        };
-        // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
-        // only works if rational numbers are reduced, which ist the default for `Rational`
-        let r1: i64 = i64::try_from(numer_left.gcd(&numer_right)).unwrap();
-        let r2: i64 = i64::try_from(denom_left.gcd(&denom_right)).unwrap();
-        let r: Ratio<i64> = Ratio::new(r1, r2);
-        Freq::Fixed(UOM_Frequency::new::<hertz>(r))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnificationError {
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleFrequencies(AbstractPacingType, AbstractPacingType),
     Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PacingError {
+    FreqAnnotationNeeded(Span),
+    NeverEval(Span),
+    MalformedAC(String)
+}
+
+impl PacingError {
+    pub fn emit(self, handler: &Handler) {
+        match self {
+            PacingError::FreqAnnotationNeeded(span) => {
+                let ls = LabeledSpan::new(span, "here", true);
+                handler.error_with_span("Frequency annotation needed.", ls);
+            },
+            PacingError::NeverEval(span) => {
+                let ls = LabeledSpan::new(span, "here", true);
+                handler.error_with_span("The following stream is never evaluated.", ls); 
+            },
+            PacingError::MalformedAC(reason) => {
+                handler.error(&format!("Malformed activation condition: {}", reason));
+            }
+        }
+    }
+
+    pub fn emit_with_span(self, handler: &Handler, s: Span) {
+        match self {
+            PacingError::FreqAnnotationNeeded(_) | PacingError::NeverEval(_) => self.emit(handler),
+            PacingError::MalformedAC(reason) => {
+                let ls = LabeledSpan::new(s, "here", true);
+                handler.error_with_span(&format!("Malformed activation condition: {}", reason), ls); 
+            }
+        }
+    }
 }
 
 fn bdd_to_string(bdd: &Bdd, vars: &BddVariableSet, input_names: &HashMap<NodeId, &str>) -> String {
@@ -255,14 +221,14 @@ pub(crate) fn emit_error(
             let span1 = LabeledSpan::new(spans[k1], "here", true);
             let mut diag = handler.build_error_with_span(msg, span1);
             if let Some(k2) = k2o {
-                let span2 = LabeledSpan::new(spans[k2], "and here", true);
+                let span2 = LabeledSpan::new(spans[k2], "and here", false);
                 diag.add_labeled_span(span2);
             }
             diag.emit();
         }
         TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
-                "Child type out of bounds for type: {}",
+                "In pacing type analysis:\n Child type out of bounds for type: {}",
                 ty.to_string(vars, names)
             );
             let span = LabeledSpan::new(spans[key], "here", true);
@@ -270,7 +236,7 @@ pub(crate) fn emit_error(
         }
         TcErr::ExactTypeViolation(key, ty) => {
             let msg = &format!(
-                "Expected type: {}",
+                "In pacing type analysis:\n Expected type: {}",
                 ty.to_string(vars, names)
             );
             let span = LabeledSpan::new(spans[key], "here", true);
@@ -278,7 +244,7 @@ pub(crate) fn emit_error(
         }
         TcErr::ConflictingExactBounds(key, ty1, ty2) => {
             let msg = &format!(
-                "Conflicting type bounds: {} and {}",
+                "In pacing type analysis:\n Conflicting type bounds: {} and {}",
                 ty1.to_string(vars, names),
                 ty2.to_string(vars, names)
             );
@@ -289,6 +255,76 @@ pub(crate) fn emit_error(
 }
 
 // Abstract Type Definition
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub enum Freq {
+    Any,
+    Fixed(UOM_Frequency),
+}
+
+impl std::fmt::Display for Freq {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Freq::Any => write!(f, "Any"),
+            Freq::Fixed(freq) => write!(
+                f,
+                "{}",
+                freq.clone().into_format_args(
+                    uom::si::frequency::hertz,
+                    uom::fmt::DisplayStyle::Abbreviation
+                )
+            ),
+        }
+    }
+}
+
+impl Freq {
+    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, UnificationError> {
+        let lhs = match self {
+            Freq::Fixed(f) => f,
+            Freq::Any => return Ok(false),
+        };
+        let rhs = match other {
+            Freq::Fixed(f) => f,
+            Freq::Any => return Ok(false),
+        };
+
+        if lhs.get::<hertz>() < rhs.get::<hertz>() {
+            return Ok(false);
+        }
+        match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
+            Some(q) => Ok(q.is_integer()),
+            None => Err(UnificationError::Other(format!(
+                "division of frequencies `{:?}`/`{:?}` failed",
+                &lhs, &rhs
+            ))),
+        }
+    }
+
+    pub(crate) fn conjunction(&self, other: &Freq) -> Freq {
+        let (numer_left, denom_left) = match self {
+            Freq::Any => return other.clone(),
+            Freq::Fixed(f) => (
+                f.get::<hertz>().numer().clone(),
+                f.get::<hertz>().denom().clone(),
+            ),
+        };
+        let (numer_right, denom_right) = match other {
+            Freq::Any => return self.clone(),
+            Freq::Fixed(f) => (
+                f.get::<hertz>().numer().clone(),
+                f.get::<hertz>().denom().clone(),
+            ),
+        };
+        // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
+        // only works if rational numbers are reduced, which ist the default for `Rational`
+        let r1: i64 = i64::try_from(numer_left.gcd(&numer_right)).unwrap();
+        let r2: i64 = i64::try_from(denom_left.gcd(&denom_right)).unwrap();
+        let r: Ratio<i64> = Ratio::new(r1, r2);
+        Freq::Fixed(UOM_Frequency::new::<hertz>(r))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AbstractPacingType {
     /// An event stream is extended when its activation condition is satisfied.
@@ -392,21 +428,21 @@ pub enum ActivationCondition {
 }
 
 impl ActivationCondition {
-    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, String> {
+    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, PacingError> {
         use BooleanExpression::*;
         match exp {
             Const(b) => {
                 if b {
                     Ok(ActivationCondition::True)
                 } else {
-                    Err("False in Activation Condition".to_string())
+                    Err(PacingError::MalformedAC("False in Activation Condition".to_string()))
                 }
             }
             Variable(s) => {
                 let id = s.parse::<usize>();
                 match id {
                     Ok(i) => Ok(ActivationCondition::Stream(NodeId::new(i))),
-                    Err(_) => Err("Wrong Variable in AC".to_string()),
+                    Err(_) => Err(PacingError::MalformedAC("Wrong Variable in AC".to_string())),
                 }
             }
             And(left, right) => {
@@ -455,7 +491,7 @@ impl ActivationCondition {
                     (a, b) => Ok(ActivationCondition::Disjunction(vec![a, b])),
                 }
             }
-            _ => Err("Unsupported Operation in AC".to_string()),
+            _ => Err(PacingError::MalformedAC("Unsupported Operation in AC".to_string())),
         }
     }
 }
@@ -476,7 +512,7 @@ impl ConcretePacingType {
     pub(crate) fn from_abstract(
         abs_t: AbstractPacingType,
         vars: &BddVariableSet,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, PacingError> {
         match abs_t {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(b) => {
@@ -487,7 +523,7 @@ impl ConcretePacingType {
                 Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f.clone())),
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
-            AbstractPacingType::Never => Err("Cannot concretize type: never.".to_string()),
+            AbstractPacingType::Never => unreachable!(),
         }
     }
 }

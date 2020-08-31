@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
-use crate::pacing_types::{emit_error, ConcretePacingType};
+use crate::pacing_types::{emit_error, ConcretePacingType, PacingError};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IConcreteType;
 use front::analysis::naming::DeclarationTable;
@@ -72,6 +72,7 @@ impl<'a> LolaTypeChecker<'a> {
         }
 
         let vars = ctx.bdd_vars.clone();
+        let nid_key = ctx.node_key.clone();
         let tt = match ctx.tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
@@ -79,6 +80,17 @@ impl<'a> LolaTypeChecker<'a> {
                 return None;
             }
         };
+
+        if self.handler.contains_error() {
+            return None;
+        }
+
+        for pe in PacingContext::post_process(nid_key, &self.ast, &tt) {
+            pe.emit(self.handler);
+        }
+        if self.handler.contains_error() {
+            return None;
+        }
 
         let key_span = ctx.key_span.clone();
         let ctt: HashMap<NodeId, ConcretePacingType> = ctx
@@ -88,8 +100,7 @@ impl<'a> LolaTypeChecker<'a> {
                 match ConcretePacingType::from_abstract(tt[*key].clone(), &vars) {
                     Ok(ct) => Some((*id, ct)),
                     Err(e) => {
-                        let ls = LabeledSpan::new(key_span[key], "Cannot infer type.", true);
-                        self.handler.error_with_span(&e, ls);
+                        e.emit_with_span(self.handler, key_span[key]);
                         None
                     }
                 }
@@ -99,15 +110,6 @@ impl<'a> LolaTypeChecker<'a> {
         if self.handler.contains_error() {
             return None;
         }
-
-        if let Err((reason, span)) = PacingContext::post_process(&self.ast, &ctt) {
-            let ls = LabeledSpan::new(span, "here", true);
-            self.handler.error_with_span(&reason, ls);
-            return None;
-        }
-
-        dbg!(&ctt);
-
         Some(ctt)
     }
 

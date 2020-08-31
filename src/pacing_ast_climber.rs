@@ -3,7 +3,7 @@ extern crate regex;
 
 use crate::pacing_types::{
     parse_abstract_type, AbstractPacingType, ConcretePacingType, Freq,
-    UnificationError,
+    UnificationError, PacingError
 };
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
@@ -11,6 +11,7 @@ use front::ast::{Constant, Expression, Input, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::{NodeId, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker};
+use rusttyc::types::AbstractTypeTable;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -95,6 +96,7 @@ impl<'a> Context<'a> {
         // Type Expression
         let exp_key = self.expression_infer(&output.expression)?;
         let output_key = self.node_key[&output.id];
+        self.tyc.impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
         if let Some(expr) = output.extend.expr.as_ref() {
@@ -121,10 +123,10 @@ impl<'a> Context<'a> {
             self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
 
             // Output type is equal to declared type
-            self.tyc.impose(output_key.equate_with(annotated_ac_key))
+            self.tyc.impose(output_key.concretizes(annotated_ac_key))
         } else {
             // Output type is equal to inferred type
-            self.tyc.impose(output_key.equate_with(exp_key))
+            self.tyc.impose(output_key.concretizes(exp_key))
         }
     }
 
@@ -250,23 +252,25 @@ impl<'a> Context<'a> {
     }
 
     pub(crate) fn post_process(
+        nid_key: HashMap<NodeId, TcKey>,
         ast: &RTLolaAst,
-        ctt: &HashMap<NodeId, ConcretePacingType>,
-    ) -> Result<(), (String, Span)> {
+        tt: &AbstractTypeTable<AbstractPacingType>,
+    ) -> Vec<PacingError>{
+        let mut res = vec![];
         // That every periodic stream has a frequency
         for output in &ast.outputs {
-            let ct = &ctt[&output.id];
-            match ct {
-                ConcretePacingType::Periodic => {
-                    return Err((
-                        "This stream is missing a frequency annotation.".to_string(),
-                        output.span,
-                    ))
-                }
+            let at = &tt[nid_key[&output.id]];
+            match at {
+                AbstractPacingType::Periodic(Freq::Any) => {
+                    res.push(PacingError::FreqAnnotationNeeded(output.span));
+                },
+                AbstractPacingType::Never => {
+                    res.push(PacingError::NeverEval(output.span));
+                },
                 _ => {}
             }
         }
-        Ok(())
+        res
     }
 }
 
@@ -511,32 +515,32 @@ mod pacing_type_tests {
 
     #[test]
     fn test_parametric_output_parameter() {
-        let spec = "output x(a: UInt8, b: Bool) := a";
+        let spec = "input i: UInt8\noutput x(a: UInt8, b: Bool) @i := a";
         let (ast, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
     }
 
     #[test]
     fn test_trigonometric() {
-        let spec = "import math\noutput o: Float32 := sin(2.0)";
+        let spec = "import math\ninput i: UInt8\noutput o: Float32 @i := sin(2.0)";
         let (ast, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
     }
 
     #[test]
     fn test_tuple() {
-        let spec = "output out: (Int8, Bool) := (14, false)";
+        let spec = "input i: UInt8\noutput out: (Int8, Bool) @i:= (14, false)";
         let (ast, dec, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Constant);
+        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
     }
 
     #[test]
