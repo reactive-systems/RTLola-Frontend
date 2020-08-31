@@ -12,7 +12,6 @@ use front::ast::RTLolaAst;
 use front::parse::SourceMapper;
 use front::FrontendConfig;
 use std::env;
-use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::option::Option;
@@ -46,13 +45,11 @@ fn main() {
             }
         }
 
-        let name = s.clone();
         let p = prog.clone();
         let spec = &p;
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
 
-        let ir = front::parse(&name, &p, front::FrontendConfig::default());
         let lola_spec = match ast {
             Err(why) => panic!("parsing error: {}", why), //TODO
             Ok(parsed_spec) => parsed_spec,

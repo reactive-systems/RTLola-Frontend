@@ -3,15 +3,14 @@ use super::*;
 use crate::pacing_ast_climber::Context as PacingContext;
 use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
-use crate::value_types::{IAbstractType, IConcreteType};
+use crate::value_types::IConcreteType;
 use front::analysis::naming::DeclarationTable;
-use front::ast::{Input, Output, RTLolaAst, Trigger};
-use front::parse::{NodeId, Span};
+use front::ast::RTLolaAst;
+use front::parse::NodeId;
 use front::reporting::{Handler, LabeledSpan};
 use rusttyc::types::ReifiedTypeTable;
 use rusttyc::TcErr;
 use std::collections::HashMap;
-use std::hash::Hash;
 
 pub struct LolaTypeChecker<'a> {
     pub(crate) ast: RTLolaAst,
@@ -189,7 +188,7 @@ impl<'a> LolaTypeChecker<'a> {
             println!("{:?}", (*nid, tt[*k].clone()));
         }
         let rtt_r = tt.try_reified();
-        if let Err(a) = rtt_r {
+        if let Err(_) = rtt_r {
             return Err("TypeTable not reifiable: ValueType not constrained enough".to_string());
         }
         let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.ok().expect("");
@@ -198,9 +197,5 @@ impl<'a> LolaTypeChecker<'a> {
             result_map.insert(*nid, rtt[*k].clone());
         }
         Ok(result_map)
-    }
-
-    pub fn generate_raw_table(&self) -> Vec<(i32, front::ty::Ty)> {
-        vec![]
     }
 }

@@ -86,11 +86,11 @@ impl<'a> ValueContext<'a> {
             .get_by_left(&input.id)
             .expect("Added in constructor");
         //Annotated Type
-        if let t = &input.ty {
-            let annotated_type_replaced = self.type_kind_match(t);
-            self.tyc
-                .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
-        };
+
+        let annotated_type_replaced = self.type_kind_match(&input.ty);
+        self.tyc
+            .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
+
         let mut param_types = Vec::new();
         for param in &input.params {
             let param_key = self.tyc.get_var_key(&Variable {
@@ -135,12 +135,10 @@ impl<'a> ValueContext<'a> {
             .get_by_left(&out.id)
             .expect("Added in constructor");
 
-        if let t = &out.ty {
-            let annotated_type_replaced = self.type_kind_match(t);
-            //dbg!(&annotated_type_replaced);
-            self.tyc
-                .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
-        };
+        let annotated_type_replaced = self.type_kind_match(&out.ty);
+        //dbg!(&annotated_type_replaced);
+        self.tyc
+            .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
 
         let mut param_types = Vec::new();
         for param in &out.params {
@@ -189,7 +187,7 @@ impl<'a> ValueContext<'a> {
                 self.tyc
                     .impose(term_key.concretizes_explicit(literal_type))?;
             }
-            ExpressionKind::Ident(id) => {
+            ExpressionKind::Ident(_) => {
                 let decl = &self.decl[&exp.id];
                 let node_id = match decl {
                     Declaration::Const(c) => c.id,
@@ -401,7 +399,8 @@ impl<'a> ValueContext<'a> {
                 }
             }
             ExpressionKind::Ite(cond, cons, alt) => {
-                let cond_key = self.expression_infer(&*cond, Some(IAbstractType::Bool))?; // Bool
+                // Bool for condition - check given in the second argument
+                self.expression_infer(&*cond, Some(IAbstractType::Bool))?;
                 let cons_key = self.expression_infer(&*cons, None)?; // X
                 let alt_key = self.expression_infer(&*alt, None)?; // X
 
@@ -427,9 +426,9 @@ impl<'a> ValueContext<'a> {
                         .impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
             }
-            ExpressionKind::Field(_, _) => unimplemented!(),
-            ExpressionKind::Method(_, _, _, _) => unimplemented!(),
-            ExpressionKind::Function(name, types, args) => {
+            ExpressionKind::Field(_, _) => unimplemented!("TODO"),
+            ExpressionKind::Method(_, _, _, _) => unimplemented!("TODO"),
+            ExpressionKind::Function(_name, types, args) => {
                 dbg!("Function Infer");
                 //transform Type into new internal types.
                 let types_vec: Vec<IAbstractType> =
@@ -605,7 +604,9 @@ impl<'a> ValueContext<'a> {
             }
             ValueTy::String => IAbstractType::TString,
             ValueTy::Bytes => unimplemented!(),
-            ValueTy::Tuple(vec) => unimplemented!("TODO"),
+            ValueTy::Tuple(vec) => {
+                IAbstractType::Tuple(vec.iter().map(|t| self.value_type_match(t)).collect())
+            }
             ValueTy::Option(o) => IAbstractType::Option(self.value_type_match(&**o).into()),
             ValueTy::Infer(_) => unreachable!(),
             ValueTy::Constr(c) => {
@@ -631,11 +632,11 @@ impl<'a> ValueContext<'a> {
 
     fn match_lit_kind(&self, lit: LitKind) -> IAbstractType {
         dbg!(&lit);
-        dbg!(match lit {
+        match lit {
             LitKind::Str(_) | LitKind::RawStr(_) => IAbstractType::TString,
             LitKind::Numeric(n, post) => get_abstract_type_of_string_value(&n).expect(""),
             LitKind::Bool(_) => IAbstractType::Bool,
-        })
+        }
     }
 
     pub(crate) fn handle_error(
@@ -690,39 +691,10 @@ impl<'a> ValueContext<'a> {
         err: TcErr<IAbstractType>,
     ) -> <IAbstractType as Abstract>::Err {
         //TODO include Expression
-        let msg = match err {
-            TcErr::ChildAccessOutOfBound(key, ty, n) => format!(
-                "Invalid child-type access by {:?}: {}-th child for {:?}",
-                self.node_key.get_by_right(&key),
-                n,
-                ty
-            ),
-            TcErr::KeyEquation(k1, k2, msg) => format!(
-                "Incompatible Type for equation of {:?} and {:?}: {}",
-                self.node_key.get_by_right(&k1),
-                self.node_key.get_by_right(&k2),
-                msg
-            ),
-            TcErr::Bound(key, key2, msg) => format!(
-                "Invalid type bound enforced on {:?}: {}",
-                self.node_key.get_by_right(&key),
-                msg
-            ),
-            //TODO
-            TcErr::ExactTypeViolation(key, bound) => format!(
-                "Type Bound: {:?} incompatible with {:?}",
-                bound,
-                self.node_key.get_by_right(&key)
-            ),
-            TcErr::ConflictingExactBounds(key, bound1, bound2) => format!(
-                "Incomatible bounds {:?} and {:?} applied on {:?}",
-                bound1,
-                bound2,
-                self.node_key.get_by_right(&key)
-            ),
-        };
-        let labeled_span = LabeledSpan::new(exp.span, "here", true);
-        self.handler.error_with_span(&msg, labeled_span);
+        let msg = self.handle_error(err);
+        let labeled_span = LabeledSpan::new(exp.span, &msg, true);
+        self.handler
+            .error_with_span("Type error for expression", labeled_span);
         msg
     }
 }
@@ -733,7 +705,7 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     match (&int_parse, &uint_parse) {
         //TODO default Int64 applied currently
         //(Ok(s),Ok(u)) => return Ok(IAbstractType::SInteger(64 - s.leading_zeros())),
-        (Ok(s), Ok(u)) => return Ok(IAbstractType::Integer),
+        (Ok(_s), Ok(_u)) => return Ok(IAbstractType::Integer),
         (Err(_), Ok(u)) => return Ok(IAbstractType::UInteger(64 - u.leading_zeros())),
         (Ok(s), Err(_)) => {
             let n = if s.is_negative() { 1 } else { 0 } + s.abs().leading_zeros();
@@ -743,7 +715,7 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     }
 
     let float_parse = value_str.parse::<f64>();
-    if let Ok(f) = float_parse {
+    if let Ok(_) = float_parse {
         return Ok(IAbstractType::Float(32));
     }
     let pat = regex::Regex::new("\"*\"").unwrap(); //TODO simplify , check first and last character
