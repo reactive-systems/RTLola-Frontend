@@ -99,7 +99,7 @@ pub enum UnificationError {
 pub(crate) enum PacingError {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
-    MalformedAC(String)
+    MalformedAC(String),
 }
 
 impl PacingError {
@@ -108,11 +108,11 @@ impl PacingError {
             PacingError::FreqAnnotationNeeded(span) => {
                 let ls = LabeledSpan::new(span, "here", true);
                 handler.error_with_span("Frequency annotation needed.", ls);
-            },
+            }
             PacingError::NeverEval(span) => {
                 let ls = LabeledSpan::new(span, "here", true);
-                handler.error_with_span("The following stream is never evaluated.", ls); 
-            },
+                handler.error_with_span("The following stream is never evaluated.", ls);
+            }
             PacingError::MalformedAC(reason) => {
                 handler.error(&format!("Malformed activation condition: {}", reason));
             }
@@ -124,7 +124,7 @@ impl PacingError {
             PacingError::FreqAnnotationNeeded(_) | PacingError::NeverEval(_) => self.emit(handler),
             PacingError::MalformedAC(reason) => {
                 let ls = LabeledSpan::new(s, "here", true);
-                handler.error_with_span(&format!("Malformed activation condition: {}", reason), ls); 
+                handler.error_with_span(&format!("Malformed activation condition: {}", reason), ls);
             }
         }
     }
@@ -435,7 +435,9 @@ impl ActivationCondition {
                 if b {
                     Ok(ActivationCondition::True)
                 } else {
-                    Err(PacingError::MalformedAC("False in Activation Condition".to_string()))
+                    Err(PacingError::MalformedAC(
+                        "False in Activation Condition".to_string(),
+                    ))
                 }
             }
             Variable(s) => {
@@ -491,7 +493,9 @@ impl ActivationCondition {
                     (a, b) => Ok(ActivationCondition::Disjunction(vec![a, b])),
                 }
             }
-            _ => Err(PacingError::MalformedAC("Unsupported Operation in AC".to_string())),
+            _ => Err(PacingError::MalformedAC(
+                "Unsupported Operation in AC".to_string(),
+            )),
         }
     }
 }

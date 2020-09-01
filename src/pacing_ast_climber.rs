@@ -2,16 +2,17 @@ use super::*;
 extern crate regex;
 
 use crate::pacing_types::{
-    parse_abstract_type, AbstractPacingType, ConcretePacingType, Freq,
-    UnificationError, PacingError
+    parse_abstract_type, AbstractPacingType, ConcretePacingType, Freq, PacingError,
+    UnificationError,
 };
+
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
 use front::ast::{Constant, Expression, Input, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::{NodeId, Span};
-use rusttyc::{TcErr, TcKey, TypeChecker};
 use rusttyc::types::AbstractTypeTable;
+use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -96,7 +97,8 @@ impl<'a> Context<'a> {
         // Type Expression
         let exp_key = self.expression_infer(&output.expression)?;
         let output_key = self.node_key[&output.id];
-        self.tyc.impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
+        self.tyc
+            .impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
         if let Some(expr) = output.extend.expr.as_ref() {
@@ -211,7 +213,7 @@ impl<'a> Context<'a> {
                 )?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
-            ExpressionKind::Field(exp, _iden) => {
+            ExpressionKind::Field(exp, ident) => {
                 let exp_key = self.expression_infer(&*exp)?;
                 self.tyc.impose(term_key.equate_with(exp_key))?;
             }
@@ -255,7 +257,7 @@ impl<'a> Context<'a> {
         nid_key: HashMap<NodeId, TcKey>,
         ast: &RTLolaAst,
         tt: &AbstractTypeTable<AbstractPacingType>,
-    ) -> Vec<PacingError>{
+    ) -> Vec<PacingError> {
         let mut res = vec![];
         // That every periodic stream has a frequency
         for output in &ast.outputs {
@@ -263,10 +265,10 @@ impl<'a> Context<'a> {
             match at {
                 AbstractPacingType::Periodic(Freq::Any) => {
                     res.push(PacingError::FreqAnnotationNeeded(output.span));
-                },
+                }
                 AbstractPacingType::Never => {
                     res.push(PacingError::NeverEval(output.span));
-                },
+                }
                 _ => {}
             }
         }
@@ -520,7 +522,10 @@ mod pacing_type_tests {
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
     }
 
     #[test]
@@ -530,7 +535,10 @@ mod pacing_type_tests {
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
     }
 
     #[test]
@@ -540,7 +548,10 @@ mod pacing_type_tests {
         let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id)));
+        assert_eq!(
+            tt[&ast.outputs[0].id],
+            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+        );
     }
 
     #[test]
