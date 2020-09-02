@@ -2,8 +2,7 @@ use super::*;
 extern crate regex;
 
 use crate::pacing_types::{
-    parse_abstract_type, AbstractPacingType, ConcretePacingType, Freq, PacingError,
-    UnificationError,
+    parse_abstract_type, AbstractPacingType, Freq, PacingError, UnificationError,
 };
 
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
@@ -202,7 +201,7 @@ impl<'a> Context<'a> {
                 let alt_key = self.expression_infer(&*alt)?;
 
                 self.tyc
-                    .impose(term_key.is_meet_of_all(&vec![cond_key, cons_key, alt_key]))?;
+                    .impose(term_key.is_meet_of_all(&[cond_key, cons_key, alt_key]))?;
             }
             ExpressionKind::MissingExpression => unreachable!(),
             ExpressionKind::Tuple(elements) => {
@@ -213,7 +212,8 @@ impl<'a> Context<'a> {
                 )?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
-            ExpressionKind::Field(exp, ident) => {
+            ExpressionKind::Field(exp, _ident) => {
+                //TODO unused var
                 let exp_key = self.expression_infer(&*exp)?;
                 self.tyc.impose(term_key.equate_with(exp_key))?;
             }
@@ -234,13 +234,11 @@ impl<'a> Context<'a> {
                     .expect("declaration checked by naming analysis")
                     .clone();
 
-                match decl {
-                    Declaration::ParamOut(out) => {
-                        let output_key = self.node_key[&out.id];
-                        self.tyc.impose(term_key.concretizes(output_key))?;
-                    }
-                    _ => {}
+                if let Declaration::ParamOut(out) = decl {
+                    let output_key = self.node_key[&out.id];
+                    self.tyc.impose(term_key.concretizes(output_key))?;
                 };
+
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.tyc.impose(term_key.concretizes(arg_key))?;

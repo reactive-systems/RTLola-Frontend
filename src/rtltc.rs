@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::pacing_ast_climber::Context as PacingContext;
-use crate::pacing_types::{emit_error, ConcretePacingType, PacingError};
+use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IConcreteType;
 use front::analysis::naming::DeclarationTable;
@@ -22,7 +22,7 @@ impl<'a> LolaTypeChecker<'a> {
     pub fn new(spec: &RTLolaAst, declarations: DeclarationTable, handler: &'a Handler) -> Self {
         LolaTypeChecker {
             ast: spec.clone(),
-            declarations: declarations.clone(),
+            declarations,
             handler,
         }
     }
@@ -121,10 +121,6 @@ impl<'a> LolaTypeChecker<'a> {
         for input in &self.ast.inputs {
             if let Err(e) = ctx.input_infer(input) {
                 let msg = ctx.handle_error(e);
-                self.handler.error_with_span(
-                    "Input inference error",
-                    LabeledSpan::new(input.span, &msg, true),
-                );
                 return Err(msg);
             }
         }
@@ -132,10 +128,6 @@ impl<'a> LolaTypeChecker<'a> {
         for constant in &self.ast.constants {
             if let Err(e) = ctx.constant_infer(constant) {
                 let msg = ctx.handle_error(e);
-                self.handler.error_with_span(
-                    "Constant inference error",
-                    LabeledSpan::new(constant.span, &msg, true),
-                );
                 return Err(msg);
             }
         }
@@ -143,10 +135,6 @@ impl<'a> LolaTypeChecker<'a> {
         for output in &self.ast.outputs {
             if let Err(e) = ctx.output_infer(output) {
                 let msg = ctx.handle_error(e);
-                self.handler.error_with_span(
-                    "Output inference error",
-                    LabeledSpan::new(output.span, &msg, true),
-                );
                 return Err(msg);
             }
         }
@@ -154,10 +142,6 @@ impl<'a> LolaTypeChecker<'a> {
         for trigger in &self.ast.trigger {
             if let Err(e) = ctx.trigger_infer(trigger) {
                 let msg = ctx.handle_error(e);
-                self.handler.error_with_span(
-                    "Trigger inference error",
-                    LabeledSpan::new(trigger.span, &msg, true),
-                );
                 return Err(msg);
             }
         }
@@ -185,17 +169,17 @@ impl<'a> LolaTypeChecker<'a> {
             let msg: String = ctx.handle_error(tc_err);
             return Err(msg);
         }
-        let tt = tt_r.ok().expect("");
+        let tt = tt_r.expect("Ensured by previous cases");
         let bm = ctx.node_key;
         for (nid, k) in bm.iter() {
             //DEBUGG
             println!("{:?}", (*nid, tt[*k].clone()));
         }
         let rtt_r = tt.try_reified();
-        if let Err(_) = rtt_r {
+        if rtt_r.is_err() {
             return Err("TypeTable not reifiable: ValueType not constrained enough".to_string());
         }
-        let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.ok().expect("");
+        let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.unwrap();
         let mut result_map = HashMap::new();
         for (nid, k) in bm.iter() {
             result_map.insert(*nid, rtt[*k].clone());

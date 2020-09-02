@@ -34,9 +34,7 @@ impl Abstract for IAbstractType {
             (Float(l), Float(r)) => Ok(Float(max(*l, *r))),
             (Float(i), SInteger(u)) | (SInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
             (Bool, Bool) => Ok(Bool),
-            (Bool, other) | (other, Bool) => {
-                Err(String::from(format!("Bool not unifiable with {:?}", other)))
-            }
+            (Bool, other) | (other, Bool) => Err(format!("Bool not unifiable with {:?}", other)),
             (Numeric, Integer) | (Integer, Numeric) => Ok(Integer),
             (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok(SInteger(*w)),
             (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(*w)),
@@ -60,10 +58,10 @@ impl Abstract for IAbstractType {
                     .zip(rv.iter())
                     .map(|(l, r)| Self::meet(l, r))
                     .partition(Result::is_ok);
-                if errors.len() > 0 {
+                if !errors.is_empty() {
                     let error_unwraped: Vec<String> =
                         errors.into_iter().map(Result::unwrap_err).collect();
-                    return Err(error_unwraped.join(", "));
+                    Err(error_unwraped.join(", "))
                 } else {
                     Ok(Tuple(
                         recursive_result.into_iter().map(Result::unwrap).collect(),
@@ -181,10 +179,10 @@ impl rusttyc::types::TryReifiable for IAbstractType {
                     .iter()
                     .map(|v| rusttyc::types::TryReifiable::try_reify(v))
                     .partition(Result::is_ok);
-                if errors.len() > 0 {
+                if !errors.is_empty() {
                     let error_unwraped: Vec<ReificationErr> =
                         errors.into_iter().map(Result::unwrap_err).collect();
-                    return Err(match &error_unwraped[0] {
+                    Err(match &error_unwraped[0] {
                         ReificationErr::Conflicting(s) => ReificationErr::Conflicting(s.clone()),
                         ReificationErr::TooGeneral(s) => ReificationErr::TooGeneral(s.clone()),
                     })
@@ -224,7 +222,7 @@ impl rusttyc::types::Generalizable for IConcreteType {
             IConcreteType::Bool => IAbstractType::Bool,
             IConcreteType::Tuple(type_list) => {
                 let result_vec: Vec<IAbstractType> =
-                    type_list.into_iter().map(|t| Self::generalize(t)).collect();
+                    type_list.iter().map(|t| Self::generalize(t)).collect();
                 IAbstractType::Tuple(result_vec)
             }
             IConcreteType::TString => IAbstractType::TString,

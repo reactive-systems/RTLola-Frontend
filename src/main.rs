@@ -31,9 +31,8 @@ fn main() {
             Ok(f) => f,
         };
         let mut prog = String::new();
-        match file.read_to_string(&mut prog) {
-            Err(why) => panic!("couldn't read {}: {}", display, why),
-            Ok(_) => (),
+        if let Err(why) = file.read_to_string(&mut prog) {
+            panic!("couldn't read {}: {}", display, why);
         }
 
         let mut s = "".to_string();
@@ -45,8 +44,8 @@ fn main() {
             }
         }
 
-        let p = prog.clone();
-        let spec = &p;
+        let prog = prog;
+        let spec = &prog;
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
 

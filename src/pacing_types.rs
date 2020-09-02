@@ -6,7 +6,6 @@ use front::parse::{NodeId, Span};
 use front::reporting::{Handler, LabeledSpan};
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
-use std::convert::TryFrom;
 use uom::lib::collections::HashMap;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
@@ -303,23 +302,17 @@ impl Freq {
 
     pub(crate) fn conjunction(&self, other: &Freq) -> Freq {
         let (numer_left, denom_left) = match self {
-            Freq::Any => return other.clone(),
-            Freq::Fixed(f) => (
-                f.get::<hertz>().numer().clone(),
-                f.get::<hertz>().denom().clone(),
-            ),
+            Freq::Any => return *other,
+            Freq::Fixed(f) => (*f.get::<hertz>().numer(), *f.get::<hertz>().denom()),
         };
         let (numer_right, denom_right) = match other {
-            Freq::Any => return self.clone(),
-            Freq::Fixed(f) => (
-                f.get::<hertz>().numer().clone(),
-                f.get::<hertz>().denom().clone(),
-            ),
+            Freq::Any => return *self,
+            Freq::Fixed(f) => (*f.get::<hertz>().numer(), *f.get::<hertz>().denom()),
         };
         // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
         // only works if rational numbers are reduced, which ist the default for `Rational`
-        let r1: i64 = i64::try_from(numer_left.gcd(&numer_right)).unwrap();
-        let r2: i64 = i64::try_from(denom_left.gcd(&denom_right)).unwrap();
+        let r1: i64 = numer_left.gcd(&numer_right);
+        let r2: i64 = denom_left.gcd(&denom_right);
         let r: Ratio<i64> = Ratio::new(r1, r2);
         Freq::Fixed(UOM_Frequency::new::<hertz>(r))
     }
@@ -351,24 +344,24 @@ impl rusttyc::types::Abstract for AbstractPacingType {
             (Never, x) | (x, Never) => Ok(x.clone()),
             (Event(ac), Periodic(f)) => Err(UnificationError::MixedEventPeriodic(
                 Event(ac.clone()),
-                Periodic(f.clone()),
+                Periodic(*f),
             )),
             (Periodic(f), Event(ac)) => Err(UnificationError::MixedEventPeriodic(
-                Periodic(f.clone()),
+                Periodic(*f),
                 Event(ac.clone()),
             )),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(&ac2))),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
-                    Ok(Periodic(f2.clone()))
+                    Ok(Periodic(*f2))
                 } else if let Freq::Any = f2 {
-                    Ok(Periodic(f1.clone()))
+                    Ok(Periodic(*f1))
                 } else if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
                     Ok(Periodic(f1.conjunction(&f2)))
                 } else {
                     Err(UnificationError::IncompatibleFrequencies(
-                        Periodic(f1.clone()),
-                        Periodic(f2.clone()),
+                        Periodic(*f1),
+                        Periodic(*f2),
                     ))
                 }
             }
@@ -521,10 +514,10 @@ impl ConcretePacingType {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(b) => {
                 ActivationCondition::from_expression(b.to_boolean_expression(vars))
-                    .map(|ac| ConcretePacingType::Event(ac))
+                    .map(ConcretePacingType::Event)
             }
             AbstractPacingType::Periodic(freq) => match freq {
-                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f.clone())),
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f)),
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
             AbstractPacingType::Never => unreachable!(),

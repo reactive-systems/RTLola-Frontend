@@ -126,7 +126,7 @@ impl<'a> ValueContext<'a> {
         dbg!("END CONSTANT");
 
         self.node_key.insert(cons.id, term_key);
-        return Ok(term_key);
+        Ok(term_key)
     }
 
     pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
@@ -655,64 +655,70 @@ impl<'a> ValueContext<'a> {
         &self,
         err: TcErr<IAbstractType>,
     ) -> <IAbstractType as Abstract>::Err {
+        let primal_key;
         let msg = match err {
-            TcErr::ChildAccessOutOfBound(key, ty, n) => format!(
-                "Invalid child-type access by {:?}: {}-th child for {:?}",
-                self.node_key.get_by_right(&key),
-                n,
-                ty
-            ),
-            TcErr::KeyEquation(k1, k2, msg) => format!(
-                "Incompatible Type for equation of {:?} and {:?}: {}",
-                self.node_key.get_by_right(&k1),
-                self.node_key.get_by_right(&k2),
-                msg
-            ),
-            TcErr::Bound(key, key2, msg) => match key2 {
-                None => format!(
-                    "Invalid type bound enforced on {:?}: {}",
+            TcErr::ChildAccessOutOfBound(key, ty, n) => {
+                primal_key = key;
+                format!(
+                    "Invalid child-type access by {:?}: {}-th child for {:?}",
                     self.node_key.get_by_right(&key),
-                    msg
-                ),
-                Some(k2) => format!(
-                    "Invalid type bound enforced on {:?} by {:?}: {}",
-                    self.node_key.get_by_right(&key),
+                    n,
+                    ty
+                )
+            }
+            TcErr::KeyEquation(k1, k2, msg) => {
+                primal_key = k1;
+                format!(
+                    "Incompatible Type for equation of {:?} and {:?}: {}",
+                    self.node_key.get_by_right(&k1),
                     self.node_key.get_by_right(&k2),
                     msg
-                ),
-            },
-            TcErr::ExactTypeViolation(key, bound) => format!(
-                "Type Bound: {:?} incompatible with {:?}",
-                bound,
-                self.node_key.get_by_right(&key)
-            ),
-            TcErr::ConflictingExactBounds(key, bound1, bound2) => format!(
-                "Incompatible bounds {:?} and {:?} applied on {:?}",
-                bound1,
-                bound2,
-                self.node_key.get_by_right(&key)
-            ),
+                )
+            }
+            TcErr::Bound(key, key2, msg) => {
+                primal_key = key;
+                match key2 {
+                    None => format!(
+                        "Invalid type bound enforced on {:?}: {}",
+                        self.node_key.get_by_right(&key),
+                        msg
+                    ),
+                    Some(k2) => format!(
+                        "Invalid type bound enforced on {:?} by {:?}: {}",
+                        self.node_key.get_by_right(&key),
+                        self.node_key.get_by_right(&k2),
+                        msg
+                    ),
+                }
+            }
+            TcErr::ExactTypeViolation(key, bound) => {
+                primal_key = key;
+                format!(
+                    "Type Bound: {:?} incompatible with {:?}",
+                    bound,
+                    self.node_key.get_by_right(&key)
+                )
+            }
+            TcErr::ConflictingExactBounds(key, bound1, bound2) => {
+                primal_key = key;
+                format!(
+                    "Incompatible bounds {:?} and {:?} applied on {:?}",
+                    bound1,
+                    bound2,
+                    self.node_key.get_by_right(&key)
+                )
+            }
         };
-        msg
-    }
-
-    pub(crate) fn handle_exp_error(
-        &self,
-        exp: &Expression,
-        err: TcErr<IAbstractType>,
-    ) -> <IAbstractType as Abstract>::Err {
-        //TODO refine error reporting (either replce ? with function calls to this
-        // OR be able to track if an error was already reported to not duplicate warning)
-
-        let msg = self.handle_error(err);
-        let labeled_span = LabeledSpan::new(exp.span, &msg, true);
-        self.handler
-            .error_with_span("Type error for expression", labeled_span);
+        let error_key_span = self.key_span[&primal_key];
+        self.handler.error_with_span(
+            "Input inference error",
+            LabeledSpan::new(error_key_span, &msg, true),
+        );
         msg
     }
 }
 
-fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType, String> {
+fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, String> {
     let int_parse = value_str.parse::<i64>();
     let uint_parse = value_str.parse::<u64>();
     match (&int_parse, &uint_parse) {
@@ -727,18 +733,14 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     }
 
     let float_parse = value_str.parse::<f64>();
-    if let Ok(_) = float_parse {
+    if float_parse.is_ok() {
         return Ok(IAbstractType::Float(32));
     }
 
-    let value_str = value_str.as_str();
     if &value_str[0..1] == "\"" && &value_str[value_str.len() - 1..value_str.len()] == "\"" {
         return Ok(IAbstractType::TString);
     }
-    Err(String::from(format!(
-        "Non matching String Literal: {}",
-        value_str
-    )))
+    Err(format!("Non matching String Literal: {}", value_str))
 }
 
 fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
