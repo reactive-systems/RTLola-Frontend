@@ -28,13 +28,13 @@ impl<'a> LolaTypeChecker<'a> {
     }
 
     pub fn check(&mut self) {
+        if let Some(_table) = self.pacing_type_infer() {
+            //TODO
+        };
         //TODO imports
         match self.value_type_infer() {
-            Ok(map) => {}
-            Err(e) => {} //TODO,
-        };
-        if let Some(table) = self.pacing_type_infer() {
-            //TODO
+            Ok(_map) => {}
+            Err(_e) => {} //TODO,
         };
     }
 

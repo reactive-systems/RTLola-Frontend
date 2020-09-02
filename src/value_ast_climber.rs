@@ -63,7 +63,7 @@ impl<'a> ValueContext<'a> {
 
         for (ix, tr) in ast.trigger.iter().enumerate() {
             let n = match &tr.name {
-                Some(ident) => ident.name.clone(), //TODO not unique name => error (add index at end)
+                Some(ident) => ident.name.clone() + "_" + &ix.to_string(),
                 None => format!("trigger_{}", ix),
             };
             let key = tyc.get_var_key(&Variable { name: n });
@@ -179,7 +179,7 @@ impl<'a> ValueContext<'a> {
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
-        dbg!(&exp.kind);
+        dbg!(&exp.kind, exp.id);
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
@@ -286,7 +286,7 @@ impl<'a> ValueContext<'a> {
                         self.tyc
                             .impose(term_key.concretizes_explicit(IAbstractType::UInteger(1)))?;
                     }
-                    //all others :<T:Num>  -> T
+                    //all others :T <T:Num> -> T
                     WindowOperation::Integral => {
                         self.tyc
                             .impose(ex_key.concretizes_explicit(IAbstractType::Float(1)))?; //TODO maybe numeric
@@ -319,7 +319,7 @@ impl<'a> ValueContext<'a> {
                             .impose(ex_key.concretizes_explicit(IAbstractType::Bool))?;
                         self.tyc
                             .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
-                    } //TODO
+                    }
                 }
             }
             //TODO
@@ -403,9 +403,7 @@ impl<'a> ValueContext<'a> {
                 self.expression_infer(&*cond, Some(IAbstractType::Bool))?;
                 let cons_key = self.expression_infer(&*cons, None)?; // X
                 let alt_key = self.expression_infer(&*alt, None)?; // X
-
-                //Bool x T x T -> T
-                //self.tyc.impose(cond_key.captures(IAbstractType::Bool)); //TODO check me if this is right
+                                                                   //Bool x T x T -> T
 
                 self.tyc
                     .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
@@ -426,7 +424,14 @@ impl<'a> ValueContext<'a> {
                         .impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
             }
-            ExpressionKind::Field(_, _) => unimplemented!("TODO"),
+            ExpressionKind::Field(expr, ident) => {
+                let ex_key = self.expression_infer(expr, None)?;
+                //Only Tuple case allowed for Field expression FIXME TODO
+                let n: usize = ident.name.parse().expect("checked in AST verifier");
+                //TODO enforce Vector type -> child access on any fails
+                let accessed_child = self.tyc.get_child_key(ex_key, n)?;
+                self.tyc.impose(term_key.equate_with(accessed_child))?;
+            }
             ExpressionKind::Method(_, _, _, _) => unimplemented!("TODO"),
             ExpressionKind::Function(_name, types, args) => {
                 dbg!("Function Infer");
@@ -534,8 +539,14 @@ impl<'a> ValueContext<'a> {
         match vt {
             &ValueTy::Param(idx, _) => Ok(to[idx as usize]),
             ValueTy::Option(o) => {
-                //TODO Option
-                unimplemented!()
+                let op_key = self.tyc.new_term_key();
+                let inner = self.replace_type(o, to)?;
+                self.tyc.impose(
+                    op_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                )?;
+                let inner_tc = self.tyc.get_child_key(op_key, 0)?;
+                self.tyc.impose(inner_tc.equate_with(inner))?;
+                Ok(op_key)
             }
             ValueTy::Constr(c) => {
                 let key = self.tyc.new_term_key();
@@ -634,7 +645,8 @@ impl<'a> ValueContext<'a> {
         dbg!(&lit);
         match lit {
             LitKind::Str(_) | LitKind::RawStr(_) => IAbstractType::TString,
-            LitKind::Numeric(n, post) => get_abstract_type_of_string_value(&n).expect(""),
+            //TODO post unused
+            LitKind::Numeric(n, _post) => get_abstract_type_of_string_value(&n).unwrap(),
             LitKind::Bool(_) => IAbstractType::Bool,
         }
     }
@@ -669,14 +681,13 @@ impl<'a> ValueContext<'a> {
                     msg
                 ),
             },
-            //TODO
             TcErr::ExactTypeViolation(key, bound) => format!(
                 "Type Bound: {:?} incompatible with {:?}",
                 bound,
                 self.node_key.get_by_right(&key)
             ),
             TcErr::ConflictingExactBounds(key, bound1, bound2) => format!(
-                "Incomatible bounds {:?} and {:?} applied on {:?}",
+                "Incompatible bounds {:?} and {:?} applied on {:?}",
                 bound1,
                 bound2,
                 self.node_key.get_by_right(&key)
@@ -690,7 +701,9 @@ impl<'a> ValueContext<'a> {
         exp: &Expression,
         err: TcErr<IAbstractType>,
     ) -> <IAbstractType as Abstract>::Err {
-        //TODO include Expression
+        //TODO refine error reporting (either replce ? with function calls to this
+        // OR be able to track if an error was already reported to not duplicate warning)
+
         let msg = self.handle_error(err);
         let labeled_span = LabeledSpan::new(exp.span, &msg, true);
         self.handler
@@ -703,7 +716,6 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     let int_parse = value_str.parse::<i64>();
     let uint_parse = value_str.parse::<u64>();
     match (&int_parse, &uint_parse) {
-        //TODO default Int64 applied currently
         //(Ok(s),Ok(u)) => return Ok(IAbstractType::SInteger(64 - s.leading_zeros())),
         (Ok(_s), Ok(_u)) => return Ok(IAbstractType::Integer),
         (Err(_), Ok(u)) => return Ok(IAbstractType::UInteger(64 - u.leading_zeros())),
@@ -718,8 +730,9 @@ fn get_abstract_type_of_string_value(value_str: &String) -> Result<IAbstractType
     if let Ok(_) = float_parse {
         return Ok(IAbstractType::Float(32));
     }
-    let pat = regex::Regex::new("\"*\"").unwrap(); //TODO simplify , check first and last character
-    if pat.is_match(value_str) {
+
+    let value_str = value_str.as_str();
+    if &value_str[0..1] == "\"" && &value_str[value_str.len() - 1..value_str.len()] == "\"" {
         return Ok(IAbstractType::TString);
     }
     Err(String::from(format!(
@@ -800,7 +813,7 @@ mod value_type_tests {
             tt_result.is_ok(),
             "Expect Valid Input - Value Type check failed"
         );
-        let tt = tt_result.expect("");
+        let tt = tt_result.expect("ensured by assertion");
         (test_box, tt)
     }
 
@@ -810,6 +823,7 @@ mod value_type_tests {
         let tt_result = ltc.value_type_infer();
         dbg!(&tt_result);
         assert!(tt_result.is_err());
+        println!("{}", tt_result.err().unwrap());
         test_box
     }
 
@@ -1111,7 +1125,7 @@ mod value_type_tests {
 
     #[test]
     fn test_stream_lookup() {
-        //TODO FIXME
+        //TODO FIXME offset[0] => no option
         let spec = "output a: UInt8 := 3\n output b: UInt8 := a[0]";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1260,6 +1274,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_access() {
+        //TODO runs with 'in.1' not with 'in[0].1' - zero offset still optional result
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1274,6 +1289,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_access_faulty_type() {
+        //TODO optional result at offset zero
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].0";
         let tb = check_expect_error(spec);
         assert_eq!(1, complete_check(spec));
@@ -1281,7 +1297,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_access_faulty_len() {
-        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].2";
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in.2";
         let tb = check_expect_error(spec);
         assert_eq!(1, complete_check(spec));
     }
@@ -1335,7 +1351,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_of_tuples2() {
-        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in[0].1.1";
+        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in.1.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let in_id = tb.spec.inputs[0].id;
