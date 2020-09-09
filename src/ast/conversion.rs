@@ -28,6 +28,21 @@ impl Expression {
         }
     }
 
+    pub(crate) fn parse_discrete_duration(&self) -> Result<i64, String> { //TODO CHECK
+        let val = match &self.kind {
+            ExpressionKind::Lit(l) => match &l.kind {
+                LitKind::Numeric(val, None) => parse_rational(val)?,
+                _ => return Err(format!("expected numeric value without unit, found `{}`", l)),
+            },
+            _ => return Err(format!("expected numeric value without unit, found `{}`", self)),
+        };
+        if 1 == *val.denom() {
+            Ok(*val.numer())
+        } else {
+            Err(format!("expected whole number, found `{}`", self))
+        }
+    }
+
     pub(crate) fn parse_duration(&self) -> Result<UOM_Time, String> {
         let (val, unit) = match &self.kind {
             ExpressionKind::Lit(l) => match &l.kind {
@@ -285,6 +300,7 @@ impl Expression {
             | ParenthesizedExpression(_, inner, _) => Box::new(std::iter::once(self).chain(inner.iter())),
             Binary(_, left, right)
             | Default(left, right)
+            | DiscreteWindowAggregation { expr: left, duration: right, .. } //TODO CHECK
             | SlidingWindowAggregation { expr: left, duration: right, .. } => {
                 Box::new(std::iter::once(self).chain(left.iter()).chain(right.iter()))
             }

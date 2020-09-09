@@ -50,6 +50,7 @@ impl<'a> Lowering<'a> {
             outputs: Vec::new(),
             time_driven: Vec::new(),
             event_driven: Vec::new(),
+            discrete_windows: Vec::new(),
             sliding_windows: Vec::new(),
             triggers: Vec::new(),
         };
@@ -293,6 +294,9 @@ impl<'a> Lowering<'a> {
                     pre.chain(recursion(e)).chain(recursion(dft)).chain(post()).collect()
                 }
                 ExpressionKind::Offset(e, _) => pre.chain(recursion(e)).chain(post()).collect(),
+                ExpressionKind::DiscreteWindowAggregation { expr, duration, .. } => { //TODO check
+                    pre.chain(recursion(expr)).chain(recursion(duration)).chain(post()).collect()
+                }
                 ExpressionKind::SlidingWindowAggregation { expr, duration, .. } => {
                     pre.chain(recursion(expr)).chain(recursion(duration)).chain(post()).collect()
                 }
@@ -356,6 +360,9 @@ impl<'a> Lowering<'a> {
                 self.find_dependencies(left, deps);
                 self.find_dependencies(right, deps);
             }
+            DiscreteWindowAggregation { .. } => { //TODO check
+                 // ignore discrete windows
+            }
             SlidingWindowAggregation { .. } => {
                 // ignore sliding windows
             }
@@ -394,21 +401,36 @@ impl<'a> Lowering<'a> {
 
     /// Creates a SlidingWindow, adds it to the IR, and returns a reference to it.
     fn lower_window(&mut self, win_expr: &ast::Expression) -> WindowReference {
-        if let ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } = &win_expr.kind {
-            if let ExpressionKind::Ident(_) = &expr.kind {
-                let target = self.get_ref_for_ident(expr.id);
-                let duration = self.lower_duration(duration.as_ref());
-                let op = *aggregation;
-                let reference = WindowReference(self.ir.sliding_windows.len());
-                let ty = self.lower_node_type(win_expr.id);
-                let window = ir::SlidingWindow { target, duration, wait: *wait, op, reference, ty };
-                self.ir.sliding_windows.push(window);
-                reference
-            } else {
-                unreachable!("Verified in TypeChecker")
+        match &win_expr.kind {
+            ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } => {
+                if let ExpressionKind::Ident(_) = &expr.kind {
+                    let target = self.get_ref_for_ident(expr.id);
+                    let duration = self.lower_duration(duration.as_ref());
+                    let op = *aggregation;
+                    let reference = ir::WindowReference::SlidingWindow(self.ir.sliding_windows.len());
+                    let ty = self.lower_node_type(win_expr.id);
+                    let window = ir::SlidingWindow { target, duration, wait: *wait, op, reference, ty };
+                    self.ir.sliding_windows.push(window);
+                    reference
+                } else {
+                    unreachable!("Verified in TypeChecker")
+                }
             }
-        } else {
-            unreachable!("Must not pass non-window expression to `Lowering::lower_window`")
+            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => { //TODO CHECK
+                if let ExpressionKind::Ident(_) = &expr.kind {
+                    let target = self.get_ref_for_ident(expr.id);
+                    let duration = duration.parse_discrete_duration().expect("Ensured by AST analysis") as usize;
+                    let op = *aggregation;
+                    let reference = ir::WindowReference::DiscreteWindow(self.ir.sliding_windows.len());
+                    let ty = self.lower_node_type(win_expr.id);
+                    let window = ir::DiscreteWindow { target, duration, wait: *wait, op, reference, ty };
+                    self.ir.discrete_windows.push(window);
+                    reference
+                } else {
+                    unreachable!("Verified in TypeChecker")
+                }
+            }
+            _ => unreachable!("Must not pass non-window expression to `Lowering::lower_window`"),
         }
     }
 
@@ -511,6 +533,10 @@ impl<'a> Lowering<'a> {
                 let target = self.get_ref_for_ident(stream.id);
                 let offset = self.lower_offset(target, offset);
                 ir::Expression::new(ir::ExpressionKind::OffsetLookup { target, offset }, result_type.clone())
+            }
+            ExpressionKind::DiscreteWindowAggregation { .. } => { //TODO CHECK
+                let win_ref = self.lower_window(expr);
+                ir::Expression::new(ir::ExpressionKind::WindowLookup(win_ref), result_type.clone())
             }
             ExpressionKind::SlidingWindowAggregation { .. } => {
                 let win_ref = self.lower_window(expr);
@@ -1102,5 +1128,14 @@ mod tests {
         assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
         assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(1)));
         assert!(c_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
+    }
+
+    #[test]
+    fn test_discrete_window() {
+        //TODO CHECK
+        let ir = spec_to_ir("input a: Int32\noutput b: Int32 := a.aggregate(over_discrete: 10, using: Σ)");
+        dbg!(&ir);
+        assert_eq!(ir.discrete_windows.len(), 1);
+        check_stream_number(&ir, 1, 1, 0, 1, 0, 0);
     }
 }

@@ -33,6 +33,7 @@ impl<'a, 'b> Verifier<'a, 'b> {
         expr.iter().for_each(|inner| Self::check_direct_access(self.handler, inner));
         expr.iter().for_each(|inner| Self::check_field_access(self.handler, inner));
         expr.iter().for_each(|inner| Self::check_valid_offset(self.handler, inner));
+        expr.iter().for_each(|inner| Self::check_discrete_window_duration(self.handler, inner)); //TODO CHECK
         expr.iter().for_each(|inner| Self::check_sliding_window_duration(self.handler, inner));
     }
 
@@ -109,6 +110,31 @@ impl<'a, 'b> Verifier<'a, 'b> {
                     LabeledSpan::new(ident.span, "expected an integer", true),
                 );
             }
+        }
+    }
+
+    fn check_discrete_window_duration(handler: &Handler, expr: &Expression) { //TODO Check
+        use ExpressionKind::*;
+        if let DiscreteWindowAggregation { duration, .. } = &expr.kind {
+            let error_msg = if let Lit(lit) = &duration.kind {
+                if let LitKind::Numeric(s, None) = &lit.kind {
+                    match s.parse::<i64>() {
+                        Err(_) => "discrete aggregation duration - parsing duration error",
+                        Ok(n) => {
+                            if !n.is_positive() {
+                                "only positive discrete aggregation durations are supported"
+                            } else {
+                                return;
+                            }
+                        }
+                    }
+                } else {
+                    "discrete aggregation duration - no numeric Literal without Postfix unit"
+                }
+            } else {
+                "discrete aggregation duration invalid - no Literal"
+            };
+            handler.error_with_span(error_msg, LabeledSpan::new(duration.span, "duration invalid", true));
         }
     }
 

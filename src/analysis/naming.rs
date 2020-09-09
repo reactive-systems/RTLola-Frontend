@@ -327,6 +327,10 @@ impl<'b> NamingAnalysis<'b> {
             Offset(expr, _) => {
                 self.check_expression(expr);
             }
+            DiscreteWindowAggregation { expr, duration, .. } => { //TODO CHECK
+                self.check_expression(expr);
+                self.check_expression(duration);
+            }
             SlidingWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);

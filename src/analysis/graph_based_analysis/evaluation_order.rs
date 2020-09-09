@@ -152,6 +152,11 @@ fn build_compute_graph(mut dependency_graph: DependencyGraph) -> ComputationGrap
                             computation_graph.add_edge(mapping[&source_id].evaluate, mapping[&target_id].evaluate, ());
                         }
                     }
+                    Offset::DiscreteWindow => { //TODO CHECK
+                        if source_id != target_id {
+                            computation_graph.add_edge(mapping[&source_id].evaluate, mapping[&target_id].evaluate, ());
+                        }
+                    }
                     Offset::SlidingWindow => {
                         if source_id != target_id {
                             computation_graph.add_edge(mapping[&source_id].evaluate, mapping[&target_id].evaluate, ());

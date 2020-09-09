@@ -624,6 +624,54 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Optional)
                                     }
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" => { //TODO CHECK
+                                        assert_eq!(args.len(), 2);
+                                        let window_op = match &args[1].kind {
+                                            ExpressionKind::Ident(i) => match i.name.as_str() {
+                                                "Σ" | "sum" => WindowOperation::Sum,
+                                                "#" | "count" => WindowOperation::Count,
+                                                //"Π" | "prod" | "product" => WindowOperation::Product,
+                                                "∫" | "integral" => WindowOperation::Integral,
+                                                "avg" | "average" => WindowOperation::Average,
+                                                "min" => WindowOperation::Min,
+                                                "max" => WindowOperation::Max,
+                                                "∃" | "disjunction" | "∨" | "exists" => {
+                                                    WindowOperation::Disjunction
+                                                }
+                                                "∀" | "conjunction" | "∧" | "forall" => {
+                                                    WindowOperation::Conjunction
+                                                }
+                                                fun => {
+                                                    self.handler.error_with_span(
+                                                        &format!("unknown aggregation function {}", fun),
+                                                        LabeledSpan::new(
+                                                            i.span,
+                                                            "available: count, min, max, sum, average, integral",
+                                                            true,
+                                                        ),
+                                                    );
+                                                    std::process::exit(1);
+                                                }
+                                            },
+                                            _ => {
+                                                self.handler.error_with_span(
+                                                    "expected aggregation function",
+                                                    LabeledSpan::new(
+                                                        args[1].span,
+                                                        "available: count, min, max, sum, average, integral",
+                                                        true,
+                                                    ),
+                                                );
+                                                std::process::exit(1);
+                                            }
+                                        };
+                                        ExpressionKind::DiscreteWindowAggregation {
+                                            expr: inner,
+                                            duration: args[0].clone(),
+                                            wait: signature.contains("over_exactly"),
+                                            aggregation: window_op,
+                                        }
+                                    }
                                     "aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {

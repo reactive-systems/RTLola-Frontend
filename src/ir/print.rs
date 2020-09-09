@@ -27,6 +27,7 @@ impl Display for Expression {
             ExpressionKind::ArithLog(op, args, ty) => {
                 write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", ty), ",")
             }
+            ExpressionKind::DiscreteWindowLookup(wr) => write!(f, "{}", wr), //TODO CHECK
             ExpressionKind::WindowLookup(wr) => write!(f, "{}", wr),
             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
             ExpressionKind::OffsetLookup { target, offset } => write!(f, "{}.offset({})", target, offset),
@@ -109,7 +110,10 @@ impl Display for Type {
 
 impl Display for WindowReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "Win({})", self.0)
+        match self {
+            WindowReference::SlidingWindow(x) => write!(f, "Win({})", x),
+            WindowReference::DiscreteWindow(x) => write!(f, "DisWin({})", x), //TODO CHECK
+        }
     }
 }
 

@@ -294,6 +294,26 @@ impl<'a> DependencyAnalyser<'a> {
                     StreamDependency::Access(location, offset, expr.span),
                 );
             }
+            ExpressionKind::DiscreteWindowAggregation { expr, .. } => { //TODO CHECK
+                if let ExpressionKind::Ident(_) = &expr.kind {
+                } else {
+                    unreachable!("Sliding Windows can only be applied on direct stream access");
+                }
+                let target_stream_id = match &self.naming_table[&expr.id] {
+                    Declaration::Out(output) => output.id,
+                    Declaration::In(input) => input.id,
+                    _ => unreachable!(),
+                };
+                let target_stream_entry = mapping[&target_stream_id];
+                let target_stream_index = target_stream_entry.index;
+
+                let offset = Offset::DiscreteWindow;
+                self.dependency_graph.add_edge(
+                    current_node,
+                    target_stream_index,
+                    StreamDependency::Access(location, offset, expr.span),
+                );
+            }
             ExpressionKind::SlidingWindowAggregation { expr, .. } => {
                 if let ExpressionKind::Ident(_) = &expr.kind {
                 } else {
@@ -343,7 +363,7 @@ impl<'a> DependencyAnalyser<'a> {
                         self.handler.error_with_span("cycle with periodic stream", LabeledSpan::new(*span, "", true));
                         true
                     }
-                    Offset::Discrete(_) => false,
+                    Offset::Discrete(_) | Offset::DiscreteWindow => false, //TODO CHECK
                 },
                 _ => false,
             }
@@ -367,6 +387,7 @@ impl<'a> DependencyAnalyser<'a> {
                     Offset::Time(_) => unreachable!("This is a cycle without realtime"),
                     Offset::Discrete(offset) => total_weight += offset,
                     Offset::SlidingWindow => unreachable!("Sliding windows do not count for cycles"),
+                    Offset::DiscreteWindow => unreachable!("Discrete windows do not count for cycles"), //TODO CHECK
                 },
             }
         }

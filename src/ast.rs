@@ -349,6 +349,17 @@ pub enum ExpressionKind {
     Default(Box<Expression>, Box<Expression>),
     /// An offset expression, e.g., `a.offset(by: -1)`
     Offset(Box<Expression>, Offset),
+    /// A discrete window with a duration `duration` as an integer constant and aggregation function `aggregation`
+    DiscreteWindowAggregation { //TODO CHECK
+        /// The accesses stream
+        expr: Box<Expression>,
+        /// The duration of the window
+        duration: Box<Expression>,
+        /// Flag to mark that the window returns only a value if the complete duration has passed
+        wait: bool,
+        /// The aggregation function
+        aggregation: WindowOperation,
+    },
     /// A sliding window with duration `duration` and aggregation function `aggregation`
     SlidingWindowAggregation {
         /// The accesses stream
