@@ -90,8 +90,11 @@ impl<'a> Lowering<'a> {
     /// This function sets the connection from `in` to the window in `out`.
     fn link_windows(&mut self) {
         // Extract and copy relevant information before-hand to avoid double burrow.
-        let essences: Vec<(StreamReference, WindowReference)> =
-            self.ir.sliding_windows.iter().map(|window| (window.target, window.reference)).collect();
+        let sliding_essences =
+            self.ir.sliding_windows.iter().map(|window| (window.target, window.reference));
+        let discrete_essences =
+            self.ir.discrete_windows.iter().map(|window| (window.target, window.reference));
+        let essences: Vec<(StreamReference, WindowReference)> = sliding_essences.chain(discrete_essences).collect();
         for (target, window) in essences {
             match target {
                 StreamReference::InRef(_) => {
