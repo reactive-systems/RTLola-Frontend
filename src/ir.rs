@@ -345,7 +345,8 @@ pub enum ArithLogOp {
 
 /// Represents an instance of a discrete window.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct DiscreteWindow { //TODO CHECK
+pub struct DiscreteWindow {
+    //TODO CHECK
     /// The stream whose values will be aggregated.
     pub target: StreamReference,
     /// The duration (number of events) over which the window aggregates.
@@ -381,14 +382,16 @@ pub struct SlidingWindow {
 
 /// Allows for referencing a window instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WindowReference { //TODO CHECK
+pub enum WindowReference {
+    //TODO CHECK
     SlidingWindow(usize),
     DiscreteWindow(usize),
 }
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
-    pub fn idx(self) -> usize { //TODO CHECK
+    pub fn idx(self) -> usize {
+        //TODO CHECK
         match self {
             WindowReference::SlidingWindow(x) | WindowReference::DiscreteWindow(x) => x,
         }
@@ -608,7 +611,8 @@ impl RTLolaIR {
     }
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
-    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow { //TODO CHECK
+    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+        //TODO CHECK
         match window {
             WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
             WindowReference::SlidingWindow(_) => unreachable!("type of window reference passed to getter"),
@@ -616,7 +620,8 @@ impl RTLolaIR {
     }
 
     /// Returns a sliding window instance for a given WindowReference in the specification
-    pub fn get_window(&self, window: WindowReference) -> &SlidingWindow { //TODO CHECK
+    pub fn get_window(&self, window: WindowReference) -> &SlidingWindow {
+        //TODO CHECK
         match window {
             WindowReference::SlidingWindow(x) => &self.sliding_windows[x],
             WindowReference::DiscreteWindow(_) => panic!("type of window reference passed to getter"),

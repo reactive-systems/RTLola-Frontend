@@ -294,7 +294,8 @@ impl<'a> DependencyAnalyser<'a> {
                     StreamDependency::Access(location, offset, expr.span),
                 );
             }
-            ExpressionKind::DiscreteWindowAggregation { expr, .. } => { //TODO CHECK
+            ExpressionKind::DiscreteWindowAggregation { expr, .. } => {
+                //TODO CHECK
                 if let ExpressionKind::Ident(_) = &expr.kind {
                 } else {
                     unreachable!("Sliding Windows can only be applied on direct stream access");

@@ -28,7 +28,8 @@ impl Expression {
         }
     }
 
-    pub(crate) fn parse_discrete_duration(&self) -> Result<i64, String> { //TODO CHECK
+    pub(crate) fn parse_discrete_duration(&self) -> Result<i64, String> {
+        //TODO CHECK
         let val = match &self.kind {
             ExpressionKind::Lit(l) => match &l.kind {
                 LitKind::Numeric(val, None) => parse_rational(val)?,

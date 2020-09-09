@@ -125,7 +125,8 @@ fn add_sliding_windows(
                 };
             }
         }
-        DiscreteWindowAggregation { expr, duration, aggregation, .. } => { //TODO CHECK
+        DiscreteWindowAggregation { expr, duration, aggregation, .. } => {
+            //TODO CHECK
             if let Ident(_) = &expr.kind {
             } else {
                 unreachable!("checked in AST verification");
@@ -149,7 +150,9 @@ fn add_sliding_windows(
                 }
             };
             //TODO CHECK
-            let _d = duration.parse_discrete_duration().expect("Expect valid integer as discrete window duration in memory analysis");
+            let _d = duration
+                .parse_discrete_duration()
+                .expect("Expect valid integer as discrete window duration in memory analysis");
 
             let efficient_operator: bool = is_efficient_operator(*aggregation);
             match (stream_ty, efficient_operator) {

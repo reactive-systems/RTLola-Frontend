@@ -512,7 +512,8 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
                 }
             }
             Offset(inner, offset) => self.check_offset_expr(stream_ty, expr.span, inner, offset)?,
-            DiscreteWindowAggregation { expr: inner, duration, aggregation, .. } => { //TODO CHECK
+            DiscreteWindowAggregation { expr: inner, duration, aggregation, .. } => {
+                //TODO CHECK
                 self.check_window_expression(stream_ty, expr.span, inner, duration, *aggregation, false)?;
             }
             SlidingWindowAggregation { expr: inner, duration, aggregation, .. } => {
@@ -642,7 +643,8 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         }
     }
 
-    fn check_window_expression( //TODO CHECK
+    fn check_window_expression(
+        //TODO CHECK
         &mut self,
         stream_ty: &StreamTy,
         span: Span,
@@ -977,7 +979,8 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
                 }
             }
             Offset(inner, offset) => self.infer_offset_expr(var, expr.span, inner, offset)?,
-            DiscreteWindowAggregation { expr: inner, duration, wait, aggregation } => { //TODO CHECK
+            DiscreteWindowAggregation { expr: inner, duration, wait, aggregation } => {
+                //TODO CHECK
                 self.infer_window_expression(var, expr.span, inner, duration, *wait, *aggregation, false)?;
             }
             SlidingWindowAggregation { expr: inner, duration, wait, aggregation } => {

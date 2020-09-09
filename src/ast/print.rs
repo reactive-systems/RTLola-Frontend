@@ -178,7 +178,8 @@ impl Display for Expression {
             },
             ExpressionKind::Default(expr, val) => write!(f, "{}.defaults(to: {})", expr, val),
             ExpressionKind::Offset(expr, val) => write!(f, "{}.offset(by: {})", expr, val),
-            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => match wait { //TODO CHECK
+            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => match wait {
+                //TODO CHECK
                 true => write!(f, "{}.aggregate(over_exactly_discrete: {}, using: {})", expr, duration, aggregation),
                 false => write!(f, "{}.aggregate(over_discrete: {}, using: {})", expr, duration, aggregation),
             },

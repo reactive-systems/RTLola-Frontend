@@ -624,7 +624,8 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Optional)
                                     }
-                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" => { //TODO CHECK
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" => {
+                                        //TODO CHECK
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
                                             ExpressionKind::Ident(i) => match i.name.as_str() {

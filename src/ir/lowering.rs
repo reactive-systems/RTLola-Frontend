@@ -294,7 +294,8 @@ impl<'a> Lowering<'a> {
                     pre.chain(recursion(e)).chain(recursion(dft)).chain(post()).collect()
                 }
                 ExpressionKind::Offset(e, _) => pre.chain(recursion(e)).chain(post()).collect(),
-                ExpressionKind::DiscreteWindowAggregation { expr, duration, .. } => { //TODO check
+                ExpressionKind::DiscreteWindowAggregation { expr, duration, .. } => {
+                    //TODO check
                     pre.chain(recursion(expr)).chain(recursion(duration)).chain(post()).collect()
                 }
                 ExpressionKind::SlidingWindowAggregation { expr, duration, .. } => {
@@ -416,7 +417,8 @@ impl<'a> Lowering<'a> {
                     unreachable!("Verified in TypeChecker")
                 }
             }
-            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => { //TODO CHECK
+            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => {
+                //TODO CHECK
                 if let ExpressionKind::Ident(_) = &expr.kind {
                     let target = self.get_ref_for_ident(expr.id);
                     let duration = duration.parse_discrete_duration().expect("Ensured by AST analysis") as usize;
@@ -534,7 +536,8 @@ impl<'a> Lowering<'a> {
                 let offset = self.lower_offset(target, offset);
                 ir::Expression::new(ir::ExpressionKind::OffsetLookup { target, offset }, result_type.clone())
             }
-            ExpressionKind::DiscreteWindowAggregation { .. } => { //TODO CHECK
+            ExpressionKind::DiscreteWindowAggregation { .. } => {
+                //TODO CHECK
                 let win_ref = self.lower_window(expr);
                 ir::Expression::new(ir::ExpressionKind::WindowLookup(win_ref), result_type.clone())
             }
