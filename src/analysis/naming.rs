@@ -40,9 +40,10 @@ pub(crate) const KEYWORDS: [&str; 26] = [
     "error",
 ];
 
-pub(crate) type DeclarationTable = HashMap<NodeId, Declaration>;
+pub type DeclarationTable = HashMap<NodeId, Declaration>;
 
-pub(crate) struct NamingAnalysis<'b> {
+#[derive(Debug)]
+pub struct NamingAnalysis<'b> {
     declarations: ScopedDecl,
     type_declarations: ScopedDecl,
     fun_declarations: ScopedDecl,
@@ -51,7 +52,7 @@ pub(crate) struct NamingAnalysis<'b> {
 }
 
 impl<'b> NamingAnalysis<'b> {
-    pub(crate) fn new(handler: &'b Handler, config: FrontendConfig) -> Self {
+    pub fn new(handler: &'b Handler, config: FrontendConfig) -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
         for (name, ty) in ValueTy::primitive_types(config.ty) {
@@ -160,7 +161,7 @@ impl<'b> NamingAnalysis<'b> {
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
-    pub(crate) fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
+    pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
         stdlib::import_implicit_module(&mut self.fun_declarations);
         for import in &spec.imports {
             match import.name.name.as_str() {
@@ -326,6 +327,10 @@ impl<'b> NamingAnalysis<'b> {
             Offset(expr, _) => {
                 self.check_expression(expr);
             }
+            DiscreteWindowAggregation { expr, duration, .. } => {
+                self.check_expression(expr);
+                self.check_expression(duration);
+            }
             SlidingWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
@@ -365,6 +370,7 @@ impl<'b> NamingAnalysis<'b> {
 }
 
 /// Provides a mapping from `String` to `Declaration` and is able to handle different scopes.
+#[derive(Debug)]
 pub(crate) struct ScopedDecl {
     scopes: Vec<HashMap<String, Declaration>>,
 }
@@ -415,7 +421,7 @@ impl ScopedDecl {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Declaration {
+pub enum Declaration {
     Const(Rc<Constant>),
     In(Rc<Input>),
     /// A non-parametric output

@@ -342,6 +342,7 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
             Offset(expr, _) => {
                 self.infer_stream_ty_from_expression(&expr, inner);
             }
+            DiscreteWindowAggregation { .. } => {}
             SlidingWindowAggregation { .. } => {}
             Ite(cond, left, right) => {
                 self.infer_stream_ty_from_expression(&cond, inner);
@@ -511,8 +512,11 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
                 }
             }
             Offset(inner, offset) => self.check_offset_expr(stream_ty, expr.span, inner, offset)?,
+            DiscreteWindowAggregation { expr: inner, duration, aggregation, .. } => {
+                self.check_window_expression(stream_ty, expr.span, inner, duration, *aggregation, false)?;
+            }
             SlidingWindowAggregation { expr: inner, duration, aggregation, .. } => {
-                self.check_sliding_window_expression(stream_ty, expr.span, inner, duration, *aggregation)?;
+                self.check_window_expression(stream_ty, expr.span, inner, duration, *aggregation, true)?;
             }
             Ite(cond, left, right) => {
                 self.check_output_clock_expression(stream_ty, cond)?;
@@ -638,34 +642,39 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         }
     }
 
-    fn check_sliding_window_expression(
+    fn check_window_expression(
         &mut self,
         stream_ty: &StreamTy,
         span: Span,
         _expr: &'a Expression,
         duration: &'a Expression,
         _window_op: WindowOperation,
+        sliding: bool,
     ) -> Result<(), ()> {
         // the stream variable has to be real-time
-        let _f = match stream_ty {
-            StreamTy::RealTime(f) => f,
-            _ => {
+        match (stream_ty, sliding) {
+            (StreamTy::RealTime(_), _) => {}
+            (StreamTy::Event(_), false) => {}
+            (_, true) => {
                 self.handler.error_with_span(
                     "Sliding windows are only allowed in real-time streams",
                     LabeledSpan::new(span, "unexpected sliding window", true),
                 );
                 return Err(());
             }
+            (_, false) => unreachable!("Infer StreamType in check Window Expression"),
         };
 
         // check duration
-        let _duration = match duration.parse_duration() {
-            Err(message) => {
+        if sliding {
+            if let Err(message) = duration.parse_duration() {
                 self.handler.error_with_span("expected duration", LabeledSpan::new(duration.span, &message, true));
                 return Err(());
-            }
-            Ok(d) => d,
-        };
+            };
+        } else if let Err(message) = duration.parse_discrete_duration() {
+            self.handler.error_with_span("expected duration", LabeledSpan::new(duration.span, &message, true));
+            return Err(());
+        }
         /*if duration < f.period {
             self.handler
                 .warn_with_span("period is smaller than duration in sliding window", LabeledSpan::new(span, "", true));
@@ -912,7 +921,6 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         if let Some(target_ty) = &target {
             self.unifier.unify_var_ty(var, target_ty.clone()).expect("unification cannot fail as `var` is fresh");
         }
-
         match &expr.kind {
             Lit(l) => {
                 // generate value type constraint from literal
@@ -953,8 +961,11 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
                 }
             }
             Offset(inner, offset) => self.infer_offset_expr(var, expr.span, inner, offset)?,
+            DiscreteWindowAggregation { expr: inner, duration, wait, aggregation } => {
+                self.infer_window_expression(var, expr.span, inner, duration, *wait, *aggregation, false)?;
+            }
             SlidingWindowAggregation { expr: inner, duration, wait, aggregation } => {
-                self.infer_sliding_window_expression(var, expr.span, inner, duration, *wait, *aggregation)?;
+                self.infer_window_expression(var, expr.span, inner, duration, *wait, *aggregation, true)?;
             }
             Ite(cond, left, right) => {
                 // value type constraints
@@ -1184,7 +1195,8 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         }
     }
 
-    fn infer_sliding_window_expression(
+    #[allow(clippy::too_many_arguments)]
+    fn infer_window_expression(
         &mut self,
         var: ValueVar,
         span: Span,
@@ -1192,11 +1204,16 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         duration: &'a Expression,
         wait: bool,
         window_op: WindowOperation,
+        sliding: bool,
     ) -> Result<(), ()> {
         // check duration
-        if let Err(message) = duration.parse_duration() {
-            self.handler.error_with_span("expected duration", LabeledSpan::new(duration.span, &message, true));
-        }
+        if sliding {
+            if let Err(message) = duration.parse_duration() {
+                self.handler.error_with_span("expected duration", LabeledSpan::new(duration.span, &message, true));
+            }
+        } else if let Err(message) = duration.parse_discrete_duration() {
+            self.handler.error_with_span("expected discrete duration", LabeledSpan::new(duration.span, &message, true));
+        };
 
         // value type depends on the aggregation function
         // stream type is not restricted
@@ -2025,6 +2042,30 @@ mod tests {
     #[test]
     fn test_window_widening() {
         let spec = "input in: Int8\n output out: Int64 @5Hz:= in.aggregate(over: 3s, using: Σ)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_window_discrete() {
+        let spec = "input in: Int16\n output out: Int16 := in.aggregate(over_discrete: 10, using: Σ)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+    #[test]
+    fn test_window_discrete_exact() {
+        let spec =
+            "input in: Int16\n output out: Int16 := in.aggregate(over_exactly_discrete: 10, using: Σ).defaults(to:0)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_window_discrete_timed() {
+        let spec = "input in: Int8 \n output out: Int16 @1Hz:= in.aggregate(over_discrete: 3, using: Σ)";
+        assert_eq!(0, num_type_errors(spec));
+    }
+
+    #[test]
+    fn test_window_discrete_exact_timed() {
+        let spec = "input in: Int8 \n output out: Int16 @1Hz:= in.aggregate(over_exactly_discrete: 3, using: Σ).defaults(to:-1)";
         assert_eq!(0, num_type_errors(spec));
     }
 

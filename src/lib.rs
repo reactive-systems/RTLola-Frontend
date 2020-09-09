@@ -2,7 +2,7 @@
 
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
-    missing_docs,
+//    missing_docs, //TODO readd when typechecker is stable
     missing_debug_implementations,
     missing_copy_implementations,
     trivial_casts,
@@ -13,12 +13,12 @@
     unused_qualifications
 )]
 
-mod analysis;
+pub mod analysis;
 pub mod ast;
 mod export;
 pub mod ir;
-mod parse;
-mod reporting;
+pub mod parse;
+pub mod reporting;
 mod stdlib;
 pub mod ty;
 

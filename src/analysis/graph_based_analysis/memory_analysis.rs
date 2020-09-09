@@ -125,6 +125,35 @@ fn add_sliding_windows(
                 };
             }
         }
+        DiscreteWindowAggregation { expr, duration, aggregation, .. } => {
+            if let Ident(_) = &expr.kind {
+            } else {
+                unreachable!("checked in AST verification");
+            }
+            let node_id = match declaration_table
+                .get(&expr.id)
+                .expect("We expect the the declaration-table to contain information about every stream access")
+            {
+                Declaration::In(input) => input.id,
+                Declaration::Out(output) => output.id,
+                _ => panic!("Discrete Window Aggregaton must be used over a stream variable"),
+            };
+
+            let value_type = type_table.get_value_type(node_id);
+            let value_type_size = match get_byte_size(value_type) {
+                MemoryBound::Bounded(i) => i,
+                MemoryBound::Unbounded => return MemoryBound::Unbounded,
+                MemoryBound::Unknown => {
+                    unknown_size = true;
+                    0
+                }
+            };
+            let d = duration
+                .parse_discrete_duration()
+                .expect("Expect valid integer as discrete window duration in memory analysis");
+
+            required_memory += determine_needed_window_memory(value_type_size, d as u128, *aggregation);
+        }
         SlidingWindowAggregation { expr, duration, aggregation, .. } => {
             if let Ident(_) = &expr.kind {
             } else {
@@ -137,7 +166,7 @@ fn add_sliding_windows(
             {
                 Declaration::In(input) => input.id,
                 Declaration::Out(output) => output.id,
-                _ => unimplemented!(),
+                _ => panic!("Sliding Window Aggregaton must be used over a stream variable"),
             };
 
             let stream_ty = &type_table.get_stream_type(node_id);

@@ -624,7 +624,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Optional)
                                     }
-                                    "aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
                                             ExpressionKind::Ident(i) => match i.name.as_str() {
@@ -646,7 +646,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                                         &format!("unknown aggregation function {}", fun),
                                                         LabeledSpan::new(
                                                             i.span,
-                                                            "available: count, min, max, sum, average, integral",
+                                                            "available: count, min, max, sum, average, exists, forall, integral",
                                                             true,
                                                         ),
                                                     );
@@ -665,11 +665,20 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                                 std::process::exit(1);
                                             }
                                         };
-                                        ExpressionKind::SlidingWindowAggregation {
-                                            expr: inner,
-                                            duration: args[0].clone(),
-                                            wait: signature.contains("over_exactly"),
-                                            aggregation: window_op,
+                                        if signature.contains("discrete") {
+                                            ExpressionKind::DiscreteWindowAggregation {
+                                                expr: inner,
+                                                duration: args[0].clone(),
+                                                wait: signature.contains("over_exactly"),
+                                                aggregation: window_op,
+                                            }
+                                        } else {
+                                            ExpressionKind::SlidingWindowAggregation {
+                                                expr: inner,
+                                                duration: args[0].clone(),
+                                                wait: signature.contains("over_exactly"),
+                                                aggregation: window_op,
+                                            }
                                         }
                                     }
                                     _ => ExpressionKind::Method(inner, name, types, args),
@@ -826,7 +835,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
  * Transforms a textual representation of a Lola specification into
  * an AST representation.
  */
-pub(crate) fn parse<'a, 'b>(
+pub fn parse<'a, 'b>(
     content: &'a str,
     handler: &'b Handler,
     config: FrontendConfig,
@@ -860,7 +869,7 @@ impl PartialEq for Ident {
 pub struct NodeId(u32);
 
 impl NodeId {
-    pub(crate) fn new(x: usize) -> NodeId {
+    pub fn new(x: usize) -> NodeId {
         assert!(x < (u32::max_value() as usize));
         NodeId(x as u32)
     }
@@ -899,7 +908,7 @@ impl<'a> From<pest::Span<'a>> for Span {
 
 /// A mapper from `Span` to actual source code
 #[derive(Debug)]
-pub(crate) struct SourceMapper {
+pub struct SourceMapper {
     path: PathBuf,
     content: String,
 }
@@ -934,7 +943,7 @@ pub(crate) struct CharSpan {
 }
 
 impl SourceMapper {
-    pub(crate) fn new(path: PathBuf, content: &str) -> SourceMapper {
+    pub fn new(path: PathBuf, content: &str) -> SourceMapper {
         SourceMapper { path, content: content.to_string() }
     }
 

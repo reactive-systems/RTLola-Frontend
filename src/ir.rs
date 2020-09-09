@@ -27,6 +27,8 @@ pub struct RTLolaIR {
     pub time_driven: Vec<TimeDrivenStream>,
     /// References to all event-driven streams.
     pub event_driven: Vec<EventDrivenStream>,
+    /// A collection of all discrete windows.
+    pub discrete_windows: Vec<DiscreteWindow>,
     /// A collection of all sliding windows.
     pub sliding_windows: Vec<SlidingWindow>,
     /// A collection of triggers
@@ -217,7 +219,9 @@ pub enum ExpressionKind {
     },
     /// Accessing another stream
     StreamAccess(StreamReference, StreamAccessKind),
-    /// A window expression over a duration
+    /// A discrete window expression over a duration
+    DiscreteWindowLookup(WindowReference),
+    /// A sliding window expression over a duration
     WindowLookup(WindowReference),
     /// An if-then-else expression
     Ite {
@@ -339,6 +343,23 @@ pub enum ArithLogOp {
     Gt,
 }
 
+/// Represents an instance of a discrete window.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DiscreteWindow {
+    /// The stream whose values will be aggregated.
+    pub target: StreamReference,
+    /// The duration (number of events) over which the window aggregates.
+    pub duration: u64,
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    pub wait: bool,
+    /// The aggregation operation.
+    pub op: WindowOperation,
+    /// A reference to this discrete window.
+    pub reference: WindowReference,
+    /// The type of value the window produces.
+    pub ty: Type,
+}
+
 /// Represents an instance of a sliding window.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SlidingWindow {
@@ -360,12 +381,17 @@ pub struct SlidingWindow {
 
 /// Allows for referencing a window instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WindowReference(usize);
+pub enum WindowReference {
+    SlidingWindow(usize),
+    DiscreteWindow(usize),
+}
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
     pub fn idx(self) -> usize {
-        self.0
+        match self {
+            WindowReference::SlidingWindow(x) | WindowReference::DiscreteWindow(x) => x,
+        }
     }
 }
 
@@ -581,9 +607,20 @@ impl RTLolaIR {
         self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
     }
 
-    /// Returns a `Vec` containing a reference for each sliding window in the specification.
+    /// Returns a discrete Window instance for a given WindowReference in the specification
+    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+        match window {
+            WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
+            WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
+        }
+    }
+
+    /// Returns a sliding window instance for a given WindowReference in the specification
     pub fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        &self.sliding_windows[window.0]
+        match window {
+            WindowReference::SlidingWindow(x) => &self.sliding_windows[x],
+            WindowReference::DiscreteWindow(_) => panic!("wrong type of window reference passed to getter"),
+        }
     }
 
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` a stream in the layer.

@@ -3,6 +3,7 @@ use crate::ast::Literal;
 use num::rational::Rational64 as Rational;
 use num::traits::{CheckedMul, Inv, Pow};
 use num::{BigInt, BigRational, FromPrimitive, One, Signed, ToPrimitive};
+use std::num::ParseIntError;
 use std::str::FromStr;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -25,6 +26,16 @@ impl Expression {
                 _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
             };
             Ok(Offset::RealTime(parse_rational(val)?, TimeUnit::from_str(unit)?))
+        }
+    }
+
+    pub(crate) fn parse_discrete_duration(&self) -> Result<u64, String> {
+        match &self.kind {
+            ExpressionKind::Lit(l) => match &l.kind {
+                LitKind::Numeric(val, None) => val.parse().map_err(|err: ParseIntError| err.to_string()),
+                _ => Err(format!("expected numeric value without unit, found `{}`", l)),
+            },
+            _ => Err(format!("expected numeric value without unit, found `{}`", self)),
         }
     }
 
@@ -111,7 +122,7 @@ impl Expression {
         }
     }
 
-    pub(crate) fn parse_freqspec(&self) -> Result<UOM_Frequency, String> {
+    pub fn parse_freqspec(&self) -> Result<UOM_Frequency, String> {
         if let Ok(freq) = self.parse_frequency() {
             Ok(freq)
         } else if let Ok(period) = self.parse_duration() {
@@ -285,6 +296,7 @@ impl Expression {
             | ParenthesizedExpression(_, inner, _) => Box::new(std::iter::once(self).chain(inner.iter())),
             Binary(_, left, right)
             | Default(left, right)
+            | DiscreteWindowAggregation { expr: left, duration: right, .. }
             | SlidingWindowAggregation { expr: left, duration: right, .. } => {
                 Box::new(std::iter::once(self).chain(left.iter()).chain(right.iter()))
             }
