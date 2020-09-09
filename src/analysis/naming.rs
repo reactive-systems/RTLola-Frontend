@@ -328,7 +328,6 @@ impl<'b> NamingAnalysis<'b> {
                 self.check_expression(expr);
             }
             DiscreteWindowAggregation { expr, duration, .. } => {
-                //TODO CHECK
                 self.check_expression(expr);
                 self.check_expression(duration);
             }

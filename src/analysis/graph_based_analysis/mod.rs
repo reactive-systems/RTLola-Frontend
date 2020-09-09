@@ -107,7 +107,7 @@ pub(crate) enum Offset {
     Discrete(i32),
     Time(TimeOffset),
     SlidingWindow,
-    DiscreteWindow, //TODO CHECK
+    DiscreteWindow,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

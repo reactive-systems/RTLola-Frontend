@@ -295,7 +295,6 @@ impl<'a> Lowering<'a> {
                 }
                 ExpressionKind::Offset(e, _) => pre.chain(recursion(e)).chain(post()).collect(),
                 ExpressionKind::DiscreteWindowAggregation { expr, duration, .. } => {
-                    //TODO check
                     pre.chain(recursion(expr)).chain(recursion(duration)).chain(post()).collect()
                 }
                 ExpressionKind::SlidingWindowAggregation { expr, duration, .. } => {
@@ -361,8 +360,8 @@ impl<'a> Lowering<'a> {
                 self.find_dependencies(left, deps);
                 self.find_dependencies(right, deps);
             }
-            DiscreteWindowAggregation { .. } => { //TODO check
-                 // ignore discrete windows
+            DiscreteWindowAggregation { .. } => {
+                // ignore discrete windows
             }
             SlidingWindowAggregation { .. } => {
                 // ignore sliding windows
@@ -418,10 +417,9 @@ impl<'a> Lowering<'a> {
                 }
             }
             ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => {
-                //TODO CHECK
                 if let ExpressionKind::Ident(_) = &expr.kind {
                     let target = self.get_ref_for_ident(expr.id);
-                    let duration = duration.parse_discrete_duration().expect("Ensured by AST analysis") as usize;
+                    let duration = duration.parse_discrete_duration().expect("Ensured by AST analysis");
                     let op = *aggregation;
                     let reference = ir::WindowReference::DiscreteWindow(self.ir.sliding_windows.len());
                     let ty = self.lower_node_type(win_expr.id);
@@ -537,7 +535,6 @@ impl<'a> Lowering<'a> {
                 ir::Expression::new(ir::ExpressionKind::OffsetLookup { target, offset }, result_type.clone())
             }
             ExpressionKind::DiscreteWindowAggregation { .. } => {
-                //TODO CHECK
                 let win_ref = self.lower_window(expr);
                 ir::Expression::new(ir::ExpressionKind::WindowLookup(win_ref), result_type.clone())
             }
@@ -1135,9 +1132,7 @@ mod tests {
 
     #[test]
     fn test_discrete_window() {
-        //TODO CHECK
         let ir = spec_to_ir("input a: Int32\noutput b: Int32 := a.aggregate(over_discrete: 10, using: Σ)");
-        dbg!(&ir);
         assert_eq!(ir.discrete_windows.len(), 1);
         check_stream_number(&ir, 1, 1, 0, 1, 0, 0);
     }

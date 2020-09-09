@@ -219,9 +219,9 @@ pub enum ExpressionKind {
     },
     /// Accessing another stream
     StreamAccess(StreamReference, StreamAccessKind),
-    /// A window expression over a duration
+    /// A discrete window expression over a duration
     DiscreteWindowLookup(WindowReference),
-    /// A window expression over a duration
+    /// A sliding window expression over a duration
     WindowLookup(WindowReference),
     /// An if-then-else expression
     Ite {
@@ -346,11 +346,10 @@ pub enum ArithLogOp {
 /// Represents an instance of a discrete window.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DiscreteWindow {
-    //TODO CHECK
     /// The stream whose values will be aggregated.
     pub target: StreamReference,
     /// The duration (number of events) over which the window aggregates.
-    pub duration: usize,
+    pub duration: u64,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
     /// The aggregation operation.
@@ -383,7 +382,6 @@ pub struct SlidingWindow {
 /// Allows for referencing a window instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowReference {
-    //TODO CHECK
     SlidingWindow(usize),
     DiscreteWindow(usize),
 }
@@ -391,7 +389,6 @@ pub enum WindowReference {
 impl WindowReference {
     /// Provides access to the index inside the reference.
     pub fn idx(self) -> usize {
-        //TODO CHECK
         match self {
             WindowReference::SlidingWindow(x) | WindowReference::DiscreteWindow(x) => x,
         }
@@ -612,19 +609,17 @@ impl RTLolaIR {
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
     pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
-        //TODO CHECK
         match window {
             WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
-            WindowReference::SlidingWindow(_) => unreachable!("type of window reference passed to getter"),
+            WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
         }
     }
 
     /// Returns a sliding window instance for a given WindowReference in the specification
     pub fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        //TODO CHECK
         match window {
             WindowReference::SlidingWindow(x) => &self.sliding_windows[x],
-            WindowReference::DiscreteWindow(_) => panic!("type of window reference passed to getter"),
+            WindowReference::DiscreteWindow(_) => panic!("wrong type of window reference passed to getter"),
         }
     }
 

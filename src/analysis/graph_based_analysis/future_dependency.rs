@@ -34,7 +34,7 @@ pub(crate) fn future_dependent_stream(dependency_graph: &DependencyGraph) -> Fut
                         TimeOffset::UpToNow(_) => false,
                     },
                     Offset::SlidingWindow => false,
-                    Offset::DiscreteWindow => false, //TODO CHECK
+                    Offset::DiscreteWindow => false,
                 },
                 _ => false,
             });

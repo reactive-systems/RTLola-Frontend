@@ -126,7 +126,6 @@ fn add_sliding_windows(
             }
         }
         DiscreteWindowAggregation { expr, duration, aggregation, .. } => {
-            //TODO CHECK
             if let Ident(_) = &expr.kind {
             } else {
                 unreachable!("checked in AST verification");
@@ -137,9 +136,9 @@ fn add_sliding_windows(
             {
                 Declaration::In(input) => input.id,
                 Declaration::Out(output) => output.id,
-                _ => unimplemented!(),
+                _ => panic!("Discrete Window Aggregaton must be used over a stream variable"),
             };
-            let stream_ty = &type_table.get_stream_type(node_id);
+
             let value_type = type_table.get_value_type(node_id);
             let value_type_size = match get_byte_size(value_type) {
                 MemoryBound::Bounded(i) => i,
@@ -149,23 +148,11 @@ fn add_sliding_windows(
                     0
                 }
             };
-            //TODO CHECK
-            let _d = duration
+            let d = duration
                 .parse_discrete_duration()
                 .expect("Expect valid integer as discrete window duration in memory analysis");
 
-            let efficient_operator: bool = is_efficient_operator(*aggregation);
-            match (stream_ty, efficient_operator) {
-                (StreamTy::Event(_), false) => {
-                    return MemoryBound::Unbounded;
-                }
-                (StreamTy::Event(_), true) => {
-                    let number_of_panes = 64;
-                    required_memory += determine_needed_window_memory(value_type_size, number_of_panes, *aggregation);
-                }
-                (StreamTy::RealTime(_), _) => unimplemented!("Realtime stream for Discrete Window not implemented"),
-                (StreamTy::Infer(_), _) => unreachable!("checked in type checking"),
-            }
+            required_memory += determine_needed_window_memory(value_type_size, d as u128, *aggregation);
         }
         SlidingWindowAggregation { expr, duration, aggregation, .. } => {
             if let Ident(_) = &expr.kind {
@@ -179,7 +166,7 @@ fn add_sliding_windows(
             {
                 Declaration::In(input) => input.id,
                 Declaration::Out(output) => output.id,
-                _ => unimplemented!(),
+                _ => panic!("Sliding Window Aggregaton must be used over a stream variable"),
             };
 
             let stream_ty = &type_table.get_stream_type(node_id);

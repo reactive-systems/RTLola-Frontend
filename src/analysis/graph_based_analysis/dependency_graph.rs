@@ -295,10 +295,9 @@ impl<'a> DependencyAnalyser<'a> {
                 );
             }
             ExpressionKind::DiscreteWindowAggregation { expr, .. } => {
-                //TODO CHECK
                 if let ExpressionKind::Ident(_) = &expr.kind {
                 } else {
-                    unreachable!("Sliding Windows can only be applied on direct stream access");
+                    unreachable!("Discrete Windows can only be applied on direct stream access");
                 }
                 let target_stream_id = match &self.naming_table[&expr.id] {
                     Declaration::Out(output) => output.id,
@@ -364,7 +363,7 @@ impl<'a> DependencyAnalyser<'a> {
                         self.handler.error_with_span("cycle with periodic stream", LabeledSpan::new(*span, "", true));
                         true
                     }
-                    Offset::Discrete(_) | Offset::DiscreteWindow => false, //TODO CHECK
+                    Offset::Discrete(_) | Offset::DiscreteWindow => false,
                 },
                 _ => false,
             }
@@ -388,7 +387,7 @@ impl<'a> DependencyAnalyser<'a> {
                     Offset::Time(_) => unreachable!("This is a cycle without realtime"),
                     Offset::Discrete(offset) => total_weight += offset,
                     Offset::SlidingWindow => unreachable!("Sliding windows do not count for cycles"),
-                    Offset::DiscreteWindow => unreachable!("Discrete windows do not count for cycles"), //TODO CHECK
+                    Offset::DiscreteWindow => unreachable!("Discrete windows do not count for cycles"),
                 },
             }
         }

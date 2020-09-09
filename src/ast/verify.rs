@@ -33,7 +33,7 @@ impl<'a, 'b> Verifier<'a, 'b> {
         expr.iter().for_each(|inner| Self::check_direct_access(self.handler, inner));
         expr.iter().for_each(|inner| Self::check_field_access(self.handler, inner));
         expr.iter().for_each(|inner| Self::check_valid_offset(self.handler, inner));
-        expr.iter().for_each(|inner| Self::check_discrete_window_duration(self.handler, inner)); //TODO CHECK
+        expr.iter().for_each(|inner| Self::check_discrete_window_duration(self.handler, inner));
         expr.iter().for_each(|inner| Self::check_sliding_window_duration(self.handler, inner));
     }
 
@@ -114,7 +114,6 @@ impl<'a, 'b> Verifier<'a, 'b> {
     }
 
     fn check_discrete_window_duration(handler: &Handler, expr: &Expression) {
-        //TODO Check
         use ExpressionKind::*;
         if let DiscreteWindowAggregation { duration, .. } = &expr.kind {
             let error_msg = if let Lit(lit) = &duration.kind {
