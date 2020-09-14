@@ -643,17 +643,9 @@ mod pacing_type_tests {
     }
 
     #[test]
-    #[ignore] // Todo: Decide how to handle the type of y
     fn test_sample_and_hold_sync() {
         let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
-        let tt = ltc.pacing_type_infer().unwrap();
-        assert_eq!(0, num_errors(spec));
-        assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
-        );
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
