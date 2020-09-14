@@ -7,9 +7,8 @@ use crate::value_types::IConcreteType;
 use front::analysis::naming::DeclarationTable;
 use front::ast::RTLolaAst;
 use front::parse::NodeId;
-use front::reporting::{Handler, LabeledSpan};
+use front::reporting::Handler;
 use rusttyc::types::ReifiedTypeTable;
-use rusttyc::TcErr;
 use std::collections::HashMap;
 
 pub struct LolaTypeChecker<'a> {
@@ -28,11 +27,13 @@ impl<'a> LolaTypeChecker<'a> {
     }
 
     pub fn check(&mut self) {
-        if let Some(_table) = self.pacing_type_infer() {
-            //TODO
+        let pacing_tt = if let Some(table) = self.pacing_type_infer() {
+            table
+        } else {
+            return; //TODO better error behaviour
         };
         //TODO imports
-        match self.value_type_infer() {
+        match self.value_type_infer(pacing_tt) {
             Ok(_map) => {}
             Err(_e) => {} //TODO,
         };
@@ -113,10 +114,18 @@ impl<'a> LolaTypeChecker<'a> {
         Some(ctt)
     }
 
-    pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, IConcreteType>, String> {
+    pub(crate) fn value_type_infer(
+        &self,
+        pacing_tt: HashMap<NodeId, ConcretePacingType>,
+    ) -> Result<HashMap<NodeId, IConcreteType>, String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
-        let mut ctx = ValueContext::new(&self.ast, self.declarations.clone(), self.handler);
+        let mut ctx = ValueContext::new(
+            &self.ast,
+            self.declarations.clone(),
+            self.handler,
+            pacing_tt,
+        );
 
         for input in &self.ast.inputs {
             if let Err(e) = ctx.input_infer(input) {
@@ -148,24 +157,6 @@ impl<'a> LolaTypeChecker<'a> {
 
         let tt_r = ctx.tyc.clone().type_check();
         if let Err(tc_err) = tt_r {
-            let (error_key, error_key_2) = match tc_err.clone() {
-                //TODO improve
-                TcErr::ChildAccessOutOfBound(key, _ty, _n) => (key, None),
-                TcErr::KeyEquation(k1, k2, _msg) => (k1, Some(k2)),
-                TcErr::Bound(key, key2, _msg) => (key, key2),
-                TcErr::ExactTypeViolation(key, _bound) => (key, None),
-                TcErr::ConflictingExactBounds(key, _bound1, _bound2) => (key, None),
-            };
-            self.handler.error_with_span(
-                "Result inference error",
-                LabeledSpan::new(ctx.key_span[&error_key], "Todo", true),
-            );
-            if let Some(k) = error_key_2 {
-                self.handler.warn_with_span(
-                    "Result inference error - connected warning",
-                    LabeledSpan::new(ctx.key_span[&k], "Todo", false),
-                );
-            }
             let msg: String = ctx.handle_error(tc_err);
             return Err(msg);
         }

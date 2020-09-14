@@ -1,6 +1,7 @@
 use super::*;
 extern crate regex;
 
+use crate::pacing_types::ConcretePacingType;
 use crate::value_types::IAbstractType;
 use bimap::BiMap;
 use front::analysis::naming::{Declaration, DeclarationTable};
@@ -23,16 +24,22 @@ pub struct Variable {
 impl rusttyc::TcVar for Variable {}
 
 pub struct ValueContext<'a> {
-    pub tyc: TypeChecker<IAbstractType, Variable>,
-    pub decl: DeclarationTable,
+    pub(crate) tyc: TypeChecker<IAbstractType, Variable>,
+    pub(crate) decl: DeclarationTable,
     //Map assumes uniqueness of Ast and Tc ids
-    pub node_key: BiMap<NodeId, TcKey>,
-    pub key_span: HashMap<TcKey, Span>,
-    handler: &'a Handler,
+    pub(crate) node_key: BiMap<NodeId, TcKey>,
+    pub(crate) key_span: HashMap<TcKey, Span>,
+    pub(crate) handler: &'a Handler,
+    pub(crate) pacing_tt: HashMap<NodeId, ConcretePacingType>,
 }
 
 impl<'a> ValueContext<'a> {
-    pub fn new(ast: &RTLolaAst, decl: DeclarationTable, handler: &'a Handler) -> Self {
+    pub fn new(
+        ast: &RTLolaAst,
+        decl: DeclarationTable,
+        handler: &'a Handler,
+        pacing_tt: HashMap<NodeId, ConcretePacingType>,
+    ) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = BiMap::new();
         let mut key_span = HashMap::new();
@@ -77,6 +84,7 @@ impl<'a> ValueContext<'a> {
             node_key,
             key_span,
             handler,
+            pacing_tt,
         }
     }
 
@@ -151,6 +159,13 @@ impl<'a> ValueContext<'a> {
             let t = self.type_kind_match(&param.ty);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             param_types.push(param_key);
+        }
+
+        if let Some(expr) = &out.extend.expr {
+            //TODO
+        }
+        if let Some(expr) = &out.termination {
+            let _termination_key = self.expression_infer(expr, Some(IAbstractType::Bool))?;
         }
 
         let expression_key = self.expression_infer(&out.expression, None)?;
@@ -242,13 +257,17 @@ impl<'a> ValueContext<'a> {
                                                                    //Want build: Option<X>
 
                 match offset {
-                    front::ast::Offset::Discrete(_) => {
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Option(
-                                IAbstractType::Any.into(),
-                            )))?;
-                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                        self.tyc.impose(ex_key.equate_with(inner_key))?;
+                    front::ast::Offset::Discrete(i) => {
+                        if let 0 = i {
+                            //Offset of 0 does not return an optional type
+                            self.tyc.impose(term_key.equate_with(ex_key))?;
+                        } else {
+                            self.tyc.impose(term_key.concretizes_explicit(
+                                IAbstractType::Option(IAbstractType::Any.into()),
+                            ))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            self.tyc.impose(ex_key.equate_with(inner_key))?;
+                        }
                     }
                     front::ast::Offset::RealTime(_, _) => {
                         //TODO there are no realtime offsets so far
@@ -584,7 +603,7 @@ impl<'a> ValueContext<'a> {
     }
 
     fn value_type_match(&self, vt: &ValueTy) -> IAbstractType {
-        dbg!("Valute Type match call", vt);
+        dbg!("Value Type match call {}", vt);
         match vt {
             ValueTy::Bool => IAbstractType::Bool,
             ValueTy::Int(i) => {
@@ -767,8 +786,6 @@ mod value_type_tests {
     use front::parse::SourceMapper;
     use front::reporting::Handler;
     use front::RTLolaAst;
-    use rusttyc::types::{Abstract, Generalizable, ReifiedTypeTable};
-    use std::collections::hash_map::RandomState;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -800,14 +817,16 @@ mod value_type_tests {
     fn complete_check(spec: &str) -> usize {
         let test_box = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
-        ltc.value_type_infer();
+        let pacing_tt = ltc.pacing_type_infer().unwrap();
+        ltc.value_type_infer(pacing_tt);
         test_box.handler.emitted_errors()
     }
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
         let test_box = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
-        let tt_result = ltc.value_type_infer();
+        let pacing_tt = ltc.pacing_type_infer().unwrap();
+        let tt_result = ltc.value_type_infer(pacing_tt);
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
         }
@@ -822,9 +841,10 @@ mod value_type_tests {
     fn check_expect_error(spec: &str) -> TestBox {
         let test_box = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
-        let tt_result = ltc.value_type_infer();
+        let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
+        let tt_result = ltc.value_type_infer(pt);
         dbg!(&tt_result);
-        assert!(tt_result.is_err());
+        assert!(tt_result.is_err(), "Expected error in value type result");
         println!("{}", tt_result.err().unwrap());
         test_box
     }
@@ -873,7 +893,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration_x() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 := 1";
+        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -882,7 +902,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration_param_infer() {
-        let spec = "output x(a: UInt8, b: Bool) := a";
+        let spec = "output x(a: UInt8, b: Bool) @1Hz := a";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -892,7 +912,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 := 1 output y := x(1, false)";
+        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1 output y @1Hz := x(1, false)";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.spec.outputs[0].id;
         let output_2_id = tb.spec.outputs[1].id;
@@ -932,30 +952,30 @@ mod value_type_tests {
     fn simple_const_faulty() {
         let spec = "constant c: Int8 := true";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_signedness() {
         let spec = "constant c: UInt8 := -2";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_incorrect_float() {
         let spec = "constant c: UInt8 := 2.3";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn simple_valid_coersion() {
         //TODO does not check output type, only validity
         for spec in &[
-            "constant c: Int8 := 1\noutput o: Int32 := c",
-            "constant c: UInt16 := 1\noutput o: UInt64 := c",
-            "constant c: Float32 := 1.0\noutput o: Float64 := c",
+            "constant c: Int8 := 1\noutput o: Int32 @1Hz:= c",
+            "constant c: UInt16 := 1\noutput o: UInt64 @1Hz:= c",
+            "constant c: Float32 := 1.0\noutput o: Float64 @1Hz:= c",
         ] {
             let (tb, result_map) = check_value_type(spec);
             assert_eq!(0, complete_check(spec));
@@ -963,11 +983,11 @@ mod value_type_tests {
     }
 
     #[test]
-    fn simple_invalid_coersion() {
+    fn simple_invalid_conversion() {
         //TODO fix implicit widening
-        let spec = "constant c: Int32 := 1\noutput o: Int8 := c";
+        let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := c";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -992,12 +1012,12 @@ mod value_type_tests {
     fn faulty_trigger() {
         let spec = "trigger 1";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn simple_binary() {
-        let spec = "output o: Int8 := 3 + 5";
+        let spec = "output o: Int8 @1Hz := 3 + 5";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1017,8 +1037,8 @@ mod value_type_tests {
 
     #[test]
     fn simple_unary() {
-        let spec = "output o := !false \n\
-                           output u: Bool := !false";
+        let spec = "output o @1Hz:= !false \n\
+                           output u: Bool @1Hz:= !false";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let out_id_2 = tb.spec.outputs[1].id;
@@ -1031,21 +1051,21 @@ mod value_type_tests {
     fn simple_unary_faulty() {
         // The negation should return a bool even if the underlying expression is wrong.
         // Thus, there is only one error here.
-        let spec = "output o: Bool := !3";
+        let spec = "output o: Bool @1Hz:= !3";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn simple_binary_faulty() {
-        let spec = "output o: Float32 := false + 2.5";
+        let spec = "output o: Float32 @1Hz := false + 2.5";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn simple_ite() {
-        let spec = "output o: Int8 := if false then 1 else 2";
+        let spec = "output o: Int8 @1Hz := if false then 1 else 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1054,7 +1074,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_ite_compare() {
-        let spec = "output e :Int8 := if 1 == 0 then 0 else -1";
+        let spec = "output e :Int8 @1Hz := if 1 == 0 then 0 else -1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1063,7 +1083,7 @@ mod value_type_tests {
 
     #[test]
     fn underspecified_ite_type() {
-        let spec = "output o := if !false then 1.3 else -2.0";
+        let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1072,21 +1092,20 @@ mod value_type_tests {
 
     #[test]
     fn test_ite_condition_faulty() {
-        let spec = "output o: UInt8 := if 3 then 1 else 1";
+        let spec = "output o: UInt8 @1Hz := if 3 then 1 else 1";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_ite_arms_incompatible() {
-        let spec = "output o: UInt8 := if true then 1 else false";
+        let spec = "output o: UInt8 @1Hz := if true then 1 else false";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_parenthesized_expr() {
-        //TODO RUSTTYC error
         let spec = "input s: String\noutput o: Bool := s[-1].defaults(to: \"\") == \"a\"";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1099,7 +1118,7 @@ mod value_type_tests {
     #[test]
     fn test_underspecified_type() {
         //Default for num literals applied
-        let spec = "output o := 2";
+        let spec = "output o @1Hz := 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1122,31 +1141,31 @@ mod value_type_tests {
     fn test_input_lookup_faulty() {
         let spec = "input a: UInt8\n output b: Float64 := a";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_stream_lookup() {
         //TODO FIXME offset[0] => no option
-        let spec = "output a: UInt8 := 3\n output b: UInt8 := a[0]";
+        let spec = "output a: UInt8 @1Hz:= 3\n output b: UInt8 := a[0]";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
-        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out2_id], IConcreteType::UInteger8);
     }
 
     #[test]
     fn test_stream_lookup_faulty() {
         let spec = "input a: UInt8\n output b: Float64 := a";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_stream_lookup_dft() {
-        let spec = "output a: UInt8 := 3\n output b: UInt8 := a[-1].defaults(to: 3)";
+        let spec = "output a: UInt8 @1Hz := 3\n output b: UInt8 := a[-1].defaults(to: 3)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let in_id = tb.spec.outputs[1].id;
@@ -1157,9 +1176,9 @@ mod value_type_tests {
 
     #[test]
     fn test_stream_lookup_dft_fault() {
-        let spec = "output a: UInt8 := 3\n output b: Bool := a[-1].defaults(to: false)";
+        let spec = "output a: UInt8 @1Hz:= 3\n output b: Bool := a[-1].defaults(to: false)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
     #[test]
     #[ignore] // paramertic streams need new design after syntax revision
@@ -1178,7 +1197,7 @@ mod value_type_tests {
     fn test_extend_type_faulty() {
         let spec = "input in: Int8\n output a: Int8 { extend in } := 3";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1198,7 +1217,7 @@ mod value_type_tests {
     fn test_terminate_type_faulty() {
         let spec = "input in: Int8\n output a(b: Bool): Int8 close in := 3";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1206,12 +1225,12 @@ mod value_type_tests {
         // stream type is not compatible
         let spec = "input in: Int8 input in2: Bool output a(b: Bool): Int8 @in close in2 := 3";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_param_spec() {
-        let spec = "output a(p1: Int8): Int8 := 3 output b: Int8 := a(3)";
+        let spec = "output a(p1: Int8): Int8 @1Hz:= 3 output b: Int8 := a(3)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let out2_id = tb.spec.outputs[1].id;
@@ -1222,14 +1241,14 @@ mod value_type_tests {
 
     #[test]
     fn test_param_spec_faulty() {
-        let spec = "output a(p1: Int8): Int8:= 3 output b: Int8 := a(true)";
+        let spec = "output a(p1: Int8): Int8 @1Hz:= 3 output b: Int8 := a(true)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_param_inferred() {
-        let spec = "input i: Int8 output x(param): Int8 := 3 output y: Int8 := x(i)";
+        let spec = "input i: Int8 output x(param): Int8 := i output y: Int8 := x(i)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let out2_id = tb.spec.outputs[1].id;
@@ -1242,7 +1261,7 @@ mod value_type_tests {
 
     #[test]
     fn test_param_inferred_conflicting() {
-        let spec = "input i: Int8, j: UInt8 output x(param): Int8 := 3 output y: Int8 := x(i) output z: Int8 := x(j)";
+        let spec = "input i: Int8, j: UInt8 output x(param): Int8 := i output y: Int8 := x(i) output z: Int8 := x(j)";
         let tb = check_expect_error(spec);
         assert_eq!(complete_check(spec), 1);
         //assert_eq!(get_type(spec), ValueTy::Int(IntTy::I8)); //TODO
@@ -1250,9 +1269,9 @@ mod value_type_tests {
 
     #[test]
     fn test_lookup_incomp() {
-        let spec = "output a(p1: Int8): Int8 := 3\n output b: UInt8 := a(3)";
+        let spec = "output a(p1: Int8): Int8 @1Hz:= 3\n output b: UInt8 := a(3)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1294,14 +1313,15 @@ mod value_type_tests {
         //TODO optional result at offset zero
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].0";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_tuple_access_faulty_len() {
+        //TODO optional result at offset zero
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in.2";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1322,7 +1342,7 @@ mod value_type_tests {
     fn test_optional_type_faulty() {
         let spec = "input in: Int8\noutput out: Int8? := in";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1338,6 +1358,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_of_tuples() {
+        //TODO offset [0] -> no optional type
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Int16 := in[0].0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1353,6 +1374,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_of_tuples2() {
+        //TODO offset [0] -> no optional type
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in.1.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1383,24 +1405,24 @@ mod value_type_tests {
     fn test_window_untimed() {
         let spec = "input in: Int8\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_window_faulty() {
         let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 3s, using: Σ)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
     fn test_window_invalid_duration() {
         let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 0s, using: Σ)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
         let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: -3s, using: Σ)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
@@ -1422,11 +1444,11 @@ mod value_type_tests {
         let spec =
             "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
         let spec =
             "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
         let spec =
             "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         assert_eq!(0, num_type_errors(spec));
@@ -1478,7 +1500,7 @@ mod value_type_tests {
     fn test_rt_offset_fail() {
         let spec = "output a: Int8 @0.5Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
         let tb = check_expect_error(spec);
-        assert_eq!(1, complete_check(spec));
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
