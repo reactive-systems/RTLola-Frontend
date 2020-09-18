@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-frontend"
-version = "0.3.3"
+version = "0.3.4"
 authors = [
     "Jan Baumeister <jbaumeister@react.uni-saarland.de>",
     "Florian Kohn <s8flkohn@stud.uni-saarland.de>",
