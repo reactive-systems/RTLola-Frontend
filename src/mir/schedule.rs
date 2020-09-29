@@ -1,4 +1,4 @@
-use crate::ir::{OutputReference, RTLolaIR, Stream};
+use crate::mir::{OutputReference, RTLolaMIR, Stream};
 use std::time::Duration;
 
 use num::rational::Rational64 as Rational;
@@ -56,7 +56,7 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    pub(crate) fn from(ir: &RTLolaIR) -> Result<Schedule, String> {
+    pub(crate) fn from(ir: &RTLolaMIR) -> Result<Schedule, String> {
         let periods: Vec<UOM_Time> = ir.time_driven.iter().map(|s| s.period).collect();
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
@@ -118,7 +118,7 @@ impl Schedule {
     /// Result: `[[a] [b] [] [c]]`
     /// Meaning: `a` starts being scheduled after one gcd, `b` after two gcds, `c` after 4 gcds.
     fn build_extend_steps(
-        ir: &RTLolaIR,
+        ir: &RTLolaMIR,
         gcd: UOM_Time,
         hyper_period: UOM_Time,
     ) -> Result<Vec<Vec<OutputReference>>, String> {
@@ -157,7 +157,7 @@ impl Schedule {
         assert!(empty_counter == 0);
         deadlines
     }
-    fn sort_deadlines(ir: &RTLolaIR, deadlines: &mut Vec<Deadline>) {
+    fn sort_deadlines(ir: &RTLolaMIR, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| ir.outputs[*s].eval_layer());
         }
@@ -195,7 +195,7 @@ mod math {
 mod tests {
     use super::math::*;
     use super::*;
-    use crate::ir::RTLolaIR;
+    use crate::mir::RTLolaMIR;
     use crate::FrontendConfig;
     #[allow(unused_imports)]
     use num::FromPrimitive;
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(rational_lcm(rat!(2, 3), rat!(1, 8)), rat!(2));
     }
 
-    fn to_ir(spec: &str) -> RTLolaIR {
+    fn to_ir(spec: &str) -> RTLolaMIR {
         crate::parse("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
     }
 

@@ -45,7 +45,7 @@ pub(crate) struct TypeTable {
     value_tt: HashMap<NodeId, ValueTy>,
     stream_tt: HashMap<NodeId, StreamTy>,
     func_tt: HashMap<NodeId, Vec<ValueTy>>,
-    acti_cond: HashMap<NodeId, Activation<crate::ir::StreamReference>>,
+    acti_cond: HashMap<NodeId, Activation<crate::common_ir::StreamReference>>,
 }
 
 impl TypeTable {
@@ -61,7 +61,7 @@ impl TypeTable {
         &self.func_tt[&nid]
     }
 
-    pub(crate) fn get_acti_cond(&self, nid: NodeId) -> &Activation<crate::ir::StreamReference> {
+    pub(crate) fn get_acti_cond(&self, nid: NodeId) -> &Activation<crate::common_ir::StreamReference> {
         &self.acti_cond[&nid]
     }
 }
@@ -1490,7 +1490,7 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         &mut self,
         spec: &'a RTLolaAst,
         id: NodeId,
-    ) -> Option<Activation<crate::ir::StreamReference>> {
+    ) -> Option<Activation<crate::common_ir::StreamReference>> {
         if !self.stream_ty.contains_key(&id) {
             return None;
         }
@@ -1553,7 +1553,7 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
         &self,
         spec: &'a RTLolaAst,
         ac: &Activation<NodeId>,
-    ) -> Option<Activation<crate::ir::StreamReference>> {
+    ) -> Option<Activation<crate::common_ir::StreamReference>> {
         Some(match ac {
             Activation::Conjunction(args) => Activation::Conjunction(
                 args.iter().flat_map(|ac| self.translate_activation_condition(spec, ac)).collect(),
@@ -1563,7 +1563,7 @@ impl<'a, 'b, 'c> TypeAnalysis<'a, 'b, 'c> {
             ),
             Activation::Stream(var) => {
                 if let Some(idx) = spec.inputs.iter().enumerate().find(|(_, val)| val.id == *var).map(|x| x.0) {
-                    Activation::Stream(crate::ir::StreamReference::InRef(idx))
+                    Activation::Stream(crate::common_ir::StreamReference::InRef(idx))
                 } else {
                     // ignore remaining output variables, they are self-refrences
                     Activation::True
@@ -2377,7 +2377,7 @@ mod tests {
             ]))
         );
 
-        use crate::ir::StreamReference;
+        use crate::common_ir::StreamReference;
         assert_eq!(
             type_table.get_acti_cond(x_id),
             &Activation::Conjunction(vec![

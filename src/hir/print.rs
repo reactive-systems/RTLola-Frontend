@@ -27,7 +27,7 @@ impl Display for Expression {
             ExpressionKind::ArithLog(op, args, ty) => {
                 write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", ty), ",")
             }
-            ExpressionKind::DiscreteWindowLookup(wr) => write!(f, "{}", wr),
+            // ExpressionKind::DiscreteWindowLookup(wr) => write!(f, "{}", wr),
             ExpressionKind::WindowLookup(wr) => write!(f, "{}", wr),
             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
             ExpressionKind::OffsetLookup { target, offset } => write!(f, "{}.offset({})", target, offset),
@@ -49,15 +49,6 @@ impl Display for Constant {
             Constant::Int(i) => write!(f, "{}", i),
             Constant::Float(fl) => write!(f, "{}", fl),
             Constant::Str(s) => write!(f, "{}", s),
-        }
-    }
-}
-
-impl Display for Offset {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            Offset::PastDiscreteOffset(u) => write!(f, "{}", u),
-            _ => unimplemented!(),
         }
     }
 }
@@ -107,21 +98,22 @@ impl Display for Type {
         }
     }
 }
+// <<<<<<< HEAD:src/ir/print.rs
 
-impl Display for WindowReference {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            WindowReference::SlidingWindow(x) => write!(f, "Win({})", x),
-            WindowReference::DiscreteWindow(x) => write!(f, "DisWin({})", x),
-        }
-    }
-}
+// impl Display for WindowReference {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+//         match self {
+//             WindowReference::SlidingWindow(x) => write!(f, "Win({})", x),
+//             WindowReference::DiscreteWindow(x) => write!(f, "DisWin({})", x),
+//         }
+//     }
+// }
 
-impl Display for StreamReference {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            StreamReference::OutRef(ix) => write!(f, "Out({})", ix),
-            StreamReference::InRef(ix) => write!(f, "In({})", ix),
-        }
-    }
-}
+// impl Display for StreamReference {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+//         match self {
+//             StreamReference::OutRef(ix) => write!(f, "Out({})", ix),
+//             StreamReference::InRef(ix) => write!(f, "In({})", ix),
+//         }
+//     }
+// }

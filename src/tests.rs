@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn parse(spec: &str) -> Result<RTLolaIR, String> {
+fn parse(spec: &str) -> Result<RTLolaMIR, String> {
     super::parse("stdin", spec, FrontendConfig::default())
 }
 

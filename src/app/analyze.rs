@@ -10,7 +10,6 @@ use pest::Parser;
 use simplelog::*;
 
 use crate::analysis;
-use crate::ir::lowering::Lowering;
 use crate::parse::{LolaParser, Rule, SourceMapper};
 use crate::reporting::Handler;
 use crate::ty::TypeConfig;
@@ -163,9 +162,10 @@ impl Config {
                 });
 
                 if let Ok(report) = crate::analysis::analyze(&spec, &handler, CONFIG) {
-                    let ir = Lowering::new(&spec, &report).lower();
-                    println!("{:#?}", ir);
-                    Ok(())
+                    // let ir = crate::hir::lowering::Lowering::new(&spec, &report).lower();
+                    todo!();
+                // println!("{:#?}", ir);
+                // Ok(())
                 } else {
                     println!("Error!");
                     Ok(()) // TODO throw a good `Error`
