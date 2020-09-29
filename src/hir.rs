@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 /*!
 This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
 

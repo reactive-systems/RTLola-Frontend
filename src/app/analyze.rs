@@ -18,7 +18,6 @@ use simplelog::*;
 
 #[allow(unused_imports)]
 use crate::analysis;
-#[allow(unused_imports)]
 use crate::parse::{LolaParser, Rule, SourceMapper};
 #[allow(unused_imports)]
 use crate::reporting::Handler;
