@@ -30,6 +30,7 @@ mod tests;
 // Re-export
 pub use ast::RTLolaAst;
 pub use export::analyze;
+pub(crate) use hir::FullInformationHirMode;
 pub(crate) use hir::RTLolaHIR;
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;
@@ -85,7 +86,11 @@ The string passed in as `spec_str` should be the content of the file specified b
 The filename is only used for printing locations.
 See the `FrontendConfig` documentation on more information about the parser options.
 */
-pub(crate) fn parse_to_hir(filename: &str, spec_str: &str, config: FrontendConfig) -> Result<RTLolaHIR, String> {
+pub(crate) fn parse_to_hir(
+    filename: &str,
+    spec_str: &str,
+    config: FrontendConfig,
+) -> Result<RTLolaHIR<FullInformationHirMode>, String> {
     let mapper = crate::parse::SourceMapper::new(std::path::PathBuf::from(filename), spec_str);
     let handler = reporting::Handler::new(mapper);
 
@@ -97,8 +102,12 @@ pub(crate) fn parse_to_hir(filename: &str, spec_str: &str, config: FrontendConfi
     };
     let analysis_result = analysis::analyze(&spec, &handler, config);
     analysis_result
-        // .map(|report| hir::lowering::Lowering::new(&spec, &report).lower())
-        .map(|_| todo!())
+// <<<<<<< HEAD
+//         // .map(|report| hir::lowering::Lowering::new(&spec, &report).lower())
+//         .map(|_| todo!())
+// =======
+        .map(|report| hir::RTLolaHIR::<FullInformationHirMode>::new(&spec, &report))
+// >>>>>>> 9abfcb5... added modes in HIR
         .map_err(|_| "Analysis failed due to errors in the specification".to_string())
 }
 

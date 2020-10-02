@@ -162,10 +162,16 @@ impl Config {
                 });
 
                 if let Ok(report) = crate::analysis::analyze(&spec, &handler, CONFIG) {
-                    // let ir = crate::hir::lowering::Lowering::new(&spec, &report).lower();
-                    todo!();
-                // println!("{:#?}", ir);
-                // Ok(())
+                    // <<<<<<< HEAD
+                    //                     // let ir = crate::hir::lowering::Lowering::new(&spec, &report).lower();
+                    //                     todo!();
+                    //                 // println!("{:#?}", ir);
+                    //                 // Ok(())
+                    // =======
+                    let ir = crate::hir::RTLolaHIR::<crate::hir::FullInformationHirMode>::new(&spec, &report);
+                    println!("{:#?}", ir);
+                    Ok(())
+                // >>>>>>> 9abfcb5... added modes in HIR
                 } else {
                     println!("Error!");
                     Ok(()) // TODO throw a good `Error`

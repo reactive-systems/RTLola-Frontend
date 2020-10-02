@@ -1,8 +1,13 @@
 /*!
 This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
+
+The module occures in different modes, adding different information to the intermediate representation.
 */
 
+use crate::analysis::Report;
+use crate::ast::RTLolaAst;
 use crate::common_ir::*;
+// use crate::hir::lowering::Lowering;
 
 pub(crate) mod lowering;
 mod print;
@@ -18,7 +23,29 @@ use std::time::Duration;
 /// Intermediate representation of an RTLola specification.
 /// Contains all relevant information found in the underlying specification and is enriched with information collected in semantic analyses.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct RTLolaHIR {
+pub(crate) struct RTLolaHIR<MODE: HirModes> {
+    mode: MODE,
+}
+
+impl<MODE: HirModes> RTLolaHIR<MODE> {
+    pub(crate) fn new(ast: &RTLolaAst, analysis_result: &Report) -> RTLolaHIR<FullInformationHirMode> {
+        // Lowering::new(ast, analysis_result).lower()
+        todo!()
+    }
+}
+
+// TODO currently only the FullInformationHirMode Mode is supported
+/// Modes of the intermediate representation
+pub(crate) trait HirModes {}
+struct RawHirMode;
+impl HirModes for RawHirMode {}
+struct TypeCheckedHirMode;
+impl HirModes for TypeCheckedHirMode {}
+
+/// Intermediate representation with full information of an RTLola specification.
+/// Contains all relevant information found in the underlying specification and is enriched with information collected in semantic analyses.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FullInformationHirMode {
     /// All input streams.
     inputs: Vec<InputStream>,
     /// All output streams with the bare minimum of information.
@@ -32,6 +59,7 @@ pub(crate) struct RTLolaHIR {
     /// A collection of triggers
     triggers: Vec<Trigger>,
 }
+impl HirModes for FullInformationHirMode {}
 
 /// Represents a value type. Stream types are no longer relevant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,100 +331,130 @@ impl Expression {
     }
 }
 
-impl RTLolaHIR {
+impl RTLolaHIR<FullInformationHirMode> {
     /// Returns a `Vec` containing a reference for each input stream in the specification.
-    pub(crate) fn get_input_refs(&self) -> Vec<InputReference> {
-        (0..self.inputs.len()).collect()
-    }
-
-    /// Returns a `Vec` containing a reference for each output stream in the specification.
-    pub(crate) fn get_output_refs(&self) -> Vec<OutputReference> {
-        (0..self.outputs.len()).collect()
+    pub(crate) fn input_refs(&self) -> Vec<InputReference> {
+        (0..self.mode.inputs.len()).collect()
     }
 
     /// Provides mutable access to an input stream.
-    pub(crate) fn get_in_mut(&mut self, reference: StreamReference) -> &mut InputStream {
+    pub(crate) fn input_as_mut(&mut self, reference: StreamReference) -> &mut InputStream {
         match reference {
-            StreamReference::InRef(ix) => &mut self.inputs[ix],
+            StreamReference::InRef(ix) => &mut self.mode.inputs[ix],
             StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
         }
     }
 
     /// Provides immutable access to an input stream.
-    pub(crate) fn get_in(&self, reference: StreamReference) -> &InputStream {
+    pub(crate) fn input(&self, reference: StreamReference) -> &InputStream {
         match reference {
-            StreamReference::InRef(ix) => &self.inputs[ix],
+            StreamReference::InRef(ix) => &self.mode.inputs[ix],
             StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
         }
     }
 
+    /// Returns a mutable `Vec` with the input streams in the specification.
+    pub(crate) fn inputs_as_mut<'a>(&'a mut self) -> &'a mut Vec<InputStream> {
+        &mut self.mode.inputs
+    }
+
+    /// Returns a `Vec` containing a reference for each output stream in the specification.
+    pub(crate) fn output_refs(&self) -> Vec<OutputReference> {
+        (0..self.mode.outputs.len()).collect()
+    }
+
     /// Provides mutable access to an output stream.
-    pub(crate) fn get_out_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
+    pub(crate) fn output_as_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
         match reference {
             StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
-            StreamReference::OutRef(ix) => &mut self.outputs[ix],
+            StreamReference::OutRef(ix) => &mut self.mode.outputs[ix],
         }
     }
 
     /// Provides immutable access to an output stream.
-    pub(crate) fn get_out(&self, reference: StreamReference) -> &OutputStream {
+    pub(crate) fn output(&self, reference: StreamReference) -> &OutputStream {
         match reference {
             StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
-            StreamReference::OutRef(ix) => &self.outputs[ix],
+            StreamReference::OutRef(ix) => &self.mode.outputs[ix],
         }
+    }
+
+    /// Returns a mutable `Vec` with the output streams in the specification.
+    pub(crate) fn outputs_as_mut<'a>(&'a mut self) -> &'a mut Vec<OutputStream> {
+        &mut self.mode.outputs
     }
 
     /// Returns a `Vec` containing a reference for each stream in the specification.
     pub(crate) fn all_streams(&self) -> Vec<StreamReference> {
-        self.get_input_refs()
+        self.input_refs()
             .iter()
             .map(|ix| StreamReference::InRef(*ix))
-            .chain(self.get_output_refs().iter().map(|ix| StreamReference::OutRef(*ix)))
+            .chain(self.output_refs().iter().map(|ix| StreamReference::OutRef(*ix)))
             .collect()
     }
 
     /// Returns a `Vec` containing a reference to each triggers in the specification.
-    pub(crate) fn get_triggers(&self) -> Vec<&Trigger> {
-        self.triggers.iter().map(|t| t).collect()
+    pub(crate) fn triggers(&self) -> Vec<&Trigger> {
+        self.mode.triggers.iter().map(|t| t).collect()
     }
 
-    // /// Returns a `Vec` containing a reference to an output stream representing a trigger in the specification.
-    // pub(crate) fn get_triggers(&self) -> Vec<&OutputStream> {
-    //     self.triggers.iter().map(|t| self.get_out(t.reference)).collect()
-    // }
+    /// Returns a mutable `Vec` with the trigger in the specification.
+    pub(crate) fn triggers_as_mut<'a>(&'a mut self) -> &'a mut Vec<Trigger> {
+        &mut self.mode.triggers
+    }
 
     /// Returns a `Vec` containing a reference for each event-driven output stream in the specification.
-    pub(crate) fn get_event_driven(&self) -> Vec<&EventDrivenStream> {
-        self.event_driven.iter().map(|e| e).collect()
+    pub(crate) fn event_driven(&self) -> Vec<&EventDrivenStream> {
+        self.mode.event_driven.iter().map(|e| e).collect()
     }
 
-    // /// Returns a `Vec` containing a reference for each event-driven output stream in the specification.
-    // pub(crate) fn get_event_driven(&self) -> Vec<&OutputStream> {
-    //     self.event_driven.iter().map(|t| self.get_out(t.reference)).collect()
-    // }
+    /// Returns a mutable `Vec` with the event-driven output streams in the specification.
+    pub(crate) fn event_driven_as_mut<'a>(&'a mut self) -> &'a mut Vec<EventDrivenStream> {
+        &mut self.mode.event_driven
+    }
 
     /// Returns a `Vec` containing a reference for each time-driven output stream in the specification.
-    pub(crate) fn get_time_driven(&self) -> Vec<&TimeDrivenStream> {
-        self.time_driven.iter().map(|t| t).collect()
+    pub(crate) fn time_driven(&self) -> Vec<&TimeDrivenStream> {
+        self.mode.time_driven.iter().map(|t| t).collect()
     }
 
-    // /// Returns a `Vec` containing a reference for each time-driven output stream in the specification.
-    // pub(crate) fn get_time_driven(&self) -> Vec<&OutputStream> {
-    //     self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
-    // }
+    /// Returns a mutable `Vec` with the time-driven output streams in the specification.
+    pub(crate) fn time_driven_as_mut<'a>(&'a mut self) -> &'a mut Vec<TimeDrivenStream> {
+        &mut self.mode.time_driven
+    }
 
-    /// Returns a reference to a  `Vec` containing a reference for each sliding in the specification.
-    pub(crate) fn get_windows(&self) -> Vec<WindowReference> {
-        (0..self.sliding_windows.len()).map(WindowReference).collect::<Vec<WindowReference>>()
+    /// Returns a reference to a `Vec` containing a reference for each sliding in the specification.
+    pub(crate) fn sliding_windows(&self) -> Vec<WindowReference> {
+        (0..self.mode.sliding_windows.len()).map(WindowReference).collect::<Vec<WindowReference>>()
     }
 
     /// Returns a `Vec` containing a reference for each sliding window in the specification.
-    pub(crate) fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        &self.sliding_windows[window.0]
+    pub(crate) fn sliding_window(&self, window: WindowReference) -> &SlidingWindow {
+        &self.mode.sliding_windows[window.0]
     }
 
+    /// Returns a mutable `Vec` with the sliding windows in the specification.
+    pub(crate) fn sliding_windows_as_mut<'a>(&'a mut self) -> &'a mut Vec<SlidingWindow> {
+        &mut self.mode.sliding_windows
+    }
+
+    // // /// Returns a `Vec` containing a reference to an output stream representing a trigger in the specification.
+    // // pub(crate) fn get_triggers(&self) -> Vec<&OutputStream> {
+    // //     self.triggers.iter().map(|t| self.get_out(t.reference)).collect()
+    // // }
+
+    // // /// Returns a `Vec` containing a reference for each event-driven output stream in the specification.
+    // // pub(crate) fn get_event_driven(&self) -> Vec<&OutputStream> {
+    // //     self.event_driven.iter().map(|t| self.get_out(t.reference)).collect()
+    // // }
+
+    // // /// Returns a `Vec` containing a reference for each time-driven output stream in the specification.
+    // // pub(crate) fn get_time_driven(&self) -> Vec<&OutputStream> {
+    // //     self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
+    // // }
+
     // TODO we do not need these functions in the HIR
-    //  bla /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` a stream in the layer.
+    // /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` a stream in the layer.
     // pub(crate) fn get_event_driven_layers(&self) -> Vec<Vec<OutputReference>> {
     //     if self.event_driven.is_empty() {
     //         return vec![];
@@ -444,6 +502,19 @@ impl RTLolaHIR {
     // pub(crate) fn compute_schedule(&self) -> Result<Schedule, String> {
     //     Schedule::from(self)
     // }
+}
+
+impl FullInformationHirMode {
+    pub(crate) fn new() -> FullInformationHirMode {
+        FullInformationHirMode {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            time_driven: Vec::new(),
+            event_driven: Vec::new(),
+            sliding_windows: Vec::new(),
+            triggers: Vec::new(),
+        }
+    }
 }
 
 impl Type {
