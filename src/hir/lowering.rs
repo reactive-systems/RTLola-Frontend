@@ -6,10 +6,8 @@
 // use crate::ast::StreamAccessKind;
 // use crate::ast::{ExpressionKind, RTLolaAst};
 // use crate::common_ir::{EventDrivenStream, MemorizationBound, StreamReference, TimeDrivenStream, WindowReference};
-// use crate::hir;
-// use crate::hir::RTLolaHIR;
-// use crate::parse::NodeId;
-// use crate::ty::StreamTy;
+// use crate::common_ir::{
+// };
 // use std::collections::HashMap;
 // use std::convert::TryInto;
 // use std::{rc::Rc, time::Duration};
@@ -32,10 +30,8 @@
 
 // pub(crate) struct Lowering<'a> {
 //     ast: &'a RTLolaAst,
-//     ref_lookup: HashMap<NodeId, StreamReference>,
-//     dt: &'a DeclarationTable,
-//     tt: &'a TypeTable,
-//     et: EvalTable,
+//     inputs: Vec<Input>,
+//     outputs: Vec<Output>,
 //     mt: &'a MemoryTable,
 //     tr: &'a TrackingRequirements,
 //     ir: RTLolaHIR,
@@ -150,11 +146,7 @@
 //         let reference = StreamReference::OutRef(self.ir.outputs.len());
 //         let mut outgoing_dependencies = Vec::new();
 //         self.find_dependencies(&trigger.expression, &mut outgoing_dependencies);
-//         let input_dependencies = self.gather_dependent_inputs(trigger.id);
 //         let ac = match self.check_time_driven(trigger.id, reference) {
-//             None => Some(self.tt.get_acti_cond(trigger.id).clone()),
-//             Some(_tds) => None,
-//         };
 //         let output = hir::OutputStream {
 //             name,
 //             ty,

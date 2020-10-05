@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{hir::modes::HirMode, RTLolaHIR};
 use std::cmp::Ordering;
 
