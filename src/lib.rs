@@ -22,12 +22,14 @@ pub mod mir;
 pub mod parse;
 pub mod reporting;
 mod stdlib;
+mod transformations;
 pub mod ty;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export
+use crate::transformations::Transformation;
 pub use ast::RTLolaAst;
 pub use export::analyze;
 pub(crate) use hir::FullInformationHirMode;
@@ -74,9 +76,15 @@ See the `FrontendConfig` documentation on more information about the parser opti
 */
 pub fn parse(filename: &str, spec_str: &str, config: FrontendConfig) -> Result<RTLolaMIR, String> {
     let hir = parse_to_hir(filename, spec_str, config);
-    // TODO perform transformations
-    // hir.map(|hir| mir::lowering::Lowering::new(&hir).lower()).map_err(|_| "Analysis failed due to errors in the specification".to_string())
-    todo!()
+    match hir {
+        Err(_) => { Err("Analysis failed due to errors in the specification".to_string())},
+        Ok(hir) => {
+            // TODO perform transformations
+            // let _sccp = transformations::sccp::SCCP::transform(hir.clone());
+            // Ok(mir::lowering::Lowering::new(&hir).lower())
+            todo!()
+        }
+    }
 }
 
 /**
