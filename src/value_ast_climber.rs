@@ -64,6 +64,7 @@ impl<'a> ValueContext<'a> {
             let key = tyc.get_var_key(&Variable {
                 name: out.name.name.clone(),
             });
+            dbg!(key);
             node_key.insert(out.id, key);
             key_span.insert(key, out.span);
         }
@@ -96,14 +97,16 @@ impl<'a> ValueContext<'a> {
         //Annotated Type
 
         let annotated_type_replaced = self.type_kind_match(&input.ty);
+        //can skip any case as type must be provided
         self.tyc
-            .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
+            .impose(term_key.has_exactly_type(annotated_type_replaced))?;
 
         let mut param_types = Vec::new();
         for param in &input.params {
             let param_key = self.tyc.get_var_key(&Variable {
                 name: param.name.name.clone(),
             });
+            dbg!(param_key);
             let t = self.type_kind_match(&param.ty);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             param_types.push(param_key);
@@ -123,15 +126,14 @@ impl<'a> ValueContext<'a> {
         //Annotated Type
         if let Some(t) = &cons.ty {
             let annotated_type_replaced = self.type_kind_match(t);
-            dbg!(&annotated_type_replaced);
-            self.tyc
-                .impose(term_key.concretizes_explicit(annotated_type_replaced))?;
+            if annotated_type_replaced != IAbstractType::Any {
+                self.tyc
+                    .impose(term_key.has_exactly_type(annotated_type_replaced))?;
+            }
         }
         //Type from Literal
         let lit_type = self.match_lit_kind(cons.literal.kind.clone());
-        dbg!(&lit_type);
         self.tyc.impose(term_key.concretizes_explicit(lit_type))?;
-        dbg!("END CONSTANT");
 
         self.node_key.insert(cons.id, term_key);
         Ok(term_key)
@@ -144,15 +146,19 @@ impl<'a> ValueContext<'a> {
             .expect("Added in constructor");
 
         let annotated_type_replaced = self.type_kind_match(&out.ty);
-        //dbg!(&annotated_type_replaced);
-        self.tyc
-            .impose(out_key.concretizes_explicit(annotated_type_replaced))?;
+        dbg!(&annotated_type_replaced);
+        if let IAbstractType::Any = annotated_type_replaced {
+        } else {
+            self.tyc
+                .impose(out_key.has_exactly_type(annotated_type_replaced))?;
+        }
 
         let mut param_types = Vec::new();
         for param in &out.params {
             let param_key = self.tyc.get_var_key(&Variable {
                 name: out.name.name.clone() + "_" + &param.name.name.clone(),
             });
+            dbg!(param_key);
             self.node_key.insert(param.id, param_key);
             self.key_span.insert(param_key, param.span);
 
@@ -161,11 +167,19 @@ impl<'a> ValueContext<'a> {
             param_types.push(param_key);
         }
 
-        if let Some(expr) = &out.extend.expr {
-            //TODO
-        }
-        if let Some(expr) = &out.termination {
-            let _termination_key = self.expression_infer(expr, Some(IAbstractType::Bool))?;
+        dbg!(&out.template_spec);
+        if let Some(template_spec) = &out.template_spec {
+            if let Some(inv) = &template_spec.inv {
+                //chek target exression type matches parameter type
+                let target_expr_key = self.expression_infer(&inv.target, None)?;
+                //TODO
+            }
+            if let Some(close) = &template_spec.ter {
+                self.expression_infer(&close.target, Some(IAbstractType::Bool))?;
+            }
+            if let Some(ext) = &template_spec.ext {
+                self.expression_infer(&ext.target, Some(IAbstractType::Bool))?;
+            }
         }
 
         let expression_key = self.expression_infer(&out.expression, None)?;
@@ -190,11 +204,12 @@ impl<'a> ValueContext<'a> {
         target_type: Option<IAbstractType>,
     ) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = self.tyc.new_term_key();
+        dbg!(term_key, "added to key span map");
         self.key_span.insert(term_key, exp.span);
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
-        dbg!(&exp.kind, exp.id);
+        dbg!(&exp.kind);
         match &exp.kind {
             ExpressionKind::Lit(lit) => {
                 let literal_type = self.match_lit_kind(lit.kind.clone());
@@ -242,7 +257,7 @@ impl<'a> ValueContext<'a> {
             ExpressionKind::Default(ex, default) => {
                 let ex_key = self.expression_infer(&*ex, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
-
+                dbg!(ex_key, def_key);
                 self.tyc.impose(
                     ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
                 )?;
@@ -258,9 +273,16 @@ impl<'a> ValueContext<'a> {
 
                 match offset {
                     front::ast::Offset::Discrete(i) => {
-                        if let 0 = i {
+                        if 0 == *i {
                             //Offset of 0 does not return an optional type
                             self.tyc.impose(term_key.equate_with(ex_key))?;
+                        /*} else if *i > 0 { // unsure if correct - some tests fail then
+                        return Err(TcErr::Bound(
+                            term_key,
+                            None,
+                            "Found positive offset - not yet supported".to_string(),
+                        ));
+                        */
                         } else {
                             self.tyc.impose(term_key.concretizes_explicit(
                                 IAbstractType::Option(IAbstractType::Any.into()),
@@ -269,7 +291,23 @@ impl<'a> ValueContext<'a> {
                             self.tyc.impose(ex_key.equate_with(inner_key))?;
                         }
                     }
-                    front::ast::Offset::RealTime(_, _) => {
+                    front::ast::Offset::RealTime(_r, _unit) => {
+                        //if periode < offset -> optinal
+                        //
+                        /*
+                        if *r.numer() == 0 {
+                            self.tyc.impose(term_key.equate_with(ex_key))?;
+                        } else {
+                            use crate::pacing_types::ConcretePacingType::*;
+                            let current_ratio: &ConcretePacingType = &self.pacing_tt[&exp.id];
+                            let target_ratio: &ConcretePacingType = &self.pacing_tt[&expr.id];
+                            /* //TODO FIXME
+                            match (current_ratio, target_ratio) {
+                                (FixedPeriodic(f1),FixedPeriodic(f2)) => f1.
+                            }
+                            */
+                        }
+                        */
                         //TODO there are no realtime offsets so far
                         unimplemented!("RealTime offset not yet supported in Value Type inference")
                     }
@@ -295,7 +333,7 @@ impl<'a> ValueContext<'a> {
                             .impose(term_key.concretizes_explicit(IAbstractType::Option(
                                 IAbstractType::Any.into(),
                             )))?;
-                        let inner_key = self.tyc.get_child_key(term_key, 1)?;
+                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(inner_key.equate_with(ex_key))?;
                     }
                     //Count: Any -> uint
@@ -305,20 +343,26 @@ impl<'a> ValueContext<'a> {
                         self.tyc
                             .impose(term_key.concretizes_explicit(IAbstractType::UInteger(1)))?;
                     }
-                    //all others :T <T:Num> -> T
+                    //integral :T <T:Num> -> T
+                    //integral : T <T:Num> -> Float   <-- currently used
                     WindowOperation::Integral => {
                         self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Float(1)))?; //TODO maybe numeric
+                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?; //TODO maybe numeric
                         if *wait {
                             self.tyc.impose(term_key.concretizes_explicit(
                                 IAbstractType::Option(IAbstractType::Any.into()),
                             ))?;
-                            let inner_key = self.tyc.get_child_key(term_key, 1)?;
-                            self.tyc.impose(inner_key.equate_with(ex_key))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                            self.tyc
+                                .impose(inner_key.concretizes_explicit(IAbstractType::Float(1)))?;
                         } else {
-                            self.tyc.impose(term_key.concretizes(ex_key))?;
+                            //self.tyc.impose(term_key.concretizes(ex_key))?;
+                            self.tyc
+                                .impose(term_key.concretizes_explicit(IAbstractType::Float(1)))?;
                         }
                     }
+                    //all others :T <T:Num> -> T
                     WindowOperation::Sum | WindowOperation::Product => {
                         self.tyc
                             .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?;
@@ -326,7 +370,7 @@ impl<'a> ValueContext<'a> {
                             self.tyc.impose(term_key.concretizes_explicit(
                                 IAbstractType::Option(IAbstractType::Any.into()),
                             ))?;
-                            let inner_key = self.tyc.get_child_key(term_key, 1)?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
                             self.tyc.impose(inner_key.equate_with(ex_key))?;
                         } else {
                             self.tyc.impose(term_key.concretizes(ex_key))?;
@@ -348,10 +392,19 @@ impl<'a> ValueContext<'a> {
                 let left_key = self.expression_infer(&*left, None)?; // X
                 let right_key = self.expression_infer(&*right, None)?; // X
 
+                //let param_key = self.tyc.new_term_key();
+
                 use front::ast::BinOp;
                 match op {
-                    // Num x Num -> Num
+                    // <T:Num> T x T -> T
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
+                        /*
+                        self.tyc.impose(param_key.concretizes_explicit(IAbstractType::Numeric))?;
+                        self.tyc.impose(param_key.concretizes(left_key))?;
+                        self.tyc.impose(param_key.concretizes(right_key))?;
+                        self.tyc.impose(term_key.concretizes(param_key))?;
+                        */
+
                         self.tyc
                             .impose(left_key.concretizes_explicit(IAbstractType::Numeric))?;
                         self.tyc
@@ -452,7 +505,7 @@ impl<'a> ValueContext<'a> {
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
             }
             ExpressionKind::Method(_, _, _, _) => unimplemented!("TODO"),
-            ExpressionKind::Function(_name, types, args) => {
+            ExpressionKind::Function(name, types, args) => {
                 dbg!("Function Infer");
                 //transform Type into new internal types.
                 let types_vec: Vec<IAbstractType> =
@@ -465,13 +518,14 @@ impl<'a> ValueContext<'a> {
                     .clone();
                 match &decl {
                     Declaration::Func(fun_decl) => {
-                        dbg!("Dec::Func");
+                        dbg!(fun_decl);
                         //Generics
                         let generics: Vec<TcKey> = fun_decl
                             .generics
                             .iter()
                             .map(|gen| {
                                 let gen_key: TcKey = self.tyc.new_term_key();
+                                dbg!(gen_key);
                                 let rusttyc_result = match &gen {
                                     ValueTy::Constr(tc) => {
                                         let cons = match_constraint(tc);
@@ -485,28 +539,45 @@ impl<'a> ValueContext<'a> {
 
                         for (t, gen) in types_vec.iter().zip(generics.iter()) {
                             let t_key = self.tyc.new_term_key();
+
                             self.tyc.impose(t_key.concretizes_explicit(t.clone()))?;
                             self.tyc.impose(t_key.concretizes(*gen))?;
                         }
                         //FOR: type.captures(generic)
-
-                        for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
-                            let p = self.replace_type(param, &generics)?;
-                            let arg_key = self.expression_infer(&*arg, None)?;
-                            self.tyc.impose(arg_key.concretizes(p))?;
-                        }
+                        let arg_keys_result: Result<Vec<TcKey>, TcErr<IAbstractType>> = args
+                            .iter()
+                            .zip(fun_decl.parameters.iter())
+                            .map(|(arg, param)| {
+                                //for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
+                                let p = self.replace_type(param, &generics)?;
+                                let arg_key = self.expression_infer(&*arg, None)?;
+                                self.tyc.impose(arg_key.concretizes(p))?;
+                                Ok(arg_key)
+                                //}
+                            })
+                            .collect();
+                        let arg_keys = arg_keys_result?;
 
                         let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
+                        if name.name.name.contains("widen_") {
+                            self.tyc.impose(
+                                return_type.concretizes(
+                                    *arg_keys
+                                        .get(0)
+                                        .expect("build in widen function have exactly 1 argument"),
+                                ),
+                            )?;
+                        }
 
                         self.tyc.impose(term_key.concretizes(return_type))?;
                     }
                     Declaration::ParamOut(out) => {
-                        dbg!("Decl::Paramout");
+                        // output a(i: int, flag: bool) @1hz spawn (input_int , input_bool) if input_bool term b := if flag then i else 0
+                        // output c @1hz := a(input_int, false)
                         let params: &[Rc<Parameter>] = out.params.as_slice();
                         let param_out_tckey = self.tyc.get_var_key(&Variable {
                             name: out.name.name.clone(),
                         });
-                        dbg!(params);
 
                         let param_keys: Vec<TcKey> = out
                             .params
@@ -520,7 +591,7 @@ impl<'a> ValueContext<'a> {
 
                         let param_types: Vec<IAbstractType> =
                             params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
-                        dbg!(&param_types);
+                        //dbg!(&param_types);
                         for ((arg, param_t), p_key) in
                             args.iter().zip(param_types.iter()).zip(param_keys.iter())
                         {
@@ -539,7 +610,7 @@ impl<'a> ValueContext<'a> {
                         }
 
                         let annotated_type = self.type_kind_match(&out.ty);
-                        dbg!(&annotated_type);
+                        //dbg!(&annotated_type);
                         self.tyc
                             .impose(term_key.concretizes_explicit(annotated_type))?;
                         self.tyc.impose(term_key.concretizes(param_out_tckey))?;
@@ -549,6 +620,7 @@ impl<'a> ValueContext<'a> {
             }
             ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
         };
+
         self.node_key.insert(exp.id, term_key);
         Ok(term_key)
         //Err(String::from("Error"))
@@ -569,6 +641,7 @@ impl<'a> ValueContext<'a> {
             }
             ValueTy::Constr(c) => {
                 let key = self.tyc.new_term_key();
+                dbg!(key);
                 self.tyc
                     .impose(key.concretizes_explicit(match_constraint(c)))
                     .map(|_| key)
@@ -603,7 +676,6 @@ impl<'a> ValueContext<'a> {
     }
 
     fn value_type_match(&self, vt: &ValueTy) -> IAbstractType {
-        dbg!("Value Type match call {}", vt);
         match vt {
             ValueTy::Bool => IAbstractType::Bool,
             ValueTy::Int(i) => {
@@ -639,20 +711,7 @@ impl<'a> ValueContext<'a> {
             }
             ValueTy::Option(o) => IAbstractType::Option(self.value_type_match(&**o).into()),
             ValueTy::Infer(_) => unreachable!(),
-            ValueTy::Constr(c) => {
-                use front::ty::TypeConstraint::*;
-                match c {
-                    //TODO check equatable and comparable
-                    Integer => IAbstractType::SInteger(1),
-                    SignedInteger => IAbstractType::SInteger(1),
-                    UnsignedInteger => IAbstractType::UInteger(1),
-                    FloatingPoint => IAbstractType::Float(1),
-                    Numeric => IAbstractType::Numeric,
-                    Equatable => IAbstractType::Any,
-                    Comparable => IAbstractType::Numeric,
-                    Unconstrained => IAbstractType::Any,
-                }
-            }
+            ValueTy::Constr(c) => match_constraint(c),
             ValueTy::Param(_, _) => {
                 unimplemented!("Param case should only be addressed in replace_type(...)")
             }
@@ -674,19 +733,20 @@ impl<'a> ValueContext<'a> {
         &self,
         err: TcErr<IAbstractType>,
     ) -> <IAbstractType as Abstract>::Err {
+        dbg!(&err);
         let primal_key;
         let msg = match err {
             TcErr::ChildAccessOutOfBound(key, ty, n) => {
                 primal_key = key;
                 format!(
                     "Invalid child-type access by {:?}: {}-th child for {:?}",
-                    self.node_key.get_by_right(&key),
+                    self.node_key.get_by_right(&key).unwrap(),
                     n,
                     ty
                 )
             }
             TcErr::KeyEquation(k1, k2, msg) => {
-                primal_key = k1;
+                primal_key = k2;
                 format!(
                     "Incompatible Type for equation of {:?} and {:?}: {}",
                     self.node_key.get_by_right(&k1),
@@ -704,8 +764,8 @@ impl<'a> ValueContext<'a> {
                     ),
                     Some(k2) => format!(
                         "Invalid type bound enforced on {:?} by {:?}: {}",
-                        self.node_key.get_by_right(&key),
-                        self.node_key.get_by_right(&k2),
+                        self.node_key.get_by_right(&key).unwrap(),
+                        self.node_key.get_by_right(&k2).unwrap(),
                         msg
                     ),
                 }
@@ -715,7 +775,7 @@ impl<'a> ValueContext<'a> {
                 format!(
                     "Type Bound: {:?} incompatible with {:?}",
                     bound,
-                    self.node_key.get_by_right(&key)
+                    self.node_key.get_by_right(&key).unwrap()
                 )
             }
             TcErr::ConflictingExactBounds(key, bound1, bound2) => {
@@ -724,7 +784,7 @@ impl<'a> ValueContext<'a> {
                     "Incompatible bounds {:?} and {:?} applied on {:?}",
                     bound1,
                     bound2,
-                    self.node_key.get_by_right(&key)
+                    self.node_key.get_by_right(&key).unwrap()
                 )
             }
         };
@@ -764,7 +824,7 @@ fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, S
 
 fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
     //TODO
-    match cons {
+    let r = match cons {
         TypeConstraint::Numeric => IAbstractType::Numeric,
         TypeConstraint::SignedInteger => IAbstractType::SInteger(1),
         TypeConstraint::UnsignedInteger => IAbstractType::UInteger(1),
@@ -774,7 +834,8 @@ fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
         TypeConstraint::Comparable => unimplemented!(),
         TypeConstraint::Unconstrained => IAbstractType::Any,
     };
-    unimplemented!()
+    dbg!(&r);
+    r
 }
 
 #[cfg(test)]
@@ -825,7 +886,7 @@ mod value_type_tests {
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
         let test_box = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
-        let pacing_tt = ltc.pacing_type_infer().unwrap();
+        let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
         let tt_result = ltc.value_type_infer(pacing_tt);
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
@@ -867,28 +928,38 @@ mod value_type_tests {
     }
 
     #[test]
+    fn direct_widening() {
+        let spec = "input i: Int8\noutput o :Int32 := widen_signed(i)";
+        let (tb, result_map) = check_value_type(spec);
+        let input_id = tb.spec.inputs[0].id;
+        let output_id = tb.spec.outputs[0].id;
+        assert_eq!(result_map[&input_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&output_id], IConcreteType::Integer32);
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
     fn integer_addition() {
-        let spec = "input i: Int8\ninput i1: Int16\noutput o := i + i1";
+        let spec = "input i: Int8\ninput i1: Int16\noutput o := widen_signed(i) + i1";
         let (tb, result_map) = check_value_type(spec);
         let input_i_id = tb.spec.inputs[0].id;
         let input_i1_id = tb.spec.inputs[1].id;
         let output_id = tb.spec.outputs[0].id;
-        assert_eq!(result_map[&input_i_id], IConcreteType::Integer16); //TODO FIXME due to explicit widening: want Int8 here
+        assert_eq!(result_map[&input_i_id], IConcreteType::Integer8);
         assert_eq!(result_map[&input_i1_id], IConcreteType::Integer16);
         assert_eq!(result_map[&output_id], IConcreteType::Integer16);
         assert_eq!(0, complete_check(spec));
     }
 
     #[test]
-    #[ignore] //naming analysis fails
-    fn parametric_input() {
-        let spec = "input i(a: Int8, b: Bool): Int8\noutput o := i(1,false)[0].defaults(to: 42)";
+    fn parametric_access_default() {
+        let spec = "output i(a: Int8, b: Bool): Int8 @1Hz := if b then a else 0\noutput o := i(1,false)[-1].defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
-        let input_id = tb.spec.inputs[0].id;
-        let output_id = tb.spec.outputs[0].id;
+        let o2_id = tb.spec.outputs[1].id;
+        let o1_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
-        assert_eq!(result_map[&input_id], IConcreteType::Integer8);
-        assert_eq!(result_map[&output_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&o1_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&o1_id], IConcreteType::Integer8);
     }
 
     #[test]
@@ -931,6 +1002,7 @@ mod value_type_tests {
     }
 
     #[test]
+    #[ignore] //TODO float parse to float16 invalid due to exact given bound application
     fn simple_const_float16() {
         let spec = "constant c: Float16 := 2.1";
         let (tb, result_map) = check_value_type(spec);
@@ -973,9 +1045,9 @@ mod value_type_tests {
     fn simple_valid_coersion() {
         //TODO does not check output type, only validity
         for spec in &[
-            "constant c: Int8 := 1\noutput o: Int32 @1Hz:= c",
-            "constant c: UInt16 := 1\noutput o: UInt64 @1Hz:= c",
-            "constant c: Float32 := 1.0\noutput o: Float64 @1Hz:= c",
+            "constant c: Int8 := 1\noutput o: Int32 @1Hz:= widen_signed(c)",
+            "constant c: UInt16 := 1\noutput o: UInt64 @1Hz:= widen_unsigned(c)",
+            "constant c: Float32 := 1.0\noutput o: Float64 @1Hz:= widen_float(c)",
         ] {
             let (tb, result_map) = check_value_type(spec);
             assert_eq!(0, complete_check(spec));
@@ -984,10 +1056,30 @@ mod value_type_tests {
 
     #[test]
     fn simple_invalid_conversion() {
-        //TODO fix implicit widening
         let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := c";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn simple_invalid_wideing() {
+        let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := widen_signed(c)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn simple_explicit_widening() {
+        let spec =
+            "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen_signed(d)";
+        let (tb, result_map) = check_value_type(spec);
+        let c_id = tb.spec.constants[0].id;
+        let d_id = tb.spec.constants[1].id;
+        let o_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&c_id], IConcreteType::Integer32);
+        assert_eq!(result_map[&d_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&o_id], IConcreteType::Integer32);
     }
 
     #[test]
@@ -1146,7 +1238,6 @@ mod value_type_tests {
 
     #[test]
     fn test_stream_lookup() {
-        //TODO FIXME offset[0] => no option
         let spec = "output a: UInt8 @1Hz:= 3\n output b: UInt8 := a[0]";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1181,29 +1272,9 @@ mod value_type_tests {
         assert_eq!(1, tb.handler.emitted_errors());
     }
     #[test]
-    #[ignore] // paramertic streams need new design after syntax revision
+    //#[ignore] // paramertic streams need new design after syntax revision
     fn test_extend_type() {
-        let spec = "input in: Bool\n output a: Int8 { extend in } := 3";
-        let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
-        assert_eq!(0, complete_check(spec));
-        assert_eq!(result_map[&out_id], IConcreteType::Bool);
-        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
-    }
-
-    #[test]
-    #[ignore] // paramertic streams need new design after syntax revision
-    fn test_extend_type_faulty() {
-        let spec = "input in: Int8\n output a: Int8 { extend in } := 3";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
-    }
-
-    #[test]
-    #[ignore] //close condition so far unchecked
-    fn test_terminate_type() {
-        let spec = "input in: Bool\n output a(b: Bool): Int8 close in := 3";
+        let spec = "input in: Bool\n output a: Int8 @1Hz { extend in } := 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let in_id = tb.spec.inputs[0].id;
@@ -1213,17 +1284,28 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //close condition so far unchecked
-    fn test_terminate_type_faulty() {
-        let spec = "input in: Int8\n output a(b: Bool): Int8 close in := 3";
+    //#[ignore] // paramertic streams need new design after syntax revision
+    fn test_extend_type_faulty() {
+        let spec = "input in: Int8\n output a: Int8 @1Hz { extend in } := 3";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
-    fn test_terminate_type_faulty_ac() {
-        // stream type is not compatible
-        let spec = "input in: Int8 input in2: Bool output a(b: Bool): Int8 @in close in2 := 3";
+    fn test_terminate_type() {
+        let spec = "input in: Bool\n output a(b: Bool): Int8 @1Hz {close in} := 3";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.spec.inputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&in_id], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn test_terminate_type_faulty() {
+        //Close condition non boolean type
+        let spec = "input in: Int8\n output a(b: Bool): Int8 @1Hz {close in} := 3";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
@@ -1276,7 +1358,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple() {
-        let spec = "output out: (Int8, Bool) := (14, false)";
+        let spec = "output out: (Int8, Bool) @1Hz:= (14, false)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         assert_eq!(0, complete_check(spec));
@@ -1288,7 +1370,7 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_faulty() {
-        let spec = "output out: (Int8, Bool) := (14, 3)";
+        let spec = "output out: (Int8, Bool) @1Hz := (14, 3)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
@@ -1358,14 +1440,13 @@ mod value_type_tests {
 
     #[test]
     fn test_tuple_of_tuples() {
-        //TODO offset [0] -> no optional type
-        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Int16 := in[0].0";
+        let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Int16 := widen_signed(in[0].0)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
         let in_id = tb.spec.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         let input_type = IConcreteType::Tuple(vec![
-            IConcreteType::Integer8,
+            IConcreteType::Integer8, //Changed to 16 FIXME
             IConcreteType::Tuple(vec![IConcreteType::UInteger8, IConcreteType::Bool]),
         ]);
         assert_eq!(result_map[&in_id], input_type);
@@ -1373,8 +1454,8 @@ mod value_type_tests {
     }
 
     #[test]
+    #[ignore] //tuple with variable length are not supported TODO
     fn test_tuple_of_tuples2() {
-        //TODO offset [0] -> no optional type
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in.1.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.spec.outputs[0].id;
@@ -1388,25 +1469,36 @@ mod value_type_tests {
         assert_eq!(result_map[&out_id], IConcreteType::Bool);
     }
 
-    /* TODO
     #[test]
     fn test_window_widening() {
         let spec = "input in: Int8\n output out: Int64 @5Hz:= in.aggregate(over: 3s, using: Σ)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Integer64);
     }
 
     #[test]
     fn test_window() {
         let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
 
+    /* invalid for pacing type -> make pacing type check
     #[test]
     fn test_window_untimed() {
         let spec = "input in: Int8\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
+    */
 
     #[test]
     fn test_window_faulty() {
@@ -1426,17 +1518,42 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] // ignore until implemented
+    #[ignore] // uint to int cast currently not allowed
     fn test_aggregation_implicit_cast() {
         let spec =
             "input in: UInt8\n output out: Int16 @5Hz := in.aggregate(over_exactly: 3s, using: Σ).defaults(to: 5)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::Integer16);
+    }
+
+    #[test]
+    #[ignore] //symmetric type relation extends input int8 to float
+    fn test_aggregation_implicit_cast2() {
         let spec =
             "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
+    }
+
+    #[test]
+    //#[ignore] //symmetric type relation extends input int8 to float
+    fn test_aggregation_implicit_cast3() {
         let spec =
             "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
     }
 
     #[test]
@@ -1451,25 +1568,46 @@ mod value_type_tests {
         assert_eq!(1, tb.handler.emitted_errors());
         let spec =
             "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
         let spec =
             "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
     }
-
 
     #[test]
     fn test_involved() {
-        let spec = "input velo: Float32\n output avg: Float64 @5Hz := velo.aggregate(over_exactly: 1h, using: avg).defaults(to: 10000.0)";
-        assert_eq!(0, num_type_errors(spec));
+        let spec = "input velo: Float32\n output avg: Float64 @5Hz := widen_float(velo.aggregate(over_exactly: 1h, using: avg).defaults(to: 10000.0))";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Float32);
+        assert_eq!(result_map[&out_id], IConcreteType::Float64);
     }
 
     #[test]
+    #[ignore] //TODO real time offsets based on pacing type analysis
     fn test_rt_offset() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out1_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
 
+    /* //TODO
     #[test]
     fn test_rt_offset_regression() {
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to: 0) + 1";

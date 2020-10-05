@@ -32,7 +32,9 @@ impl Abstract for IAbstractType {
             (SInteger(l), SInteger(r)) => Ok(SInteger(max(*r, *l))),
             (UInteger(l), UInteger(r)) => Ok(UInteger(max(*r, *l))),
             (Float(l), Float(r)) => Ok(Float(max(*l, *r))),
-            (Float(i), SInteger(u)) | (SInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
+            //(Float(i), Integer) | (Integer, Float(i)) => Ok(Float(*i)),
+            //(Float(i), SInteger(u)) | (SInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
+            //(Float(i), UInteger(u)) | (UInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
             (Bool, Bool) => Ok(Bool),
             (Bool, other) | (other, Bool) => Err(format!("Bool not unifiable with {:?}", other)),
             (Numeric, Integer) | (Integer, Numeric) => Ok(Integer),
@@ -43,6 +45,9 @@ impl Abstract for IAbstractType {
             (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok(UInteger(*x)),
             (Integer, other) | (other, Integer) => {
                 Err(format!("Integer and non-Integer {:?}", other))
+            }
+            (SInteger(_), other) | (other, SInteger(_)) => {
+                Err(format!("Int not unifiable with {:?}", other))
             }
             (UInteger(_), other) | (other, UInteger(_)) => {
                 Err(format!("UInt not unifiable with {:?}", other))
