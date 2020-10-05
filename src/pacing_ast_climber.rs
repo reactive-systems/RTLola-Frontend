@@ -7,7 +7,7 @@ use crate::pacing_types::{
 
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{Constant, Expression, Input, Output, Trigger};
+use front::ast::{Constant, Expression, Input, Offset, Output, Trigger};
 use front::ast::{ExpressionKind, RTLolaAst};
 use front::parse::{NodeId, Span};
 use rusttyc::types::AbstractTypeTable;
@@ -173,10 +173,15 @@ impl<'a> Context<'a> {
 
                 self.tyc.impose(term_key.is_meet_of(ex_key, def_key))?;
             }
-            ExpressionKind::Offset(expr, _) => {
+            ExpressionKind::Offset(expr, offset) => {
                 let ex_key = self.expression_infer(&*expr)?;
-
-                self.tyc.impose(term_key.equate_with(ex_key))?;
+                if let Offset::RealTime(..) = offset {
+                    // Real time offset are only allowed on timed streams.
+                    self.tyc.impose(
+                        term_key.concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)),
+                    )?;
+                }
+                self.tyc.impose(term_key.concretizes(ex_key))?;
             }
             ExpressionKind::SlidingWindowAggregation { .. } => {
                 self.tyc.impose(
@@ -692,6 +697,18 @@ mod pacing_type_tests {
     #[test]
     fn test_sample_and_hold_useful() {
         let spec = "input x: UInt8\noutput y: UInt8 @1Hz := x.hold().defaults(to: 0)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_realtime_offset_not_possible() {
+        let spec = "input x: UInt8\n output a := x\noutput b := a.offset(by: 1s)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_realtime_offset_possible() {
+        let spec = "input x: UInt8\n output a @1Hz := x.hold()\noutput b := a.offset(by: 1s)";
         assert_eq!(0, num_errors(spec));
     }
 }
