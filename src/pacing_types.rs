@@ -312,7 +312,7 @@ impl Freq {
         // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
         // only works if rational numbers are reduced, which ist the default for `Rational`
         let r1: i64 = numer_left.gcd(&numer_right);
-        let r2: i64 = denom_left.gcd(&denom_right);
+        let r2: i64 = denom_left.lcm(&denom_right);
         let r: Ratio<i64> = Ratio::new(r1, r2);
         Freq::Fixed(UOM_Frequency::new::<hertz>(r))
     }
@@ -356,13 +356,8 @@ impl rusttyc::types::Abstract for AbstractPacingType {
                     Ok(Periodic(*f2))
                 } else if let Freq::Any = f2 {
                     Ok(Periodic(*f1))
-                } else if f1.is_multiple_of(&f2)? || f2.is_multiple_of(&f1)? {
-                    Ok(Periodic(f1.conjunction(&f2)))
                 } else {
-                    Err(UnificationError::IncompatibleFrequencies(
-                        Periodic(*f1),
-                        Periodic(*f2),
-                    ))
+                    Ok(Periodic(f1.conjunction(&f2)))
                 }
             }
         }

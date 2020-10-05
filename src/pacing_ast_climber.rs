@@ -501,6 +501,47 @@ mod pacing_type_tests {
     }
 
     #[test]
+    fn test_1hz_meet() {
+        let spec =
+            "input i: Int64\noutput a @ 5Hz := 42\noutput b @ 2Hz := 1337\noutput c := a + b";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+
+        assert_eq!(
+            tt[&ast.outputs[2].id],
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
+                Rational::from_u8(1).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_0_1hz_meet() {
+        let spec =
+            "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 0.3Hz := 1337\noutput c := a + b";
+        let (ast, dec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+        assert_eq!(num_errors(spec), 0);
+
+        assert_eq!(
+            tt[&ast.outputs[2].id],
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
+                Rational::from_f32(0.1).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_annotated_freq() {
+        let spec =
+            "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 3Hz := 1337\noutput c @2Hz := a + b";
+        assert_eq!(num_errors(spec), 1);
+    }
+
+    #[test]
     fn test_parametric_output() {
         let spec =
             "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
