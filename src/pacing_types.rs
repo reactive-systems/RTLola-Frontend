@@ -44,10 +44,22 @@ fn parse_ac<'a>(
 ) -> Result<Bdd, (String, Span)> {
     use ExpressionKind::*;
     match &ast_expr.kind {
-        Lit(l) => Err((
-            "Literals are not allowed in activation conditions.".into(),
-            l.span,
-        )),
+        Lit(l) => match l.kind {
+            LitKind::Bool(b) => {
+                if b {
+                    Ok(var_set.mk_true())
+                } else {
+                    Err((
+                        "Only 'True' is supported as literals in activation conditions.".into(),
+                        l.span,
+                    ))
+                }
+            }
+            _ => Err((
+                "Only 'True' is supported as literals in activation conditions.".into(),
+                l.span,
+            )),
+        },
         Ident(i) => {
             let declartation = &decl[&ast_expr.id];
             let id = match declartation {
@@ -90,7 +102,7 @@ fn parse_ac<'a>(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnificationError {
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
-    IncompatibleFrequencies(AbstractPacingType, AbstractPacingType),
+    //IncompatibleFrequencies(AbstractPacingType, AbstractPacingType),
     Other(String),
 }
 
@@ -185,11 +197,11 @@ impl UnificationError {
         use UnificationError::*;
         match self {
             Other(s) => s.clone(),
-            IncompatibleFrequencies(f1, f2) => format!(
+            /*            IncompatibleFrequencies(f1, f2) => format!(
                 "Found incompatible frequencies: '{}' and '{}'",
                 f1.to_string(bdd_vars, input_name),
                 f2.to_string(bdd_vars, input_name)
-            ),
+            ),*/
             MixedEventPeriodic(t1, t2) => format!(
                 "Mixed event and periodic type: '{}' and '{}'",
                 t1.to_string(bdd_vars, input_name),
@@ -516,6 +528,16 @@ impl ConcretePacingType {
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
             AbstractPacingType::Never => unreachable!(),
+        }
+    }
+
+    pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
+        match self {
+            ConcretePacingType::FixedPeriodic(f) => {
+                Ok(AbstractPacingType::Periodic(Freq::Fixed(*f)))
+            }
+            ConcretePacingType::Periodic => Ok(AbstractPacingType::Periodic(Freq::Any)),
+            _ => Err("Supplied invalid concrete pacing type.".to_string()),
         }
     }
 }
