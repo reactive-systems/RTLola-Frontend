@@ -29,11 +29,10 @@ pub mod ty;
 mod tests;
 
 // Re-export
-use crate::transformations::Transformation;
 pub use ast::RTLolaAst;
 pub use export::analyze;
-pub(crate) use hir::FullInformationHirMode;
 pub(crate) use hir::RTLolaHIR;
+use hir::{modes::Complete, modes::Raw, Hir};
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;
 
@@ -79,10 +78,7 @@ pub fn parse(filename: &str, spec_str: &str, config: FrontendConfig) -> Result<R
     match hir {
         Err(_) => { Err("Analysis failed due to errors in the specification".to_string())},
         Ok(hir) => {
-            // TODO perform transformations
-            // let _sccp = transformations::sccp::SCCP::transform(hir.clone());
-            // Ok(mir::lowering::Lowering::new(&hir).lower())
-            todo!()
+            Ok(hir.lower())
         }
     }
 }
@@ -98,7 +94,7 @@ pub(crate) fn parse_to_hir(
     filename: &str,
     spec_str: &str,
     config: FrontendConfig,
-) -> Result<RTLolaHIR<FullInformationHirMode>, String> {
+) -> Result<RTLolaHIR<Complete>, String> {
     let mapper = crate::parse::SourceMapper::new(std::path::PathBuf::from(filename), spec_str);
     let handler = reporting::Handler::new(mapper);
 
@@ -108,15 +104,16 @@ pub(crate) fn parse_to_hir(
             return Err(format!("error: invalid syntax:\n{}", e));
         }
     };
-    let analysis_result = analysis::analyze(&spec, &handler, config);
-    analysis_result
-// <<<<<<< HEAD
-//         // .map(|report| hir::lowering::Lowering::new(&spec, &report).lower())
-//         .map(|_| todo!())
-// =======
-        .map(|report| hir::RTLolaHIR::<FullInformationHirMode>::new(&spec, &report))
-// >>>>>>> 9abfcb5... added modes in HIR
-        .map_err(|_| "Analysis failed due to errors in the specification".to_string())
+    Ok(Hir::<Raw>::from(spec)
+        .replace_expressions()
+        .build_dependency_graph()
+        .type_check()
+        .compute_memory_bounds()
+        .finalize())
+    // let analysis_result = analysis::analyze(&spec, &handler, config);
+    // analysis_result
+    //     .map(|report| hir::RTLolaHIR::<FullInformationHirMode>::new(&spec, &report))
+    //     .map_err(|_| "Analysis failed due to errors in the specification".to_string())
 }
 
 // The string passed in as `spec_str` should be the content of the file specified by `filename`.

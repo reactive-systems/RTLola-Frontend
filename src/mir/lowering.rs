@@ -1,51 +1,51 @@
 // use crate::common_ir;
 // use crate::hir;
+// use crate::hir::FullInformationHirMode;
 // use crate::hir::RTLolaHIR;
 // use crate::mir;
 // use crate::mir::RTLolaMIR;
 
-// // use crate::analysis::naming::DeclarationTable;
-// // use crate::ty::check::TypeTable;
-// // // Only import the unambiguous Nodes, use `ast::`/`ir::` prefix for disambiguation.
-// // use crate::analysis::naming::Declaration;
-// // use crate::ast;
-// // use crate::ast::{ExpressionKind, RTLolaAst};
-// // use crate::mir;
-// // use crate::mir::RTLolaMIR;
-// // use crate::ast::StreamAccessKind;
-// // use crate::common_ir::{
-// //     EventDrivenStream, MemorizationBound, StreamReference, TimeDrivenStream,
-// //     WindowReference,
-// // };
-// // use crate::parse::NodeId;
-// // use crate::ty::StreamTy;
-// // use std::collections::HashMap;
-// // use std::convert::TryInto;
-// // use std::{rc::Rc, time::Duration};
+// use crate::analysis::naming::DeclarationTable;
+// use crate::ty::check::TypeTable;
+// Only import the unambiguous Nodes, use `ast::`/`ir::` prefix for disambiguation.
+// use crate::analysis::naming::Declaration;
+// use crate::ast;
+// use crate::ast::{ExpressionKind, RTLolaAst};
+// use crate::mir;
+// use crate::mir::RTLolaMIR;
+// use crate::ast::StreamAccessKind;
+// use crate::common_ir::{
+//     EventDrivenStream, MemorizationBound, StreamReference, TimeDrivenStream,
+//     WindowReference,
+// };
+// use crate::parse::NodeId;
+// use crate::ty::StreamTy;
+// use std::collections::HashMap;
+// use std::convert::TryInto;
+// use std::{rc::Rc, time::Duration};
 
-// // use crate::analysis::graph_based_analysis::evaluation_order::{EvalOrder, EvaluationOrderResult};
-// // use crate::analysis::graph_based_analysis::space_requirements::{
-// //     SpaceRequirements as MemoryTable, TrackingRequirements,
-// // };
-// // use crate::analysis::{
-// //     graph_based_analysis::{ComputeStep, RequiredInputs, StorageRequirement, TrackingRequirement},
-// //     Report,
-// // };
-
-// // use num::{traits::Inv, Signed, ToPrimitive};
-// // use uom::si::frequency::hertz;
-// // use uom::si::rational64::Time as UOM_Time;
-// // use uom::si::time::{nanosecond, second};
-
-// // type EvalTable = HashMap<NodeId, u32>;
-
+// use crate::analysis::graph_based_analysis::evaluation_order::{EvalOrder, EvaluationOrderResult};
+// use crate::analysis::graph_based_analysis::space_requirements::{
+//     SpaceRequirements as MemoryTable, TrackingRequirements,
+// };
+// use crate::analysis::{
+//     graph_based_analysis::{ComputeStep, RequiredInputs, StorageRequirement, TrackingRequirement},
+//     Report,
+// };
+// use num::{traits::Inv, Signed, ToPrimitive};
+// use uom::si::frequency::hertz;
+// use uom::si::rational64::Time as UOM_Time;
+// use uom::si::time::{nanosecond, second};
+// type EvalTable = HashMap<NodeId, u32>;
 // pub(crate) struct Lowering<'a> {
 //     hir: &'a RTLolaHIR,
+// pub(crate) struct Lowering<'a> {
+//     hir: &'a RTLolaHIR<FullInformationHirMode>,
 //     mir: RTLolaMIR,
 // }
-
 // impl<'a> Lowering<'a> {
 //     pub(crate) fn new(hir: &'a RTLolaHIR) -> Lowering<'a> {
+//     pub(crate) fn new(hir: &'a RTLolaHIR<FullInformationHirMode>) -> Lowering<'a> {
 //         let mut mir = RTLolaMIR {
 //             inputs: Vec::new(),
 //             outputs: Vec::new(),
@@ -57,15 +57,16 @@
 //         };
 //         mir.inputs.reserve(hir.get_input_refs().len());
 //         mir.outputs.reserve(hir.get_output_refs().len());
-
+//             triggers: Vec::new(),
+//         };
+//         mir.inputs.reserve(hir.input_refs().len());
+//         mir.outputs.reserve(hir.output_refs().len());
 //         Lowering { hir, mir }
 //     }
-
 //     pub(crate) fn lower(mut self) -> RTLolaMIR {
 //         self.lower_ir();
 //         self.mir
 //     }
-
 //     fn lower_ir(&mut self) {
 //         self.hir.all_streams().iter().for_each(|s| match s {
 //             common_ir::StreamReference::InRef(_) => {
@@ -81,6 +82,18 @@
 //             self.hir.get_event_driven().into_iter().copied().collect::<Vec<common_ir::EventDrivenStream>>();
 //         self.hir.get_windows().iter().for_each(|w| self.lower_window(self.hir.get_window(*w)));
 //         self.hir.get_triggers().iter().for_each(|t| self.lower_trigger(t));
+//                 self.lower_input(self.hir.input(*s));
+//             }
+//             common_ir::StreamReference::OutRef(_) => {
+//                 self.lower_output(self.hir.output(*s));
+//             }
+//         });
+//         self.mir.time_driven =
+//             self.hir.time_driven().into_iter().copied().collect::<Vec<common_ir::TimeDrivenStream>>();
+//         self.mir.event_driven =
+//             self.hir.event_driven().into_iter().copied().collect::<Vec<common_ir::EventDrivenStream>>();
+//         self.hir.sliding_windows().iter().for_each(|w| self.lower_window(self.hir.sliding_window(*w)));
+//         self.hir.triggers().iter().for_each(|t| self.lower_trigger(t));
 //     }
 
 //     /// Lowers an input stream from the HIR and adds it to the MIR.
@@ -88,11 +101,11 @@
 //         let input = mir::InputStream {
 //             name: input.get_name().clone(),
 //             ty: mir::lowering::Lowering::lower_type(input.get_ty()),
-//             dependent_streams: Vec::new(), //input.get_dependent_streams().clone(),
+//             dependent_streams: input.get_dependent_streams().clone(),
 //             dependent_windows: input.get_dependent_windows().clone(),
 //             layer: input.get_layer(),
 //             memory_bound: input.get_memory_bound(),
-//             reference: todo!(), //input.get_reference(),
+//             reference: input.get_reference(),
 //         };
 
 //         let reference = input.reference;
@@ -130,13 +143,6 @@
 //             &debug_clone,
 //             "Bug in implementation: Output vector in MIR changed between creation of reference and insertion of stream."
 //         );
-
-//         // TODO probabily not needed because taken from HIR
-//         // if let Some(td_ref) = time_driven {
-//         //     self.mir.time_driven.push(td_ref)
-//         // } else {
-//         //     self.mir.event_driven.push(EventDrivenStream { reference })
-//         // }
 //     }
 
 //     // Lowers an sliding window from the HIR and adds it to the MIR.
@@ -317,7 +323,7 @@
 //     //     self.ri[&node_id].iter().map(|input_id| self.get_ref_for_stream(*input_id)).collect()
 //     // }
 
-//     // // TODO: delete after renaming
+//     // TODO: delete after renaming
 //     // fn transform_ac(ac: crate::ty::Activation<crate::ir::StreamReference>) -> crate::ty::Activation<crate::common_ir::StreamReference> {
 //     //     unimplemented!()
 //     // }

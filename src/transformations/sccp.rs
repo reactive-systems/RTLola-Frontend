@@ -1,11 +1,10 @@
-use crate::hir::{Constant, FullInformationHirMode};
-use crate::transformations::Transformation;
-use crate::RTLolaHIR;
+use crate::{hir::expression::Constant, transformations::Transformation};
+use crate::{hir::modes::Complete, RTLolaHIR};
 use std::cmp::Ordering;
 
 pub(crate) struct SCCP;
-impl Transformation<FullInformationHirMode> for SCCP {
-    fn transform(_ir: RTLolaHIR<FullInformationHirMode>) -> RTLolaHIR<FullInformationHirMode> {
+impl Transformation<Complete> for SCCP {
+    fn transform(_ir: RTLolaHIR<Complete>) -> RTLolaHIR<Complete> {
         // transform concrete stream expressions to lattice expressions.
         unimplemented!()
     }

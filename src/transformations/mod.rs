@@ -1,13 +1,12 @@
-use crate::hir::HirModes;
-use crate::RTLolaHIR;
+use crate::{RTLolaHIR, hir::modes::HirMode};
 use std::cmp::Ordering;
 
-pub(crate) mod sccp; //sparse conditional constant propargation
+pub(crate) mod sccp; //sparse conditional constant propagation
 
 /// Transforms an intermediate representation to an optimized one.
-/// Currently Sparse Conditional Constant Propargation is implemented
-pub(crate) trait Transformation<MODE: HirModes> {
-    fn transform(ir: RTLolaHIR<MODE>) -> RTLolaHIR<MODE>;
+/// Currently Sparse Conditional Constant Propagation is implemented
+pub(crate) trait Transformation<M: HirMode> {
+    fn transform(ir: RTLolaHIR<M>) -> RTLolaHIR<M>;
 }
 
 /// Abstract lattice values used for the transfromations

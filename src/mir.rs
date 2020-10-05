@@ -15,6 +15,8 @@ pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export n
 
 use std::time::Duration;
 
+pub(crate) type Mir = RTLolaMIR;
+
 /// Intermediate representation of an RTLola specification.
 /// Contains all relevant information found in the underlying specification and is enriched with information collected in semantic analyses.
 #[derive(Debug, Clone, PartialEq)]

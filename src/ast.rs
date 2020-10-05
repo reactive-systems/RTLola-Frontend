@@ -13,6 +13,7 @@ use crate::parse::Span;
 use num::rational::Rational64 as Rational;
 use std::rc::Rc;
 
+pub(crate) type Ast = RTLolaAst;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the AST node, the span in the input specification file, and declaration specific components.
 #[derive(Debug, Default, Clone)]
