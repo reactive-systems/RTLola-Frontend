@@ -1,7 +1,7 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::ConcretePacingType;
+use crate::pacing_types::{ConcretePacingType, Freq};
 use crate::value_types::IAbstractType;
 use bimap::BiMap;
 use front::analysis::naming::{Declaration, DeclarationTable};
@@ -239,17 +239,14 @@ impl<'a> ValueContext<'a> {
                 use front::ast::StreamAccessKind::*;
                 let ex_key = self.expression_infer(&*ex, None)?;
                 match kind {
-                    Sync => {
-                        //Sync access just returns the stream type
-                        self.tyc.impose(term_key.concretizes(ex_key))?;
-                    }
+                    Sync => unreachable!("only used in IR after lowering"),
                     Optional | Hold => {
                         //Optional and Hold return Option<X> Type
                         self.tyc
                             .impose(term_key.concretizes_explicit(IAbstractType::Option(
                                 IAbstractType::Any.into(),
                             )))?;
-                        let inner_key = self.tyc.get_child_key(term_key, 1)?;
+                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(ex_key.equate_with(inner_key))?;
                     }
                 };
@@ -267,14 +264,14 @@ impl<'a> ValueContext<'a> {
                 self.tyc
                     .impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
-            ExpressionKind::Offset(expr, offset) => {
-                let ex_key = self.expression_infer(&*expr, None)?; // X
-                                                                   //Want build: Option<X>
+            ExpressionKind::Offset(target_expr, offset) => {
+                let ex_key = self.expression_infer(&*target_expr, None)?;
+                //Want build: X or Option<X> if the access is synchronous or not
 
                 match offset {
                     front::ast::Offset::Discrete(i) => {
                         if 0 == *i {
-                            //Offset of 0 does not return an optional type
+                            //Offset of 0 is synchronous
                             self.tyc.impose(term_key.equate_with(ex_key))?;
                         /*} else if *i > 0 { // unsure if correct - some tests fail then
                         return Err(TcErr::Bound(
@@ -291,25 +288,49 @@ impl<'a> ValueContext<'a> {
                             self.tyc.impose(ex_key.equate_with(inner_key))?;
                         }
                     }
-                    front::ast::Offset::RealTime(_r, _unit) => {
+                    front::ast::Offset::RealTime(r, unit) => {
                         //if periode < offset -> optinal
-                        //
-                        /*
+                        use num::rational::Rational64 as Rational;
+                        use uom::si::frequency::hertz;
+                        use uom::si::rational64::Frequency as UOM_Frequency;
+                        use uom::si::rational64::Time as UOM_Time;
+                        use uom::si::time::second;
+
                         if *r.numer() == 0 {
                             self.tyc.impose(term_key.equate_with(ex_key))?;
+                        } else if *r.numer() > 0 {
+                            return Err(TcErr::Bound(
+                                term_key,
+                                None,
+                                "Found positive realtime offset - not yet supported".to_string(),
+                            ));
                         } else {
-                            use crate::pacing_types::ConcretePacingType::*;
-                            let current_ratio: &ConcretePacingType = &self.pacing_tt[&exp.id];
-                            let target_ratio: &ConcretePacingType = &self.pacing_tt[&expr.id];
-                            /* //TODO FIXME
-                            match (current_ratio, target_ratio) {
-                                (FixedPeriodic(f1),FixedPeriodic(f2)) => f1.
+                            use crate::pacing_types::AbstractPacingType::*;
+                            let uom_offset_duration = offset.to_uom_time().unwrap();
+                            let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(
+                                Rational::from_integer(1) / uom_offset_duration.get::<second>(),
+                            ));
+                            let target_ratio = self.pacing_tt[&target_expr.id].to_abstract_freq();
+                            if let Ok(Periodic(target_freq)) = target_ratio {
+                                //fif the frequencies match no optional needed
+                                if let Ok(true) = freq.is_multiple_of(&target_freq) {
+                                    self.tyc.impose(term_key.equate_with(ex_key))?;
+                                } else { //if the ey dont match return optional
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        IAbstractType::Option(IAbstractType::Any.into()),
+                                    ))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    self.tyc.impose(ex_key.equate_with(inner_key))?;
+                                }
+                            } else { //Not a periodic target stream given
+                                return Err(TcErr::Bound(
+                                    ex_key,
+                                    None,
+                                    "Realtime offset on non periodic stream".to_string(),
+                                ));
                             }
-                            */
                         }
-                        */
-                        //TODO there are no realtime offsets so far
-                        unimplemented!("RealTime offset not yet supported in Value Type inference")
+                        //unimplemented!("RealTime offset not yet supported in Value Type inference")
                     }
                 }
             }
@@ -541,7 +562,7 @@ impl<'a> ValueContext<'a> {
                             let t_key = self.tyc.new_term_key();
 
                             self.tyc.impose(t_key.concretizes_explicit(t.clone()))?;
-                            self.tyc.impose(t_key.concretizes(*gen))?;
+                            self.tyc.impose(t_key.equate_with(*gen))?;
                         }
                         //FOR: type.captures(generic)
                         let arg_keys_result: Result<Vec<TcKey>, TcErr<IAbstractType>> = args
@@ -699,8 +720,8 @@ impl<'a> ValueContext<'a> {
             ValueTy::Float(f) => {
                 use front::ty::FloatTy;
                 match f {
-                    FloatTy::F16 => IAbstractType::Float(16),
-                    FloatTy::F32 => IAbstractType::Float(32),
+                    //Float 16 is direclty widend into float32 as Concrete Float16 is n
+                    FloatTy::F16 | FloatTy::F32 => IAbstractType::Float(32),
                     FloatTy::F64 => IAbstractType::Float(64),
                 }
             }
@@ -939,7 +960,7 @@ mod value_type_tests {
     }
 
     #[test]
-    fn integer_addition() {
+    fn integer_addition_wideing() {
         let spec = "input i: Int8\ninput i1: Int16\noutput o := widen_signed(i) + i1";
         let (tb, result_map) = check_value_type(spec);
         let input_i_id = tb.spec.inputs[0].id;
@@ -1002,7 +1023,7 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //TODO float parse to float16 invalid due to exact given bound application
+    //TODO float16 annotation is treaded as Floa32, as Float16 is not implemented as Concrete Type
     fn simple_const_float16() {
         let spec = "constant c: Float16 := 2.1";
         let (tb, result_map) = check_value_type(spec);
@@ -1264,6 +1285,18 @@ mod value_type_tests {
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
     }
+
+    #[test]
+    fn test_offset_regression() {
+        let spec = "input a: UInt8 \n output sum := sum[-1].defaults(to: 0) + a";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
+    }
+
 
     #[test]
     fn test_stream_lookup_dft_fault() {
@@ -1531,7 +1564,7 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //symmetric type relation extends input int8 to float
+    #[ignore] //int to float cast currently not allowed
     fn test_aggregation_implicit_cast2() {
         let spec =
             "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
@@ -1596,7 +1629,7 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //TODO real time offsets based on pacing type analysis
+    //#[ignore] //TODO real time offsets based on pacing type analysis
     fn test_rt_offset() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
@@ -1607,11 +1640,14 @@ mod value_type_tests {
         assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
 
-    /* //TODO
+
     #[test]
     fn test_rt_offset_regression() {
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to: 0) + 1";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out1_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out1_id], IConcreteType::Integer32);
     }
 
     #[test]
@@ -1620,72 +1656,111 @@ mod value_type_tests {
             output x @ 10Hz := 1
             output x_diff := x - x.offset(by:-1s).defaults(to: x)
         ";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out1_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out1_id], IConcreteType::Integer32);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer32);
     }
+
 
     #[test]
     fn test_rt_offset_skip() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out1_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
+
+
     #[test]
     fn test_rt_offset_skip2() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-2s].defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
-    }
-
-    #[test]
-    fn test_rt_offset_fail() {
-        let spec = "output a: Int8 @0.5Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        let (tb, result_map) = check_value_type(spec);
+        let out1_id = tb.spec.outputs[0].id;
+        let out2_id = tb.spec.outputs[1].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
+        assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
 
     #[test]
     fn test_sample_and_hold_noop() {
         let spec = "input x: UInt8\noutput y: UInt8 @ x := x.hold().defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
 
-    #[test]
-    fn test_sample_and_hold_sync() {
-        let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
-    }
 
     #[test]
     fn test_sample_and_hold_useful() {
         let spec = "input x: UInt8\noutput y: UInt8 @1Hz := x.hold().defaults(to: 0)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
 
+
     #[test]
+    #[ignore] //impicit casting not usable currently
     fn test_casting_implicit_types() {
         let spec = "input x: UInt8\noutput y: Float32 := cast(x)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::Float32);
     }
+
 
     #[test]
     fn test_casting_explicit_types() {
         let spec = "input x: Int32\noutput y: UInt32 := cast<Int32,UInt32>(x)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Integer32);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger32);
     }
 
+
     #[test]
+    #[ignore] // TODO while we can ignore the missing expresion, this example results in a never stream which raises an error
     fn test_missing_expression() {
         // should not produce an error as we want to be able to handle incomplete specs in analysis
         let spec = "input x: Bool\noutput y: Bool := \ntrigger (y || x)";
-        assert_eq!(0, num_type_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::Bool);
+        assert_eq!(result_map[&out_id], IConcreteType::Bool);
     }
+
 
     #[test]
     fn infinite_recursion_regression() {
         // this should fail in type checking as the value type of `c` cannot be determined.
-        let spec = "output c := c.defaults(to:0)";
-        assert_eq!(1, num_type_errors(spec));
+        // it currently fails because default expects a optional value
+        let spec = "output c @1Hz := c.defaults(to:0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
     }
-    */
-    /*
+
+    /* //TODO i dont know what this tests want me to check as the table getter are magic
     #[test]
     fn test_function_arguments_regression() {
         let spec = "input a: Int32\ntrigger a > 50";
@@ -1694,6 +1769,28 @@ mod value_type_tests {
         let exp_a_gt_50_id = NodeId::new(5);
         assert_eq!(type_table.get_value_type(exp_a_gt_50_id), &ValueTy::Bool);
         assert_eq!(type_table.get_func_arg_types(exp_a_gt_50_id), &vec![ValueTy::Int(IntTy::I32)]);
+    }
+    */
+
+    /* Tests that now fail already in pacing - not needed here, but are here so they may not be forgotten
+    #[test]
+    #[ignore] //Pacing analysis fails already no need to test again
+    fn test_rt_offset_fail() {
+        let spec = "output a: Int8 @0.5Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    #[ignore] //Unnecessary hold() is now an Error in pacing analysis
+    fn test_sample_and_hold_sync() {
+        let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.spec.outputs[0].id;
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
+        assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
     */
 }
