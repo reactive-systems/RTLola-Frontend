@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
-use super::{StreamAccessKind, WindowOperation};
+use super::WindowOperation;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(u32);
 
 /// Represents an expression.
@@ -29,18 +29,8 @@ pub enum ExpressionKind {
     /// Binary: 1st argument -> lhs, 2nd argument -> rhs
     /// n-ary: kth argument -> kth operand
     ArithLog(ArithLogOp, Vec<Expression>),
-    /// Accessing another stream with a potentially 0 offset
-    /// 1st argument -> default
-    OffsetLookup {
-        /// The target of the lookup.
-        target: SRef,
-        /// The offset of the lookup.
-        offset: Offset,
-    },
     /// Accessing another stream
     StreamAccess(SRef, StreamAccessKind),
-    /// A window expression over a duration
-    WindowLookup(WRef),
     /// An if-then-else expression
     Ite {
         condition: Box<Expression>,
@@ -54,9 +44,7 @@ pub enum ExpressionKind {
     /// A function call with its monomorphic type
     /// Arguments never need to be coerced, @see `Expression::Convert`.
     Function(String, Vec<Expression>),
-    Widen {
-        expr: Box<Expression>,
-    },
+    Widen(Box<Expression>),
     /// Transforms an optional value into a "normal" one
     Default {
         /// The expression that results in an optional value.
@@ -64,6 +52,15 @@ pub enum ExpressionKind {
         /// An infallible expression providing a default value of `expr` evaluates to `None`.
         default: Box<Expression>,
     },
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StreamAccessKind {
+    Sync,
+    DiscreteWindow(WRef),
+    SlidingWindow(WRef),
+    Hold,
+    Offset(Offset),
 }
 
 /// Represents a constant value of a certain kind.

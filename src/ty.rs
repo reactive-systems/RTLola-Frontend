@@ -1,7 +1,7 @@
 //! This module contains the basic definition of types
 //!
 //! It is inspired by <https://doc.rust-lang.org/nightly/nightly-rustc/rustc/ty/index.html>
-
+#![allow(dead_code)]
 pub(crate) mod check;
 pub(crate) mod unifier;
 

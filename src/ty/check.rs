@@ -6,6 +6,8 @@
 //! * [Unification in Rust](http://smallcultfollowing.com/babysteps/blog/2017/03/25/unification-in-chalk-part-1/)
 //! * [Ena (union-find package)](https://crates.io/crates/ena)
 
+#![allow(dead_code)]
+
 use super::unifier::{InferError, UnifiableTy, Unifier, ValueUnifier, ValueVar};
 use super::{Activation, Freq, StreamTy, TypeConstraint, ValueTy};
 use crate::analysis::naming::{Declaration, DeclarationTable};

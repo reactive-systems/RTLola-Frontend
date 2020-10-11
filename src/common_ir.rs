@@ -1,7 +1,7 @@
 /*!
 This module describes intermediate representations that are use in the high level intermediate representation and in the mid level intermediate representation.
 */
-
+#![allow(dead_code)]
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::rational64::Time as UOM_Time;
@@ -15,8 +15,6 @@ pub struct Trigger {
     pub message: String,
     /// A reference to the output stream representing the trigger.
     pub reference: StreamReference,
-    /// The index of the trigger.
-    pub trigger_idx: usize,
 }
 
 /// This enum indicates how much memory is required to store a stream.
@@ -99,11 +97,28 @@ pub enum Offset {
     PastRealTimeOffset(Duration),
 }
 
+/// TODO
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+pub struct Layer(usize);
+impl Into<usize> for Layer {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
+impl Layer {
+    pub fn inner(self) -> usize {
+        self.0
+    }
+}
+
 /////// Referencing Structures ///////
 
 /// Allows for referencing a window instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowReference(pub usize);
+
+pub(crate) type WRef = WindowReference;
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
@@ -125,6 +140,8 @@ pub enum StreamReference {
     /// References an output stream.
     OutRef(OutputReference),
 }
+
+pub(crate) type SRef = StreamReference;
 
 impl StreamReference {
     /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
@@ -149,13 +166,27 @@ impl StreamReference {
             StreamReference::InRef(ix) | StreamReference::OutRef(ix) => *ix,
         }
     }
+
+    pub fn is_input(&self) -> bool {
+        match self {
+            StreamReference::OutRef(_) => false,
+            StreamReference::InRef(_) => true,
+        }
+    }
+
+    pub fn is_output(&self) -> bool {
+        match self {
+            StreamReference::OutRef(_) => true,
+            StreamReference::InRef(_) => false,
+        }
+    }
 }
 
 /// A trait for any kind of stream.
 pub trait Stream {
     // TODO: probably not needed anymore
     /// Returns the evaluation laying in which the stream resides.
-    fn eval_layer(&self) -> u32;
+    fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
     // TODO: probably not needed anymore

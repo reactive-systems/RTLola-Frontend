@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod dependency_graph;
 pub mod evaluation_order;
 pub mod future_dependency;

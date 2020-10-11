@@ -10,6 +10,7 @@ mod schedule;
 
 pub use crate::ast::StreamAccessKind;
 pub use crate::ast::WindowOperation;
+pub use crate::common_ir::{EventDrivenStream, TimeDrivenStream, Trigger};
 pub use crate::mir::schedule::{Deadline, Schedule};
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for IR
 
@@ -84,11 +85,13 @@ pub struct InputStream {
     /// The type of the stream.
     pub ty: Type,
     /// What streams depend, i.e., access values of this stream.
-    pub dependent_streams: Vec<Tracking>,
+    pub dependent_streams: Vec<StreamReference>,
+    // *was:* pub dependent_streams: Vec<Tracking>,
     /// Which sliding windows aggregate values of this stream.
-    pub dependent_windows: Vec<WindowReference>,
+    pub dependent_windows: Vec<(StreamReference, WindowReference)>,
+    // *was:* pub dependent_windows: Vec<WindowReference>,
     /// Indicates in which evaluation layer the stream is.  
-    pub layer: u32,
+    pub layer: Layer,
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// The reference pointing to this stream.
@@ -107,7 +110,7 @@ pub struct OutputStream {
     /// The input streams on which this stream depends.
     pub input_dependencies: Vec<StreamReference>,
     /// The output streams on which this stream depends.
-    pub outgoing_dependencies: Vec<Dependency>,
+    pub outgoing_dependencies: Vec<StreamReference>,
     /// The Tracking of all streams that depend on this stream.
     pub dependent_streams: Vec<Tracking>,
     /// The sliding windows depending on this stream.
@@ -115,11 +118,9 @@ pub struct OutputStream {
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// Indicates in which evaluation layer the stream is.  
-    pub layer: u32,
+    pub layer: Layer,
     /// The reference pointing to this stream.
     pub reference: StreamReference,
-    /// The activation condition, which indicates when this stream needs to be evaluated.  Will be empty if the stream has a fixed frequency.
-    pub ac: Option<Activation<StreamReference>>,
 }
 
 /// Represents an expression.
@@ -363,7 +364,7 @@ pub trait Stream {
 ////////// Implementations //////////
 
 impl Stream for OutputStream {
-    fn eval_layer(&self) -> u32 {
+    fn eval_layer(&self) -> Layer {
         self.layer
     }
     fn is_input(&self) -> bool {
@@ -378,7 +379,7 @@ impl Stream for OutputStream {
 }
 
 impl Stream for InputStream {
-    fn eval_layer(&self) -> u32 {
+    fn eval_layer(&self) -> Layer {
         self.layer
     }
     fn is_input(&self) -> bool {
@@ -485,12 +486,12 @@ impl RTLolaMIR {
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers: Vec<(usize, OutputReference)> = todo!(); //self
-                                                                          // .event_driven
-                                                                          // .iter()
-                                                                          // .map(|s| s.reference)
-                                                                          // .map(|r| (self.get_out(r).eval_layer() as usize, r.out_ix()))
-                                                                          // .collect();
+        let streams_with_layers: Vec<(usize, OutputReference)> = self
+            .event_driven
+            .iter()
+            .map(|s| s.reference)
+            .map(|r| (self.get_out(r).eval_layer().into(), r.out_ix()))
+            .collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
         // layers without entries and more layers than streams.

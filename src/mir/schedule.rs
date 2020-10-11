@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::mir::{OutputReference, RTLolaMIR, Stream};
 use std::time::Duration;
 

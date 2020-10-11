@@ -1,4 +1,6 @@
-use crate::{RTLolaHIR, hir::modes::HirMode};
+#![allow(dead_code)]
+
+use crate::{hir::modes::HirMode, RTLolaHIR};
 use std::cmp::Ordering;
 
 pub(crate) mod sccp; //sparse conditional constant propagation

@@ -5,6 +5,8 @@
 //! * `id_assignment` assigns unique ids to all nodes of the AST
 //! * `type_checker` checks whether components of the AST have a valid type
 
+#![allow(dead_code)]
+
 pub(crate) mod graph_based_analysis;
 // pub(crate) mod id_assignment;
 pub mod naming;
