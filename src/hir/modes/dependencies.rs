@@ -85,10 +85,8 @@ impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDepe
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DependencyErr {
-    NegativeCycle, // Should probably contain the cycle
     WellFormedNess,
 }
-
 pub(crate) struct DependencyReport {}
 
 type Result<T> = std::result::Result<T, DependencyErr>;

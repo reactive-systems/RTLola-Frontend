@@ -1,6 +1,7 @@
 /*!
 This module describes intermediate representations that are use in the high level intermediate representation and in the mid level intermediate representation.
 */
+
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::rational64::Time as UOM_Time;

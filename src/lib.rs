@@ -19,6 +19,7 @@ pub mod common_ir;
 mod export;
 pub mod hir;
 pub mod mir;
+pub(crate) mod new_analysis;
 pub mod parse;
 pub mod reporting;
 mod stdlib;
