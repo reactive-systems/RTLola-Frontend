@@ -1713,7 +1713,7 @@ mod value_type_tests {
 
 
     #[test]
-    #[ignore] //impicit casting not usable currently
+    #[ignore] //implicit casting not usable currently
     fn test_casting_implicit_types() {
         let spec = "input x: UInt8\noutput y: Float32 := cast(x)";
         let (tb, result_map) = check_value_type(spec);
@@ -1723,7 +1723,6 @@ mod value_type_tests {
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
     }
-
 
     #[test]
     fn test_casting_explicit_types() {
@@ -1738,20 +1737,6 @@ mod value_type_tests {
 
 
     #[test]
-    #[ignore] // TODO while we can ignore the missing expresion, this example results in a never stream which raises an error
-    fn test_missing_expression() {
-        // should not produce an error as we want to be able to handle incomplete specs in analysis
-        let spec = "input x: Bool\noutput y: Bool := \ntrigger (y || x)";
-        let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
-        assert_eq!(0, complete_check(spec));
-        assert_eq!(result_map[&in_id], IConcreteType::Bool);
-        assert_eq!(result_map[&out_id], IConcreteType::Bool);
-    }
-
-
-    #[test]
     fn infinite_recursion_regression() {
         // this should fail in type checking as the value type of `c` cannot be determined.
         // it currently fails because default expects a optional value
@@ -1760,7 +1745,7 @@ mod value_type_tests {
         assert_eq!(1, tb.handler.emitted_errors());
     }
 
-    /* //TODO i dont know what this tests want me to check as the table getter are magic
+    /* //TODO: I don't know what this test wants me to check as the table getters are magical.
     #[test]
     fn test_function_arguments_regression() {
         let spec = "input a: Int32\ntrigger a > 50";
