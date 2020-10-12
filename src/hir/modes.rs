@@ -13,6 +13,8 @@ use crate::{
     ast, common_ir::MemorizationBound, common_ir::StreamReference as SRef, hir::expression::Expression, hir::Hir,
 };
 
+use self::dependencies::DependencyErr;
+
 use super::Window;
 
 pub(crate) struct Raw {
@@ -28,8 +30,16 @@ pub(crate) struct IrExpression {
 impl HirMode for IrExpression {}
 
 impl Hir<IrExpression> {
-    pub(crate) fn build_dependency_graph(self) -> Hir<Dependencies> {
-        unimplemented!()
+    pub(crate) fn build_dependency_graph(self) -> Result<Hir<Dependencies>, DependencyErr> {
+        let dep = Dependencies::analyze(&self)?;
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode: dep,
+        })
     }
 }
 

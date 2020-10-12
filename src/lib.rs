@@ -19,7 +19,6 @@ pub mod common_ir;
 mod export;
 mod hir;
 pub mod mir;
-pub(crate) mod new_analysis;
 pub mod parse;
 pub mod reporting;
 mod stdlib;
@@ -108,6 +107,7 @@ pub(crate) fn parse_to_hir(
     Ok(Hir::<Raw>::from(spec)
         .replace_expressions()
         .build_dependency_graph()
+        .map_err(|e| format!("error in dependency analysis: {:?}", e))?
         .type_check()
         .compute_memory_bounds()
         .finalize())

@@ -24,7 +24,7 @@ impl Hir<Complete> {
                     ty: Self::lower_type(sr, &self.mode),
                     expr: self.lower_expr(sr),
                     input_dependencies: self.accesses(sr).into_iter().filter(SRef::is_input).collect(), // TODO: Is this supposed to be transitive?
-                    outgoing_dependencies: self.accesses(sr).into_iter().filter(SRef::is_output).collect(), // TODO: Is this supposed to be transitive?
+                    outgoing_dependencies: self.accesses(sr).into_iter().filter(|_sr| todo!()).collect(), // TODO: Is this supposed to be transitive?
                     dependent_streams: self.accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
                     dependent_windows: self.aggregated_by(sr).into_iter().map(|(_sr, wr)| wr).collect(),
                     memory_bound: self.memory(sr),
