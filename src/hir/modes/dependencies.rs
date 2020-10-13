@@ -3,6 +3,7 @@ use crate::common_ir::{Layer, SRef, WRef};
 use super::Dependencies;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::{expression::StreamAccessKind, Hir};
@@ -11,7 +12,8 @@ use crate::{
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
 use petgraph::{
-    algo::{bellman_ford, FloatMeasure, NegativeCycle},
+    algo::{bellman_ford, is_cyclic_directed, FloatMeasure, NegativeCycle},
+    graph::EdgeIndex,
     graph::NodeIndex,
     Graph,
 };
@@ -84,6 +86,7 @@ impl<A: DependenciesWrapper<InnerD = T>, T: DependenciesAnalyzed + 'static> Depe
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DependencyErr {
     NegativeCycle, // Should probably contain the cycle
+    WellFormedNess,
 }
 
 pub(crate) struct DependencyReport {}
@@ -93,15 +96,17 @@ type DG = Graph<SRef, EdgeWeight>;
 
 pub(crate) struct DependencyGraph {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Hash, Clone, Copy, Debug, PartialEq, Eq)]
 enum EdgeWeight {
     Infinite,
-    Finite(u32),
+    Offset(i32),
+    Aggr,
+    Hold,
 }
 
 impl FloatMeasure for EdgeWeight {
     fn zero() -> Self {
-        EdgeWeight::Finite(0)
+        EdgeWeight::Offset(0)
     }
 
     fn infinite() -> Self {
@@ -115,7 +120,11 @@ impl std::ops::Add for EdgeWeight {
     fn add(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (EdgeWeight::Infinite, _) | (_, EdgeWeight::Infinite) => EdgeWeight::Infinite,
-            (EdgeWeight::Finite(w1), EdgeWeight::Finite(w2)) => EdgeWeight::Finite(w1 + w2),
+            (EdgeWeight::Offset(w1), EdgeWeight::Offset(w2)) => EdgeWeight::Offset(w1 + w2),
+            (EdgeWeight::Offset(w), _) | (_, EdgeWeight::Offset(w)) => EdgeWeight::Offset(w),
+            (EdgeWeight::Aggr, _) => EdgeWeight::Aggr,
+            (EdgeWeight::Hold, EdgeWeight::Aggr) => EdgeWeight::Aggr,
+            (EdgeWeight::Hold, EdgeWeight::Hold) => EdgeWeight::Hold,
         }
     }
 }
@@ -124,16 +133,22 @@ impl PartialOrd for EdgeWeight {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (EdgeWeight::Infinite, EdgeWeight::Infinite) => None,
-            (EdgeWeight::Infinite, EdgeWeight::Finite(_)) => Some(std::cmp::Ordering::Greater),
-            (EdgeWeight::Finite(_), EdgeWeight::Infinite) => Some(std::cmp::Ordering::Less),
-            (EdgeWeight::Finite(w1), EdgeWeight::Finite(w2)) => w1.partial_cmp(w2),
+            (EdgeWeight::Infinite, _) => Some(std::cmp::Ordering::Greater),
+            (_, EdgeWeight::Infinite) => Some(std::cmp::Ordering::Less),
+            (EdgeWeight::Offset(w1), EdgeWeight::Offset(w2)) => w1.partial_cmp(w2),
+            (_, EdgeWeight::Offset(_)) => Some(std::cmp::Ordering::Less),
+            (EdgeWeight::Offset(_), _) => Some(std::cmp::Ordering::Greater),
+            (EdgeWeight::Aggr, EdgeWeight::Aggr) => Some(std::cmp::Ordering::Equal),
+            (EdgeWeight::Aggr, EdgeWeight::Hold) => Some(std::cmp::Ordering::Greater),
+            (EdgeWeight::Hold, EdgeWeight::Aggr) => Some(std::cmp::Ordering::Less),
+            (EdgeWeight::Hold, EdgeWeight::Hold) => Some(std::cmp::Ordering::Equal),
         }
     }
 }
 
 impl Default for EdgeWeight {
     fn default() -> Self {
-        EdgeWeight::Finite(0)
+        EdgeWeight::Offset(0)
     }
 }
 
@@ -145,18 +160,61 @@ impl Dependencies {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
         let mut graph: DG = Graph::with_capacity(num_nodes, num_edges);
-        let mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
-        spec.outputs()
+        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let edges = spec
+            .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| Self::collect_edges(sr, spec.expr(sr)))
-            .map(|(src, w, tar)| (mapping[&src], w, mapping[&tar]))
-            .for_each(|(src, w, tar)| {
-                let _ = graph.add_edge(src, tar, EdgeWeight::Finite(w));
-            });
-
-        Self::check_negative_cycle(&graph, &spec, &mapping)?;
+            .map(|(src, w, tar)| {
+                let weight = match w {
+                    StreamAccessKind::Sync => EdgeWeight::Offset(0),
+                    StreamAccessKind::Offset(o) => match o {
+                        Offset::PastDiscreteOffset(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
+                        Offset::FutureDiscreteOffset(o) => EdgeWeight::Offset(i32::try_from(o).unwrap()),
+                        _ => todo!(),
+                    },
+                    StreamAccessKind::Hold => EdgeWeight::Hold,
+                    StreamAccessKind::SlidingWindow(_) => EdgeWeight::Aggr,
+                    StreamAccessKind::DiscreteWindow(_) => EdgeWeight::Aggr,
+                };
+                (src, weight, tar)
+            })
+            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
+        let edge_mapping: HashMap<(SRef, EdgeWeight, SRef), EdgeIndex> = edges
+            .iter()
+            .map(|(src, w, tar)| ((*src, *w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], *w)))
+            .collect();
+        // Check well-formedness = no closed-walk with total weight of zero or positive
+        Self::check_well_formedness(&graph, &edge_mapping)?;
+        // Check positive cycle
         todo!()
+    }
+
+    fn check_well_formedness(graph: &DG, edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>) -> Result<()> {
+        let mut graph = graph.clone(); // Clone graph to adapt edges.
+        let remove_edges = edge_mapping
+            .iter()
+            .filter_map(|((_, weight, _), index)| match weight {
+                EdgeWeight::Offset(o) => {
+                    if *o < 0 {
+                        Some(*index)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<EdgeIndex>>();
+        remove_edges.into_iter().for_each(|edge| {
+            graph.remove_edge(edge);
+        });
+        // check if cyclic
+        if is_cyclic_directed(&graph) {
+            Err(DependencyErr::WellFormedNess)
+        } else {
+            Ok(())
+        }
     }
 
     fn check_negative_cycle<M: HirMode + WithIrExpr>(
@@ -165,24 +223,25 @@ impl Dependencies {
         mapping: &HashMap<SRef, NodeIndex>,
     ) -> Result<()> {
         match spec
-        .outputs()
-        .map(|o| bellman_ford(&graph, mapping[&o.sr]))
-        .collect::<std::result::Result<Vec<(Vec<EdgeWeight>, Vec<Option<NodeIndex>>)>, NegativeCycle>>() // In essence: err = negative cycle, ok = no negative cycle.
-    {
-        Err(_) => Err(DependencyErr::NegativeCycle),
-        Ok(_) => todo!(),
-    }
+            .outputs()
+            .map(|o| bellman_ford(&graph, mapping[&o.sr]))
+            .collect::<std::result::Result<Vec<(Vec<EdgeWeight>, Vec<Option<NodeIndex>>)>, NegativeCycle>>() // In essence: err = negative cycle, ok = no negative cycle.
+        {
+            Err(_) => Err(DependencyErr::NegativeCycle),
+            Ok(_) => todo!(),
+        }
     }
 
-    fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, u32, SRef)> {
+    fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
         match &expr.kind {
-            ExpressionKind::StreamAccess(target, StreamAccessKind::Sync)
-            | ExpressionKind::StreamAccess(target, StreamAccessKind::DiscreteWindow(_)) => vec![(src, 0, *target)],
-            ExpressionKind::StreamAccess(_target, StreamAccessKind::Hold)
-            | ExpressionKind::StreamAccess(_target, StreamAccessKind::SlidingWindow(_)) => Vec::new(),
-            ExpressionKind::StreamAccess(target, StreamAccessKind::Offset(offset)) => {
-                vec![(src, Self::offset_to_weight(offset), *target)]
-            }
+            ExpressionKind::StreamAccess(target, stream_access_kind) => vec![(src, *stream_access_kind, *target)],
+            // ExpressionKind::StreamAccess(target, StreamAccessKind::Sync)
+            // | ExpressionKind::StreamAccess(target, StreamAccessKind::DiscreteWindow(_)) => vec![(src, 0, *target)],
+            // ExpressionKind::StreamAccess(_target, StreamAccessKind::Hold)
+            // | ExpressionKind::StreamAccess(_target, StreamAccessKind::SlidingWindow(_)) => Vec::new(),
+            // ExpressionKind::StreamAccess(target, StreamAccessKind::Offset(offset)) => {
+            //     vec![(src, Self::offset_to_weight(offset), *target)]
+            // }
             ExpressionKind::LoadConstant(_) => Vec::new(),
             ExpressionKind::ArithLog(_op, args) => {
                 args.iter().flat_map(|a| Self::collect_edges(src, a).into_iter()).collect()
