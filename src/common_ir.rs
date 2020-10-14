@@ -115,7 +115,7 @@ impl Layer {
 /////// Referencing Structures ///////
 
 /// Allows for referencing a window instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowReference(pub usize);
 
 pub(crate) type WRef = WindowReference;

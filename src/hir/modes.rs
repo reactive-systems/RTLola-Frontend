@@ -10,7 +10,8 @@ pub(crate) mod types;
 use std::collections::HashMap;
 
 use crate::{
-    ast, common_ir::MemorizationBound, common_ir::StreamReference as SRef, hir::expression::Expression, hir::Hir,
+    ast, common_ir::MemorizationBound, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef,
+    hir::expression::Expression, hir::Hir,
 };
 
 use self::dependencies::DependencyErr;
@@ -44,7 +45,10 @@ impl Hir<IrExpression> {
 }
 
 struct DependencyGraph {
-    dummy: Vec<SRef>,
+    accesses: HashMap<SRef, Vec<SRef>>,
+    accessed_by: HashMap<SRef, Vec<SRef>>,
+    aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>>,
+    aggregates: HashMap<SRef, Vec<(SRef, WRef)>>,
 }
 pub(crate) struct Dependencies {
     expressions: HashMap<SRef, Expression>,

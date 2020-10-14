@@ -23,60 +23,60 @@ impl PartialOrd for Constant {
     }
 }
 
-#[cfg(test)]
-mod sccp_tests {
-    use super::LatticeValues;
-    use crate::hir::RTLolaHIR;
-    use crate::hir::{Constant, FullInformationHirMode};
-    use crate::transformations::Transformation;
-    use crate::FrontendConfig;
+// #[cfg(test)]
+// mod sccp_tests {
+//     use super::LatticeValues;
+//     use crate::hir::RTLolaHIR;
+//     use crate::hir::{Constant, FullInformationHirMode};
+//     use crate::transformations::Transformation;
+//     use crate::FrontendConfig;
 
-    fn spec_to_ir(spec: &str) -> RTLolaHIR<FullInformationHirMode> {
-        crate::parse_to_hir("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
-    }
+//     fn spec_to_ir(spec: &str) -> RTLolaHIR<FullInformationHirMode> {
+//         crate::parse_to_hir("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
+//     }
 
-    fn transform(ir: RTLolaHIR<FullInformationHirMode>) -> RTLolaHIR<FullInformationHirMode> {
-        crate::transformations::sccp::SCCP::transform(ir)
-    }
+//     fn transform(ir: RTLolaHIR<FullInformationHirMode>) -> RTLolaHIR<FullInformationHirMode> {
+//         crate::transformations::sccp::SCCP::transform(ir)
+//     }
 
-    #[test]
-    fn partcial_cmp_test() {
-        let top = LatticeValues::<Constant>::Top;
-        let bot = LatticeValues::<Constant>::Bot;
-        let v1 = LatticeValues::<Constant>::Val(Constant::Int(6));
-        let v2 = LatticeValues::<Constant>::Val(Constant::Int(6));
-        let v3 = LatticeValues::<Constant>::Val(Constant::Int(8));
+//     #[test]
+//     fn partcial_cmp_test() {
+//         let top = LatticeValues::<Constant>::Top;
+//         let bot = LatticeValues::<Constant>::Bot;
+//         let v1 = LatticeValues::<Constant>::Val(Constant::Int(6));
+//         let v2 = LatticeValues::<Constant>::Val(Constant::Int(6));
+//         let v3 = LatticeValues::<Constant>::Val(Constant::Int(8));
 
-        assert_eq!(top == bot, false);
-        assert_eq!(top <= bot, false);
-        assert_eq!(top < bot, false);
-        assert_eq!(top >= bot, true);
-        assert_eq!(top > bot, true);
-        assert_eq!(top == v1, false);
-        assert_eq!(top <= v1, false);
-        assert_eq!(top < v1, false);
-        assert_eq!(top >= v1, true);
-        assert_eq!(top > v1, true);
-        assert_eq!(v1 == v2, true);
-        assert_eq!(v1 <= v2, true);
-        assert_eq!(v1 < v2, false);
-        assert_eq!(v1 >= v2, true);
-        assert_eq!(v1 > v2, false);
-        assert_eq!(v2 == v3, false);
-        assert_eq!(v2 <= v3, true);
-        assert_eq!(v2 < v3, true);
-        assert_eq!(v2 >= v3, false);
-        assert_eq!(v2 > v3, false);
-        assert_eq!(v3 == bot, false);
-        assert_eq!(v3 <= bot, false);
-        assert_eq!(v3 < bot, false);
-        assert_eq!(v3 >= bot, true);
-        assert_eq!(v3 > bot, true);
-    }
+//         assert_eq!(top == bot, false);
+//         assert_eq!(top <= bot, false);
+//         assert_eq!(top < bot, false);
+//         assert_eq!(top >= bot, true);
+//         assert_eq!(top > bot, true);
+//         assert_eq!(top == v1, false);
+//         assert_eq!(top <= v1, false);
+//         assert_eq!(top < v1, false);
+//         assert_eq!(top >= v1, true);
+//         assert_eq!(top > v1, true);
+//         assert_eq!(v1 == v2, true);
+//         assert_eq!(v1 <= v2, true);
+//         assert_eq!(v1 < v2, false);
+//         assert_eq!(v1 >= v2, true);
+//         assert_eq!(v1 > v2, false);
+//         assert_eq!(v2 == v3, false);
+//         assert_eq!(v2 <= v3, true);
+//         assert_eq!(v2 < v3, true);
+//         assert_eq!(v2 >= v3, false);
+//         assert_eq!(v2 > v3, false);
+//         assert_eq!(v3 == bot, false);
+//         assert_eq!(v3 <= bot, false);
+//         assert_eq!(v3 < bot, false);
+//         assert_eq!(v3 >= bot, true);
+//         assert_eq!(v3 > bot, true);
+//     }
 
-    #[test]
-    fn simple_sccp_test() {
-        let hir = spec_to_ir("input a: Int64\noutput const: Int64 := 6\n trigger a < const");
-        let _sccp = transform(hir);
-    }
-}
+//     #[test]
+//     fn simple_sccp_test() {
+//         let hir = spec_to_ir("input a: Int64\noutput const: Int64 := 6\n trigger a < const");
+//         let _sccp = transform(hir);
+//     }
+// }
