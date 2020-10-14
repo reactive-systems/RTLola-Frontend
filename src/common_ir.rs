@@ -107,6 +107,9 @@ impl Into<usize> for Layer {
 }
 
 impl Layer {
+    pub fn new(layer: usize) -> Self {
+        Layer(layer)
+    }
     pub fn inner(self) -> usize {
         self.0
     }

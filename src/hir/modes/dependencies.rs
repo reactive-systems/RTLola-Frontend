@@ -11,7 +11,7 @@ use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
-use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph};
+use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph, Outgoing};
 
 pub(crate) trait DependenciesAnalyzed {
     // https://github.com/rust-lang/rust/issues/63063
@@ -156,14 +156,17 @@ enum EdgeWeight {
 // }
 
 impl Dependencies {
-    pub(crate) fn analyze<M: HirMode + 'static + WithIrExpr>(spec: &Hir<M>) -> Result<Dependencies>
+    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Dependencies>
     where
-        M: WithIrExpr + HirMode,
+        M: WithIrExpr + HirMode + 'static,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
         let mut graph: DG = Graph::with_capacity(num_nodes, num_edges);
-        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let node_mapping_ref_to_index: HashMap<SRef, NodeIndex> =
+            spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let node_mapping_index_to_ref: HashMap<NodeIndex, SRef> =
+            node_mapping_ref_to_index.iter().map(|(sref, sindex)| (*sindex, *sref)).collect();
         let edges = spec
             .outputs()
             .map(|o| o.sr)
@@ -186,7 +189,9 @@ impl Dependencies {
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
         let edge_mapping: HashMap<(SRef, EdgeWeight, SRef), EdgeIndex> = edges
             .iter()
-            .map(|(src, w, tar)| ((*src, *w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], *w)))
+            .map(|(src, w, tar)| {
+                ((*src, *w, *tar), graph.add_edge(node_mapping_ref_to_index[src], node_mapping_ref_to_index[tar], *w))
+            })
             .collect();
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph, &edge_mapping)?;
@@ -203,12 +208,28 @@ impl Dependencies {
             }
         });
         DependencyGraph { accesses, accessed_by, aggregates, aggregated_by };
-        // Ok(Dependencies {  dg: graph })
+
+        // Compute Evaluation Layers
+        let (_event_based_layer_mapping, _periodic_layer_mapping) =
+            Self::compute_layers(spec, &graph, &node_mapping_index_to_ref, &edge_mapping);
         unimplemented!()
     }
 
     fn check_well_formedness(graph: &DG, edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>) -> Result<()> {
-        let mut graph = graph.clone(); // Clone graph to adapt edges.
+        let graph = Self::graph_without_negative_offset_edges(graph, edge_mapping);
+        // check if cyclic
+        if is_cyclic_directed(&graph) {
+            Err(DependencyErr::WellFormedNess)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn graph_without_negative_offset_edges(
+        graph: &DG,
+        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
+    ) -> DG {
+        let mut graph = graph.clone();
         let remove_edges = edge_mapping
             .iter()
             .filter_map(|((_, weight, _), index)| match weight {
@@ -225,12 +246,7 @@ impl Dependencies {
         remove_edges.into_iter().for_each(|edge| {
             graph.remove_edge(edge);
         });
-        // check if cyclic
-        if is_cyclic_directed(&graph) {
-            Err(DependencyErr::WellFormedNess)
-        } else {
-            Ok(())
-        }
+        graph
     }
 
     fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
@@ -256,7 +272,50 @@ impl Dependencies {
         }
     }
 
-    fn offset_to_weight(_o: &Offset) -> u32 {
-        todo!()
+    fn compute_layers<M>(
+        spec: &Hir<M>,
+        graph: &DG,
+        node_mapping: &HashMap<NodeIndex, SRef>,
+        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
+    ) -> (HashMap<SRef, Layer>, HashMap<SRef, Layer>)
+    where
+        M: WithIrExpr + HirMode + 'static,
+    {
+        let graph = Self::graph_without_negative_offset_edges(graph, edge_mapping);
+        // split graph in periodic and event-based
+        let (event_based_graph, periodic_graph) = Self::split_graph(graph);
+        let event_based_layers = Self::compute_order(spec, event_based_graph, node_mapping);
+        let periodic_layers = Self::compute_order(spec, periodic_graph, node_mapping);
+        (event_based_layers, periodic_layers)
+    }
+
+    fn compute_order<M>(spec: &Hir<M>, graph: DG, node_mapping: &HashMap<NodeIndex, SRef>) -> HashMap<SRef, Layer>
+    where
+        M: WithIrExpr + HirMode + 'static,
+    {
+        let mut sref_to_layer = spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>();
+        while graph.node_count() != sref_to_layer.len() {
+            graph.node_indices().for_each(|node| {
+                let sref = &node_mapping[&node];
+                if !sref_to_layer.contains_key(sref) {
+                    //Layer for current streamcheck incoming
+                    let layer = graph
+                        .neighbors_directed(node, Outgoing)//or incoming -> try
+                        .map(|neighbor| sref_to_layer.get(&node_mapping[&neighbor]).map(|layer| *layer))
+                        .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| match (cur_res, neighbor_layer) {
+                            (Some(layer1), Some(layer2)) => Some(std::cmp::max(layer1, layer2)),
+                            _ => None,
+                        });
+                    if let Some(layer) = layer {
+                        sref_to_layer.insert(*sref, layer);
+                    }
+                }
+            });
+        }
+        sref_to_layer
+    }
+
+    fn split_graph(_graph: DG) -> (DG, DG) {
+        unimplemented!()
     }
 }
