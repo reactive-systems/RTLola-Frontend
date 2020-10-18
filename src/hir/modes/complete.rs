@@ -60,7 +60,7 @@ impl Hir<Complete> {
             })
             .collect();
         let triggers = triggers.into_iter().map(|t| mir::Trigger { message: t.message, reference: t.sr }).collect();
-        Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows }
+        Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows: todo!() }
     }
 
     fn lower_periodic(&self, _sr: StreamReference) -> mir::TimeDrivenStream {

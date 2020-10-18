@@ -10,7 +10,7 @@ mod schedule;
 
 pub use crate::ast::StreamAccessKind;
 pub use crate::ast::WindowOperation;
-pub use crate::common_ir::{EventDrivenStream, TimeDrivenStream, Trigger};
+pub use crate::common_ir::{EventDrivenStream, Layer, StreamReference, TimeDrivenStream, Trigger, WindowReference};
 pub use crate::mir::schedule::{Deadline, Schedule};
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for IR
 
@@ -289,68 +289,17 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
-// <<<<<<< HEAD:src/ir.rs
 /////// Referencing Structures ///////
-
-/// Allows for referencing a window instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WindowReference {
-    SlidingWindow(usize),
-    DiscreteWindow(usize),
-}
-
-impl WindowReference {
-    /// Provides access to the index inside the reference.
-    pub fn idx(self) -> usize {
-        match self {
-            WindowReference::SlidingWindow(x) | WindowReference::DiscreteWindow(x) => x,
-        }
-    }
-}
 
 /// Allows for referencing an input stream within the specification.
 pub type InputReference = usize;
 /// Allows for referencing an output stream within the specification.
 pub type OutputReference = usize;
 
-/// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum StreamReference {
-    /// References an input stream.
-    InRef(InputReference),
-    /// References an output stream.
-    OutRef(OutputReference),
-}
-
-impl StreamReference {
-    /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
-    pub fn out_ix(&self) -> usize {
-        match self {
-            StreamReference::InRef(_) => unreachable!(),
-            StreamReference::OutRef(ix) => *ix,
-        }
-    }
-
-    /// Returns the index inside the reference if it is an input reference.  Panics otherwise.
-    pub fn in_ix(&self) -> usize {
-        match self {
-            StreamReference::OutRef(_) => unreachable!(),
-            StreamReference::InRef(ix) => *ix,
-        }
-    }
-
-    /// Returns the index inside the reference disregarding whether it is an input or output reference.
-    pub fn ix_unchecked(&self) -> usize {
-        match self {
-            StreamReference::InRef(ix) | StreamReference::OutRef(ix) => *ix,
-        }
-    }
-}
-
 /// A trait for any kind of stream.
 pub trait Stream {
     /// Returns the evaluation laying in which the stream resides.
-    fn eval_layer(&self) -> u32;
+    fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
     /// Indicates how many values need to be memorized.
@@ -359,8 +308,6 @@ pub trait Stream {
     fn as_stream_ref(&self) -> StreamReference;
 }
 
-// =======
-// >>>>>>> 2fe2429... split ir to hir and mir:src/mir.rs
 ////////// Implementations //////////
 
 impl Stream for OutputStream {
@@ -465,18 +412,16 @@ impl RTLolaMIR {
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
     pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
-        match window {
-            WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
-            WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
-        }
+        // match window {
+        //     WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
+        //     WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
+        // }
+        todo!()
     }
 
     /// Returns a sliding window instance for a given WindowReference in the specification
     pub fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        match window {
-            WindowReference::SlidingWindow(x) => &self.sliding_windows[x],
-            WindowReference::DiscreteWindow(_) => panic!("wrong type of window reference passed to getter"),
-        }
+        &self.sliding_windows[window.idx()]
     }
 
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` a stream in the layer.

@@ -119,14 +119,20 @@ impl Layer {
 
 /// Allows for referencing a window instance.
 #[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WindowReference(pub usize);
+pub enum WindowReference {
+    SlidingRef(usize),
+    DiscreteRef(usize),
+}
 
 pub(crate) type WRef = WindowReference;
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
     pub fn idx(self) -> usize {
-        self.0
+        match self {
+            WindowReference::SlidingRef(u) => u,
+            WindowReference::DiscreteRef(u) => u,
+        }
     }
 }
 

@@ -12,7 +12,10 @@ impl Display for Offset {
 
 impl Display for WindowReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "Win({})", self.0)
+        match self {
+            WindowReference::SlidingRef(u) => write!(f, "SlidingWin({})", u),
+            WindowReference::DiscreteRef(u) => write!(f, "DiscreteWin({})", u),
+        }
     }
 }
 
