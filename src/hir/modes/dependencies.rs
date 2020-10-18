@@ -269,6 +269,7 @@ impl Dependencies {
                 .into_iter()
                 .chain(Self::collect_edges(src, default).into_iter())
                 .collect(),
+            ExpressionKind::Window(_) => todo!(),
         }
     }
 

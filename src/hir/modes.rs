@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::{
     ast, common_ir::MemorizationBound, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef,
-    hir::expression::Expression, hir::Hir,
+    hir::expression::Expression, hir::Hir, reporting::Handler, FrontendConfig,
 };
 
 use self::dependencies::DependencyErr;
@@ -23,6 +23,12 @@ pub(crate) struct Raw {
     expressions: HashMap<SRef, ast::Expression>,
 }
 impl HirMode for Raw {}
+
+impl Hir<Raw> {
+    pub(crate) fn transform_expressions(self, handler: &Handler, config: &FrontendConfig) -> Hir<IrExpression> {
+        Hir::<IrExpression>::transform_expressions(self, handler, config)
+    }
+}
 
 pub(crate) struct IrExpression {
     expressions: HashMap<SRef, Expression>,
