@@ -5,7 +5,7 @@ use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::Wi
 use super::WindowOperation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExprId(u32);
+pub struct ExprId(pub u32);
 
 /// Represents an expression.
 #[derive(Debug, PartialEq, Clone)]
@@ -52,6 +52,7 @@ pub enum ExpressionKind {
         /// An infallible expression providing a default value of `expr` evaluates to `None`.
         default: Box<Expression>,
     },
+    Window(WRef),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -76,6 +77,7 @@ pub enum Constant {
     Int(i64),
     #[allow(missing_docs)]
     Float(f64),
+    Numeric(String),
 }
 
 /// Contains all arithmetical and logical operations.
@@ -140,5 +142,23 @@ pub struct SlidingWindow {
     pub op: WindowOperation,
     /// A reference to this sliding window.
     pub reference: WRef,
+    /// The ExprId references the window location
+    pub eid: ExprId,
+}
+
+/// Represents an instance of a discrete window.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct DiscreteWindow {
+    /// The stream whose values will be aggregated.
+    pub target: SRef,
+    /// The number of values over which the window aggregates.
+    pub duration: u32,
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    pub wait: bool,
+    /// The aggregation operation.
+    pub op: WindowOperation,
+    /// A reference to this sliding window.
+    pub reference: WRef,
+    /// The ExprId references the window location
     pub eid: ExprId,
 }
