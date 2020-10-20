@@ -1,9 +1,11 @@
 use crate::common_ir::{MemorizationBound, SRef};
 use crate::hir::modes::dependencies::{DependenciesAnalyzed, DependenciesWrapper};
 use crate::hir::modes::ir_expr::{IrExprWrapper, WithIrExpr};
+use crate::hir::modes::ordering::{EvaluationOrderBuilt, OrderedWrapper};
 use crate::hir::modes::types::{TypeChecked, TypedWrapper};
 use crate::hir::modes::Complete;
 use crate::hir::modes::Dependencies;
+use crate::hir::modes::EvaluationOrder;
 use crate::hir::modes::MemoryAnalyzed;
 use crate::hir::StreamReference;
 use crate::{common_ir::Tracking, hir::Window};
@@ -101,6 +103,13 @@ impl TypedWrapper for Complete {
     type InnerT = Typed;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
+    }
+}
+
+impl OrderedWrapper for Complete {
+    type InnerO = EvaluationOrder;
+    fn inner_order(&self) -> &Self::InnerO {
+        &self.layers
     }
 }
 

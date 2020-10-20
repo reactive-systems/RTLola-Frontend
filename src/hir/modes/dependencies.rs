@@ -1,17 +1,18 @@
-use crate::common_ir::{Layer, SRef, WRef};
+use crate::common_ir::{SRef, WRef};
 
-use super::{Dependencies, DependencyGraph};
+use super::{Dependencies, DependencyGraph, EdgeWeight};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
+use super::common_functionality::*;
 use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::{expression::StreamAccessKind, Hir};
 use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
-use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph, Outgoing};
+use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph};
 
 pub(crate) trait DependenciesAnalyzed {
     // https://github.com/rust-lang/rust/issues/63063
@@ -26,7 +27,7 @@ pub(crate) trait DependenciesAnalyzed {
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>;
 
-    fn layer(&self, sr: SRef) -> Layer;
+    fn graph(&self) -> &Graph<SRef, EdgeWeight>;
 }
 
 impl DependenciesAnalyzed for Dependencies {
@@ -56,8 +57,8 @@ impl DependenciesAnalyzed for Dependencies {
         })
     }
 
-    fn layer(&self, _sr: SRef) -> Layer {
-        todo!()
+    fn graph(&self) -> &Graph<SRef, EdgeWeight> {
+        &self.dg.graph
     }
 }
 
@@ -83,8 +84,8 @@ impl<A: DependenciesWrapper<InnerD = T>, T: DependenciesAnalyzed + 'static> Depe
         self.inner_dep().aggregates(who)
     }
 
-    fn layer(&self, sr: SRef) -> Layer {
-        self.inner_dep().layer(sr)
+    fn graph(&self) -> &Graph<SRef, EdgeWeight> {
+        self.inner_dep().graph()
     }
 }
 
@@ -97,63 +98,6 @@ pub(crate) enum DependencyErr {
 pub(crate) struct DependencyReport {}
 
 type Result<T> = std::result::Result<T, DependencyErr>;
-type DG = Graph<SRef, EdgeWeight>;
-
-#[derive(Hash, Clone, Copy, Debug, PartialEq, Eq)]
-enum EdgeWeight {
-    Infinite,
-    Offset(i32),
-    Aggr(WRef),
-    Hold,
-}
-
-// impl FloatMeasure for EdgeWeight {
-//     fn zero() -> Self {
-//         EdgeWeight::Offset(0)
-//     }
-
-//     fn infinite() -> Self {
-//         EdgeWeight::Infinite
-//     }
-// }
-
-// impl std::ops::Add for EdgeWeight {
-//     type Output = EdgeWeight;
-
-//     fn add(self, rhs: Self) -> Self::Output {
-//         match (self, rhs) {
-//             (EdgeWeight::Infinite, _) | (_, EdgeWeight::Infinite) => EdgeWeight::Infinite,
-//             (EdgeWeight::Offset(w1), EdgeWeight::Offset(w2)) => EdgeWeight::Offset(w1 + w2),
-//             (EdgeWeight::Offset(w), _) | (_, EdgeWeight::Offset(w)) => EdgeWeight::Offset(w),
-//             (EdgeWeight::Aggr(wref), _) => EdgeWeight::Aggr(wref),
-//             (EdgeWeight::Hold, EdgeWeight::Aggr(wref)) => EdgeWeight::Aggr(wref),
-//             (EdgeWeight::Hold, EdgeWeight::Hold) => EdgeWeight::Hold,
-//         }
-//     }
-// }
-
-// impl PartialOrd for EdgeWeight {
-//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-//         match (self, other) {
-//             (EdgeWeight::Infinite, EdgeWeight::Infinite) => None,
-//             (EdgeWeight::Infinite, _) => Some(std::cmp::Ordering::Greater),
-//             (_, EdgeWeight::Infinite) => Some(std::cmp::Ordering::Less),
-//             (EdgeWeight::Offset(w1), EdgeWeight::Offset(w2)) => w1.partial_cmp(w2),
-//             (_, EdgeWeight::Offset(_)) => Some(std::cmp::Ordering::Less),
-//             (EdgeWeight::Offset(_), _) => Some(std::cmp::Ordering::Greater),
-//             (EdgeWeight::Aggr(_wref1), EdgeWeight::Aggr(_wref2)) => unimplemented!(), //Some(std::cmp::Ordering::Equal),
-//             (EdgeWeight::Aggr(_wref), EdgeWeight::Hold) => Some(std::cmp::Ordering::Greater),
-//             (EdgeWeight::Hold, EdgeWeight::Aggr(_)) => Some(std::cmp::Ordering::Less),
-//             (EdgeWeight::Hold, EdgeWeight::Hold) => Some(std::cmp::Ordering::Equal),
-//         }
-//     }
-// }
-
-// impl Default for EdgeWeight {
-//     fn default() -> Self {
-//         EdgeWeight::Offset(0)
-//     }
-// }
 
 impl Dependencies {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Dependencies>
@@ -162,11 +106,9 @@ impl Dependencies {
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
-        let mut graph: DG = Graph::with_capacity(num_nodes, num_edges);
-        let node_mapping_ref_to_index: HashMap<SRef, NodeIndex> =
+        let mut graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
+        let node_mapping: HashMap<SRef, NodeIndex> =
             spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
-        let node_mapping_index_to_ref: HashMap<NodeIndex, SRef> =
-            node_mapping_ref_to_index.iter().map(|(sref, sindex)| (*sindex, *sref)).collect();
         let edges = spec
             .outputs()
             .map(|o| o.sr)
@@ -190,7 +132,7 @@ impl Dependencies {
         let edge_mapping: HashMap<(SRef, EdgeWeight, SRef), EdgeIndex> = edges
             .iter()
             .map(|(src, w, tar)| {
-                ((*src, *w, *tar), graph.add_edge(node_mapping_ref_to_index[src], node_mapping_ref_to_index[tar], *w))
+                ((*src, *w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], *w))
             })
             .collect();
         // Check well-formedness = no closed-walk with total weight of zero or positive
@@ -207,46 +149,21 @@ impl Dependencies {
                 (*aggregated_by.entry(*tar).or_insert(Vec::new())).push((*src, *wref));
             }
         });
-        DependencyGraph { accesses, accessed_by, aggregates, aggregated_by };
-
-        // Compute Evaluation Layers
-        let (_event_based_layer_mapping, _periodic_layer_mapping) =
-            Self::compute_layers(spec, &graph, &node_mapping_index_to_ref, &edge_mapping);
+        DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
         unimplemented!()
     }
 
-    fn check_well_formedness(graph: &DG, edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>) -> Result<()> {
-        let graph = Self::graph_without_negative_offset_edges(graph, edge_mapping);
+    fn check_well_formedness(
+        graph: &Graph<SRef, EdgeWeight>,
+        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
+    ) -> Result<()> {
+        let graph = graph_without_negative_offset_edges(graph, edge_mapping);
         // check if cyclic
         if is_cyclic_directed(&graph) {
             Err(DependencyErr::WellFormedNess)
         } else {
             Ok(())
         }
-    }
-
-    fn graph_without_negative_offset_edges(
-        graph: &DG,
-        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
-    ) -> DG {
-        let mut graph = graph.clone();
-        let remove_edges = edge_mapping
-            .iter()
-            .filter_map(|((_, weight, _), index)| match weight {
-                EdgeWeight::Offset(o) => {
-                    if *o < 0 {
-                        Some(*index)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-            .collect::<Vec<EdgeIndex>>();
-        remove_edges.into_iter().for_each(|edge| {
-            graph.remove_edge(edge);
-        });
-        graph
     }
 
     fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
@@ -271,52 +188,5 @@ impl Dependencies {
                 .collect(),
             ExpressionKind::Window(_) => todo!(),
         }
-    }
-
-    fn compute_layers<M>(
-        spec: &Hir<M>,
-        graph: &DG,
-        node_mapping: &HashMap<NodeIndex, SRef>,
-        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
-    ) -> (HashMap<SRef, Layer>, HashMap<SRef, Layer>)
-    where
-        M: WithIrExpr + HirMode + 'static,
-    {
-        let graph = Self::graph_without_negative_offset_edges(graph, edge_mapping);
-        // split graph in periodic and event-based
-        let (event_based_graph, periodic_graph) = Self::split_graph(graph);
-        let event_based_layers = Self::compute_order(spec, event_based_graph, node_mapping);
-        let periodic_layers = Self::compute_order(spec, periodic_graph, node_mapping);
-        (event_based_layers, periodic_layers)
-    }
-
-    fn compute_order<M>(spec: &Hir<M>, graph: DG, node_mapping: &HashMap<NodeIndex, SRef>) -> HashMap<SRef, Layer>
-    where
-        M: WithIrExpr + HirMode + 'static,
-    {
-        let mut sref_to_layer = spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>();
-        while graph.node_count() != sref_to_layer.len() {
-            graph.node_indices().for_each(|node| {
-                let sref = &node_mapping[&node];
-                if !sref_to_layer.contains_key(sref) {
-                    //Layer for current streamcheck incoming
-                    let layer = graph
-                        .neighbors_directed(node, Outgoing)//or incoming -> try
-                        .map(|neighbor| sref_to_layer.get(&node_mapping[&neighbor]).map(|layer| *layer))
-                        .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| match (cur_res, neighbor_layer) {
-                            (Some(layer1), Some(layer2)) => Some(std::cmp::max(layer1, layer2)),
-                            _ => None,
-                        });
-                    if let Some(layer) = layer {
-                        sref_to_layer.insert(*sref, layer);
-                    }
-                }
-            });
-        }
-        sref_to_layer
-    }
-
-    fn split_graph(_graph: DG) -> (DG, DG) {
-        unimplemented!()
     }
 }

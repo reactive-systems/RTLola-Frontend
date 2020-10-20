@@ -1,20 +1,23 @@
 pub(crate) trait HirMode {}
 
 pub(crate) mod blanket;
+pub(crate) mod common_functionality;
 pub(crate) mod complete;
 pub(crate) mod dependencies;
 pub(crate) mod ir_expr;
+pub(crate) mod ordering;
 pub(crate) mod raw;
 pub(crate) mod types;
 
 use std::collections::HashMap;
 
 use crate::{
-    ast, common_ir::MemorizationBound, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef,
-    hir::expression::Expression, hir::Hir, reporting::Handler, FrontendConfig,
+    ast, common_ir::Layer, common_ir::MemorizationBound, common_ir::StreamReference as SRef,
+    common_ir::WindowReference as WRef, hir::expression::Expression, hir::Hir, reporting::Handler, FrontendConfig,
 };
 
 use self::dependencies::DependencyErr;
+use petgraph::Graph;
 
 use super::Window;
 
@@ -50,11 +53,20 @@ impl Hir<IrExpression> {
     }
 }
 
+#[derive(Hash, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EdgeWeight {
+    Infinite,
+    Offset(i32),
+    Aggr(WRef),
+    Hold,
+}
+
 struct DependencyGraph {
     accesses: HashMap<SRef, Vec<SRef>>,
     accessed_by: HashMap<SRef, Vec<SRef>>,
     aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>>,
     aggregates: HashMap<SRef, Vec<(SRef, WRef)>>,
+    graph: Graph<SRef, EdgeWeight>,
 }
 pub(crate) struct Dependencies {
     expressions: HashMap<SRef, Expression>,
@@ -83,12 +95,32 @@ impl Hir<Typed> {
     }
 }
 
+pub(crate) struct EvaluationOrder {
+    event_layers: HashMap<SRef, Layer>,
+    periodic_layers: HashMap<SRef, Layer>,
+}
+pub(crate) struct Ordered {
+    expressions: HashMap<SRef, Expression>,
+    dg: DependencyGraph,
+    stream_tt: HashMap<SRef, HirType>,
+    expr_tt: HashMap<SRef, HirType>,
+    layers: EvaluationOrder,
+}
+impl HirMode for Ordered {}
+
+impl Hir<Ordered> {
+    pub(crate) fn build_evaluation_order(self) -> Hir<MemBound> {
+        unimplemented!()
+    }
+}
+
 pub(crate) struct MemBound {
     memory: HashMap<SRef, MemorizationBound>,
     expressions: HashMap<SRef, Expression>,
     dg: DependencyGraph,
     stream_tt: HashMap<SRef, HirType>,
     expr_tt: HashMap<SRef, HirType>, // consider merging the tts.
+    layers: EvaluationOrder,
 }
 impl HirMode for MemBound {}
 
@@ -107,6 +139,7 @@ pub(crate) struct Complete {
     dependencies: Dependencies,
     ir_expr: IrExpression,
     types: Typed,
+    layers: EvaluationOrder,
 }
 impl HirMode for Complete {}
 

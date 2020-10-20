@@ -3,8 +3,10 @@ use crate::hir::modes::ir_expr::IrExprWrapper;
 use crate::hir::modes::types::TypeChecked;
 use crate::hir::modes::types::TypedWrapper;
 use crate::hir::StreamReference;
-use crate::hir::{modes::dependencies::DependenciesWrapper, Hir, MemorizationBound};
-use crate::{ast, common_ir::SRef, hir::modes::dependencies::DependenciesAnalyzed};
+use crate::hir::{modes::dependencies::DependenciesWrapper, modes::ordering::OrderedWrapper, Hir, MemorizationBound};
+use crate::{
+    ast, common_ir::SRef, hir::modes::dependencies::DependenciesAnalyzed, hir::modes::ordering::EvaluationOrderBuilt,
+};
 
 impl<M> DependenciesWrapper for Hir<M>
 where
@@ -12,6 +14,16 @@ where
 {
     type InnerD = M;
     fn inner_dep(&self) -> &Self::InnerD {
+        &self.mode
+    }
+}
+
+impl<M> OrderedWrapper for Hir<M>
+where
+    M: EvaluationOrderBuilt + HirMode,
+{
+    type InnerO = M;
+    fn inner_order(&self) -> &Self::InnerO {
         &self.mode
     }
 }
