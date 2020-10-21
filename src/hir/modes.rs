@@ -53,12 +53,15 @@ impl Hir<IrExpression> {
     }
 }
 
-#[derive(Hash, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Hash, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EdgeWeight {
     Infinite,
     Offset(i32),
     Aggr(WRef),
     Hold,
+    Spawn(Box<EdgeWeight>),
+    Filter(Box<EdgeWeight>),
+    Close(Box<EdgeWeight>),
 }
 
 struct DependencyGraph {

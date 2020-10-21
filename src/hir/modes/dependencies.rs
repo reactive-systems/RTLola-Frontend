@@ -107,33 +107,39 @@ impl Dependencies {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
         let mut graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
-        let node_mapping: HashMap<SRef, NodeIndex> =
-            spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
-        let edges = spec
+        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| Self::collect_edges(sr, spec.expr(sr)))
-            .map(|(src, w, tar)| {
-                let weight = match w {
-                    StreamAccessKind::Sync => EdgeWeight::Offset(0),
-                    StreamAccessKind::Offset(o) => match o {
-                        Offset::PastDiscreteOffset(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
-                        Offset::FutureDiscreteOffset(o) => EdgeWeight::Offset(i32::try_from(o).unwrap()),
-                        _ => todo!(),
-                    },
-                    StreamAccessKind::Hold => EdgeWeight::Hold,
-                    StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
-                    StreamAccessKind::DiscreteWindow(wref) => EdgeWeight::Aggr(wref),
-                };
-                (src, weight, tar)
-            })
+            .map(|(src, w, tar)| (src, Self::stream_access_kind_to_edge_weight(w), tar));
+        let edges_spawn = spec
+            .outputs()
+            .map(|o| o.sr)
+            .chain(spec.triggers().map(|t| t.sr))
+            .flat_map(|sr| Self::collect_edges(sr, spec.spawn(sr).1))
+            .map(|(src, w, tar)| (src, EdgeWeight::Spawn(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
+        let edges_filter = spec
+            .outputs()
+            .map(|o| o.sr)
+            .chain(spec.triggers().map(|t| t.sr))
+            .flat_map(|sr| Self::collect_edges(sr, spec.filter(sr)))
+            .map(|(src, w, tar)| (src, EdgeWeight::Filter(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
+        let edges_close = spec
+            .outputs()
+            .map(|o| o.sr)
+            .chain(spec.triggers().map(|t| t.sr))
+            .flat_map(|sr| Self::collect_edges(sr, spec.close(sr)))
+            .map(|(src, w, tar)| (src, EdgeWeight::Close(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
+        let edges = edges_expr
+            .chain(edges_spawn)
+            .chain(edges_filter)
+            .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
-        let edge_mapping: HashMap<(SRef, EdgeWeight, SRef), EdgeIndex> = edges
+        let edge_mapping: HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex> = edges
             .iter()
-            .map(|(src, w, tar)| {
-                ((*src, *w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], *w))
-            })
+            .map(|(src, w, tar)| ((*src, w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], w.clone())))
             .collect();
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph, &edge_mapping)?;
@@ -150,14 +156,16 @@ impl Dependencies {
             }
         });
         DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
-        unimplemented!()
+        todo!("Return Dependencies");
     }
 
     fn check_well_formedness(
         graph: &Graph<SRef, EdgeWeight>,
-        edge_mapping: &HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>,
+        edge_mapping: &HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex>,
     ) -> Result<()> {
         let graph = graph_without_negative_offset_edges(graph, edge_mapping);
+        let graph = graph_without_self_filter_edges(&graph, edge_mapping);
+        let graph = graph_without_close_edges(&graph, edge_mapping);
         // check if cyclic
         if is_cyclic_directed(&graph) {
             Err(DependencyErr::WellFormedNess)
@@ -188,5 +196,99 @@ impl Dependencies {
                 .collect(),
             ExpressionKind::Window(_) => todo!(),
         }
+    }
+
+    fn stream_access_kind_to_edge_weight(w: StreamAccessKind) -> EdgeWeight {
+        match w {
+            StreamAccessKind::Sync => EdgeWeight::Offset(0),
+            StreamAccessKind::Offset(o) => match o {
+                Offset::PastDiscreteOffset(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
+                Offset::FutureDiscreteOffset(o) => {
+                    if o == 0 {
+                        EdgeWeight::Offset(i32::try_from(o).unwrap())
+                    } else {
+                        todo!("implement DG analysis for positive Offsets")
+                    }
+                }
+                _ => todo!(),
+            },
+            StreamAccessKind::Hold => EdgeWeight::Hold,
+            StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
+            StreamAccessKind::DiscreteWindow(wref) => EdgeWeight::Aggr(wref),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn chek_graph_for_spec(_spec: &str, _res: bool) {
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore]
+    fn self_ref() {
+        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+b", false)
+    }
+    #[test]
+    #[ignore]
+    fn simple_cycle() {
+        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+d\noutput c: Int8 := b\noutput d: Int8 := c", false)
+    }
+
+    #[test]
+    #[ignore]
+    fn linear_should_be_no_problem() {
+        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c", true)
+    }
+
+    #[test]
+    #[ignore]
+    fn negative_cycle_should_be_no_problem() {
+        chek_graph_for_spec("output a: Int8 := a.offset(by: -1).defaults(to: 0)", true)
+    }
+
+    #[test]
+    #[ignore]
+    fn self_sliding_window_should_be_no_problem() {
+        chek_graph_for_spec("output a: Int8 := a.aggregate(over: 1s, using: sum)", true)
+    }
+
+    #[test]
+    #[ignore] // Graph Analysis cannot handle positive edges; not required for this branch.
+    fn positive_cycle_should_cause_a_warning() {
+        chek_graph_for_spec("output a: Int8 := a[1]", false);
+    }
+
+    #[test]
+    #[ignore]
+    fn self_loop() {
+        chek_graph_for_spec(
+            "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e",
+            false,
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn parallel_edges_in_a_cycle() {
+        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c", false)
+    }
+
+    #[test]
+    #[ignore]
+    fn spawn_self_ref() {
+        chek_graph_for_spec("input a: Int8\noutput b {spawn if b > 6} := a + 5", false)
+    }
+    #[test]
+    #[ignore]
+    fn filter_self_ref() {
+        chek_graph_for_spec("input a: Int8\noutput b {filter b > 6} := a + 5", true)
+    }
+
+    #[test]
+    #[ignore]
+    fn close_self_ref() {
+        chek_graph_for_spec("input a: Int8\noutput b {close b > 6} := a + 5", true)
     }
 }

@@ -2,7 +2,7 @@ use crate::common_ir::{Layer, SRef};
 
 use super::{EdgeWeight, EvaluationOrder};
 
-use super::common_functionality::graph_without_negative_offset_edges;
+use super::common_functionality::*;
 use std::collections::HashMap;
 
 use crate::hir::modes::{dependencies::DependenciesAnalyzed, ir_expr::WithIrExpr, types::TypeChecked, HirMode};
@@ -14,8 +14,12 @@ pub(crate) trait EvaluationOrderBuilt {
 }
 
 impl EvaluationOrderBuilt for EvaluationOrder {
-    fn layer(&self, _sr: SRef) -> Layer {
-        todo!()
+    fn layer(&self, sr: SRef) -> Layer {
+        match self.event_layers.get(&sr) {
+            Some(layer) => *layer,
+            None => self.periodic_layers[&sr],
+        }
+        // todo!("Is there a better way to decide if the stream is periodic or event-based?")
     }
 }
 
@@ -59,12 +63,16 @@ impl EvaluationOrder {
             .map(|edge| {
                 let (src, tar) = spec.graph().edge_endpoints(edge).unwrap();
                 let weight = spec.graph().edge_weight(edge).unwrap();
-                ((node_mapping[&src], *weight, node_mapping[&tar]), edge)
+                ((node_mapping[&src], weight, node_mapping[&tar]), edge)
             })
-            .collect::<HashMap<(SRef, EdgeWeight, SRef), EdgeIndex>>();
-        let edge_mapping_index_to_edge =
-            edge_mapping_edge_to_index.iter().map(|(edge, index)| (*index, *edge)).collect();
+            .collect::<HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex>>();
+        let edge_mapping_index_to_edge = edge_mapping_edge_to_index
+            .iter()
+            .map(|(edge, index)| (*index, *edge))
+            .collect::<HashMap<EdgeIndex, (SRef, &EdgeWeight, SRef)>>();
         let graph = graph_without_negative_offset_edges(spec.graph(), &edge_mapping_edge_to_index);
+        let graph = graph_without_self_filter_edges(&graph, &edge_mapping_edge_to_index);
+        let graph = graph_without_close_edges(&graph, &edge_mapping_edge_to_index);
         // split graph in periodic and event-based
         let (event_graph, periodic_graph) = Self::split_graph(spec, graph, &node_mapping, &edge_mapping_index_to_edge);
         let event_layers = Self::compute_layer(spec, &event_graph, &node_mapping)?;
@@ -109,7 +117,7 @@ impl EvaluationOrder {
         spec: &Hir<M>,
         graph: Graph<SRef, EdgeWeight>,
         node_mapping: &HashMap<NodeIndex, SRef>,
-        edge_mapping: &HashMap<EdgeIndex, (SRef, EdgeWeight, SRef)>,
+        edge_mapping: &HashMap<EdgeIndex, (SRef, &EdgeWeight, SRef)>,
     ) -> (Graph<SRef, EdgeWeight>, Graph<SRef, EdgeWeight>)
     where
         M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
@@ -144,5 +152,27 @@ impl EvaluationOrder {
             }
         });
         (event_graph, periodic_graph)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::common_ir::{Layer, SRef};
+    use std::collections::HashMap;
+    fn check_eval_order_for_spec(
+        _spec: &str,
+        _event_layers: HashMap<SRef, Layer>,
+        _periodic_layers: HashMap<SRef, Layer>,
+    ) {
+        todo!()
+    }
+
+    #[test]
+    #[ignore]
+    fn simple_spec() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a";
+        let event_layers = todo!();
+        let periodic_layers = todo!();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
     }
 }
