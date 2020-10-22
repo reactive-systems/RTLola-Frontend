@@ -109,6 +109,7 @@ pub(crate) fn parse_to_hir(
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
         .type_check()
+        .build_evaluation_order()
         .compute_memory_bounds()
         .finalize())
     // let analysis_result = analysis::analyze(&spec, &handler, config);

@@ -5,6 +5,7 @@ pub(crate) mod common_functionality;
 pub(crate) mod complete;
 pub(crate) mod dependencies;
 pub(crate) mod ir_expr;
+pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod raw;
 pub(crate) mod types;
@@ -93,7 +94,7 @@ pub(crate) struct Typed {
 impl HirMode for Typed {}
 
 impl Hir<Typed> {
-    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
+    pub(crate) fn build_evaluation_order(self) -> Hir<Ordered> {
         unimplemented!()
     }
 }
@@ -112,13 +113,15 @@ pub(crate) struct Ordered {
 impl HirMode for Ordered {}
 
 impl Hir<Ordered> {
-    pub(crate) fn build_evaluation_order(self) -> Hir<MemBound> {
+    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
         unimplemented!()
     }
 }
-
+pub(crate) struct Memory {
+    memory_bound_per_stram: HashMap<SRef, MemorizationBound>,
+}
 pub(crate) struct MemBound {
-    memory: HashMap<SRef, MemorizationBound>,
+    memory: Memory,
     expressions: HashMap<SRef, Expression>,
     dg: DependencyGraph,
     stream_tt: HashMap<SRef, HirType>,
@@ -133,12 +136,8 @@ impl Hir<MemBound> {
     }
 }
 
-pub(crate) trait MemoryAnalyzed {
-    fn memory(&self, sr: SRef) -> MemorizationBound;
-}
-
 pub(crate) struct Complete {
-    memory: HashMap<SRef, MemorizationBound>,
+    memory: Memory,
     dependencies: Dependencies,
     ir_expr: IrExpression,
     types: Typed,

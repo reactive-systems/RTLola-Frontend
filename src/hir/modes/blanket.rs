@@ -1,9 +1,11 @@
-use super::{ir_expr::WithIrExpr, AstExpr, HirMode, MemoryAnalyzed};
+use super::{ir_expr::WithIrExpr, AstExpr, HirMode};
 use crate::hir::modes::ir_expr::IrExprWrapper;
+use crate::hir::modes::memory_bounds::MemoryAnalyzed;
 use crate::hir::modes::types::TypeChecked;
 use crate::hir::modes::types::TypedWrapper;
-use crate::hir::StreamReference;
-use crate::hir::{modes::dependencies::DependenciesWrapper, modes::ordering::OrderedWrapper, Hir, MemorizationBound};
+use crate::hir::{
+    modes::dependencies::DependenciesWrapper, modes::memory_bounds::MemoryWrapper, modes::ordering::OrderedWrapper, Hir,
+};
 use crate::{
     ast, common_ir::SRef, hir::modes::dependencies::DependenciesAnalyzed, hir::modes::ordering::EvaluationOrderBuilt,
 };
@@ -48,12 +50,13 @@ where
     }
 }
 
-impl<M> MemoryAnalyzed for Hir<M>
+impl<M> MemoryWrapper for Hir<M>
 where
     M: MemoryAnalyzed + HirMode,
 {
-    fn memory(&self, sr: StreamReference) -> MemorizationBound {
-        self.mode.memory(sr)
+    type InnerM = M;
+    fn inner_memory(&self) -> &Self::InnerM {
+        &self.mode
     }
 }
 

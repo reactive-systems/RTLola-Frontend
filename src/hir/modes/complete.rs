@@ -1,12 +1,13 @@
-use crate::common_ir::{MemorizationBound, SRef};
+use crate::common_ir::SRef;
 use crate::hir::modes::dependencies::{DependenciesAnalyzed, DependenciesWrapper};
 use crate::hir::modes::ir_expr::{IrExprWrapper, WithIrExpr};
+use crate::hir::modes::memory_bounds::{MemoryAnalyzed, MemoryWrapper};
 use crate::hir::modes::ordering::{EvaluationOrderBuilt, OrderedWrapper};
 use crate::hir::modes::types::{TypeChecked, TypedWrapper};
 use crate::hir::modes::Complete;
 use crate::hir::modes::Dependencies;
 use crate::hir::modes::EvaluationOrder;
-use crate::hir::modes::MemoryAnalyzed;
+use crate::hir::modes::Memory;
 use crate::hir::StreamReference;
 use crate::{common_ir::Tracking, hir::Window};
 use crate::{hir::Hir, mir, mir::Mir};
@@ -93,9 +94,10 @@ impl DependenciesWrapper for Complete {
     }
 }
 
-impl MemoryAnalyzed for Complete {
-    fn memory(&self, _sr: StreamReference) -> MemorizationBound {
-        todo!()
+impl MemoryWrapper for Complete {
+    type InnerM = Memory;
+    fn inner_memory(&self) -> &Self::InnerM {
+        &self.memory
     }
 }
 
