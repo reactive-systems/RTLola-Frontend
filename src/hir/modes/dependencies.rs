@@ -118,7 +118,9 @@ impl Dependencies {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.spawn(sr).1))
+            .flat_map(|sr| {
+                Self::collect_edges(sr, spec.spawn(sr).0).into_iter().chain(Self::collect_edges(sr, spec.spawn(sr).1))
+            })
             .map(|(src, w, tar)| (src, EdgeWeight::Spawn(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges_filter = spec
             .outputs()
@@ -155,7 +157,7 @@ impl Dependencies {
                 (*aggregated_by.entry(*tar).or_insert(Vec::new())).push((*src, *wref));
             }
         });
-        DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
+        let _dg = DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
         todo!("Return Dependencies");
     }
 
@@ -164,7 +166,6 @@ impl Dependencies {
         edge_mapping: &HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex>,
     ) -> Result<()> {
         let graph = graph_without_negative_offset_edges(graph, edge_mapping);
-        let graph = graph_without_self_filter_edges(&graph, edge_mapping);
         let graph = graph_without_close_edges(&graph, edge_mapping);
         // check if cyclic
         if is_cyclic_directed(&graph) {

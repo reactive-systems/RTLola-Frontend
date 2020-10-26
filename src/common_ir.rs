@@ -100,6 +100,12 @@ pub enum Offset {
 /// TODO
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Layer(usize);
+/// TODO
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+pub struct StreamLayers {
+    spawn: Layer,
+    evaluation: Layer,
+}
 impl Into<usize> for Layer {
     fn into(self) -> usize {
         self.0

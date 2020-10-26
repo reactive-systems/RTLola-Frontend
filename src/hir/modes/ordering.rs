@@ -1,4 +1,4 @@
-use crate::common_ir::{Layer, SRef};
+use crate::common_ir::{Layer, SRef, StreamLayers};
 
 use super::{EdgeWeight, EvaluationOrder};
 
@@ -10,11 +10,11 @@ use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph, Outgoing};
 
 pub(crate) trait EvaluationOrderBuilt {
-    fn layer(&self, sr: SRef) -> Layer;
+    fn layers(&self, sr: SRef) -> StreamLayers;
 }
 
 impl EvaluationOrderBuilt for EvaluationOrder {
-    fn layer(&self, sr: SRef) -> Layer {
+    fn layers(&self, sr: SRef) -> StreamLayers {
         match self.event_layers.get(&sr) {
             Some(layer) => *layer,
             None => self.periodic_layers[&sr],
@@ -29,8 +29,8 @@ pub(crate) trait OrderedWrapper {
 }
 
 impl<A: OrderedWrapper<InnerO = T>, T: EvaluationOrderBuilt + 'static> EvaluationOrderBuilt for A {
-    fn layer(&self, sr: SRef) -> Layer {
-        self.inner_order().layer(sr)
+    fn layers(&self, sr: SRef) -> StreamLayers {
+        self.inner_order().layers(sr)
     }
 }
 
@@ -71,20 +71,19 @@ impl EvaluationOrder {
             .map(|(edge, index)| (*index, *edge))
             .collect::<HashMap<EdgeIndex, (SRef, &EdgeWeight, SRef)>>();
         let graph = graph_without_negative_offset_edges(spec.graph(), &edge_mapping_edge_to_index);
-        let graph = graph_without_self_filter_edges(&graph, &edge_mapping_edge_to_index);
         let graph = graph_without_close_edges(&graph, &edge_mapping_edge_to_index);
         // split graph in periodic and event-based
         let (event_graph, periodic_graph) = Self::split_graph(spec, graph, &node_mapping, &edge_mapping_index_to_edge);
-        let event_layers = Self::compute_layer(spec, &event_graph, &node_mapping)?;
-        let periodic_layers = Self::compute_layer(spec, &periodic_graph, &node_mapping)?;
+        let event_layers = Self::compute_layers(spec, &event_graph, &node_mapping)?;
+        let periodic_layers = Self::compute_layers(spec, &periodic_graph, &node_mapping)?;
         Ok(EvaluationOrder { event_layers, periodic_layers })
     }
 
-    fn compute_layer<M>(
+    fn compute_layers<M>(
         spec: &Hir<M>,
         graph: &Graph<SRef, EdgeWeight>,
         node_mapping: &HashMap<NodeIndex, SRef>,
-    ) -> Result<HashMap<SRef, Layer>>
+    ) -> Result<HashMap<SRef, StreamLayers>>
     where
         M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
     {
@@ -110,7 +109,8 @@ impl EvaluationOrder {
                 }
             });
         }
-        Ok(sref_to_layer)
+        // Ok(sref_to_layer)
+        todo!()
     }
 
     fn split_graph<M>(

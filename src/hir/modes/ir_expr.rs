@@ -3,7 +3,6 @@ use crate::{
         Constant as HIRConstant, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
         StreamAccessKind as IRAccess,
     },
-    hir::modes::HirType,
     hir::{Hir, Window},
 };
 
@@ -21,7 +20,7 @@ use std::time::Duration;
 pub(crate) trait WithIrExpr {
     fn windows(&self) -> Vec<Window>;
     fn expr(&self, sr: SRef) -> &Expression;
-    fn spawn(&self, sr: SRef) -> (&Option<HirType>, &Expression);
+    fn spawn(&self, sr: SRef) -> (&Expression, &Expression);
     fn filter(&self, sr: SRef) -> &Expression;
     fn close(&self, sr: SRef) -> &Expression;
 }
@@ -33,7 +32,7 @@ impl WithIrExpr for IrExpression {
     fn expr(&self, sr: SRef) -> &Expression {
         self.expressions.get(&sr).expect("accessing non-existent expression")
     }
-    fn spawn(&self, _sr: SRef) -> (&Option<HirType>, &Expression) {
+    fn spawn(&self, _sr: SRef) -> (&Expression, &Expression) {
         todo!()
     }
     fn filter(&self, _sr: SRef) -> &Expression {
@@ -62,7 +61,7 @@ impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
     fn expr(&self, sr: SRef) -> &Expression {
         self.inner_expr().expr(sr)
     }
-    fn spawn(&self, sr: SRef) -> (&Option<HirType>, &Expression) {
+    fn spawn(&self, sr: SRef) -> (&Expression, &Expression) {
         self.inner_expr().spawn(sr)
     }
     fn filter(&self, sr: SRef) -> &Expression {

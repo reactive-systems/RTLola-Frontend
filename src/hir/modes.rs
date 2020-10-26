@@ -13,7 +13,7 @@ pub(crate) mod types;
 use std::collections::HashMap;
 
 use crate::{
-    ast, common_ir::Layer, common_ir::MemorizationBound, common_ir::StreamReference as SRef,
+    ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
     common_ir::WindowReference as WRef, hir::expression::Expression, hir::Hir, reporting::Handler, FrontendConfig,
 };
 
@@ -100,8 +100,8 @@ impl Hir<Typed> {
 }
 
 pub(crate) struct EvaluationOrder {
-    event_layers: HashMap<SRef, Layer>,
-    periodic_layers: HashMap<SRef, Layer>,
+    event_layers: HashMap<SRef, StreamLayers>,
+    periodic_layers: HashMap<SRef, StreamLayers>,
 }
 pub(crate) struct Ordered {
     expressions: HashMap<SRef, Expression>,
