@@ -1,3 +1,4 @@
+/*
 use super::{DependencyGraph, EIx, Location, NIx, Offset, StreamDependency, StreamNode, TimeOffset};
 use crate::analysis::naming::{Declaration, DeclarationTable};
 use crate::ast;
@@ -770,7 +771,7 @@ pub(crate) fn analyse_dependencies<'a>(
     };
     analyser.analyse_dependencies()
 }
-
+*/
 #[cfg(test)]
 mod tests {
     use super::*;

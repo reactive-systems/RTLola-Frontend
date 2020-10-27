@@ -1,3 +1,4 @@
+/*
 use crate::analysis::graph_based_analysis::space_requirements::TrackingRequirements;
 use crate::analysis::graph_based_analysis::{get_byte_size, MemoryBound, TrackingRequirement};
 use crate::analysis::graph_based_analysis::{SpaceRequirements, StorageRequirement};
@@ -43,6 +44,7 @@ fn add_sliding_windows(
     type_table: &TypeTable,
     declaration_table: &DeclarationTable,
 ) -> MemoryBound {
+    todo!();
     let mut required_memory: u128 = 0;
     let mut unknown_size = false;
 
@@ -164,9 +166,6 @@ fn add_sliding_windows(
                 .get(&expr.id)
                 .expect("We expect the the declaration-table to contain information about every stream access")
             {
-                Declaration::In(input) => input.id,
-                Declaration::Out(output) => output.id,
-                _ => panic!("Sliding Window Aggregaton must be used over a stream variable"),
             };
 
             let stream_ty = &type_table.get_stream_type(node_id);
@@ -382,3 +381,4 @@ pub(crate) fn determine_worst_case_memory_consumption(
         MemoryBound::Bounded(required_memory)
     }
 }
+*/

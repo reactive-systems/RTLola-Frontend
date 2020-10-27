@@ -166,6 +166,7 @@ impl ExpressionTransformer {
                 let expr_ref = self.get_stream_ref(&*target_expr).unwrap(); //TODO error case
                 ExpressionKind::StreamAccess(expr_ref, IRAccess::Offset(ir_offset))
             }
+            ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 if let Ok(sref) = self.get_stream_ref(&w_expr) {
                     let idx = self.sliding_windows.len();

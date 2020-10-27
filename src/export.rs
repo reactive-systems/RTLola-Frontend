@@ -24,7 +24,7 @@ pub fn analyze(filename: &str, config: FrontendConfig) {
         eprintln!("parse error:\n{}", e);
         std::process::exit(1)
     });
-    let _report = analysis::analyze(&spec, &handler, FrontendConfig::default());
+    //let _report = analysis::analyze(&spec, &handler, FrontendConfig::default());
     //println!("{:?}", report);
     //use crate::analysis::graph_based_analysis::MemoryBound;
     //report.graph_analysis_result.map(|r| match r.memory_requirements {

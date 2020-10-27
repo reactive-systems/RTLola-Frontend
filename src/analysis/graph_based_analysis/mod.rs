@@ -1,3 +1,4 @@
+/*
 #![allow(dead_code)]
 
 pub mod dependency_graph;
@@ -39,7 +40,7 @@ pub(crate) struct GraphAnalysisResult {
     pub(crate) memory_requirements: MemoryBound,
     pub(crate) input_dependencies: RequiredInputs,
 }
-
+/*
 pub(crate) fn analyze(
     spec: &RTLolaAst,
     declaration_table: &DeclarationTable,
@@ -82,7 +83,7 @@ pub(crate) fn analyze(
         input_dependencies,
     })
 }
-
+*/
 #[derive(Debug, Clone)]
 pub(crate) enum StreamNode {
     RTOutput(NodeId, StreamTy),
@@ -205,3 +206,4 @@ fn get_byte_size(value_ty: &ValueTy) -> MemoryBound {
         ValueTy::Error => MemoryBound::Unknown,
     }
 }
+*/

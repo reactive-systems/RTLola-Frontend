@@ -23,11 +23,12 @@ Run the `rtlola-analyzer` program.
 Only problems while reading the input file result in returning an `Err<Box<dyn Error>>`
 */
 #[allow(non_snake_case)]
+/*
 pub fn runAnalysisCLI(args: &[String]) -> Result<(), Box<dyn Error>> {
     let config = Config::new(args);
     config.run()
 }
-
+*/
 const CONFIG: FrontendConfig =
     FrontendConfig { ty: TypeConfig { use_64bit_only: true, type_aliases: true }, allow_parameters: true };
 
@@ -43,7 +44,7 @@ pub(crate) struct Config {
     which: Analysis,
     filename: String,
 }
-
+/*
 impl Config {
     pub(crate) fn new(args: &[String]) -> Self {
         let matches = App::new("rtlola-analyze")
@@ -171,3 +172,4 @@ impl Config {
         }
     }
 }
+*/

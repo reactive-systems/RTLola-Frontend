@@ -1,3 +1,4 @@
+
 use rtlola_frontend::app;
 use std::env;
 use std::error::Error;
@@ -8,5 +9,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let args: Vec<String> = env::args().collect();
 
-    app::analyze::runAnalysisCLI(&args)
+    //app::analyze::runAnalysisCLI(&args)
+    todo!()
 }

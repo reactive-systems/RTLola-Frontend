@@ -1,3 +1,4 @@
+
 //! This module provides analysis steps based on the AST.
 //!
 //! In detail,
@@ -19,7 +20,8 @@ use crate::ty::check::TypeAnalysis;
 use crate::FrontendConfig;
 
 // Export output types.
-pub(crate) use self::graph_based_analysis::GraphAnalysisResult;
+//pub(crate) use self::graph_based_analysis::GraphAnalysisResult;
+/*
 pub(crate) use self::naming::DeclarationTable;
 pub(crate) use crate::ty::check::TypeTable;
 
@@ -38,7 +40,8 @@ impl Report {
         Report { declaration_table, type_table, graph_analysis_result }
     }
 }
-
+*/
+/*
 pub(crate) fn analyze(spec: &RTLolaAst, handler: &Handler, config: FrontendConfig) -> Result<Report, ()> {
     ast::verify::Verifier::new(spec, handler).check();
 
@@ -77,3 +80,4 @@ pub(crate) fn analyze(spec: &RTLolaAst, handler: &Handler, config: FrontendConfi
 
     Ok(Report::new(decl_table, tt, graph_res))
 }
+*/
