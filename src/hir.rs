@@ -9,10 +9,12 @@ use crate::common_ir::StreamReference as SRef;
 use crate::common_ir::*;
 use crate::hir::expression::ExprId;
 use crate::parse;
+use crate::hir::expression::Expression;
 
 pub(crate) mod expression;
 pub(crate) mod lowering;
 pub(crate) mod modes;
+pub(crate) mod naming;
 mod print;
 mod schedule;
 
@@ -22,7 +24,7 @@ pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export n
 
 use modes::HirMode;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub(crate) struct RTLolaHIR<M: HirMode> {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
@@ -69,27 +71,66 @@ impl<M: HirMode> Hir<M> {
 }
 
 /// Represents an input stream in an RTLola specification.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub(crate) struct Input {
+#[derive(Debug, Clone)]
+pub struct Input {
     /// The name of the stream.
     pub(crate) name: String,
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
+    /// The user annotated Type
+    pub annotated_type: AnnotatedType
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct Window {
+pub struct Window {
     pub(crate) expr: ExprId,
 }
 
 /// Represents an output stream in an RTLola specification.
-#[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Output {
+#[derive(Debug, Clone)]
+pub struct Output {
     /// The name of the stream.
-    pub(crate) name: String,
+    pub name: String,
+    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
+    pub params: Vec<Parameter>,
+    /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
+    //pub activation_condition: Option<Expression>,
+    /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
+    //pub template_spec: TemplateSpec,
     /// The reference pointing to this stream.
-    pub(crate) sr: StreamReference,
+    pub sr: StreamReference,
+    /// The user annotated Type
+    pub annotated_type: Option<AnnotatedType>
 }
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct  Parameter {
+    /// The name of this parameter
+    pub name: String,
+    /// The id, index in the parameter vector in the output stream, for this parameter
+    pub idx: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplateSpec {
+    /// The invoke condition of the parametrized stream.
+    pub inv: Option<InvokeSpec>,
+    /// The extend condition of the parametrized stream.
+    pub ext: Option<Expression>,
+    /// The termination condition of the parametrized stream.
+    pub ter: Option<Expression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InvokeSpec {
+    /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
+    pub target: Expression,
+    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
+    pub condition: Option<Expression>,
+    /// A flag to describe if the invoke declaration contains an additional condition
+    pub is_if: bool,
+}
+
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Trigger {
@@ -104,3 +145,14 @@ impl Trigger {
         // Self { name, message: msg.unwrap_or_else(String::new), sr }
     }
 }
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum AnnotatedType {
+    Int(u32),
+    Float(u32),
+    UInt(u32),
+    Option(Box<AnnotatedType>),
+    Tuple(Vec<AnnotatedType>),
+}
+
+
