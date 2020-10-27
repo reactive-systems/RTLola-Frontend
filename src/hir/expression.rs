@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
-
+use crate::hir::AnnotatedType;
 use super::WindowOperation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,6 +31,8 @@ pub enum ExpressionKind {
     ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
     StreamAccess(SRef, StreamAccessKind),
+    /// Accessing the n'th parameter of this parameterized stream
+    ParameterAccess(usize),
     /// An if-then-else expression
     Ite {
         condition: Box<Expression>,
@@ -66,7 +68,7 @@ pub enum StreamAccessKind {
 
 /// Represents a constant value of a certain kind.
 #[derive(Debug, PartialEq, Clone)]
-pub enum Constant {
+pub enum ConstantLiteral {
     #[allow(missing_docs)]
     Str(String),
     #[allow(missing_docs)]
@@ -78,6 +80,12 @@ pub enum Constant {
     #[allow(missing_docs)]
     Float(f64),
     Numeric(String),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Constant {
+    BasicConstant(ConstantLiteral),
+    InlinedConstant(ConstantLiteral, AnnotatedType)
 }
 
 /// Contains all arithmetical and logical operations.

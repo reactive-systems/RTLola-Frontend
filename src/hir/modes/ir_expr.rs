@@ -1,19 +1,21 @@
 use crate::{
     hir::expression::{
-        Constant as HIRConstant, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
+        Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
         StreamAccessKind as IRAccess,
     },
     hir::{Hir, Window},
+    hir::modes::raw::annotated_type,
 };
 
 use super::IrExpression;
-use crate::analysis::naming::{Declaration, DeclarationTable, NamingAnalysis};
+//use crate::analysis::naming::{Declaration, DeclarationTable, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Literal, StreamAccessKind};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::reporting::Handler;
 use crate::FrontendConfig;
 use crate::Raw;
+use crate::hir::naming::{Declaration, NamingAnalysis};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -85,38 +87,51 @@ pub struct ExpressionTransformer {
     sliding_windows: Vec<SlidingWindow>,
     discrete_windows: Vec<DiscreteWindow>,
     windows: Vec<Window>,
-    ident_to_ref: HashMap<String, SRef>,
-    decl_table: DeclarationTable,
+    string_to_dec: HashMap<String, Declaration>,
+    stream_by_name: HashMap<String, SRef>,
+    current_exp_id: u32,
 }
 
 impl ExpressionTransformer {
+    fn new(ast_expressions: HashMap<SRef, ast::Expression>,  string_to_dec: HashMap<String, Declaration>) -> Self {
+        ExpressionTransformer {
+            ast_expressions,
+            transformed_expression: HashMap::new(),
+            sliding_windows: vec![],
+            discrete_windows: vec![],
+            windows: vec![],
+            string_to_dec,
+            stream_by_name: Default::default(),
+            current_exp_id: 0,
+        }
+    }
+
+
     fn get_stream_ref(&self, expr: &ast::Expression) -> Result<SRef, TransformationError> {
-        if let ast::ExpressionKind::Ident(_) = &expr.kind {
-            let decl = self.decl_table[&expr.id].clone();
-            match decl {
-                Declaration::In(input) => Ok(self.ident_to_ref[&input.name.name]),
-                Declaration::Out(out) => Ok(self.ident_to_ref[&out.name.name]),
-                Declaration::ParamOut(pout) => Ok(self.ident_to_ref[&pout.name.name]),
-                Declaration::Param(_) | Declaration::Const(_) | Declaration::Func(_) | Declaration::Type(_) => {
-                    Err(TransformationError::InvalidIdentRef(decl))
-                }
+        if let ast::ExpressionKind::Ident(ident) = &expr.kind {
+            match &self.string_to_dec[&ident.name] {
+                Declaration::In(i) => Ok(i.sr),
+                Declaration::Out(o) => Ok(o.sr),
+                _ => Err(TransformationError::InvalidRefExpr(String::from("Non-identifier transformed to SRef")))
             }
         } else {
-            Err(TransformationError::InvalidRefExpr(String::from("Non-identifier transformed to SRef")))
+            unimplemented!("todo error")
         }
     }
 
     fn next_exp_id(&mut self) -> ExprId {
-        todo!()
+        let ret = self.current_exp_id;
+        self.current_exp_id +=1;
+        ExprId(ret)
     }
 
-    fn transform_literal(&self, lit: &Literal) -> HIRConstant {
+    fn transform_literal(&self, lit: &Literal) -> ConstantLiteral {
         match &lit.kind {
-            ast::LitKind::Bool(b) => HIRConstant::Bool(*b),
-            ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => HIRConstant::Str(s.clone()),
+            ast::LitKind::Bool(b) => ConstantLiteral::Bool(*b),
+            ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => ConstantLiteral::Str(s.clone()),
             ast::LitKind::Numeric(num_str, postfix) => {
                 assert!(postfix.is_none());
-                HIRConstant::Numeric(num_str.clone())
+                ConstantLiteral::Numeric(num_str.clone())
             }
         }
     }
@@ -127,19 +142,26 @@ impl ExpressionTransformer {
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
                 let constant = self.transform_literal(&lit);
-                ExpressionKind::LoadConstant(constant)
+                ExpressionKind::LoadConstant(HIRConstant::BasicConstant(constant))
             }
-            ast::ExpressionKind::Ident(_) => match &self.decl_table[&ast_expression.id] {
-                Declaration::In(_) | Declaration::Out(_) => match self.get_stream_ref(&ast_expression) {
-                    Ok(sref) => ExpressionKind::StreamAccess(sref, IRAccess::Sync),
-                    Err(_) => todo!(),
-                },
-                Declaration::Const(cons) => {
-                    let cons = &**cons;
-                    let constant = self.transform_literal(&cons.literal);
-                    ExpressionKind::LoadConstant(constant)
+            ast::ExpressionKind::Ident(ident) =>{
+                match &self.string_to_dec[&ident.name] {
+                    Declaration::Out(o) => {
+                        ExpressionKind::StreamAccess(o.sr, IRAccess::Sync)
+                    }
+                    Declaration::In(i) => {
+                        ExpressionKind::StreamAccess(i.sr, IRAccess::Sync)
+                    }
+                    Declaration::Const(c) => {
+                        let annotated_type = match annotated_type(&c.ty.as_ref().expect("Constant variables must have type annotation")) {
+                            Some(t) => t,
+                            None => unreachable!("Constant variables must have type annotation"),
+                        };
+                        ExpressionKind::LoadConstant(HIRConstant::InlinedConstant(self.transform_literal(&c.literal),annotated_type))
+                    }
+                    Declaration::Param(p) => ExpressionKind::ParameterAccess(p.idx),
+                    Declaration::Func(_)  => todo!(),
                 }
-                _ => unreachable!(),
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
                 let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Hold }; //TODO
@@ -241,7 +263,7 @@ impl ExpressionTransformer {
             ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
             ast::ExpressionKind::Function(name, _type_param, args) => {
                 //TODO use type_param
-                let _decl = self.decl_table[&ast_expression.id].clone();
+                //let _decl = self.stream_by_name[&ast_expression.id].clone();
                 ExpressionKind::Function(
                     name.name.name,
                     args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
@@ -266,9 +288,16 @@ fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Duration {
 
 impl Hir<IrExpression> {
     pub fn transform_expressions(raw: Hir<Raw>, handler: &Handler, config: &FrontendConfig) -> Self {
+        let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
+        let  string_to_dec = if let Some(map) = naming_analyzer.check(&raw, &raw.mode.constants) {
+            map
+        } else {
+            unimplemented!("Error handling")
+        };
+
         let Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: raw_mode } = raw;
 
-        let Raw { constants: _constants, expressions: ast_expressions } = raw_mode;
+        let Raw { constants, expressions: ast_expressions } = raw_mode;
 
         let ident_to_ref: HashMap<String, SRef> = inputs
             .iter()
@@ -277,18 +306,8 @@ impl Hir<IrExpression> {
             .chain(outputs.iter().enumerate().map(|(n, o)| (o.name.clone(), SRef::OutRef(n))))
             .collect();
 
-        let expr_transformer = ExpressionTransformer {
-            ast_expressions,
-            transformed_expression: HashMap::new(),
-            sliding_windows: vec![],
-            discrete_windows: vec![],
-            windows: vec![],
-            ident_to_ref,
-            decl_table: Default::default(),
-        };
+        let expr_transformer = ExpressionTransformer::new(ast_expressions, string_to_dec);
 
-        let _naming_analyzer = NamingAnalysis::new(&handler, *config);
-        //let mut decl_table = naming_analyzer.check(&raw, constants);
 
         let ExpressionTransformer { transformed_expression: result_map, windows, .. } = expr_transformer;
 

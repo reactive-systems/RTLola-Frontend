@@ -190,6 +190,7 @@ impl Dependencies {
                 .chain(Self::collect_edges(src, default).into_iter())
                 .collect(),
             ExpressionKind::Window(_) => todo!(),
+            ExpressionKind::ParameterAccess(_) => Vec::new(), //check this
         }
     }
 

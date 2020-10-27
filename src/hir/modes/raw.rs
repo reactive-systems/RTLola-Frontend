@@ -7,9 +7,11 @@ use crate::{
     hir::Input,
     hir::Output,
     hir::Trigger,
+    hir::AnnotatedType,
 };
 
 use super::{IrExpression, Raw};
+use crate::ast::Type;
 
 impl From<Ast> for Hir<Raw> {
     fn from(ast: Ast) -> Hir<Raw> {
@@ -26,9 +28,12 @@ impl From<Ast> for Hir<Raw> {
         let mut hir_outputs = vec![];
         for (ix, o) in outputs.into_iter().enumerate() {
             let sr = SRef::OutRef(ix);
-            let ast::Output { expression, name, .. } =
+            let ast::Output { expression, name, params, template_spec, ty, .. } =
                 Rc::try_unwrap(o).expect("other strong references should be dropped now");
-            hir_outputs.push(Output { name: name.name, sr });
+            let params = todo!();
+            let template = todo!();
+            let annotated_type = annotated_type(&ty);
+            hir_outputs.push(Output { name: name.name, sr, params, annotated_type });
             expressions.insert(sr, expression);
         }
         let hir_outputs = hir_outputs;
@@ -45,6 +50,7 @@ impl From<Ast> for Hir<Raw> {
             .into_iter()
             .enumerate()
             .map(|(ix, i)| Input {
+                annotated_type: annotated_type(&i.ty).expect("Input Streams must have type annotation"),
                 name: Rc::try_unwrap(i).expect("other strong references should be dropped now").name.name,
                 sr: SRef::InRef(ix),
             })
@@ -61,6 +67,16 @@ impl From<Ast> for Hir<Raw> {
         let next_input_ref = hir_inputs.len();
         let next_output_ref = hir_outputs.len() + hir_triggers.len();
         Hir { inputs: hir_inputs, outputs: hir_outputs, triggers: hir_triggers, next_input_ref, next_output_ref, mode }
+    }
+}
+
+pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
+    use crate::ast::TypeKind;
+    match &ast_ty.kind {
+        TypeKind::Tuple(vec) => Some(AnnotatedType::Tuple(vec.iter().map(|inner| annotated_type(inner).expect("Inner types can not be missing")).collect())),
+        TypeKind::Optional(inner) => Some(AnnotatedType::Option(annotated_type(inner).expect("Inner types can not be missing").into())),
+        TypeKind::Simple(string) => unimplemented!(),
+        TypeKind::Inferred => None
     }
 }
 
