@@ -8,8 +8,8 @@ The module occurs in different modes, adding different information to the interm
 use crate::common_ir::StreamReference as SRef;
 use crate::common_ir::*;
 use crate::hir::expression::ExprId;
-use crate::parse;
 use crate::hir::expression::Expression;
+use crate::parse;
 
 pub(crate) mod expression;
 pub(crate) mod lowering;
@@ -78,7 +78,7 @@ pub struct Input {
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
     /// The user annotated Type
-    pub annotated_type: AnnotatedType
+    pub annotated_type: AnnotatedType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,11 +100,11 @@ pub struct Output {
     /// The reference pointing to this stream.
     pub sr: StreamReference,
     /// The user annotated Type
-    pub annotated_type: Option<AnnotatedType>
+    pub annotated_type: Option<AnnotatedType>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct  Parameter {
+pub struct Parameter {
     /// The name of this parameter
     pub name: String,
     /// The id, index in the parameter vector in the output stream, for this parameter
@@ -131,7 +131,6 @@ pub struct InvokeSpec {
     pub is_if: bool,
 }
 
-
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Trigger {
     pub(crate) name: String,
@@ -154,5 +153,3 @@ pub enum AnnotatedType {
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
 }
-
-

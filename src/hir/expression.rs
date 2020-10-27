@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
-use crate::hir::AnnotatedType;
 use super::WindowOperation;
+use crate::hir::AnnotatedType;
+use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
@@ -85,7 +85,7 @@ pub enum ConstantLiteral {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Constant {
     BasicConstant(ConstantLiteral),
-    InlinedConstant(ConstantLiteral, AnnotatedType)
+    InlinedConstant(ConstantLiteral, AnnotatedType),
 }
 
 /// Contains all arithmetical and logical operations.

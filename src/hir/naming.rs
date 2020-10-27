@@ -1,19 +1,16 @@
-use crate::{
-    hir::{Hir, Output, Input, Parameter},
-};
+use crate::hir::{Hir, Input, Output, Parameter};
 
 //use crate::analysis::naming::{Declaration, DeclarationTable, NamingAnalysis};
 use crate::ast;
 use crate::ast::Constant;
 use crate::common_ir::SRef;
-use crate::reporting::{Handler, LabeledSpan};
-use crate::FrontendConfig;
-use crate::stdlib::FuncDecl;
-use crate::Raw;
 use crate::parse::Span;
+use crate::reporting::{Handler, LabeledSpan};
+use crate::stdlib::FuncDecl;
+use crate::FrontendConfig;
+use crate::Raw;
 use std::collections::HashMap;
 use std::rc::Rc;
-
 
 #[derive(Debug, Clone)]
 pub enum Declaration {
@@ -23,7 +20,7 @@ pub enum Declaration {
     Out(Rc<Output>),
     Func(Rc<FuncDecl>),
     Param(Rc<Parameter>), //TODO acutally use
-    //Type(Rc<ValueTy>),
+                          //Type(Rc<ValueTy>),
 }
 
 impl Declaration {
@@ -37,7 +34,6 @@ impl Declaration {
         }
     }
 }
-
 
 /// Provides a mapping from `String` to `Declaration` and is able to handle different scopes.
 #[derive(Debug)]
@@ -143,7 +139,7 @@ impl<'a> NamingAnalysis<'a> {
         }
     }
 
-    pub fn check(&mut self, spec: &Hir<Raw>, constants: &Vec<Constant>) -> Option<HashMap<String, Declaration>>{
+    pub fn check(&mut self, spec: &Hir<Raw>, constants: &Vec<Constant>) -> Option<HashMap<String, Declaration>> {
         crate::stdlib::import_implicit_module(&mut self.fun_declarations);
         //explicit imports
         /*
@@ -199,12 +195,12 @@ impl<'a> NamingAnalysis<'a> {
     fn check_param(&mut self, param: &Rc<Parameter>) {
         if let Some(_) = self.declarations.get_decl_for(&param.name) {
             if let Some(_) = self.declarations.get_decl_in_current_scope_for(&param.name) {
-                self.handler.error(&format!("re-definition of parameter `{}`", param.name)); //FIXME
+                self.handler.error(&format!("re-definition of parameter `{}`", param.name));
+                //FIXME
             }
         } else {
             self.add_decl_for(Declaration::Param(param.clone()));
         }
-
     }
 
     fn add_decl_for(&mut self, decl: Declaration) {
@@ -235,7 +231,7 @@ impl<'a> NamingAnalysis<'a> {
 
         match &expression.kind {
             Ident(ident) => {
-                if let None = self.declarations.get_decl_for(&ident.name){
+                if let None = self.declarations.get_decl_for(&ident.name) {
                     self.handler.error(&format!("unknown Identifier `{}` found", &ident.name))
                 }
             }
@@ -247,6 +243,7 @@ impl<'a> NamingAnalysis<'a> {
                 self.check_expression(expr);
                 self.check_expression(duration);
             }
+            DiscreteWindowAggregation { .. } => todo!(),
             Binary(_, left, right) => {
                 self.check_expression(left);
                 self.check_expression(right);

@@ -3,11 +3,11 @@ use std::{collections::HashMap, rc::Rc};
 use crate::common_ir::StreamReference as SRef;
 use crate::{
     ast::{self, Ast},
+    hir::AnnotatedType,
     hir::Hir,
     hir::Input,
     hir::Output,
     hir::Trigger,
-    hir::AnnotatedType,
 };
 
 use super::{IrExpression, Raw};
@@ -73,10 +73,14 @@ impl From<Ast> for Hir<Raw> {
 pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
     use crate::ast::TypeKind;
     match &ast_ty.kind {
-        TypeKind::Tuple(vec) => Some(AnnotatedType::Tuple(vec.iter().map(|inner| annotated_type(inner).expect("Inner types can not be missing")).collect())),
-        TypeKind::Optional(inner) => Some(AnnotatedType::Option(annotated_type(inner).expect("Inner types can not be missing").into())),
+        TypeKind::Tuple(vec) => Some(AnnotatedType::Tuple(
+            vec.iter().map(|inner| annotated_type(inner).expect("Inner types can not be missing")).collect(),
+        )),
+        TypeKind::Optional(inner) => {
+            Some(AnnotatedType::Option(annotated_type(inner).expect("Inner types can not be missing").into()))
+        }
         TypeKind::Simple(string) => unimplemented!(),
-        TypeKind::Inferred => None
+        TypeKind::Inferred => None,
     }
 }
 
