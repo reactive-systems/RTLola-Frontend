@@ -894,7 +894,7 @@ pub struct Span {
 }
 
 impl Span {
-    pub(crate) fn unknown() -> Span {
+    pub fn unknown() -> Span {
         use std::usize;
         Span { start: usize::max_value(), end: usize::max_value() }
     }

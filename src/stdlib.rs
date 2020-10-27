@@ -1,6 +1,6 @@
 //! This module contains the Lola standard library.
 #![allow(dead_code)]
-use crate::analysis::naming::ScopedDecl;
+use crate::hir::naming::ScopedDecl;
 use crate::ast::{BinOp, FunctionName, UnOp};
 use crate::ty::{FloatTy, IntTy, TypeConstraint, UIntTy, ValueTy};
 use lazy_static::lazy_static;
