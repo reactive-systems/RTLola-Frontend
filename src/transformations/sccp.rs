@@ -9,7 +9,7 @@ impl Transformation<Complete> for SCCP {
         unimplemented!()
     }
 }
-
+/* TODO FIXME J.B.
 impl PartialOrd for Constant {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -22,7 +22,7 @@ impl PartialOrd for Constant {
         }
     }
 }
-
+*/
 // #[cfg(test)]
 // mod sccp_tests {
 //     use super::LatticeValues;
