@@ -31,7 +31,7 @@ impl Hir<Complete> {
                     dependent_streams: self.accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
                     dependent_windows: self.aggregated_by(sr).into_iter().map(|(_sr, wr)| wr).collect(),
                     memory_bound: self.memory(sr),
-                    layer: self.layers(sr),
+                    layer: self.layers(sr).evaluation_layer(),
                     reference: sr,
                 }
             })
@@ -56,7 +56,7 @@ impl Hir<Complete> {
                     // dependent_streams: mode.accessed_by(sr).into_iter().map(|sr| Self::lower_dependency(*sr)).collect(),
                     dependent_streams: mode.accessed_by(sr).to_vec(),
                     dependent_windows: mode.aggregated_by(sr).to_vec(),
-                    layer: mode.layers(sr),
+                    layer: mode.layers(sr).evaluation_layer(),
                     memory_bound: mode.memory(sr),
                     reference: sr,
                 }

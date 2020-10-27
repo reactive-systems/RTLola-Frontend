@@ -2,12 +2,12 @@ use crate::common_ir::{Layer, SRef, StreamLayers};
 
 use super::{EdgeWeight, EvaluationOrder};
 
-use super::common_functionality::*;
+use super::dg_functionality::*;
 use std::collections::HashMap;
 
 use crate::hir::modes::{dependencies::DependenciesAnalyzed, ir_expr::WithIrExpr, types::TypeChecked, HirMode};
 use crate::hir::Hir;
-use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph, Outgoing};
+use petgraph::{algo::is_cyclic_directed, Graph, Outgoing};
 
 pub(crate) trait EvaluationOrderBuilt {
     fn layers(&self, sr: SRef) -> StreamLayers;
@@ -49,41 +49,20 @@ impl EvaluationOrder {
         M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
     {
         // Compute Evaluation Layers
-        let node_mapping = spec
-            .graph()
-            .node_indices()
-            .map(|node| {
-                let weight = spec.graph().node_weight(node).unwrap();
-                (node, *weight)
-            })
-            .collect::<HashMap<NodeIndex, SRef>>();
-        let edge_mapping_edge_to_index = spec
-            .graph()
-            .edge_indices()
-            .map(|edge| {
-                let (src, tar) = spec.graph().edge_endpoints(edge).unwrap();
-                let weight = spec.graph().edge_weight(edge).unwrap();
-                ((node_mapping[&src], weight, node_mapping[&tar]), edge)
-            })
-            .collect::<HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex>>();
-        let edge_mapping_index_to_edge = edge_mapping_edge_to_index
-            .iter()
-            .map(|(edge, index)| (*index, *edge))
-            .collect::<HashMap<EdgeIndex, (SRef, &EdgeWeight, SRef)>>();
-        let graph = graph_without_negative_offset_edges(spec.graph(), &edge_mapping_edge_to_index);
-        let graph = graph_without_close_edges(&graph, &edge_mapping_edge_to_index);
+        let graph = graph_without_negative_offset_edges(spec.graph());
+        let graph = graph_without_close_edges(&graph);
         // split graph in periodic and event-based
-        let (event_graph, periodic_graph) = Self::split_graph(spec, graph, &node_mapping, &edge_mapping_index_to_edge);
-        let event_layers = Self::compute_layers(spec, &event_graph, &node_mapping)?;
-        let periodic_layers = Self::compute_layers(spec, &periodic_graph, &node_mapping)?;
-        Ok(EvaluationOrder { event_layers, periodic_layers })
+        let (event_graph, periodic_graph) = split_graph(spec, graph);
+        let _event_layers = Self::compute_layers(spec, &event_graph)?;
+        let _periodic_layers = Self::compute_layers(spec, &periodic_graph)?;
+        // Ok(EvaluationOrder { event_layers, periodic_layers })
+        todo!()
     }
 
     fn compute_layers<M>(
         spec: &Hir<M>,
         graph: &Graph<SRef, EdgeWeight>,
-        node_mapping: &HashMap<NodeIndex, SRef>,
-    ) -> Result<HashMap<SRef, StreamLayers>>
+    ) -> Result<HashMap<SRef, Layer>>
     where
         M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
     {
@@ -93,12 +72,12 @@ impl EvaluationOrder {
         let mut sref_to_layer = spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>();
         while graph.node_count() != sref_to_layer.len() {
             graph.node_indices().for_each(|node| {
-                let sref = &node_mapping[&node];
+                let sref = graph.node_weight(node).unwrap();
                 if !sref_to_layer.contains_key(sref) {
                     //Layer for current streamcheck incoming
                     let layer = graph
                         .neighbors_directed(node, Outgoing)//or incoming -> try
-                        .map(|outgoing_neighbor| sref_to_layer.get(&node_mapping[&outgoing_neighbor]).map(|layer| *layer))
+                        .map(|outgoing_neighbor| sref_to_layer.get(&graph.node_weight(outgoing_neighbor).unwrap()).map(|layer| *layer))
                         .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| match (cur_res, neighbor_layer) {
                             (Some(layer1), Some(layer2)) => Some(std::cmp::max(layer1, layer2)),
                             _ => None,
@@ -109,49 +88,7 @@ impl EvaluationOrder {
                 }
             });
         }
-        // Ok(sref_to_layer)
-        todo!()
-    }
-
-    fn split_graph<M>(
-        spec: &Hir<M>,
-        graph: Graph<SRef, EdgeWeight>,
-        node_mapping: &HashMap<NodeIndex, SRef>,
-        edge_mapping: &HashMap<EdgeIndex, (SRef, &EdgeWeight, SRef)>,
-    ) -> (Graph<SRef, EdgeWeight>, Graph<SRef, EdgeWeight>)
-    where
-        M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
-    {
-        // remove edges and nodes, so mapping does not change
-        let mut event_graph = graph.clone();
-        let mut periodic_graph = graph.clone();
-        // delete edges
-        graph.edge_indices().for_each(|edge_index| {
-            let (src, _weight, tar) = edge_mapping[&edge_index];
-            match (spec.is_event(src), spec.is_event(tar)) {
-                (true, true) => {
-                    periodic_graph.remove_edge(edge_index);
-                }
-                (false, false) => {
-                    event_graph.remove_edge(edge_index);
-                }
-                _ => {
-                    event_graph.remove_edge(edge_index);
-                    periodic_graph.remove_edge(edge_index);
-                }
-            }
-        });
-        // delete nodes
-        graph.node_indices().for_each(|node_index| {
-            let node_sref = node_mapping[&node_index];
-            if spec.is_event(node_sref) {
-                periodic_graph.remove_node(node_index);
-            } else {
-                assert!(spec.is_periodic(node_sref));
-                event_graph.remove_node(node_index);
-            }
-        });
-        (event_graph, periodic_graph)
+        Ok(sref_to_layer)
     }
 }
 

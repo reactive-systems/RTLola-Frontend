@@ -5,14 +5,14 @@ use super::{Dependencies, DependencyGraph, EdgeWeight};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use super::common_functionality::*;
+use super::dg_functionality::*;
 use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::{expression::StreamAccessKind, Hir};
 use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
-use petgraph::{algo::is_cyclic_directed, graph::EdgeIndex, graph::NodeIndex, Graph};
+use petgraph::{algo::is_cyclic_directed, Graph};
 
 pub(crate) trait DependenciesAnalyzed {
     // https://github.com/rust-lang/rust/issues/63063
@@ -106,8 +106,7 @@ impl Dependencies {
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
-        let mut graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
-        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
@@ -139,12 +138,8 @@ impl Dependencies {
             .chain(edges_filter)
             .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
-        let edge_mapping: HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex> = edges
-            .iter()
-            .map(|(src, w, tar)| ((*src, w, *tar), graph.add_edge(node_mapping[src], node_mapping[tar], w.clone())))
-            .collect();
         // Check well-formedness = no closed-walk with total weight of zero or positive
-        Self::check_well_formedness(&graph, &edge_mapping)?;
+        Self::check_well_formedness(&graph)?;
         let mut accesses: HashMap<SRef, Vec<SRef>> = HashMap::new();
         let mut accessed_by: HashMap<SRef, Vec<SRef>> = HashMap::new();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
@@ -163,10 +158,9 @@ impl Dependencies {
 
     fn check_well_formedness(
         graph: &Graph<SRef, EdgeWeight>,
-        edge_mapping: &HashMap<(SRef, &EdgeWeight, SRef), EdgeIndex>,
     ) -> Result<()> {
-        let graph = graph_without_negative_offset_edges(graph, edge_mapping);
-        let graph = graph_without_close_edges(&graph, edge_mapping);
+        let graph = graph_without_negative_offset_edges(graph);
+        let graph = graph_without_close_edges(&graph);
         // check if cyclic
         if is_cyclic_directed(&graph) {
             Err(DependencyErr::WellFormedNess)

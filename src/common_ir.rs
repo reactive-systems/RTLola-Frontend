@@ -106,6 +106,16 @@ pub struct StreamLayers {
     spawn: Layer,
     evaluation: Layer,
 }
+
+impl StreamLayers {
+    pub fn spawn_layer(&self) -> Layer {
+        self.spawn
+    }
+
+    pub fn evaluation_layer(&self) -> Layer {
+        self.evaluation
+    }
+}
 impl Into<usize> for Layer {
     fn into(self) -> usize {
         self.0

@@ -1,7 +1,7 @@
 pub(crate) trait HirMode {}
 
 pub(crate) mod blanket;
-pub(crate) mod common_functionality;
+pub(crate) mod dg_functionality;
 pub(crate) mod complete;
 pub(crate) mod dependencies;
 pub(crate) mod ir_expr;
