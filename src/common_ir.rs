@@ -108,6 +108,9 @@ pub struct StreamLayers {
 }
 
 impl StreamLayers {
+    pub(crate) fn new(spawn_layer: Layer, evaluation_layer: Layer) -> StreamLayers {
+        StreamLayers { spawn: spawn_layer, evaluation: evaluation_layer }
+    }
     pub fn spawn_layer(&self) -> Layer {
         self.spawn
     }

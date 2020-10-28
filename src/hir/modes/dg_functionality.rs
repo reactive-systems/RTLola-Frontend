@@ -1,40 +1,37 @@
 use super::EdgeWeight;
 use super::SRef;
-use petgraph::Graph;
-use crate::Hir;
 use crate::hir::modes::{dependencies::DependenciesAnalyzed, ir_expr::WithIrExpr, types::TypeChecked};
 use crate::hir::HirMode;
+use crate::Hir;
+use petgraph::Graph;
 
-pub(crate) fn graph_without_negative_offset_edges(
-    graph: &Graph<SRef, EdgeWeight>,
-) -> Graph<SRef, EdgeWeight> {
+pub(crate) fn graph_without_negative_offset_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
+    let mut working_graph = graph.clone();
+    graph.edge_indices().for_each(|edge_index| match graph.edge_weight(edge_index).unwrap() {
+        EdgeWeight::Offset(o) if *o < 0 => {
+            working_graph.remove_edge(edge_index);
+        }
+        _ => {}
+    });
+    working_graph
+}
+
+pub(crate) fn graph_without_close_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
     let mut working_graph = graph.clone();
     graph.edge_indices().for_each(|edge_index| {
-        match graph.edge_weight(edge_index).unwrap() {
-            EdgeWeight::Offset(o) if *o < 0 => {working_graph.remove_edge(edge_index);},
+        let edge_weight = graph.edge_weight(edge_index).unwrap();
+        let (edge_src, edge_tar) = graph.edge_endpoints(edge_index).unwrap();
+        match (edge_weight, edge_src == edge_tar) {
+            (EdgeWeight::Close(_), true) => {
+                working_graph.remove_edge(edge_index);
+            }
             _ => {}
         }
     });
     working_graph
 }
 
-pub(crate) fn graph_without_close_edges(
-    graph: &Graph<SRef, EdgeWeight>,
-) -> Graph<SRef, EdgeWeight> {
-    let mut working_graph = graph.clone();
-    graph.edge_indices().for_each(|edge_index| {
-        let edge_weight = graph.edge_weight(edge_index).unwrap();
-        let (edge_src, edge_tar) = graph.edge_endpoints(edge_index).unwrap();
-        match (edge_weight, edge_src == edge_tar) {
-            (EdgeWeight::Close(_), true) => {working_graph.remove_edge(edge_index);},
-            _ => {},
-        }
-    });
-    working_graph
-
-}
-
-pub(crate) fn only_spawn_lookups(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight>{
+pub(crate) fn only_spawn_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
     let mut working_graph = graph.clone();
     working_graph.edge_indices().for_each(|edge_index| {
         let test = graph.edge_weight(edge_index).unwrap();

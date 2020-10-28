@@ -53,42 +53,64 @@ impl EvaluationOrder {
         let graph = graph_without_close_edges(&graph);
         // split graph in periodic and event-based
         let (event_graph, periodic_graph) = split_graph(spec, graph);
-        let _event_layers = Self::compute_layers(spec, &event_graph)?;
-        let _periodic_layers = Self::compute_layers(spec, &periodic_graph)?;
-        // Ok(EvaluationOrder { event_layers, periodic_layers })
-        todo!()
+        let event_layers = Self::compute_layers(spec, &event_graph)?;
+        let periodic_layers = Self::compute_layers(spec, &periodic_graph)?;
+        Ok(EvaluationOrder { event_layers, periodic_layers })
     }
 
-    fn compute_layers<M>(
-        spec: &Hir<M>,
-        graph: &Graph<SRef, EdgeWeight>,
-    ) -> Result<HashMap<SRef, Layer>>
+    fn compute_layers<M>(spec: &Hir<M>, graph: &Graph<SRef, EdgeWeight>) -> Result<HashMap<SRef, StreamLayers>>
     where
         M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
     {
-        if is_cyclic_directed(&graph) {
-            return Err(OrderingErr::Cycle);
-        }
-        let mut sref_to_layer = spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>();
-        while graph.node_count() != sref_to_layer.len() {
+        debug_assert!(is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
+        let graph_with_only_spawn_edges = only_spawn_edges(graph);
+        let mut evaluation_layers = spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>();
+        let mut spawn_layers = HashMap::<SRef, Layer>::new();
+        while graph.node_count() != evaluation_layers.len() {
+            // build spawn layers
+            graph_with_only_spawn_edges.node_indices().for_each(|node| {
+                let sref = graph.node_weight(node).unwrap();
+                if !spawn_layers.contains_key(sref) {
+                    let computed_spawn_layer = graph_with_only_spawn_edges
+                        .neighbors_directed(node, Outgoing)
+                        .flat_map(|outgoing_neighbor| {
+                            evaluation_layers
+                                .get(&graph_with_only_spawn_edges.node_weight(outgoing_neighbor).unwrap())
+                                .map(|layer| *layer)
+                        })
+                        .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| {
+                            if let Some(cur_res_layer) = cur_res {
+                                Some(std::cmp::max(cur_res_layer, neighbor_layer))
+                            } else {
+                                None
+                            }
+                        });
+                    if let Some(layer) = computed_spawn_layer {
+                        spawn_layers.insert(*sref, layer);
+                    }
+                }
+            });
             graph.node_indices().for_each(|node| {
                 let sref = graph.node_weight(node).unwrap();
-                if !sref_to_layer.contains_key(sref) {
+                // build evaluation layers
+                if !evaluation_layers.contains_key(sref) && spawn_layers.contains_key(sref){
                     //Layer for current streamcheck incoming
-                    let layer = graph
+                    let computed_spawn_layer = graph
                         .neighbors_directed(node, Outgoing)//or incoming -> try
-                        .map(|outgoing_neighbor| sref_to_layer.get(&graph.node_weight(outgoing_neighbor).unwrap()).map(|layer| *layer))
-                        .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| match (cur_res, neighbor_layer) {
-                            (Some(layer1), Some(layer2)) => Some(std::cmp::max(layer1, layer2)),
-                            _ => None,
-                        });
-                    if let Some(layer) = layer {
-                        sref_to_layer.insert(*sref, layer);
+                        .flat_map(|outgoing_neighbor| evaluation_layers.get(&graph.node_weight(outgoing_neighbor).unwrap()).map(|layer| *layer))
+                        .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| {
+                        if let Some(cur_res_layer) = cur_res { Some(std::cmp::max(cur_res_layer, neighbor_layer))} else {None}
+                    });
+                        if let Some(layer) = computed_spawn_layer {
+                            if spawn_layers[sref] < layer {evaluation_layers.insert(*sref, layer);}
                     }
                 }
             });
         }
-        Ok(sref_to_layer)
+        Ok(evaluation_layers
+            .into_iter()
+            .map(|(key, evaluation_layer)| (key, StreamLayers::new(spawn_layers[&key], evaluation_layer)))
+            .collect::<HashMap<SRef, StreamLayers>>())
     }
 }
 

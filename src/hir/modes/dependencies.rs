@@ -12,7 +12,7 @@ use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
-use petgraph::{algo::is_cyclic_directed, Graph, graph::NodeIndex};
+use petgraph::{algo::is_cyclic_directed, graph::NodeIndex, Graph};
 
 pub(crate) trait DependenciesAnalyzed {
     // https://github.com/rust-lang/rust/issues/63063
@@ -137,15 +137,17 @@ impl Dependencies {
             .chain(edges_spawn)
             .chain(edges_filter)
             .chain(edges_close)
-            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();// TODO can use this approxiamtion for the number of edges
-        
+            .collect::<Vec<(SRef, EdgeWeight, SRef)>>(); // TODO can use this approxiamtion for the number of edges
+
         //add nodes and edges to graph
         let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
-        edges.iter().for_each(|(src, w, tar)| {graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());});
-        
+        edges.iter().for_each(|(src, w, tar)| {
+            graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());
+        });
+
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph)?;
-        
+
         // Describe dependencies in HashMaps
         let mut accesses: HashMap<SRef, Vec<SRef>> = HashMap::new();
         let mut accessed_by: HashMap<SRef, Vec<SRef>> = HashMap::new();
@@ -163,9 +165,7 @@ impl Dependencies {
         todo!("Return Dependencies");
     }
 
-    fn check_well_formedness(
-        graph: &Graph<SRef, EdgeWeight>,
-    ) -> Result<()> {
+    fn check_well_formedness(graph: &Graph<SRef, EdgeWeight>) -> Result<()> {
         let graph = graph_without_negative_offset_edges(graph);
         let graph = graph_without_close_edges(&graph);
         // check if cyclic
