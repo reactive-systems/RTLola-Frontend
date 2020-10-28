@@ -11,11 +11,17 @@ pub(crate) mod graph_based_analysis;
 // pub(crate) mod id_assignment;
 pub mod naming;
 
+#[allow(unused_imports)]
 use self::naming::NamingAnalysis;
+#[allow(unused_imports)]
 use crate::ast;
+#[allow(unused_imports)]
 use crate::ast::RTLolaAst;
+#[allow(unused_imports)]
 use crate::reporting::Handler;
+#[allow(unused_imports)]
 use crate::ty::check::TypeAnalysis;
+#[allow(unused_imports)]
 use crate::FrontendConfig;
 
 // Export output types.

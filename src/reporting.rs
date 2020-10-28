@@ -423,6 +423,7 @@ impl<'a> DiagnosticBuilder<'a> {
         self.status = DiagnosticBuilderStatus::Cancelled;
     }
 
+    #[allow(dead_code)]
     pub(crate) fn prevent_sorting(&mut self) {
         assert_eq!(self.status, DiagnosticBuilderStatus::Building);
         self.diagnostic.sort_spans = false;

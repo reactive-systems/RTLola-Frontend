@@ -123,7 +123,7 @@ pub(crate) const KEYWORDS: [&str; 26] = [
 ];
 
 impl<'a> NamingAnalysis<'a> {
-    pub fn new(handler: &'a Handler, config: FrontendConfig) -> Self {
+    pub fn new(handler: &'a Handler, _config: FrontendConfig) -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
         // TODO config depended type declarations

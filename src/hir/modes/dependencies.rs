@@ -12,7 +12,7 @@ use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
-use petgraph::{algo::is_cyclic_directed, Graph};
+use petgraph::{algo::is_cyclic_directed, Graph, graph::NodeIndex};
 
 pub(crate) trait DependenciesAnalyzed {
     // https://github.com/rust-lang/rust/issues/63063
@@ -106,7 +106,7 @@ impl Dependencies {
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
-        let graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
+        let mut graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
@@ -137,9 +137,16 @@ impl Dependencies {
             .chain(edges_spawn)
             .chain(edges_filter)
             .chain(edges_close)
-            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
+            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();// TODO can use this approxiamtion for the number of edges
+        
+        //add nodes and edges to graph
+        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        edges.iter().for_each(|(src, w, tar)| {graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());});
+        
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph)?;
+        
+        // Describe dependencies in HashMaps
         let mut accesses: HashMap<SRef, Vec<SRef>> = HashMap::new();
         let mut accessed_by: HashMap<SRef, Vec<SRef>> = HashMap::new();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
@@ -203,10 +210,10 @@ impl Dependencies {
                     if o == 0 {
                         EdgeWeight::Offset(i32::try_from(o).unwrap())
                     } else {
-                        todo!("implement DG analysis for positive Offsets")
+                        todo!("implement dependency analysis for positive future offsets")
                     }
                 }
-                _ => todo!(),
+                _ => todo!("implement dependency analysis for real-time offsets"),
             },
             StreamAccessKind::Hold => EdgeWeight::Hold,
             StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
@@ -279,7 +286,7 @@ mod tests {
     #[test]
     #[ignore]
     fn filter_self_ref() {
-        chek_graph_for_spec("input a: Int8\noutput b {filter b > 6} := a + 5", true)
+        chek_graph_for_spec("input a: Int8\noutput b {filter b > 6} := a + 5", false)
     }
 
     #[test]

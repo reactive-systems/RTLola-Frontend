@@ -275,6 +275,7 @@ impl TimeUnit {
 
 impl Expression {
     /// Tries to resolve a tuple index access
+    #[allow(dead_code)]
     pub(crate) fn get_expr_from_tuple(&self, idx: usize) -> Option<&Expression> {
         use ExpressionKind::*;
         match &self.kind {

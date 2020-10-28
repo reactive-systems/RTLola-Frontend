@@ -1,5 +1,7 @@
+#[allow(unused_imports)]
 use crate::{hir::expression::Constant, transformations::Transformation};
 use crate::{hir::modes::Complete, RTLolaHIR};
+#[allow(unused_imports)]
 use std::cmp::Ordering;
 
 pub(crate) struct SCCP;

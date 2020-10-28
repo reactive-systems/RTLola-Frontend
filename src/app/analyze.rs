@@ -1,16 +1,26 @@
 //! This module contains the logic for the `rtlola-analyze` binary.
 
+#[allow(unused_imports)]
 use std::error::Error;
+#[allow(unused_imports)]
 use std::fs::File;
+#[allow(unused_imports)]
 use std::io::prelude::*;
+#[allow(unused_imports)]
 use std::path::PathBuf;
 
+#[allow(unused_imports)]
 use clap::{App, Arg, SubCommand};
+#[allow(unused_imports)]
 use pest::Parser;
+#[allow(unused_imports)]
 use simplelog::*;
 
+#[allow(unused_imports)]
 use crate::analysis;
+#[allow(unused_imports)]
 use crate::parse::{LolaParser, Rule, SourceMapper};
+#[allow(unused_imports)]
 use crate::reporting::Handler;
 use crate::ty::TypeConfig;
 use crate::FrontendConfig;
@@ -29,9 +39,10 @@ pub fn runAnalysisCLI(args: &[String]) -> Result<(), Box<dyn Error>> {
     config.run()
 }
 */
-const CONFIG: FrontendConfig =
+const _CONFIG: FrontendConfig =
     FrontendConfig { ty: TypeConfig { use_64bit_only: true, type_aliases: true }, allow_parameters: true };
 
+#[allow(dead_code)]
 enum Analysis {
     Parse,
     AST,
@@ -40,6 +51,7 @@ enum Analysis {
     IR,
 }
 
+#[allow(dead_code)]
 pub(crate) struct Config {
     which: Analysis,
     filename: String,

@@ -284,6 +284,7 @@ fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Duration {
 }
 
 impl Hir<IrExpression> {
+    #[allow(unused_variables)]
     pub fn transform_expressions(raw: Hir<Raw>, handler: &Handler, config: &FrontendConfig) -> Self {
         let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
         let string_to_dec = if let Some(map) = naming_analyzer.check(&raw, &raw.mode.constants) {

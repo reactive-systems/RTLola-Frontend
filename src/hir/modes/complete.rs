@@ -2,6 +2,7 @@ use crate::common_ir::SRef;
 use crate::hir::modes::dependencies::{DependenciesAnalyzed, DependenciesWrapper};
 use crate::hir::modes::ir_expr::{IrExprWrapper, WithIrExpr};
 use crate::hir::modes::memory_bounds::{MemoryAnalyzed, MemoryWrapper};
+#[allow(unused_imports)]
 use crate::hir::modes::ordering::{EvaluationOrderBuilt, OrderedWrapper};
 use crate::hir::modes::types::{TypeChecked, TypedWrapper};
 use crate::hir::modes::Complete;
@@ -15,6 +16,7 @@ use crate::{hir::Hir, mir, mir::Mir};
 use super::{IrExpression, Typed};
 
 impl Hir<Complete> {
+    #[allow(unreachable_code)]
     pub(crate) fn lower(self) -> Mir {
         let outputs = self
             .outputs

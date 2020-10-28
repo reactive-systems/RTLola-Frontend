@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+#[allow(unused_imports)]
 use crate::analysis;
 use crate::parse::SourceMapper;
 use crate::reporting::Handler;
@@ -13,6 +14,7 @@ Analyses the specification in the file specified by `filename` with a frontend c
 **Warning: This exits the process on errors.**  
 This is exposed as the `analyze` subcommand by the interpreter.
 */
+#[allow(unused_variables)]
 pub fn analyze(filename: &str, config: FrontendConfig) {
     let contents = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Could not read file `{}`: {}", filename, e);

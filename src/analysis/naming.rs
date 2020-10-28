@@ -3,6 +3,7 @@
 use crate::ast::*;
 use crate::parse::{Ident, NodeId, Span};
 use crate::reporting::{Handler, LabeledSpan};
+#[allow(unused_imports)]
 use crate::stdlib;
 use crate::stdlib::FuncDecl;
 use crate::ty::ValueTy;

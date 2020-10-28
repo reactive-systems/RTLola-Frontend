@@ -14,6 +14,9 @@ use super::{IrExpression, Raw};
 use crate::ast::Type;
 
 impl From<Ast> for Hir<Raw> {
+    #[allow(unreachable_code)]
+    #[allow(unused_mut)]
+    #[allow(unused_variables)]
     fn from(ast: Ast) -> Hir<Raw> {
         let Ast {
             imports: _, // todo
@@ -70,6 +73,7 @@ impl From<Ast> for Hir<Raw> {
     }
 }
 
+#[allow(unused_variables)]
 pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
     use crate::ast::TypeKind;
     match &ast_ty.kind {

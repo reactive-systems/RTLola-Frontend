@@ -5,7 +5,7 @@ Every node in the abstract syntax tree is assigned a unique id and stores the ma
 
 pub mod conversion;
 pub(crate) mod print;
-pub(crate) mod verify;
+// pub(crate) mod verify;
 
 use super::parse::Ident;
 use crate::parse::NodeId;
