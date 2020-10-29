@@ -6,11 +6,11 @@ use crate::hir::modes::{dependencies::DependenciesAnalyzed, HirMode};
 use crate::hir::Hir;
 
 pub(crate) trait MemoryAnalyzed {
-    fn memory(&self, sr: SRef) -> MemorizationBound;
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 
 impl MemoryAnalyzed for Memory {
-    fn memory(&self, sr: SRef) -> MemorizationBound {
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.memory_bound_per_stram[&sr]
     }
 }
@@ -21,8 +21,8 @@ pub(crate) trait MemoryWrapper {
 }
 
 impl<A: MemoryWrapper<InnerM = T>, T: MemoryAnalyzed + 'static> MemoryAnalyzed for A {
-    fn memory(&self, sr: SRef) -> MemorizationBound {
-        self.inner_memory().memory(sr)
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
+        self.inner_memory().memory_bound(sr)
     }
 }
 

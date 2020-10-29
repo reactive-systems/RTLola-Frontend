@@ -32,7 +32,7 @@ impl Hir<Complete> {
                     outgoing_dependencies: self.accesses(sr).into_iter().filter(|_sr| todo!()).collect(), // TODO: Is this supposed to be transitive?
                     dependent_streams: self.accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
                     dependent_windows: self.aggregated_by(sr).into_iter().map(|(_sr, wr)| wr).collect(),
-                    memory_bound: self.memory(sr),
+                    memory_bound: self.memory_bound(sr),
                     layer: todo!("Fix type error"), //self.layers(sr),
                     reference: sr,
                 }
@@ -58,9 +58,8 @@ impl Hir<Complete> {
                     // dependent_streams: mode.accessed_by(sr).into_iter().map(|sr| Self::lower_dependency(*sr)).collect(),
                     dependent_streams: mode.accessed_by(sr).to_vec(),
                     dependent_windows: mode.aggregated_by(sr).to_vec(),
-                    layer: mode.layers(sr).evaluation_layer(),
-                    // layer: todo!("Fix type error"), //mode.layers(sr),
-                    memory_bound: mode.memory(sr),
+                    layer: todo!("Fix type error"), //mode.layers(sr),
+                    memory_bound: mode.memory_bound(sr),
                     reference: sr,
                 }
             })

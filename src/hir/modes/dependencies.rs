@@ -154,11 +154,23 @@ impl Dependencies {
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         edges.iter().for_each(|(src, w, tar)| {
-            (*accesses.entry(*src).or_insert(Vec::new())).push(*tar);
-            (*accessed_by.entry(*tar).or_insert(Vec::new())).push(*src);
+            let cur_accesses = &mut (*accesses.entry(*src).or_insert(Vec::new()));
+            if !cur_accesses.contains(tar) {
+                cur_accesses.push(*tar);
+            }
+            let cur_accessed_by = &mut (*accessed_by.entry(*tar).or_insert(Vec::new()));
+            if !cur_accessed_by.contains(src) {
+                cur_accessed_by.push(*src);
+            }
             if let EdgeWeight::Aggr(wref) = w {
-                (*aggregates.entry(*src).or_insert(Vec::new())).push((*tar, *wref));
-                (*aggregated_by.entry(*tar).or_insert(Vec::new())).push((*src, *wref));
+                let cur_aggregates = &mut (*aggregates.entry(*src).or_insert(Vec::new()));
+                if cur_aggregates.contains(&(*tar, *wref)) {
+                    cur_aggregates.push((*tar, *wref));
+                }
+                let cur_aggregates_by = &mut (*aggregated_by.entry(*tar).or_insert(Vec::new()));
+                if cur_aggregates_by.contains(&(*src, *wref)) {
+                    cur_aggregates_by.push((*src, *wref));
+                }
             }
         });
         let _dg = DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
