@@ -1,9 +1,11 @@
 use crate::common_ir::SRef;
 
-use super::{MemorizationBound, Memory};
+use super::{EdgeWeight, MemorizationBound, Memory};
 
 use crate::hir::modes::{dependencies::DependenciesAnalyzed, HirMode};
 use crate::hir::Hir;
+use std::collections::HashMap;
+use std::convert::TryFrom;
 
 pub(crate) trait MemoryAnalyzed {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
@@ -34,11 +36,40 @@ pub(crate) struct MemoryReport {}
 type Result<T> = std::result::Result<T, MemoryErr>;
 
 impl Memory {
-    pub(crate) fn analyze<M>(_spec: &Hir<M>) -> Result<Memory>
+    const DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
+    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Memory>
     where
         M: HirMode + 'static + DependenciesAnalyzed,
     {
-        todo!()
+        // Assign streams to default value
+        let mut memory_bounds =
+            spec.all_streams().map(|sr| (sr, Self::DEFAULT_VALUE)).collect::<HashMap<SRef, MemorizationBound>>();
+        // Assign stream to bounded memory
+        spec.graph().edge_indices().for_each(|edge_index| {
+            let cur_edge_bound = Self::edge_weight_to_memory_bound(spec.graph().edge_weight(edge_index).unwrap());
+            let (src_node, _) = spec.graph().edge_endpoints(edge_index).unwrap();
+            let sr = spec.graph().node_weight(src_node).unwrap();
+            let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
+            *cur_mem_bound = if *cur_mem_bound < cur_edge_bound { *cur_mem_bound } else { cur_edge_bound };
+        });
+        Ok(Memory { memory_bound_per_stram: memory_bounds })
+    }
+
+    fn edge_weight_to_memory_bound(w: &EdgeWeight) -> MemorizationBound {
+        match w {
+            EdgeWeight::Offset(o) => {
+                if *o > 0 {
+                    unimplemented!("Positive Offsets not yet implemented")
+                } else {
+                    MemorizationBound::Bounded(u16::try_from(*o).unwrap())
+                }
+            }
+            EdgeWeight::Hold => Self::DEFAULT_VALUE,
+            EdgeWeight::Aggr(_) => Self::DEFAULT_VALUE,
+            EdgeWeight::Spawn(w) => Self::edge_weight_to_memory_bound(w),
+            EdgeWeight::Filter(w) => Self::edge_weight_to_memory_bound(w),
+            EdgeWeight::Close(w) => Self::edge_weight_to_memory_bound(w),
+        }
     }
 }
 

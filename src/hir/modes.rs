@@ -56,7 +56,6 @@ impl Hir<IrExpression> {
 
 #[derive(Hash, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EdgeWeight {
-    Infinite,
     Offset(i32),
     Aggr(WRef),
     Hold,
