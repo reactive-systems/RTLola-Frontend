@@ -164,7 +164,7 @@ impl<'b> NamingAnalysis<'b> {
     /// Entry method, checks that every identifier in the given spec is bound.
     pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
         //stdlib::import_implicit_module(&mut self.fun_declarations);
-        /*
+
         for import in &spec.imports {
             match import.name.name.as_str() {
                 "math" => stdlib::import_math_module(&mut self.fun_declarations),
@@ -175,7 +175,6 @@ impl<'b> NamingAnalysis<'b> {
                 ),
             }
         }
-        */
 
         // Store global declarations, i.e., constants, inputs, and outputs of the given specification
         for constant in &spec.constants {
@@ -590,5 +589,16 @@ mod tests {
     fn test_param_spec_wrong_parameters() {
         let spec = "input in(a: Int8, b: Int8): Int8\noutput x := in(1)";
         assert_eq!(1, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn simple_variable_use() {
+        assert_eq!(number_of_naming_errors("output a: Int8 := 3 output b: Int32 := a"), 0)
+    }
+
+    #[test]
+    fn test_aggregate() {
+        let spec = "output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)";
+        assert_eq!(0, number_of_naming_errors(spec));
     }
 }

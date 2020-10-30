@@ -1,4 +1,4 @@
-use crate::hir::{Hir, Input, Output, Parameter};
+/*use crate::hir::{Hir, Input, Output, Parameter};
 
 //use crate::analysis::naming::{Declaration, DeclarationTable, NamingAnalysis};
 use crate::ast;
@@ -139,8 +139,13 @@ impl<'a> NamingAnalysis<'a> {
         }
     }
 
-    pub fn check(&mut self, spec: &Hir<Raw>, constants: &Vec<Constant>) -> Option<HashMap<String, Declaration>> {
-        crate::stdlib::import_implicit_module(&mut self.fun_declarations);
+    pub fn check(
+        &mut self,
+        spec: &Hir<Raw>,
+        constants: &Vec<Constant>,
+        template_specs: &HashMap<SRef, ast::TemplateSpec>,
+    ) -> Option<HashMap<String, Declaration>> {
+        //crate::stdlib::import_implicit_module(&mut self.fun_declarations);
         //explicit imports
         /*
         for import in &spec.imports {
@@ -154,6 +159,7 @@ impl<'a> NamingAnalysis<'a> {
             }
         }
         */
+        //self.expressions = spec.mode.expressions.clone(); //FIXME
         let mut result = HashMap::new();
 
         for constant in constants {
@@ -172,23 +178,44 @@ impl<'a> NamingAnalysis<'a> {
             result.insert(output.name.clone(), dec);
         }
 
-        self.check_outputs(spec);
+        self.check_outputs(spec, template_specs);
+        self.check_triggers(spec);
         if self.handler.contains_error() {
-            Some(result)
-        } else {
             None
+        } else {
+            Some(result)
         }
     }
 
-    fn check_outputs(&mut self, spec: &Hir<Raw>) {
+    fn check_outputs(&mut self, spec: &Hir<Raw>, template_specs: &HashMap<SRef, ast::TemplateSpec>) {
         for output in spec.outputs() {
             self.declarations.push();
             output.params.iter().for_each(|param| self.check_param(&Rc::new(param.clone())));
-            //TODO TEMPLATE CHECK
+            if let Some(t_spec) = template_specs.get(&output.sr) {
+                if let Some(ref invoke) = t_spec.inv {
+                    self.check_expression(&invoke.target);
+                    if let Some(ref cond) = invoke.condition {
+                        self.check_expression(&cond);
+                    }
+                }
+                if let Some(ref extend) = t_spec.ext {
+                    self.check_expression(&extend.target);
+                }
+                if let Some(ref terminate) = t_spec.ter {
+                    self.check_expression(&terminate.target);
+                }
+            }
             self.declarations.add_decl_for("self", Declaration::Out(Rc::new(output.clone())));
             let expr = &self.expressions[&output.sr].clone(); //TODO avoid clone, but its late
             self.check_expression(expr);
             self.declarations.pop();
+        }
+    }
+
+    fn check_triggers(&mut self, spec: &Hir<Raw>) {
+        for tr in spec.triggers() {
+            let tr_expr = self.expressions[&tr.sr].clone();
+            self.check_expression(&tr_expr); //TODO avoid clone
         }
     }
 
@@ -228,7 +255,6 @@ impl<'a> NamingAnalysis<'a> {
 
     fn check_expression(&mut self, expression: &ast::Expression) {
         use crate::ast::ExpressionKind::*;
-
         match &expression.kind {
             Ident(ident) => {
                 if let None = self.declarations.get_decl_for(&ident.name) {
@@ -261,7 +287,13 @@ impl<'a> NamingAnalysis<'a> {
                 exprs.iter().for_each(|expr| self.check_expression(expr));
             }
             Function(name, _, exprs) => {
-                if let None = self.fun_declarations.get_decl_for(&name.to_string()) {
+                if let Some(_) = self.fun_declarations.get_decl_for(&name.to_string()) {
+                } else if let Some(Declaration::Out(o)) = self.declarations.get_decl_for(&name.name.name) {
+                    if o.params.is_empty() {
+                        self.handler
+                            .error(&format!("non-parametrized output stream `{}` used as function", &name.to_string()))
+                    }
+                } else {
                     self.handler.error(&format!("unknown Function Name `{}` found", &name.to_string()))
                 }
                 exprs.iter().for_each(|expr| self.check_expression(expr));
@@ -275,5 +307,138 @@ impl<'a> NamingAnalysis<'a> {
                 args.iter().for_each(|expr| self.check_expression(expr));
             }
         }
+        dbg!(self.handler.emitted_errors());
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::parse::{parse, SourceMapper};
+    use std::path::PathBuf;
+
+    /// Parses the content, runs naming analysis, and returns number of errors
+    fn number_of_naming_errors(content: &str) -> usize {
+        let handler = Handler::new(SourceMapper::new(PathBuf::new(), content));
+        let ast = parse(content, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let hir: Hir<Raw> = Hir::<Raw>::from(ast);
+        let mut naming_analyzer = NamingAnalysis::new(&handler, FrontendConfig::default());
+        //naming_analyzer.check(&hir, &hir.mode.constants, &hir.mode.template_specs);
+        handler.emitted_errors()
+    }
+
+    #[test]
+    #[ignore] //currently unchecked (types)
+    fn unknown_types_are_reported() {
+        assert_eq!(number_of_naming_errors("output test(ab: B, c: D): E := 3"), 3)
+    }
+
+    #[test]
+    fn unknown_identifiers_are_reported() {
+        assert_eq!(number_of_naming_errors("output test: Int8 := A"), 1)
+    }
+
+    #[test]
+    fn variable_use() {
+        assert_eq!(number_of_naming_errors("output a: Int8 := 3 output b: Int32 := a"), 0)
+    }
+
+    #[test]
+    #[ignore] //currently unchecked
+    fn primitive_types_are_a_known() {
+        for ty in &["Int8", "Int16", "Int32", "Int64", "Float32", "Float64", "Bool", "String"] {
+            assert_eq!(0, number_of_naming_errors(&format!("output test: {} := 3", ty)))
+        }
+    }
+
+    #[test]
+    fn duplicate_names_at_the_same_level_are_reported() {
+        assert_eq!(1, number_of_naming_errors("output test: String := 3\noutput test: String := 3"))
+    }
+
+    #[test]
+    fn duplicate_parameters_are_not_allowed_for_outputs() {
+        assert_eq!(1, number_of_naming_errors("output test(ab: Int8, ab: Int8) := 3"))
+    }
+
+    #[test]
+    #[ignore] //parametrized inputs NYI
+    fn duplicate_parameters_are_not_allowed_for_inputs() {
+        assert_eq!(1, number_of_naming_errors("input test(ab: Int8, ab: Int8) : Int8"))
+    }
+
+    #[test]
+    fn keyword_are_not_valid_names() {
+        assert_eq!(1, number_of_naming_errors("output if := 3"))
+    }
+
+    #[test]
+    fn template_spec_is_also_tested() {
+        assert_eq!(1, number_of_naming_errors("output a {invoke b} := 3"))
+    }
+
+    #[test]
+    fn self_is_allowed_in_output_expression() {
+        assert_eq!(0, number_of_naming_errors("output a  := self[-1]"))
+    }
+
+    #[test]
+    fn self_not_allowed_in_trigger_expression() {
+        //assert_eq!(1, number_of_naming_errors("trigger a  := self[-1]"))
+        assert_eq!(1, number_of_naming_errors("trigger self[-1]"))
+    }
+
+    #[test]
+    fn simple_trigger() {
+        assert_eq!(0, number_of_naming_errors("trigger false \"Always Wrong\""))
+    }
+
+    #[test]
+    #[ignore] //currently unchecked
+    fn unknown_import() {
+        assert_eq!(1, number_of_naming_errors("import xzy"))
+    }
+
+    #[test]
+    #[ignore] //currently unchecked
+    fn known_import() {
+        assert_eq!(0, number_of_naming_errors("import math"))
+    }
+
+    #[test]
+    fn unknown_function() {
+        assert_eq!(1, number_of_naming_errors("output x: Float32 := sqrt(2)"))
+    }
+
+    #[test]
+    fn wrong_arity_function() {
+        let spec = "import math\noutput o: Float64 := cos()";
+        assert_eq!(1, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    #[ignore] //imports currently unused
+    fn known_function_though_import() {
+        assert_eq!(0, number_of_naming_errors("import math\noutput x: Float32 := sqrt(2)"))
+    }
+
+    #[test]
+    fn parametric_output() {
+        let spec = "output x (a: UInt8, b: Bool): Int8 := 1  output y := x(1, false)";
+        assert_eq!(number_of_naming_errors(spec), 0);
+    }
+
+    #[test]
+    fn test_param_spec_wrong_parameters() {
+        let spec = "input in(a: Int8, b: Int8): Int8\noutput x := in(1)";
+        assert_eq!(1, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_aggregate() {
+        let spec = "output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)";
+        assert_eq!(0, number_of_naming_errors(spec));
+    }
+}
+*/
