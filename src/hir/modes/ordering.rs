@@ -97,6 +97,7 @@ impl EvaluationOrder {
                     //Layer for current streamcheck incoming
                     let computed_spawn_layer = graph
                         .neighbors_directed(node, Outgoing)//or incoming -> try
+                        .flat_map(|outgoing_neighbor| if outgoing_neighbor == node {None} else {Some(outgoing_neighbor)}) //delete self references
                         .flat_map(|outgoing_neighbor| evaluation_layers.get(&graph.node_weight(outgoing_neighbor).unwrap()).map(|layer| *layer))
                         .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| {
                         if let Some(cur_res_layer) = cur_res { Some(std::cmp::max(cur_res_layer, neighbor_layer))} else {None}
