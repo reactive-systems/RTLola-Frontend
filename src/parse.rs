@@ -266,7 +266,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
 
     fn parse_parameter_list(&self, param_list: Pairs<'_, Rule>) -> Vec<Parameter> {
         let mut params = Vec::new();
-        for param_decl in param_list {
+        for (ix, param_decl) in param_list.enumerate() {
             assert_eq!(Rule::ParameterDecl, param_decl.as_rule());
             let span = param_decl.as_span().into();
             let mut decl = param_decl.into_inner();
@@ -277,7 +277,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             } else {
                 Type::new_inferred(self.next_id())
             };
-            params.push(Parameter { name, ty, id: self.next_id(), span });
+            params.push(Parameter { name, ty, param_idx: ix, id: self.next_id(), span });
         }
         params
     }

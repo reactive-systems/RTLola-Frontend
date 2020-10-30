@@ -127,6 +127,8 @@ pub struct Parameter {
     pub name: Ident,
     /// The value type of the parameter
     pub ty: Type,
+    /// The index of this parameter in the output streams paramlist
+    pub param_idx: usize,
     /// The ID of the node in the AST
     pub id: NodeId,
     /// The span in the specification declaring the parameter
