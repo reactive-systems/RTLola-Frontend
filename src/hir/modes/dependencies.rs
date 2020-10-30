@@ -236,74 +236,183 @@ impl Dependencies {
 
 #[cfg(test)]
 mod tests {
-    fn chek_graph_for_spec(_spec: &str, _res: bool) {
-        unimplemented!()
+    use super::Dependencies;
+    use crate::hir::SRef;
+    use crate::hir::WRef;
+    use std::collections::HashMap;
+    #[allow(unreachable_code, unused_variables)]
+    fn check_graph_for_spec(
+        _spec: &str,
+        accesses: Option<HashMap<SRef, Vec<SRef>>>,
+        accessed_by: Option<HashMap<SRef, Vec<SRef>>>,
+        aggregates: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
+        aggregated_by: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
+    ) {
+        let hir: Result<Dependencies, ()> = todo!();
+        if let Ok(hir) = hir {
+            hir.dg.accesses.iter().for_each(|(sr, accesses_hir)| {
+                let accesses_reference = accesses.as_ref().unwrap().get(sr).unwrap();
+                assert_eq!(accesses_hir.len(), accesses_reference.len(), "test");
+                accesses_hir.iter().for_each(|sr| assert!(accesses_reference.contains(sr)));
+            });
+            hir.dg.accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
+                let accessed_by_reference = accesses.as_ref().unwrap().get(sr).unwrap();
+                assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "test");
+                accessed_by_hir.iter().for_each(|sr| assert!(accessed_by_reference.contains(sr)));
+            });
+            hir.dg.aggregates.iter().for_each(|(sr, aggregates_hir)| {
+                let aggregates_reference = aggregates.as_ref().unwrap().get(sr).unwrap();
+                assert_eq!(aggregates_hir.len(), aggregates_reference.len(), "test");
+                aggregates_hir.iter().for_each(|lookup| assert!(aggregates_reference.contains(lookup)));
+            });
+            hir.dg.aggregated_by.iter().for_each(|(sr, aggregated_by_hir)| {
+                let aggregated_by_reference = aggregated_by.as_ref().unwrap().get(sr).unwrap();
+                assert_eq!(aggregated_by_hir.len(), aggregated_by_reference.len(), "test");
+                aggregated_by_hir.iter().for_each(|lookup| assert!(aggregated_by_reference.contains(lookup)));
+            });
+        } else {
+            assert!(accesses == None && accessed_by == None && aggregates == None && aggregated_by == None)
+        }
     }
 
     #[test]
     #[ignore]
     fn self_ref() {
-        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+b", false)
+        let spec = "input a: Int8\noutput b: Int8 := a+b";
+        let accesses = None;
+        let accessed_by = None;
+        let aggregates = None;
+        let aggregated_by = None;
+        check_graph_for_spec(spec, accesses, accessed_by, aggregates, aggregated_by);
     }
     #[test]
     #[ignore]
     fn simple_cycle() {
-        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+d\noutput c: Int8 := b\noutput d: Int8 := c", false)
+        let spec = "input a: Int8\noutput b: Int8 := a+d\noutput c: Int8 := b\noutput d: Int8 := c";
+        check_graph_for_spec(spec, None, None, None, None);
     }
 
     #[test]
     #[ignore]
     fn linear_should_be_no_problem() {
-        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c", true)
+        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c";
+        let name_mapping =
+            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1)), ("c", SRef::OutRef(2)), ("d", SRef::OutRef(1))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let accesses = Some(
+            vec![
+                (name_mapping["a"], vec![]),
+                (name_mapping["b"], vec![name_mapping["a"]]),
+                (name_mapping["c"], vec![name_mapping["b"]]),
+                (name_mapping["d"], vec![name_mapping["c"]]),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let accessed_by = Some(
+            vec![
+                (name_mapping["a"], vec![name_mapping["b"]]),
+                (name_mapping["b"], vec![name_mapping["c"]]),
+                (name_mapping["c"], vec![name_mapping["d"]]),
+                (name_mapping["d"], vec![]),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let aggregates = Some(
+            vec![
+                (name_mapping["a"], vec![]),
+                (name_mapping["b"], vec![]),
+                (name_mapping["c"], vec![]),
+                (name_mapping["d"], vec![]),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let aggregated_by = Some(
+            vec![
+                (name_mapping["a"], vec![]),
+                (name_mapping["b"], vec![]),
+                (name_mapping["c"], vec![]),
+                (name_mapping["d"], vec![]),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        check_graph_for_spec(spec, accesses, accessed_by, aggregates, aggregated_by);
     }
 
     #[test]
     #[ignore]
     fn negative_cycle_should_be_no_problem() {
-        chek_graph_for_spec("output a: Int8 := a.offset(by: -1).defaults(to: 0)", true)
+        let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
+        let name_mapping = vec![("a", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+        let accesses = Some(vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect());
+        let accessed_by = Some(vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect());
+        let aggregates = Some(vec![(name_mapping["a"], vec![])].into_iter().collect());
+        let aggregated_by = Some(vec![(name_mapping["a"], vec![])].into_iter().collect());
+        check_graph_for_spec(spec, accesses, accessed_by, aggregates, aggregated_by);
     }
 
     #[test]
     #[ignore]
-    fn self_sliding_window_should_be_no_problem() {
-        chek_graph_for_spec("output a: Int8 := a.aggregate(over: 1s, using: sum)", true)
+    fn self_sliding_window() {
+        let spec = "output a: Int8 := a.aggregate(over: 1s, using: sum)";
+        check_graph_for_spec(spec, None, None, None, None);
     }
 
-    #[test]
-    #[ignore] // Graph Analysis cannot handle positive edges; not required for this branch.
-    fn positive_cycle_should_cause_a_warning() {
-        chek_graph_for_spec("output a: Int8 := a[1]", false);
-    }
+    // #[test]
+    // #[ignore] // Graph Analysis cannot handle positive edges; not required for this branch.
+    // fn positive_cycle_should_cause_a_warning() {
+    //     chek_graph_for_spec("output a: Int8 := a[1]", false);
+    // }
 
     #[test]
     #[ignore]
     fn self_loop() {
-        chek_graph_for_spec(
-            "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e",
-            false,
-        )
+        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
+        check_graph_for_spec(spec, None, None, None, None)
     }
 
     #[test]
     #[ignore]
     fn parallel_edges_in_a_cycle() {
-        chek_graph_for_spec("input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c", false)
+        let spec = "input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c";
+        check_graph_for_spec(spec, None, None, None, None);
     }
 
     #[test]
     #[ignore]
     fn spawn_self_ref() {
-        chek_graph_for_spec("input a: Int8\noutput b {spawn if b > 6} := a + 5", false)
+        let spec = "input a: Int8\noutput b {spawn if b > 6} := a + 5";
+        check_graph_for_spec(spec, None, None, None, None);
     }
     #[test]
     #[ignore]
     fn filter_self_ref() {
-        chek_graph_for_spec("input a: Int8\noutput b {filter b > 6} := a + 5", false)
+        let spec = "input a: Int8\noutput b {filter b > 6} := a + 5";
+        check_graph_for_spec(spec, None, None, None, None);
     }
 
     #[test]
     #[ignore]
     fn close_self_ref() {
-        chek_graph_for_spec("input a: Int8\noutput b {close b > 6} := a + 5", true)
+        let spec = "input a: Int8\noutput b {close b > 6} := a + 5";
+        let name_mapping =
+            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+        let accesses = Some(
+            vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"]])]
+                .into_iter()
+                .collect(),
+        );
+        let accessed_by = Some(
+            vec![(name_mapping["a"], vec![]), (name_mapping["a"], vec![name_mapping["a"], name_mapping["b"]])]
+                .into_iter()
+                .collect(),
+        );
+        let aggregates = Some(vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![])].into_iter().collect());
+        let aggregated_by = Some(vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![])].into_iter().collect());
+        check_graph_for_spec(spec, accesses, accessed_by, aggregates, aggregated_by);
     }
 }

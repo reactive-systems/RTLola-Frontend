@@ -84,6 +84,7 @@ mod tests {
 
     #[test]
     #[ignore]
+    #[allow(unreachable_code, unused_variables)]
     fn simple_spec() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
         let memory_bounds = todo!();
