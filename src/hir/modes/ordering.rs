@@ -118,22 +118,59 @@ impl EvaluationOrder {
 #[cfg(test)]
 mod tests {
     use crate::common_ir::{Layer, SRef};
+    use crate::hir::StreamLayers;
     use std::collections::HashMap;
     fn check_eval_order_for_spec(
         _spec: &str,
-        _event_layers: HashMap<SRef, Layer>,
-        _periodic_layers: HashMap<SRef, Layer>,
+        _event_layers: HashMap<SRef, StreamLayers>,
+        _periodic_layers: HashMap<SRef, StreamLayers>,
     ) {
         todo!()
     }
 
     #[test]
     #[ignore]
-    #[allow(unreachable_code, unused_variables)]
-    fn simple_spec() {
+    fn basic_spec() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let event_layers = todo!();
-        let periodic_layers = todo!();
+        let name_mapping =
+            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn simple_spec() {
+        let spec =
+            "input a : Int8 input b :Int8\noutput c @2Hz := a.hold().defaults(to: 0) + 3\noutput d @1Hz := a.hold().defaults(to: 0) + c\noutput e := a + b";
+        let name_mapping = vec![
+            ("a", SRef::InRef(1)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(1)),
+            ("d", SRef::OutRef(2)),
+            ("e", SRef::OutRef(3)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = vec![
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+        ]
+        .into_iter()
+        .collect();
         check_eval_order_for_spec(spec, event_layers, periodic_layers)
     }
 }
