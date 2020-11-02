@@ -518,16 +518,14 @@ mod tests {
     }
 
     #[test]
-    fn window_list() {
+    fn window_len() {
         let ir = obtain_expressions("output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)");
-        let windows = ir.mode.windows;
-        assert_eq!(windows.len(), 1);
-        let _window: Window = windows[0];
+        assert_eq!(1,ir.mode.windows.len());
         //TODO
     }
 
     #[test]
-    fn all() {
+    fn all() { //Tests all cases are implemented
         let spec = "input i: Int8 \
         output o := 3
         output o2 @1Hz := 4
@@ -540,7 +538,8 @@ mod tests {
         output off := o.defaults(to:2)
         output off := o.offset(by:-1)
         output w := o2.aggregate(over:3s , using: sum)";
-        let ir = obtain_expressions(spec);
+        let _ir = obtain_expressions(spec);
+        //TODO
     }
 
     #[test]
@@ -555,6 +554,7 @@ mod tests {
     #[test]
     fn transform_offset() {
         use crate::hir::expression::StreamAccessKind;
+        //TODO do remaining cases
         for (spec, offset) in &[
             ("input o :Int8 output off := o", StreamAccessKind::Sync),
             //("input o :Int8 output off := o.aggregate(over: 1s, using: sum)",StreamAccessKind::DiscreteWindow(WRef::SlidingRef(0))),
@@ -562,30 +562,29 @@ mod tests {
             ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
             ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
             //("input o :Int8 output off := o.offset(by:-1s)",StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1)))),
-            (
-                "input o :Int8 output off := o.offset(by: 1s)",
-                StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1))),
-            ),
+            //("input o :Int8 output off := o.offset(by: 1s)",StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1)))),
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
             let expr = &ir.mode.exprid_to_expr[&output_expr_id];
             //dbg!(&offset,&expr);
-            assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), offset)));
+            assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _)));
+            if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind) = expr.kind {
+                assert_eq!(result_kind, *offset);
+            }
         }
     }
 
     #[test]
     fn transform_aggr() {
-        use uom::si::time::second;
         let spec = "input i:Int8 output o := i.aggregate(over: 1s, using: sum)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.exprid_to_expr[&output_expr_id];
         //dbg!(&offset,&expr);
         let wref = WRef::SlidingRef(0);
-        assert!(matches!(expr.kind, ExpressionKind::Window(wref)));
-        let window = &ir.sliding_windows[wref.idx()];
+        assert!(matches!(expr.kind, ExpressionKind::Window(WRef::SlidingRef(0))));
+        let window = &ir.mode.windows[&ExprId(0)].clone();
         assert_eq!(
             window,
             &SlidingWindow {
