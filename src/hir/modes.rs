@@ -60,6 +60,7 @@ impl Hir<IrExpression> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            sliding_windows: todo!(),
             mode,
         })
     }

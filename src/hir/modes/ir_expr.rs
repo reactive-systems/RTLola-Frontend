@@ -293,6 +293,7 @@ impl ExpressionTransformer {
     fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
+        dbg!(&ast_expression.kind);
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
                 let constant = self.transform_literal(&lit);
@@ -647,6 +648,7 @@ impl Hir<IrExpression> {
             next_output_ref: hir_outputs.len(),
             outputs: hir_outputs,
             triggers: hir_triggers,
+            sliding_windows: todo!(),
             mode: new_mode,
         }
     }

@@ -29,6 +29,7 @@ pub struct RTLolaHIR<M: HirMode> {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     triggers: Vec<Trigger>,
+    sliding_windows: Vec<SlidingWindow>,
     next_input_ref: usize,
     next_output_ref: usize,
     mode: M,
