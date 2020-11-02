@@ -1,6 +1,6 @@
 use crate::{common_ir::SRef, hir::expression::ExprId};
 
-use super::{HirType, Typed};
+use super::Typed;
 
 pub(crate) trait TypeChecked {
     fn stream_type(&self, _sr: SRef) -> HirType;
@@ -43,3 +43,5 @@ impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
         unimplemented!()
     }
 }
+
+pub(crate) struct HirType {} // TBD

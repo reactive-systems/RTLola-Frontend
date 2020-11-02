@@ -3,20 +3,19 @@ use crate::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
         StreamAccessKind as IRAccess,
     },
-    hir::modes::raw::annotated_type,
-    hir::{Hir, Window},
+    hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
 };
 
 use super::IrExpression;
-//use crate::analysis::naming::{Declaration, DeclarationTable, NamingAnalysis};
+use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
-use crate::ast::{Literal, StreamAccessKind};
+use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
-use crate::hir::naming::{Declaration, NamingAnalysis};
+use crate::parse::NodeId;
 use crate::reporting::Handler;
 use crate::FrontendConfig;
-use crate::Raw;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 pub(crate) trait WithIrExpr {
@@ -32,7 +31,10 @@ impl WithIrExpr for IrExpression {
         self.windows.clone()
     }
     fn expr(&self, sr: SRef) -> &Expression {
-        self.expressions.get(&sr).expect("accessing non-existent expression")
+        match sr {
+            SRef::InRef(_) => todo!(),
+            SRef::OutRef(_) => todo!(),
+        }
     }
     fn spawn(&self, _sr: SRef) -> (&Expression, &Expression) {
         todo!()
@@ -82,35 +84,31 @@ pub enum TransformationError {
 
 #[derive(Debug)]
 pub struct ExpressionTransformer {
-    ast_expressions: HashMap<SRef, ast::Expression>,
-    transformed_expression: HashMap<SRef, Expression>,
     sliding_windows: Vec<SlidingWindow>,
     discrete_windows: Vec<DiscreteWindow>,
     windows: Vec<Window>,
-    string_to_dec: HashMap<String, Declaration>,
+    decl_table: HashMap<NodeId, Declaration>,
     stream_by_name: HashMap<String, SRef>,
     current_exp_id: u32,
 }
 
 impl ExpressionTransformer {
-    fn new(ast_expressions: HashMap<SRef, ast::Expression>, string_to_dec: HashMap<String, Declaration>) -> Self {
+    fn new(decl_table: HashMap<NodeId, Declaration>, stream_by_name: HashMap<String, SRef>) -> Self {
         ExpressionTransformer {
-            ast_expressions,
-            transformed_expression: HashMap::new(),
             sliding_windows: vec![],
             discrete_windows: vec![],
             windows: vec![],
-            string_to_dec,
-            stream_by_name: Default::default(),
+            decl_table,
+            stream_by_name,
             current_exp_id: 0,
         }
     }
 
     fn get_stream_ref(&self, expr: &ast::Expression) -> Result<SRef, TransformationError> {
-        if let ast::ExpressionKind::Ident(ident) = &expr.kind {
-            match &self.string_to_dec[&ident.name] {
-                Declaration::In(i) => Ok(i.sr),
-                Declaration::Out(o) => Ok(o.sr),
+        if let ast::ExpressionKind::Ident(_) = &expr.kind {
+            match &self.decl_table[&expr.id] {
+                Declaration::In(i) => Ok(self.stream_by_name[&i.name.name]),
+                Declaration::Out(o) => Ok(self.stream_by_name[&o.name.name]),
                 _ => Err(TransformationError::InvalidRefExpr(String::from("Non-identifier transformed to SRef"))),
             }
         } else {
@@ -128,24 +126,28 @@ impl ExpressionTransformer {
         match &lit.kind {
             ast::LitKind::Bool(b) => ConstantLiteral::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => ConstantLiteral::Str(s.clone()),
-            ast::LitKind::Numeric(num_str, postfix) => {
-                assert!(postfix.is_none());
-                ConstantLiteral::Numeric(num_str.clone())
-            }
+            ast::LitKind::Numeric(num_str, postfix) => ConstantLiteral::Numeric(num_str.clone(), postfix.clone()),
         }
     }
 
     fn transform_expression(&mut self, ast_expression: ast::Expression) -> Expression {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
+        dbg!(&ast_expression.kind);
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
                 let constant = self.transform_literal(&lit);
                 ExpressionKind::LoadConstant(HIRConstant::BasicConstant(constant))
             }
-            ast::ExpressionKind::Ident(ident) => match &self.string_to_dec[&ident.name] {
-                Declaration::Out(o) => ExpressionKind::StreamAccess(o.sr, IRAccess::Sync),
-                Declaration::In(i) => ExpressionKind::StreamAccess(i.sr, IRAccess::Sync),
+            ast::ExpressionKind::Ident(_) => match &self.decl_table[&ast_expression.id] {
+                Declaration::ParamOut(o) | Declaration::Out(o) => {
+                    let sr = self.stream_by_name[&o.name.name];
+                    ExpressionKind::StreamAccess(sr, IRAccess::Sync)
+                }
+                Declaration::In(i) => {
+                    let sr = self.stream_by_name[&i.name.name];
+                    ExpressionKind::StreamAccess(sr, IRAccess::Sync)
+                }
                 Declaration::Const(c) => {
                     let annotated_type =
                         match annotated_type(&c.ty.as_ref().expect("Constant variables must have type annotation")) {
@@ -157,12 +159,14 @@ impl ExpressionTransformer {
                         annotated_type,
                     ))
                 }
-                Declaration::Param(p) => ExpressionKind::ParameterAccess(p.idx),
-                Declaration::Func(_) => todo!(),
+                Declaration::Param(p) => ExpressionKind::ParameterAccess(p.param_idx),
+                Declaration::Func(_) => todo!("Function identifiere transform"),
+                Declaration::Type(_) => todo!("type identifier transform"),
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
-                let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Hold }; //TODO
+                let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Sync }; //TODO
                 let expr_ref = self.get_stream_ref(&*expr).unwrap(); //TODO error case
+                                                                     //TODO param function case
                 ExpressionKind::StreamAccess(expr_ref, access_kind)
             }
             ast::ExpressionKind::Default(expr, def) => ExpressionKind::Default {
@@ -170,15 +174,22 @@ impl ExpressionTransformer {
                 default: self.transform_expression(*def).into(),
             },
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
+                use uom::si::time::{nanosecond, second};
                 let ir_offset = match offset {
                     ast::Offset::Discrete(i) if i > 0 => Offset::FutureDiscreteOffset(i.abs() as u32),
                     ast::Offset::Discrete(i) => Offset::PastDiscreteOffset(i.abs() as u32),
                     ast::Offset::RealTime(_, _) => {
-                        let dur = parse_duration_from_expr(&ast_expression);
-                        if dur < Duration::from_secs(0) {
-                            Offset::PastRealTimeOffset(dur)
+                        let offset_uom_time =
+                            offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
+                        //let dur = offset_uom_time.abs().to_u32().expect("offset to big for u32");
+                        //let dur = Duration::from_secs(dur.get::<second>());
+                        let dur = offset_uom_time.get::<nanosecond>().to_integer();
+                        //assert!(dur.into() > 0);
+                        let dur = Duration::from_nanos(dur as u64);
+                        if offset_uom_time.get::<second>().numer() > &0i64 {
+                            Offset::PastRealTimeOffset(dur) //TODO!
                         } else {
-                            Offset::FutureRealTimeOffset(dur)
+                            Offset::FutureRealTimeOffset(dur) //TODO FIXME
                         }
                     }
                 };
@@ -188,6 +199,7 @@ impl ExpressionTransformer {
             ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 if let Ok(sref) = self.get_stream_ref(&w_expr) {
+                    dbg!("found valid aggregation on sref", sref);
                     let idx = self.sliding_windows.len();
                     let wref = WRef::SlidingRef(idx);
                     let duration = parse_duration_from_expr(&*duration);
@@ -197,7 +209,7 @@ impl ExpressionTransformer {
                     self.sliding_windows.push(window);
                     ExpressionKind::Window(WRef::SlidingRef(idx))
                 } else {
-                    todo!()
+                    todo!("error case")
                 }
             }
             ast::ExpressionKind::Binary(op, left, right) => {
@@ -258,16 +270,29 @@ impl ExpressionTransformer {
                 ExpressionKind::TupleAccess(inner, num)
             }
             ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
-            ast::ExpressionKind::Function(name, _type_param, args) => {
+            ast::ExpressionKind::Function(name, type_param, args) => {
                 //TODO use type_param
                 //let _decl = self.stream_by_name[&ast_expression.id].clone();
-                ExpressionKind::Function(
+                let decl: Declaration = self.decl_table[&ast_expression.id].clone();
+                let kind = match decl {
+                    Declaration::Func(fun_decl) => ExpressionKind::Function {
+                        name: name.name.name,
+                        args: args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
+                        type_param,
+                        func_decl: (*fun_decl).clone(),
+                    },
+                    Declaration::ParamOut(_) => todo!(),
+                    _ => todo!("error case"),
+                };
+                /*ExpressionKind::Function(
                     name.name.name,
                     args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
                 )
+                */
+                kind
             }
         };
-
+        dbg!(&kind);
         Expression { kind, eid: new_id, span }
     }
 }
@@ -283,19 +308,142 @@ fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Duration {
     Duration::from_nanos(period.get::<uom::si::time::nanosecond>().to_integer().to_u64().unwrap())
 }
 
-impl Hir<IrExpression> {
-    #[allow(unused_variables)]
-    pub fn transform_expressions(raw: Hir<Raw>, handler: &Handler, config: &FrontendConfig) -> Self {
-        let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
-        let string_to_dec = if let Some(map) = naming_analyzer.check(&raw, &raw.mode.constants) {
-            map
+fn insert_return(exprid_to_expr: &mut HashMap<ExprId, Expression>, expr: Expression) -> ExprId {
+    let id = expr.eid;
+    exprid_to_expr.insert(id, expr);
+    id
+}
+
+fn transform_template_spec(
+    transformer: &mut ExpressionTransformer,
+    ts: Option<ast::TemplateSpec>,
+    exprid_to_expr: &mut HashMap<ExprId, Expression>,
+) -> InstanceTemplate {
+    if let Some(ts) = ts {
+        let invoke_spec = if let Some(inv_spec) = ts.inv {
+            let is = SpawnTemplate {
+                target: { insert_return(exprid_to_expr, transformer.transform_expression(inv_spec.target)) },
+                condition: inv_spec
+                    .condition
+                    .map(|cond_expr| insert_return(exprid_to_expr, transformer.transform_expression(cond_expr))),
+                is_if: inv_spec.is_if,
+            };
+            Some(is)
         } else {
-            unimplemented!("Error handling")
+            None
         };
+        InstanceTemplate {
+            spawn: invoke_spec,
+            filter: ts
+                .ext
+                .map(|ext_spec| insert_return(exprid_to_expr, transformer.transform_expression(ext_spec.target))),
+            close: ts
+                .ter
+                .map(|ter_spec| insert_return(exprid_to_expr, transformer.transform_expression(ter_spec.target))),
+        }
+    } else {
+        InstanceTemplate { spawn: None, filter: None, close: None }
+    }
+}
 
-        let Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: raw_mode } = raw;
+impl Hir<IrExpression> {
+    pub fn transform_expressions(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+        let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
+        let decl_table = naming_analyzer.check(&ast);
 
-        let Raw { constants, expressions: ast_expressions } = raw_mode;
+        let Ast {
+            imports: _,   // todo
+            constants: _, //handled through naming analysis
+            inputs,
+            outputs,
+            trigger,
+            type_declarations: _,
+        } = ast;
+
+        let mut hir_outputs = vec![];
+        let mut stream_by_name = HashMap::new();
+        let mut exprid_to_expr = HashMap::new();
+
+        for (ix, o) in outputs.iter().enumerate() {
+            let sr = SRef::OutRef(ix);
+            stream_by_name.insert(o.name.name.clone(), sr);
+        }
+        for (ix, i) in inputs.iter().enumerate() {
+            let sr = SRef::InRef(ix);
+            stream_by_name.insert(i.name.name.clone(), sr);
+        }
+        let stream_by_name = stream_by_name;
+        let mut expr_transformer = ExpressionTransformer::new(decl_table, stream_by_name);
+
+        for (ix, o) in outputs.into_iter().enumerate() {
+            let sr = SRef::OutRef(ix);
+            let ast::Output { expression, name, params, template_spec, ty, extend, .. } =
+                //Rc::try_unwrap(o).expect("other strong references should be dropped now");
+                (*o).clone();
+            let params: Vec<Parameter> = params
+                .iter()
+                .enumerate()
+                .map(|(ix, p)| {
+                    assert_eq!(ix, p.param_idx);
+                    Parameter { name: p.name.name.clone(), annotated_type: annotated_type(&p.ty), idx: p.param_idx }
+                })
+                .collect();
+            let annotated_type = annotated_type(&ty);
+            let expression = expr_transformer.transform_expression(expression);
+            let expr_id = expression.eid;
+            exprid_to_expr.insert(expr_id, expression);
+            let activation_condition =
+                extend.expr.map(|act| insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(act)));
+            let template_spec = transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr);
+            hir_outputs.push(Output {
+                name: name.name,
+                sr,
+                params,
+                template_spec,
+                annotated_type,
+                activation_condition,
+                expr_id,
+            });
+        }
+        let hir_outputs = hir_outputs;
+        let mut hir_triggers = vec![];
+        for (ix, t) in trigger.into_iter().enumerate() {
+            let sr = SRef::OutRef(hir_outputs.len() + ix);
+            let ast::Trigger { message, name, expression, .. } =
+                Rc::try_unwrap(t).expect("other strong references should be dropped now");
+            let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression));
+
+            hir_triggers.push(Trigger::new(name, message, expr_id, sr));
+        }
+        let hir_triggers = hir_triggers;
+        let hir_inputs: Vec<Input> = inputs
+            .into_iter()
+            .enumerate()
+            .map(|(ix, i)| Input {
+                annotated_type: annotated_type(&i.ty).expect("Input Streams must have type annotation"),
+                //name: Rc::try_unwrap(i).expect("other strong references should be dropped now").name.name,
+                name: i.name.name.clone(),
+                sr: SRef::InRef(ix),
+            })
+            .collect();
+
+        let ExpressionTransformer { windows, sliding_windows, discrete_windows: _, .. } = expr_transformer;
+
+        let new_mode = IrExpression { exprid_to_expr, windows };
+
+        Hir {
+            next_input_ref: hir_inputs.len(),
+            inputs: hir_inputs,
+            next_output_ref: hir_outputs.len(),
+            outputs: hir_outputs,
+            triggers: hir_triggers,
+            sliding_windows,
+            mode: new_mode,
+        }
+
+        //let Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: raw_mode } = raw;
+        /*
+        let Raw { constants, expressions: ast_expressions, template_specs } = raw_mode;
 
         let ident_to_ref: HashMap<String, SRef> = inputs
             .iter()
@@ -304,12 +452,198 @@ impl Hir<IrExpression> {
             .chain(outputs.iter().enumerate().map(|(n, o)| (o.name.clone(), SRef::OutRef(n))))
             .collect();
 
-        let expr_transformer = ExpressionTransformer::new(ast_expressions, string_to_dec);
-
-        let ExpressionTransformer { transformed_expression: result_map, windows, .. } = expr_transformer;
+        let (result_map, windows) = expr_transformer.transform();
 
         let new_mode = IrExpression { expressions: result_map, windows };
 
         Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: new_mode }
+        */
+    }
+}
+
+#[allow(unused_variables)]
+pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
+    use crate::ast::TypeKind;
+    match &ast_ty.kind {
+        TypeKind::Tuple(vec) => Some(AnnotatedType::Tuple(
+            vec.iter().map(|inner| annotated_type(inner).expect("Inner types can not be missing")).collect(),
+        )),
+        TypeKind::Optional(inner) => {
+            Some(AnnotatedType::Option(annotated_type(inner).expect("Inner types can not be missing").into()))
+        }
+        TypeKind::Simple(string) => {
+            if string.starts_with("Int") {
+                let size: u32 = string[3..].parse().expect("");
+                return Some(AnnotatedType::Int(size));
+            }
+            if string.starts_with("UInt") {
+                let size: u32 = string[4..].parse().expect("");
+                return Some(AnnotatedType::UInt(size));
+            }
+            if string.starts_with("Float") {
+                let size: u32 = string[5..].parse().expect("");
+                return Some(AnnotatedType::Float(size));
+            }
+            None
+        }
+        TypeKind::Inferred => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::WindowOperation;
+    use crate::parse::{parse, SourceMapper};
+    use std::path::PathBuf;
+
+    fn obtain_expressions(spec: &str) -> Hir<IrExpression> {
+        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let config = FrontendConfig::default();
+        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
+        replaced
+    }
+
+    #[test]
+    fn window_list() {
+        let ir = obtain_expressions("output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)");
+        let windows = ir.mode.windows;
+        assert_eq!(windows.len(), 1);
+        let _window: Window = windows[0];
+        //TODO
+    }
+
+    #[test]
+    fn all() {
+        let spec = "input i: Int8 \
+        output o := 3
+        output o2 @1Hz := 4
+        output o3 := if true then 1 else 2
+        output o4 := 3 + 4
+        output o5 := o
+        output p (x,y) := x
+        output t := (1,3)
+        output t1 := t.0
+        output off := o.defaults(to:2)
+        output off := o.offset(by:-1)
+        output w := o2.aggregate(over:3s , using: sum)";
+        let ir = obtain_expressions(spec);
+    }
+
+    #[test]
+    fn transform_default() {
+        let spec = "input o :Int8 output off := o.defaults(to:-1)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::Default{..}));
+    }
+
+    #[test]
+    fn transform_offset() {
+        use crate::hir::expression::StreamAccessKind;
+        for (spec, offset) in &[
+            ("input o :Int8 output off := o", StreamAccessKind::Sync),
+            //("input o :Int8 output off := o.aggregate(over: 1s, using: sum)",StreamAccessKind::DiscreteWindow(WRef::SlidingRef(0))),
+            ("input o :Int8 output off := o.hold()", StreamAccessKind::Hold),
+            ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
+            ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
+            //("input o :Int8 output off := o.offset(by:-1s)",StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1)))),
+            (
+                "input o :Int8 output off := o.offset(by: 1s)",
+                StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1))),
+            ),
+        ] {
+            let ir = obtain_expressions(spec);
+            let output_expr_id = ir.outputs[0].expr_id;
+            let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+            //dbg!(&offset,&expr);
+            assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), offset)));
+        }
+    }
+
+    #[test]
+    fn transform_aggr() {
+        use uom::si::time::second;
+        let spec = "input i:Int8 output o := i.aggregate(over: 1s, using: sum)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        //dbg!(&offset,&expr);
+        let wref = WRef::SlidingRef(0);
+        assert!(matches!(expr.kind, ExpressionKind::Window(wref)));
+        let window = &ir.sliding_windows[wref.idx()];
+        assert_eq!(
+            window,
+            &SlidingWindow {
+                target: SRef::InRef(0),
+                wait: false,
+                reference: wref,
+                op: WindowOperation::Sum,
+                eid: ExprId(0),
+                duration: Duration::from_secs(1)
+            }
+        );
+    }
+
+    #[test]
+    fn parameter_expr() {
+        let spec = "output o(a,b,c) :=  if c then a else b";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::Ite{..}));
+        if let ExpressionKind::Ite { condition, consequence, alternative } = &expr.kind {
+            assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(2)));
+            assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(0)));
+            assert!(matches!(alternative.kind, ExpressionKind::ParameterAccess(1)));
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn tuple() {
+        let spec = "output o := (1,2,3)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::Tuple(_)));
+        if let ExpressionKind::Tuple(v) = &expr.kind {
+            assert_eq!(v.len(), 3);
+            for atom in v.iter() {
+                assert!(matches!(atom.kind, ExpressionKind::LoadConstant(_)));
+            }
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn tuple_access() {
+        let spec = "output o := (1,2,3).1";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::TupleAccess(_, 1)));
+    }
+
+    #[test]
+    fn arith_op() {
+        use crate::hir::expression::ArithLogOp;
+        let spec = "output o := 3 + 5 ";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Add, _)));
+        if let ExpressionKind::ArithLog(_, v) = &expr.kind {
+            assert_eq!(v.len(), 2);
+            for atom in v.iter() {
+                assert!(matches!(atom.kind, ExpressionKind::LoadConstant(_)));
+            }
+        } else {
+            unreachable!()
+        }
     }
 }

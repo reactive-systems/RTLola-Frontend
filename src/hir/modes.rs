@@ -13,8 +13,9 @@ pub(crate) mod types;
 use std::collections::HashMap;
 
 use crate::{
-    ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
-    common_ir::WindowReference as WRef, hir::expression::Expression, hir::Hir, reporting::Handler, FrontendConfig,
+    ast, ast::Ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
+    common_ir::WindowReference as WRef, hir::expression::Expression, hir::modes::types::HirType, hir::ExprId, hir::Hir,
+    reporting::Handler, FrontendConfig,
 };
 
 use self::dependencies::DependencyErr;
@@ -22,25 +23,28 @@ use petgraph::Graph;
 
 use super::Window;
 
-pub(crate) struct Raw {
-    constants: Vec<ast::Constant>,
-    expressions: HashMap<SRef, ast::Expression>,
-}
+pub(crate) struct Raw {}
 impl HirMode for Raw {}
 
 impl Hir<Raw> {
+    #[allow(unused_variables)]
     pub(crate) fn transform_expressions(self, handler: &Handler, config: &FrontendConfig) -> Hir<IrExpression> {
-        Hir::<IrExpression>::transform_expressions(self, handler, config)
+        //Hir::<IrExpression>::transform_expressions(self, handler, config)
+        todo!()
     }
 }
 
 pub(crate) struct IrExpression {
-    expressions: HashMap<SRef, Expression>,
+    exprid_to_expr: HashMap<ExprId, Expression>,
     windows: Vec<Window>,
 }
 impl HirMode for IrExpression {}
 
 impl Hir<IrExpression> {
+    pub(crate) fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+        Hir::<IrExpression>::transform_expressions(ast, handler, config)
+    }
+
     pub(crate) fn build_dependency_graph(self) -> Result<Hir<Dependencies>, DependencyErr> {
         let dep = Dependencies::analyze(&self)?;
         Ok(Hir {
@@ -49,6 +53,7 @@ impl Hir<IrExpression> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            sliding_windows: self.sliding_windows,
             mode: dep,
         })
     }
@@ -83,7 +88,6 @@ impl Hir<Dependencies> {
     }
 }
 
-pub(crate) struct HirType {} // TBD
 pub(crate) struct Typed {
     expressions: HashMap<SRef, Expression>,
     dg: DependencyGraph,

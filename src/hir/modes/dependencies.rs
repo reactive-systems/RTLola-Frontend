@@ -196,7 +196,7 @@ impl Dependencies {
                 args.iter().flat_map(|a| Self::collect_edges(src, a).into_iter()).collect()
             }
             ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
-            ExpressionKind::Function(_name, args) => args.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
+            ExpressionKind::Function { args, .. } => args.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
             ExpressionKind::Ite { condition, consequence, alternative } => Self::collect_edges(src, condition)
                 .into_iter()
                 .chain(Self::collect_edges(src, consequence).into_iter())
@@ -210,6 +210,7 @@ impl Dependencies {
                 .collect(),
             ExpressionKind::Window(_) => todo!(),
             ExpressionKind::ParameterAccess(_) => Vec::new(), //check this
+            ExpressionKind::ParameterizedStreamAccess(_target, _kind, _args) => todo!(),
         }
     }
 

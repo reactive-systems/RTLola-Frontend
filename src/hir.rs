@@ -7,8 +7,7 @@ The module occurs in different modes, adding different information to the interm
 */
 use crate::common_ir::StreamReference as SRef;
 use crate::common_ir::*;
-use crate::hir::expression::ExprId;
-use crate::hir::expression::Expression;
+use crate::hir::expression::{ExprId, SlidingWindow};
 use crate::parse;
 
 pub(crate) mod expression;
@@ -29,6 +28,7 @@ pub(crate) struct RTLolaHIR<M: HirMode> {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     triggers: Vec<Trigger>,
+    sliding_windows: Vec<SlidingWindow>,
     next_input_ref: usize,
     next_output_ref: usize,
     mode: M,
@@ -91,57 +91,62 @@ pub struct Window {
 pub struct Output {
     /// The name of the stream.
     pub name: String,
-    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
-    pub params: Vec<Parameter>,
-    /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
-    //pub activation_condition: Option<Expression>,
-    /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
-    //pub template_spec: TemplateSpec,
-    /// The reference pointing to this stream.
-    pub sr: StreamReference,
     /// The user annotated Type
     pub annotated_type: Option<AnnotatedType>,
+    /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
+    pub activation_condition: Option<ExprId>,
+    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
+    pub params: Vec<Parameter>,
+    /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
+    pub template_spec: InstanceTemplate,
+    /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
+    pub expr_id: ExprId,
+    /// The reference pointing to this stream.
+    pub sr: StreamReference,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Parameter {
     /// The name of this parameter
     pub name: String,
+    /// The annotated type of this parameter
+    pub annotated_type: Option<AnnotatedType>,
     /// The id, index in the parameter vector in the output stream, for this parameter
     pub idx: usize,
 }
 
 #[derive(Debug, Clone)]
-pub struct TemplateSpec {
+pub struct InstanceTemplate {
     /// The invoke condition of the parametrized stream.
-    pub inv: Option<InvokeSpec>,
+    pub spawn: Option<SpawnTemplate>,
     /// The extend condition of the parametrized stream.
-    pub ext: Option<Expression>,
+    pub filter: Option<ExprId>,
     /// The termination condition of the parametrized stream.
-    pub ter: Option<Expression>,
+    pub close: Option<ExprId>,
 }
 
 #[derive(Debug, Clone)]
-pub struct InvokeSpec {
+pub struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: Expression,
+    pub target: ExprId,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
-    pub condition: Option<Expression>,
+    pub condition: Option<ExprId>,
     /// A flag to describe if the invoke declaration contains an additional condition
     pub is_if: bool,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Trigger {
     pub(crate) name: String,
     pub(crate) message: String,
+    pub expr_id: ExprId,
     pub(crate) sr: SRef,
 }
 
 impl Trigger {
-    fn new(_name: Option<parse::Ident>, _msg: Option<String>, _sr: SRef) -> Self {
-        let _name = unimplemented!();
-        // Self { name, message: msg.unwrap_or_else(String::new), sr }
+    fn new(name: Option<parse::Ident>, msg: Option<String>, expr_id: ExprId, sr: SRef) -> Self {
+        let name_str = name.map(|ident| ident.name).unwrap_or_else(String::new);
+        Self { name: name_str, message: msg.unwrap_or_else(String::new), expr_id, sr }
     }
 }
 

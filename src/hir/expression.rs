@@ -1,14 +1,16 @@
 use std::time::Duration;
 
 use super::WindowOperation;
+use crate::ast::Type;
 use crate::hir::AnnotatedType;
+use crate::stdlib::FuncDecl;
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
 
 /// Represents an expression.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct Expression {
     /// The kind of expression.
     pub kind: ExpressionKind,
@@ -19,7 +21,7 @@ pub struct Expression {
 }
 
 /// The expressions of the IR.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum ExpressionKind {
     /// Loading a constant
     LoadConstant(Constant),
@@ -31,6 +33,7 @@ pub enum ExpressionKind {
     ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
     StreamAccess(SRef, StreamAccessKind),
+    ParameterizedStreamAccess(SRef, StreamAccessKind, Vec<Expression>),
     /// Accessing the n'th parameter of this parameterized stream
     ParameterAccess(usize),
     /// An if-then-else expression
@@ -45,7 +48,13 @@ pub enum ExpressionKind {
     TupleAccess(Box<Expression>, usize),
     /// A function call with its monomorphic type
     /// Arguments never need to be coerced, @see `Expression::Convert`.
-    Function(String, Vec<Expression>),
+    //Function(String, Vec<Expression>),
+    Function {
+        name: String,
+        args: Vec<Expression>,
+        type_param: Vec<Type>,
+        func_decl: FuncDecl,
+    },
     Widen(Box<Expression>),
     /// Transforms an optional value into a "normal" one
     Default {
@@ -79,7 +88,7 @@ pub enum ConstantLiteral {
     Int(i64),
     #[allow(missing_docs)]
     Float(f64),
-    Numeric(String),
+    Numeric(String, Option<String>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
