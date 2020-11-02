@@ -76,7 +76,7 @@ impl EvaluationOrder {
                         .flat_map(|outgoing_neighbor| {
                             evaluation_layers
                                 .get(&graph_with_only_spawn_edges.node_weight(outgoing_neighbor).unwrap())
-                                .map(|layer| *layer)
+                                .copied()
                         })
                         .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| {
                             if let Some(cur_res_layer) = cur_res {
@@ -98,7 +98,7 @@ impl EvaluationOrder {
                     let computed_spawn_layer = graph
                         .neighbors_directed(node, Outgoing)//or incoming -> try
                         .flat_map(|outgoing_neighbor| if outgoing_neighbor == node {None} else {Some(outgoing_neighbor)}) //delete self references
-                        .flat_map(|outgoing_neighbor| evaluation_layers.get(&graph.node_weight(outgoing_neighbor).unwrap()).map(|layer| *layer))
+                        .flat_map(|outgoing_neighbor| evaluation_layers.get(&graph.node_weight(outgoing_neighbor).unwrap()).copied())
                         .fold(Some(Layer::new(0)), |cur_res, neighbor_layer| {
                         if let Some(cur_res_layer) = cur_res { Some(std::cmp::max(cur_res_layer, neighbor_layer))} else {None}
                     });

@@ -21,11 +21,8 @@ pub(crate) fn graph_without_close_edges(graph: &Graph<SRef, EdgeWeight>) -> Grap
     graph.edge_indices().for_each(|edge_index| {
         let edge_weight = graph.edge_weight(edge_index).unwrap();
         let (edge_src, edge_tar) = graph.edge_endpoints(edge_index).unwrap();
-        match (edge_weight, edge_src == edge_tar) {
-            (EdgeWeight::Close(_), true) => {
-                working_graph.remove_edge(edge_index);
-            }
-            _ => {}
+        if let (EdgeWeight::Close(_), true) = (edge_weight, edge_src == edge_tar) {
+            working_graph.remove_edge(edge_index);
         }
     });
     working_graph

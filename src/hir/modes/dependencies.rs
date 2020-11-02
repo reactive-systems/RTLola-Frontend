@@ -32,17 +32,14 @@ pub(crate) trait DependenciesAnalyzed {
 
 impl DependenciesAnalyzed for Dependencies {
     fn accesses(&self, who: SRef) -> Vec<SRef> {
-        self.dg
-            .accesses
-            .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().map(|sref| *sref).collect::<Vec<SRef>>())
+        self.dg.accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn accessed_by(&self, who: SRef) -> Vec<SRef> {
         self.dg
             .accessed_by
             .get(&who)
-            .map_or(Vec::new(), |accessed_by| accessed_by.iter().map(|sref| *sref).collect::<Vec<SRef>>())
+            .map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
@@ -154,20 +151,20 @@ impl Dependencies {
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         edges.iter().for_each(|(src, w, tar)| {
-            let cur_accesses = &mut (*accesses.entry(*src).or_insert(Vec::new()));
+            let cur_accesses = &mut (*accesses.entry(*src).or_insert_with(|| Vec::new()));
             if !cur_accesses.contains(tar) {
                 cur_accesses.push(*tar);
             }
-            let cur_accessed_by = &mut (*accessed_by.entry(*tar).or_insert(Vec::new()));
+            let cur_accessed_by = &mut (*accessed_by.entry(*tar).or_insert_with(|| Vec::new()));
             if !cur_accessed_by.contains(src) {
                 cur_accessed_by.push(*src);
             }
             if let EdgeWeight::Aggr(wref) = w {
-                let cur_aggregates = &mut (*aggregates.entry(*src).or_insert(Vec::new()));
+                let cur_aggregates = &mut (*aggregates.entry(*src).or_insert_with(|| Vec::new()));
                 if cur_aggregates.contains(&(*tar, *wref)) {
                     cur_aggregates.push((*tar, *wref));
                 }
-                let cur_aggregates_by = &mut (*aggregated_by.entry(*tar).or_insert(Vec::new()));
+                let cur_aggregates_by = &mut (*aggregated_by.entry(*tar).or_insert_with(|| Vec::new()));
                 if cur_aggregates_by.contains(&(*src, *wref)) {
                     cur_aggregates_by.push((*src, *wref));
                 }
