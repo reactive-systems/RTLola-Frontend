@@ -648,7 +648,6 @@ impl Hir<IrExpression> {
             next_output_ref: hir_outputs.len(),
             outputs: hir_outputs,
             triggers: hir_triggers,
-            sliding_windows: todo!(),
             mode: new_mode,
         }
     }
