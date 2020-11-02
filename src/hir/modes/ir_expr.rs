@@ -262,7 +262,7 @@ impl ExpressionTransformer {
             }
             ast::ExpressionKind::MissingExpression => unimplemented!(),
             ast::ExpressionKind::Tuple(inner) => {
-                ExpressionKind::Tuple(inner.into_iter().map(|ex| self.transform_expression(*ex).into()).collect())
+                ExpressionKind::Tuple(inner.into_iter().map(|ex| self.transform_expression(*ex)).collect())
             }
             ast::ExpressionKind::Field(inner_exp, ident) => {
                 let num: usize = ident.name.parse().expect("checked in AST verifier");
@@ -274,22 +274,21 @@ impl ExpressionTransformer {
                 //TODO use type_param
                 //let _decl = self.stream_by_name[&ast_expression.id].clone();
                 let decl: Declaration = self.decl_table[&ast_expression.id].clone();
-                let kind = match decl {
+                match decl {
                     Declaration::Func(fun_decl) => ExpressionKind::Function {
                         name: name.name.name,
-                        args: args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
+                        args: args.into_iter().map(|ex| self.transform_expression(*ex)).collect(),
                         type_param,
                         func_decl: (*fun_decl).clone(),
                     },
                     Declaration::ParamOut(_) => todo!(),
                     _ => todo!("error case"),
-                };
+                }
                 /*ExpressionKind::Function(
                     name.name.name,
                     args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
                 )
                 */
-                kind
             }
         };
         dbg!(&kind);
