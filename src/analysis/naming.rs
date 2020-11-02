@@ -163,8 +163,7 @@ impl<'b> NamingAnalysis<'b> {
 
     /// Entry method, checks that every identifier in the given spec is bound.
     pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
-        //stdlib::import_implicit_module(&mut self.fun_declarations);
-
+        stdlib::import_implicit_module(&mut self.fun_declarations);
         for import in &spec.imports {
             match import.name.name.as_str() {
                 "math" => stdlib::import_math_module(&mut self.fun_declarations),
@@ -471,10 +470,7 @@ impl Declaration {
     }
 
     fn is_function(&self) -> bool {
-        match self {
-            Declaration::Func(_) | Declaration::ParamOut(_) => true,
-            _ => false,
-        }
+        matches!(self ,Declaration::Func(_) | Declaration::ParamOut(_))
     }
 }
 

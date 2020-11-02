@@ -151,6 +151,8 @@ pub enum ArithLogOp {
 pub struct SlidingWindow {
     /// The stream whose values will be aggregated.
     pub target: SRef,
+    /// The stream calling and evaluating this window.
+    pub caller: SRef,
     /// The duration over which the window aggregates.
     pub duration: Duration,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
@@ -168,6 +170,8 @@ pub struct SlidingWindow {
 pub struct DiscreteWindow {
     /// The stream whose values will be aggregated.
     pub target: SRef,
+    /// The stream calling and evaluating this window.
+    pub caller: SRef,
     /// The number of values over which the window aggregates.
     pub duration: u32,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.

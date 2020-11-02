@@ -10,6 +10,7 @@ pub(crate) mod ordering;
 pub(crate) mod raw;
 pub(crate) mod types;
 
+use crate::hir::SlidingWindow;
 use std::collections::HashMap;
 
 use crate::{
@@ -20,8 +21,6 @@ use crate::{
 
 use self::dependencies::DependencyErr;
 use petgraph::Graph;
-
-use super::Window;
 
 pub(crate) struct Raw {}
 impl HirMode for Raw {}
@@ -34,9 +33,11 @@ impl Hir<Raw> {
     }
 }
 
+type ExpressionLookUp = HashMap<ExprId, Expression>;
+
 pub(crate) struct IrExpression {
-    exprid_to_expr: HashMap<ExprId, Expression>,
-    windows: Vec<Window>,
+    exprid_to_expr: ExpressionLookUp,
+    windows: HashMap<ExprId, SlidingWindow>,
 }
 impl HirMode for IrExpression {}
 
@@ -53,7 +54,6 @@ impl Hir<IrExpression> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
-            sliding_windows: self.sliding_windows,
             mode: dep,
         })
     }
@@ -89,7 +89,7 @@ impl Hir<Dependencies> {
 }
 
 pub(crate) struct Typed {
-    expressions: HashMap<SRef, Expression>,
+    expressions: ExpressionLookUp,
     dg: DependencyGraph,
     stream_tt: HashMap<SRef, HirType>,
     expr_tt: HashMap<SRef, HirType>, // consider merging the tts.
@@ -107,7 +107,7 @@ pub(crate) struct EvaluationOrder {
     periodic_layers: HashMap<SRef, StreamLayers>,
 }
 pub(crate) struct Ordered {
-    expressions: HashMap<SRef, Expression>,
+    expressions: ExpressionLookUp,
     dg: DependencyGraph,
     stream_tt: HashMap<SRef, HirType>,
     expr_tt: HashMap<SRef, HirType>,
@@ -125,7 +125,7 @@ pub(crate) struct Memory {
 }
 pub(crate) struct MemBound {
     memory: Memory,
-    expressions: HashMap<SRef, Expression>,
+    expressions: ExpressionLookUp,
     dg: DependencyGraph,
     stream_tt: HashMap<SRef, HirType>,
     expr_tt: HashMap<SRef, HirType>, // consider merging the tts.

@@ -350,19 +350,10 @@ impl ValueTy {
             Unconstrained => true,
             Comparable | Equatable => self.is_primitive(),
             Numeric => self.satisfies(&Integer) || self.satisfies(&FloatingPoint),
-            FloatingPoint => match self {
-                Float(_) => true,
-                _ => false,
-            },
+            FloatingPoint => matches!(self, Float(_)),
             Integer => self.satisfies(&SignedInteger) || self.satisfies(&UnsignedInteger),
-            SignedInteger => match self {
-                Int(_) => true,
-                _ => false,
-            },
-            UnsignedInteger => match self {
-                UInt(_) => true,
-                _ => false,
-            },
+            SignedInteger => matches!(self, Int(_)),
+            UnsignedInteger => matches!(self, UInt(_)),
         }
     }
 
@@ -384,10 +375,7 @@ impl ValueTy {
     */
     pub fn is_primitive(&self) -> bool {
         use self::ValueTy::*;
-        match self {
-            Bool | Int(_) | UInt(_) | Float(_) | String | Bytes => true,
-            _ => false,
-        }
+        matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
     }
 
     /// Replaces parameters by the given list

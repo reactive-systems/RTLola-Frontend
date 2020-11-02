@@ -28,7 +28,7 @@ pub(crate) trait WithIrExpr {
 
 impl WithIrExpr for IrExpression {
     fn windows(&self) -> Vec<Window> {
-        self.windows.clone()
+        todo!()
     }
     fn expr(&self, sr: SRef) -> &Expression {
         match sr {
@@ -49,7 +49,7 @@ impl WithIrExpr for IrExpression {
 
 impl Hir<IrExpression> {
     fn windows(&self) -> Vec<Window> {
-        self.mode.windows.clone()
+        todo!()
     }
 }
 
@@ -130,7 +130,7 @@ impl ExpressionTransformer {
         }
     }
 
-    fn transform_expression(&mut self, ast_expression: ast::Expression) -> Expression {
+    fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
         dbg!(&ast_expression.kind);
@@ -170,8 +170,8 @@ impl ExpressionTransformer {
                 ExpressionKind::StreamAccess(expr_ref, access_kind)
             }
             ast::ExpressionKind::Default(expr, def) => ExpressionKind::Default {
-                expr: self.transform_expression(*expr).into(),
-                default: self.transform_expression(*def).into(),
+                expr: self.transform_expression(*expr, current_output).into(),
+                default: self.transform_expression(*def, current_output).into(),
             },
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
                 use uom::si::time::{nanosecond, second};
@@ -199,13 +199,19 @@ impl ExpressionTransformer {
             ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 if let Ok(sref) = self.get_stream_ref(&w_expr) {
-                    dbg!("found valid aggregation on sref", sref);
                     let idx = self.sliding_windows.len();
                     let wref = WRef::SlidingRef(idx);
                     let duration = parse_duration_from_expr(&*duration);
                     self.windows.push(Window { expr: new_id });
-                    let window =
-                        SlidingWindow { target: sref, duration, wait, op: win_op, reference: wref, eid: new_id };
+                    let window = SlidingWindow {
+                        target: sref,
+                        caller: current_output,
+                        duration,
+                        wait,
+                        op: win_op,
+                        reference: wref,
+                        eid: new_id,
+                    };
                     self.sliding_windows.push(window);
                     ExpressionKind::Window(WRef::SlidingRef(idx))
                 } else {
@@ -236,8 +242,10 @@ impl ExpressionTransformer {
                     BinOp::Ge => Ge,
                     BinOp::Gt => Gt,
                 };
-                let arguments: Vec<Expression> =
-                    vec![self.transform_expression(*left), self.transform_expression(*right)];
+                let arguments: Vec<Expression> = vec![
+                    self.transform_expression(*left, current_output),
+                    self.transform_expression(*right, current_output),
+                ];
                 ExpressionKind::ArithLog(arith_op, arguments)
             }
             ast::ExpressionKind::Unary(op, arg) => {
@@ -248,25 +256,25 @@ impl ExpressionTransformer {
                     UnOp::Neg => Neg,
                     UnOp::BitNot => BitNot,
                 };
-                let arguments: Vec<Expression> = vec![self.transform_expression(*arg)];
+                let arguments: Vec<Expression> = vec![self.transform_expression(*arg, current_output)];
                 ExpressionKind::ArithLog(arith_op, arguments)
             }
             ast::ExpressionKind::Ite(cond, cons, alt) => {
-                let condition = self.transform_expression(*cond).into();
-                let consequence = self.transform_expression(*cons).into();
-                let alternative = self.transform_expression(*alt).into();
+                let condition = self.transform_expression(*cond, current_output).into();
+                let consequence = self.transform_expression(*cons, current_output).into();
+                let alternative = self.transform_expression(*alt, current_output).into();
                 ExpressionKind::Ite { condition, consequence, alternative }
             }
             ast::ExpressionKind::ParenthesizedExpression(_, inner, _) => {
-                return self.transform_expression(*inner);
+                return self.transform_expression(*inner, current_output);
             }
             ast::ExpressionKind::MissingExpression => unimplemented!(),
-            ast::ExpressionKind::Tuple(inner) => {
-                ExpressionKind::Tuple(inner.into_iter().map(|ex| self.transform_expression(*ex)).collect())
-            }
+            ast::ExpressionKind::Tuple(inner) => ExpressionKind::Tuple(
+                inner.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
+            ),
             ast::ExpressionKind::Field(inner_exp, ident) => {
                 let num: usize = ident.name.parse().expect("checked in AST verifier");
-                let inner = self.transform_expression(*inner_exp).into();
+                let inner = self.transform_expression(*inner_exp, current_output).into();
                 ExpressionKind::TupleAccess(inner, num)
             }
             ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
@@ -277,7 +285,7 @@ impl ExpressionTransformer {
                 match decl {
                     Declaration::Func(fun_decl) => ExpressionKind::Function {
                         name: name.name.name,
-                        args: args.into_iter().map(|ex| self.transform_expression(*ex)).collect(),
+                        args: args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
                         type_param,
                         func_decl: (*fun_decl).clone(),
                     },
@@ -317,14 +325,17 @@ fn transform_template_spec(
     transformer: &mut ExpressionTransformer,
     ts: Option<ast::TemplateSpec>,
     exprid_to_expr: &mut HashMap<ExprId, Expression>,
+    current_output: SRef,
 ) -> InstanceTemplate {
     if let Some(ts) = ts {
         let invoke_spec = if let Some(inv_spec) = ts.inv {
             let is = SpawnTemplate {
-                target: { insert_return(exprid_to_expr, transformer.transform_expression(inv_spec.target)) },
-                condition: inv_spec
-                    .condition
-                    .map(|cond_expr| insert_return(exprid_to_expr, transformer.transform_expression(cond_expr))),
+                target: {
+                    insert_return(exprid_to_expr, transformer.transform_expression(inv_spec.target, current_output))
+                },
+                condition: inv_spec.condition.map(|cond_expr| {
+                    insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
+                }),
                 is_if: inv_spec.is_if,
             };
             Some(is)
@@ -333,12 +344,12 @@ fn transform_template_spec(
         };
         InstanceTemplate {
             spawn: invoke_spec,
-            filter: ts
-                .ext
-                .map(|ext_spec| insert_return(exprid_to_expr, transformer.transform_expression(ext_spec.target))),
-            close: ts
-                .ter
-                .map(|ter_spec| insert_return(exprid_to_expr, transformer.transform_expression(ter_spec.target))),
+            filter: ts.ext.map(|ext_spec| {
+                insert_return(exprid_to_expr, transformer.transform_expression(ext_spec.target, current_output))
+            }),
+            close: ts.ter.map(|ter_spec| {
+                insert_return(exprid_to_expr, transformer.transform_expression(ter_spec.target, current_output))
+            }),
         }
     } else {
         InstanceTemplate { spawn: None, filter: None, close: None }
@@ -388,12 +399,13 @@ impl Hir<IrExpression> {
                 })
                 .collect();
             let annotated_type = annotated_type(&ty);
-            let expression = expr_transformer.transform_expression(expression);
+            let expression = expr_transformer.transform_expression(expression, sr);
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
-            let activation_condition =
-                extend.expr.map(|act| insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(act)));
-            let template_spec = transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr);
+            let activation_condition = extend
+                .expr
+                .map(|act| insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(act, sr)));
+            let template_spec = transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr, sr);
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
@@ -410,7 +422,7 @@ impl Hir<IrExpression> {
             let sr = SRef::OutRef(hir_outputs.len() + ix);
             let ast::Trigger { message, name, expression, .. } =
                 Rc::try_unwrap(t).expect("other strong references should be dropped now");
-            let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression));
+            let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression, sr));
 
             hir_triggers.push(Trigger::new(name, message, expr_id, sr));
         }
@@ -426,7 +438,9 @@ impl Hir<IrExpression> {
             })
             .collect();
 
-        let ExpressionTransformer { windows, sliding_windows, discrete_windows: _, .. } = expr_transformer;
+        let ExpressionTransformer { sliding_windows, discrete_windows: _, .. } = expr_transformer;
+
+        let windows: HashMap<ExprId, SlidingWindow> = sliding_windows.into_iter().map(|w| (w.eid, w)).collect();
 
         let new_mode = IrExpression { exprid_to_expr, windows };
 
@@ -436,7 +450,6 @@ impl Hir<IrExpression> {
             next_output_ref: hir_outputs.len(),
             outputs: hir_outputs,
             triggers: hir_triggers,
-            sliding_windows,
             mode: new_mode,
         }
 
@@ -577,6 +590,7 @@ mod tests {
             window,
             &SlidingWindow {
                 target: SRef::InRef(0),
+                caller: SRef::OutRef(0),
                 wait: false,
                 reference: wref,
                 op: WindowOperation::Sum,
