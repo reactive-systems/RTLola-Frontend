@@ -13,6 +13,7 @@ use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::parse::NodeId;
 use crate::reporting::Handler;
+use crate::stdlib::FuncDecl;
 use crate::FrontendConfig;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -104,15 +105,25 @@ impl ExpressionTransformer {
         }
     }
 
-    fn get_stream_ref(&self, expr: &ast::Expression) -> Result<SRef, TransformationError> {
-        if let ast::ExpressionKind::Ident(_) = &expr.kind {
-            match &self.decl_table[&expr.id] {
-                Declaration::In(i) => Ok(self.stream_by_name[&i.name.name]),
-                Declaration::Out(o) => Ok(self.stream_by_name[&o.name.name]),
+    fn get_stream_ref(
+        &mut self,
+        expr: &ast::Expression,
+        current_output: SRef,
+    ) -> Result<(SRef, Vec<Expression>), TransformationError> {
+        match &expr.kind {
+            ast::ExpressionKind::Ident(_) => match &self.decl_table[&expr.id] {
+                Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
+                Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
                 _ => Err(TransformationError::InvalidRefExpr(String::from("Non-identifier transformed to SRef"))),
-            }
-        } else {
-            unimplemented!("todo error")
+            },
+            ast::ExpressionKind::Function(_, _, args) => match &self.decl_table[&expr.id] {
+                Declaration::ParamOut(o) => Ok((
+                    self.stream_by_name[&o.name.name],
+                    args.iter().map(|e| self.transform_expression(*e.clone(), current_output)).collect(),
+                )),
+                decl => Err(TransformationError::InvalidIdentRef(decl.clone())),
+            },
+            _ => unimplemented!("todo error"),
         }
     }
 
@@ -140,13 +151,13 @@ impl ExpressionTransformer {
                 ExpressionKind::LoadConstant(HIRConstant::BasicConstant(constant))
             }
             ast::ExpressionKind::Ident(_) => match &self.decl_table[&ast_expression.id] {
-                Declaration::ParamOut(o) | Declaration::Out(o) => {
+                Declaration::Out(o) => {
                     let sr = self.stream_by_name[&o.name.name];
-                    ExpressionKind::StreamAccess(sr, IRAccess::Sync)
+                    ExpressionKind::StreamAccess(sr, IRAccess::Sync, Vec::new())
                 }
                 Declaration::In(i) => {
                     let sr = self.stream_by_name[&i.name.name];
-                    ExpressionKind::StreamAccess(sr, IRAccess::Sync)
+                    ExpressionKind::StreamAccess(sr, IRAccess::Sync, Vec::new())
                 }
                 Declaration::Const(c) => {
                     let annotated_type =
@@ -159,15 +170,16 @@ impl ExpressionTransformer {
                         annotated_type,
                     ))
                 }
+                Declaration::ParamOut(_o) => todo!("may be unreachable"),
                 Declaration::Param(p) => ExpressionKind::ParameterAccess(p.param_idx),
-                Declaration::Func(_) => todo!("Function identifiere transform"),
+                Declaration::Func(_) => todo!("Function identifier transform"),
                 Declaration::Type(_) => todo!("type identifier transform"),
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
                 let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Sync }; //TODO
-                let expr_ref = self.get_stream_ref(&*expr).unwrap(); //TODO error case
-                                                                     //TODO param function case
-                ExpressionKind::StreamAccess(expr_ref, access_kind)
+                let (expr_ref, args) = self.get_stream_ref(&*expr, current_output).unwrap(); //TODO error case
+                                                                                             //TODO param function case
+                ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             }
             ast::ExpressionKind::Default(expr, def) => ExpressionKind::Default {
                 expr: self.transform_expression(*expr, current_output).into(),
@@ -193,12 +205,12 @@ impl ExpressionTransformer {
                         }
                     }
                 };
-                let expr_ref = self.get_stream_ref(&*target_expr).unwrap(); //TODO error case
-                ExpressionKind::StreamAccess(expr_ref, IRAccess::Offset(ir_offset))
+                let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output).unwrap(); //TODO error case
+                ExpressionKind::StreamAccess(expr_ref, IRAccess::Offset(ir_offset), args)
             }
             ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
-                if let Ok(sref) = self.get_stream_ref(&w_expr) {
+                if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
                     let idx = self.sliding_windows.len();
                     let wref = WRef::SlidingRef(idx);
                     let duration = parse_duration_from_expr(&*duration);
@@ -283,11 +295,13 @@ impl ExpressionTransformer {
                 //let _decl = self.stream_by_name[&ast_expression.id].clone();
                 let decl: Declaration = self.decl_table[&ast_expression.id].clone();
                 match decl {
-                    Declaration::Func(fun_decl) => ExpressionKind::Function {
+                    Declaration::Func(_) => ExpressionKind::Function {
                         name: name.name.name,
                         args: args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
-                        type_param,
-                        func_decl: (*fun_decl).clone(),
+                        type_param: type_param
+                            .into_iter()
+                            .map(|t| annotated_type(&t).expect("given type arguments have to be replaceable"))
+                            .collect(),
                     },
                     Declaration::ParamOut(_) => todo!(),
                     _ => todo!("error case"),
@@ -360,7 +374,17 @@ impl Hir<IrExpression> {
     pub fn transform_expressions(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
         let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
         let decl_table = naming_analyzer.check(&ast);
-
+        let func_table: HashMap<String, FuncDecl> = decl_table
+            .values()
+            .filter(|decl| matches!(decl, Declaration::Func(_)))
+            .map(|decl| {
+                if let Declaration::Func(fun_decl) = decl {
+                    (fun_decl.name.name.name.clone(), (**fun_decl).clone())
+                } else {
+                    unreachable!("assured by filter")
+                }
+            })
+            .collect();
         let Ast {
             imports: _,   // todo
             constants: _, //handled through naming analysis
@@ -442,7 +466,7 @@ impl Hir<IrExpression> {
 
         let windows: HashMap<ExprId, SlidingWindow> = sliding_windows.into_iter().map(|w| (w.eid, w)).collect();
 
-        let new_mode = IrExpression { exprid_to_expr, windows };
+        let new_mode = IrExpression { exprid_to_expr, windows, func_table };
 
         Hir {
             next_input_ref: hir_inputs.len(),
@@ -513,6 +537,7 @@ mod tests {
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        dbg!(&ast);
         let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
         replaced
     }
@@ -520,12 +545,13 @@ mod tests {
     #[test]
     fn window_len() {
         let ir = obtain_expressions("output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)");
-        assert_eq!(1,ir.mode.windows.len());
+        assert_eq!(1, ir.mode.windows.len());
         //TODO
     }
 
     #[test]
-    fn all() { //Tests all cases are implemented
+    fn all() {
+        //Tests all cases are implemented
         let spec = "input i: Int8 \
         output o := 3
         output o2 @1Hz := 4
@@ -568,8 +594,8 @@ mod tests {
             let output_expr_id = ir.outputs[0].expr_id;
             let expr = &ir.mode.exprid_to_expr[&output_expr_id];
             //dbg!(&offset,&expr);
-            assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _)));
-            if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind) = expr.kind {
+            assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _, _)));
+            if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind, _) = expr.kind {
                 assert_eq!(result_kind, *offset);
             }
         }
@@ -610,6 +636,25 @@ mod tests {
             assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(2)));
             assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(0)));
             assert!(matches!(alternative.kind, ExpressionKind::ParameterAccess(1)));
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn parametrized_access() {
+        use crate::hir::expression::StreamAccessKind;
+        let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[1].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscreteOffset(_)), _)
+        ));
+        if let ExpressionKind::StreamAccess(sr, _, v) = &expr.kind {
+            assert_eq!(*sr, SRef::OutRef(0));
+            assert_eq!(v.len(), 3);
         } else {
             unreachable!()
         }

@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use super::WindowOperation;
-use crate::ast::Type;
 use crate::hir::AnnotatedType;
-use crate::stdlib::FuncDecl;
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,8 +30,9 @@ pub enum ExpressionKind {
     /// n-ary: kth argument -> kth operand
     ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
-    StreamAccess(SRef, StreamAccessKind),
-    ParameterizedStreamAccess(SRef, StreamAccessKind, Vec<Expression>),
+    /// The Expression vector containsthe arguments for a parametrized stream access
+    StreamAccess(SRef, StreamAccessKind, Vec<Expression>),
+    //ParameterizedStreamAccess(SRef, StreamAccessKind),
     /// Accessing the n'th parameter of this parameterized stream
     ParameterAccess(usize),
     /// An if-then-else expression
@@ -52,8 +51,7 @@ pub enum ExpressionKind {
     Function {
         name: String,
         args: Vec<Expression>,
-        type_param: Vec<Type>,
-        func_decl: FuncDecl,
+        type_param: Vec<AnnotatedType>,
     },
     Widen(Box<Expression>),
     /// Transforms an optional value into a "normal" one

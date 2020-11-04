@@ -187,7 +187,10 @@ impl Dependencies {
 
     fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
         match &expr.kind {
-            ExpressionKind::StreamAccess(target, stream_access_kind) => vec![(src, *stream_access_kind, *target)],
+            ExpressionKind::StreamAccess(target, stream_access_kind, _args) => {
+                vec![(src, *stream_access_kind, *target)];
+                todo!("args are new")
+            }
             ExpressionKind::LoadConstant(_) => Vec::new(),
             ExpressionKind::ArithLog(_op, args) => {
                 args.iter().flat_map(|a| Self::collect_edges(src, a).into_iter()).collect()
@@ -207,7 +210,6 @@ impl Dependencies {
                 .collect(),
             ExpressionKind::Window(_) => todo!(),
             ExpressionKind::ParameterAccess(_) => Vec::new(), //check this
-            ExpressionKind::ParameterizedStreamAccess(_target, _kind, _args) => todo!(),
         }
     }
 

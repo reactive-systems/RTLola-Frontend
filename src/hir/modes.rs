@@ -11,6 +11,7 @@ pub(crate) mod raw;
 pub(crate) mod types;
 
 use crate::hir::SlidingWindow;
+use crate::stdlib::FuncDecl;
 use std::collections::HashMap;
 
 use crate::{
@@ -38,6 +39,7 @@ type ExpressionLookUp = HashMap<ExprId, Expression>;
 pub(crate) struct IrExpression {
     exprid_to_expr: ExpressionLookUp,
     windows: HashMap<ExprId, SlidingWindow>,
+    func_table: HashMap<String, FuncDecl>,
 }
 impl HirMode for IrExpression {}
 
