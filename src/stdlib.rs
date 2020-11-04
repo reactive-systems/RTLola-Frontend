@@ -1,5 +1,4 @@
 //! This module contains the Lola standard library.
-use crate::analysis::naming::ScopedDecl;
 use crate::ast::{BinOp, FunctionName, UnOp};
 #[allow(unused_imports)]
 use crate::ty::{FloatTy, IntTy, TypeConstraint, UIntTy, ValueTy};

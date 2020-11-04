@@ -715,6 +715,7 @@ mod tests {
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        dbg!(&ast);
         let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
         replaced
     }
@@ -825,6 +826,25 @@ mod tests {
             assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(_, 2)));
             assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(_, 0)));
             assert!(matches!(alternative.kind, ExpressionKind::ParameterAccess(_, 1)));
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn parametrized_access() {
+        use crate::hir::expression::StreamAccessKind;
+        let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[1].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscreteOffset(_)), _)
+        ));
+        if let ExpressionKind::StreamAccess(sr, _, v) = &expr.kind {
+            assert_eq!(*sr, SRef::OutRef(0));
+            assert_eq!(v.len(), 3);
         } else {
             unreachable!()
         }

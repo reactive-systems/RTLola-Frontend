@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use super::WindowOperation;
-use crate::ast::Type;
 use crate::hir::AnnotatedType;
-use crate::stdlib::FuncDecl;
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
