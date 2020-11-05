@@ -286,6 +286,7 @@ impl Expression {
 
     /// A recursive iterator over an `Expression` tree
     /// Inspired by https://amos.me/blog/2019/recursive-iterators-rust/
+    #[allow(dead_code)]
     pub(crate) fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &Expression> + 'a> {
         use ExpressionKind::*;
         match &self.kind {

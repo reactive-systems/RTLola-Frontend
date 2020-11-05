@@ -11,9 +11,9 @@ use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
+use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
 use crate::reporting::Handler;
-use crate::stdlib::FuncDecl;
 use crate::FrontendConfig;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -123,7 +123,7 @@ impl ExpressionTransformer {
                 )),
                 decl => Err(TransformationError::InvalidIdentRef(decl.clone())),
             },
-            _ => unimplemented!("todo error"),
+            _ => Err(TransformationError::InvalidRefExpr(format!("{:?}", expr.kind))),
         }
     }
 
@@ -144,7 +144,6 @@ impl ExpressionTransformer {
     fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
-        dbg!(&ast_expression.kind);
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
                 let constant = self.transform_literal(&lit);
@@ -193,15 +192,14 @@ impl ExpressionTransformer {
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time =
                             offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
-                        //let dur = offset_uom_time.abs().to_u32().expect("offset to big for u32");
-                        //let dur = Duration::from_secs(dur.get::<second>());
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
-                        //assert!(dur.into() > 0);
-                        let dur = Duration::from_nanos(dur as u64);
-                        if offset_uom_time.get::<second>().numer() > &0i64 {
-                            Offset::PastRealTimeOffset(dur) //TODO!
+                        //TODO FIXME check potential loss of precision
+                        if offset_uom_time.get::<nanosecond>().numer() < &0i64 {
+                            let positive_dur = Duration::from_nanos((-1*dur) as u64);
+                            Offset::PastRealTimeOffset(positive_dur)
                         } else {
-                            Offset::FutureRealTimeOffset(dur) //TODO FIXME
+                            let positive_dur = Duration::from_nanos(dur as u64);
+                            Offset::FutureRealTimeOffset(positive_dur)
                         }
                     }
                 };
@@ -291,8 +289,6 @@ impl ExpressionTransformer {
             }
             ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
             ast::ExpressionKind::Function(name, type_param, args) => {
-                //TODO use type_param
-                //let _decl = self.stream_by_name[&ast_expression.id].clone();
                 let decl: Declaration = self.decl_table[&ast_expression.id].clone();
                 match decl {
                     Declaration::Func(_) => ExpressionKind::Function {
@@ -303,17 +299,15 @@ impl ExpressionTransformer {
                             .map(|t| annotated_type(&t).expect("given type arguments have to be replaceable"))
                             .collect(),
                     },
-                    Declaration::ParamOut(_) => todo!(),
+                    Declaration::ParamOut(_) => ExpressionKind::StreamAccess(
+                        self.stream_by_name[&name.name.name],
+                        IRAccess::Sync,
+                        args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
+                    ),
                     _ => todo!("error case"),
                 }
-                /*ExpressionKind::Function(
-                    name.name.name,
-                    args.into_iter().map(|ex| self.transform_expression(*ex).into()).collect(),
-                )
-                */
             }
         };
-        dbg!(&kind);
         Expression { kind, eid: new_id, span }
     }
 }
@@ -412,7 +406,6 @@ impl Hir<IrExpression> {
         for (ix, o) in outputs.into_iter().enumerate() {
             let sr = SRef::OutRef(ix);
             let ast::Output { expression, name, params, template_spec, ty, extend, .. } =
-                //Rc::try_unwrap(o).expect("other strong references should be dropped now");
                 (*o).clone();
             let params: Vec<Parameter> = params
                 .iter()
@@ -456,7 +449,6 @@ impl Hir<IrExpression> {
             .enumerate()
             .map(|(ix, i)| Input {
                 annotated_type: annotated_type(&i.ty).expect("Input Streams must have type annotation"),
-                //name: Rc::try_unwrap(i).expect("other strong references should be dropped now").name.name,
                 name: i.name.name.clone(),
                 sr: SRef::InRef(ix),
             })
@@ -476,24 +468,6 @@ impl Hir<IrExpression> {
             triggers: hir_triggers,
             mode: new_mode,
         }
-
-        //let Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: raw_mode } = raw;
-        /*
-        let Raw { constants, expressions: ast_expressions, template_specs } = raw_mode;
-
-        let ident_to_ref: HashMap<String, SRef> = inputs
-            .iter()
-            .enumerate()
-            .map(|(n, i)| (i.name.clone(), SRef::InRef(n)))
-            .chain(outputs.iter().enumerate().map(|(n, o)| (o.name.clone(), SRef::OutRef(n))))
-            .collect();
-
-        let (result_map, windows) = expr_transformer.transform();
-
-        let new_mode = IrExpression { expressions: result_map, windows };
-
-        Hir { inputs, outputs, triggers, next_input_ref, next_output_ref, mode: new_mode }
-        */
     }
 }
 
@@ -508,17 +482,38 @@ pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
             Some(AnnotatedType::Option(annotated_type(inner).expect("Inner types can not be missing").into()))
         }
         TypeKind::Simple(string) => {
+            if string == "String" {
+                return Some(AnnotatedType::String);
+            }
+            if string == "Bool" {
+                return Some(AnnotatedType::Bool);
+            }
             if string.starts_with("Int") {
-                let size: u32 = string[3..].parse().expect("");
-                return Some(AnnotatedType::Int(size));
+                if string.len() == 3 {
+                    return Some(AnnotatedType::Int(8));
+                } else {
+                    let size: u32 = string[3..].parse().expect("Invalid char followed Int type annotation");
+                    return Some(AnnotatedType::Int(size));
+                }
             }
             if string.starts_with("UInt") {
-                let size: u32 = string[4..].parse().expect("");
-                return Some(AnnotatedType::UInt(size));
+                if string.len() == 4 {
+                    return Some(AnnotatedType::Int(8));
+                } else {
+                    let size: u32 = string[4..].parse().expect("Invalid char followed UInt type annotation");
+                    return Some(AnnotatedType::UInt(size));
+                }
             }
             if string.starts_with("Float") {
-                let size: u32 = string[5..].parse().expect("");
-                return Some(AnnotatedType::Float(size));
+                if string.len() == 5 {
+                    return Some(AnnotatedType::Int(8));
+                } else {
+                    let size: u32 = string[5..].parse().expect("Invalid char followed Float type annotation");
+                    return Some(AnnotatedType::Float(size));
+                }
+            }
+            if string == "Bytes" {
+                return Some(AnnotatedType::Bytes);
             }
             None
         }
@@ -537,7 +532,6 @@ mod tests {
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        dbg!(&ast);
         let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
         replaced
     }
@@ -552,12 +546,15 @@ mod tests {
     #[test]
     fn all() {
         //Tests all cases are implemented
-        let spec = "input i: Int8 \
+        let spec = "
+        import math
+        input i: Int8
         output o := 3
         output o2 @1Hz := 4
         output o3 := if true then 1 else 2
         output o4 := 3 + 4
         output o5 := o
+        output f := sqrt(4)
         output p (x,y) := x
         output t := (1,3)
         output t1 := t.0
@@ -587,13 +584,12 @@ mod tests {
             ("input o :Int8 output off := o.hold()", StreamAccessKind::Hold),
             ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
             ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
-            //("input o :Int8 output off := o.offset(by:-1s)",StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1)))),
-            //("input o :Int8 output off := o.offset(by: 1s)",StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1)))),
+            ("input o :Int8 output off := o.offset(by:-1s)",StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1)))),
+            ("input o :Int8 output off := o.offset(by: 1s)",StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1)))),
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
             let expr = &ir.mode.exprid_to_expr[&output_expr_id];
-            //dbg!(&offset,&expr);
             assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _, _)));
             if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind, _) = expr.kind {
                 assert_eq!(result_kind, *offset);
@@ -607,7 +603,6 @@ mod tests {
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.exprid_to_expr[&output_expr_id];
-        //dbg!(&offset,&expr);
         let wref = WRef::SlidingRef(0);
         assert!(matches!(expr.kind, ExpressionKind::Window(WRef::SlidingRef(0))));
         let window = &ir.mode.windows[&ExprId(0)].clone();
@@ -699,6 +694,52 @@ mod tests {
             for atom in v.iter() {
                 assert!(matches!(atom.kind, ExpressionKind::LoadConstant(_)));
             }
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn type_annotations() {
+        for (spec, ty) in &[
+            ("input i :String", AnnotatedType::String),
+            ("input i :Bytes", AnnotatedType::Bytes),
+            ("input i :Bool", AnnotatedType::Bool),
+            ("input i :(Int8,UInt8)", AnnotatedType::Tuple(vec![AnnotatedType::Int(8), AnnotatedType::UInt(8)])),
+            ("input i :Float32?", AnnotatedType::Option(Box::new(AnnotatedType::Float(32)))),
+        ] {
+            let ir = obtain_expressions(spec);
+            let input = &ir.inputs[0];
+            let transformed_type = &input.annotated_type;
+            assert_eq!(transformed_type, ty);
+        }
+    }
+
+    #[test]
+    fn functions() {
+        use crate::hir::expression::StreamAccessKind;
+        let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
+        let ir = obtain_expressions(spec);
+        assert_eq!(ir.mode.func_table.len(), 1);
+        let output_expr_id = ir.outputs[1].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::OutRef(0), StreamAccessKind::Sync, _)));
+    }
+
+    #[test]
+    fn function_param_default() {
+        let spec = "import math output o(a: Int) := sqrt(a) output c := o(1).defaults(to:1)";
+        let ir = obtain_expressions(spec);
+        assert_eq!(ir.mode.func_table.len(), 1);
+        let output_expr_id = ir.outputs[1].expr_id;
+        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::Default{
+            expr: _,
+            default: _
+        }));
+        if let ExpressionKind::Default { expr: ex, default } = &expr.kind {
+            assert!(matches!(default.kind, ExpressionKind::LoadConstant(_)));
+            assert!(matches!(ex.kind, ExpressionKind::StreamAccess(SRef::OutRef(0), _, _)));
         } else {
             unreachable!()
         }

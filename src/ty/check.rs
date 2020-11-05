@@ -1,3 +1,4 @@
+/*
 //! Implementation of the Hindley-Milner type inference through unification
 //!
 //! Relevant references:
@@ -2434,3 +2435,4 @@ mod tests {
         assert_eq!(1, num_type_errors(spec));
     }
 }
+*/

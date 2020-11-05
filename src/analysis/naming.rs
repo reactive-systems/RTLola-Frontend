@@ -1,11 +1,11 @@
 //! This module provides naming analysis for a given Lola AST.
 
 use crate::ast::*;
+use crate::hir::function_lookup::FuncDecl;
 use crate::parse::{Ident, NodeId, Span};
 use crate::reporting::{Handler, LabeledSpan};
 #[allow(unused_imports)]
 use crate::stdlib;
-use crate::stdlib::FuncDecl;
 use crate::ty::ValueTy;
 use crate::FrontendConfig;
 use std::{collections::HashMap, rc::Rc};
@@ -110,6 +110,7 @@ impl<'b> NamingAnalysis<'b> {
     fn check_type(&mut self, ty: &Type) {
         match &ty.kind {
             TypeKind::Simple(name) => {
+                dbg!(&name);
                 if let Some(decl) = self.type_declarations.get_decl_for(&name) {
                     assert!(decl.is_type());
                     self.result.insert(ty.id, decl);
@@ -163,11 +164,12 @@ impl<'b> NamingAnalysis<'b> {
 
     /// Entry method, checks that every identifier in the given spec is bound.
     pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
-        stdlib::import_implicit_module(&mut self.fun_declarations);
+        use crate::hir::function_lookup;
+        function_lookup::import_implicit_module(&mut self.fun_declarations);
         for import in &spec.imports {
             match import.name.name.as_str() {
-                "math" => stdlib::import_math_module(&mut self.fun_declarations),
-                "regex" => stdlib::import_regex_module(&mut self.fun_declarations),
+                "math" => function_lookup::import_math_module(&mut self.fun_declarations),
+                "regex" => function_lookup::import_regex_module(&mut self.fun_declarations),
                 n => self.handler.error_with_span(
                     &format!("unresolved import `{}`", n),
                     LabeledSpan::new(import.name.span, &format!("no `{}` in the root", n), true),
@@ -595,6 +597,12 @@ mod tests {
     #[test]
     fn test_aggregate() {
         let spec = "output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)";
+        assert_eq!(0, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_param_use() {
+        let spec = "output a(x,y,z) := if y then y else z";
         assert_eq!(0, number_of_naming_errors(spec));
     }
 }

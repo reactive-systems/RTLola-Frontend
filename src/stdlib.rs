@@ -1,9 +1,11 @@
 //! This module contains the Lola standard library.
-#![allow(dead_code)]
+#[allow(unused_imports)]
 use crate::analysis::naming::ScopedDecl;
 use crate::ast::{BinOp, FunctionName, UnOp};
+#[allow(unused_imports)]
 use crate::ty::{FloatTy, IntTy, TypeConstraint, UIntTy, ValueTy};
 use lazy_static::lazy_static;
+#[allow(unused_imports)]
 use std::collections::HashMap;
 
 /// A (possibly generic) function declaration
@@ -18,6 +20,7 @@ pub struct FuncDecl {
 impl FuncDecl {
     /// Given the instantiation of the generic parameters, this function returns the instantiated types of the arguments and return type.
     /// For example `sqrt<T>(_: T) -> T` is `sqrt<T>(_: Float32) -> Float32` when `T` is instantiated by `Float32`.
+    #[allow(dead_code)]
     pub(crate) fn get_types_for_args_and_ret(&self, generics: &[ValueTy]) -> (Vec<ValueTy>, ValueTy) {
         let args = self.parameters.iter().map(|ty| ty.replace_params_with_ty(generics)).collect();
         (args, self.return_type.replace_params_with_ty(generics))
@@ -25,6 +28,7 @@ impl FuncDecl {
 }
 
 impl BinOp {
+    #[allow(dead_code)]
     pub(crate) fn get_func_decl(self) -> FuncDecl {
         use self::BinOp::*;
         match self {
@@ -72,6 +76,7 @@ impl BinOp {
 }
 
 impl UnOp {
+    #[allow(dead_code)]
     pub(crate) fn get_func_decl(self) -> FuncDecl {
         use self::UnOp::*;
         match self {
@@ -188,7 +193,7 @@ lazy_static! {
         return_type: ValueTy::Option( ValueTy::UInt(UIntTy::U8).into() ),
     };
 }
-
+/*
 pub(crate) fn import_implicit_module(fun_scope: &mut ScopedDecl) {
     fun_scope.add_fun_decl(&CAST);
 }
@@ -282,3 +287,4 @@ impl<'a> MethodLookup<'a> {
         // cloned for dereferencing once && -> &
     }
 }
+*/

@@ -20,7 +20,7 @@ use crate::ast::RTLolaAst;
 #[allow(unused_imports)]
 use crate::reporting::Handler;
 #[allow(unused_imports)]
-use crate::ty::check::TypeAnalysis;
+//use crate::ty::check::TypeAnalysis;
 #[allow(unused_imports)]
 use crate::FrontendConfig;
 

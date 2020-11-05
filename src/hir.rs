@@ -11,9 +11,9 @@ use crate::hir::expression::{ExprId, SlidingWindow};
 use crate::parse;
 
 pub(crate) mod expression;
+pub(crate) mod function_lookup;
 pub(crate) mod lowering;
 pub(crate) mod modes;
-pub(crate) mod naming;
 mod print;
 mod schedule;
 
@@ -151,9 +151,16 @@ impl Trigger {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum AnnotatedType {
+    //Can be annotated
     Int(u32),
     Float(u32),
     UInt(u32),
+    Bool,
+    String,
+    Bytes,
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
+    //Used in function declaration
+    Numeric,
+    Param(usize, String),
 }

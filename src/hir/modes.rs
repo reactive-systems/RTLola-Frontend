@@ -10,8 +10,8 @@ pub(crate) mod ordering;
 pub(crate) mod raw;
 pub(crate) mod types;
 
+use crate::hir::function_lookup::FuncDecl;
 use crate::hir::SlidingWindow;
-use crate::stdlib::FuncDecl;
 use std::collections::HashMap;
 
 use crate::{
