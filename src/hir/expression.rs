@@ -32,7 +32,6 @@ pub enum ExpressionKind {
     /// Accessing another stream
     /// The Expression vector containsthe arguments for a parametrized stream access
     StreamAccess(SRef, StreamAccessKind, Vec<Expression>),
-    //ParameterizedStreamAccess(SRef, StreamAccessKind),
     /// Accessing the n'th parameter of this parameterized stream
     ParameterAccess(usize),
     /// An if-then-else expression

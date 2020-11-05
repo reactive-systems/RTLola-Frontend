@@ -149,6 +149,9 @@ impl Trigger {
     }
 }
 
+/// Represents the annotated given type for constants, input streams, etc.
+/// It is converted from the AST type and an input for the typechecker.
+/// After typechecking HirType is used to represent all type information.
 #[derive(Debug, PartialEq, Clone)]
 pub enum AnnotatedType {
     //Can be annotated

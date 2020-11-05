@@ -3,6 +3,7 @@ use crate::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
         StreamAccessKind as IRAccess,
     },
+    hir::modes::HirMode,
     hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
 };
 
@@ -20,13 +21,62 @@ use std::rc::Rc;
 use std::time::Duration;
 
 pub(crate) trait WithIrExpr {
-    fn windows(&self) -> Vec<Window>;
-    fn expr(&self, sr: SRef) -> &Expression;
-    fn spawn(&self, sr: SRef) -> (&Expression, &Expression);
-    fn filter(&self, sr: SRef) -> &Expression;
-    fn close(&self, sr: SRef) -> &Expression;
+    fn window_vec(&self) -> Vec<Window>;
+    fn expression(&self, id: ExprId) -> &Expression;
+    fn func_declaration(&self, func_name: String) -> &FuncDecl;
+}
+impl WithIrExpr for IrExpression {
+    fn window_vec(&self) -> Vec<Window> {
+        self.windows.values().map(|w| Window { expr: w.eid }).collect()
+    }
+
+    fn expression(&self, id: ExprId) -> &Expression {
+        &self.exprid_to_expr[&id]
+    }
+
+    fn func_declaration(&self, func_name: String) -> &FuncDecl {
+        &self.func_table[&func_name]
+    }
 }
 
+pub(crate) type SpawnDef<'a> = (&'a Expression, Option<&'a Expression>);
+
+impl<M> Hir<M>
+where
+    M: WithIrExpr + HirMode,
+{
+    pub(crate) fn windows(&self) -> Vec<Window> {
+        self.mode.window_vec()
+    }
+    pub(crate) fn expr(&self, sr: SRef) -> &Expression {
+        match sr {
+            SRef::InRef(_) => unreachable!(),
+            SRef::OutRef(o) => self.mode.expression(self.outputs[o].expr_id),
+        }
+    }
+    pub(crate) fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
+        match sr {
+            SRef::InRef(_) => unreachable!(),
+            SRef::OutRef(o) => self.outputs[o]
+                .instance_template
+                .spawn
+                .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e)))),
+        }
+    }
+    pub(crate) fn filter(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => unreachable!(),
+            SRef::OutRef(o) => self.outputs[o].instance_template.filter.map(|e| self.mode.expression(e)),
+        }
+    }
+    pub(crate) fn close(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => unreachable!(),
+            SRef::OutRef(o) => self.outputs[o].instance_template.close.map(|e| self.mode.expression(e)),
+        }
+    }
+}
+/*
 impl WithIrExpr for IrExpression {
     fn windows(&self) -> Vec<Window> {
         todo!()
@@ -47,12 +97,7 @@ impl WithIrExpr for IrExpression {
         todo!()
     }
 }
-
-impl Hir<IrExpression> {
-    fn windows(&self) -> Vec<Window> {
-        todo!()
-    }
-}
+*/
 
 pub(crate) trait IrExprWrapper {
     type InnerE: WithIrExpr;
@@ -60,20 +105,14 @@ pub(crate) trait IrExprWrapper {
 }
 
 impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
-    fn windows(&self) -> Vec<Window> {
-        self.inner_expr().windows()
+    fn window_vec(&self) -> Vec<Window> {
+        self.inner_expr().window_vec()
     }
-    fn expr(&self, sr: SRef) -> &Expression {
-        self.inner_expr().expr(sr)
+    fn expression(&self, id: ExprId) -> &Expression {
+        self.inner_expr().expression(id)
     }
-    fn spawn(&self, sr: SRef) -> (&Expression, &Expression) {
-        self.inner_expr().spawn(sr)
-    }
-    fn filter(&self, sr: SRef) -> &Expression {
-        self.inner_expr().filter(sr)
-    }
-    fn close(&self, sr: SRef) -> &Expression {
-        self.inner_expr().close(sr)
+    fn func_declaration(&self, func_name: String) -> &FuncDecl {
+        self.inner_expr().func_declaration(func_name)
     }
 }
 
@@ -176,8 +215,9 @@ impl ExpressionTransformer {
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
                 let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Sync }; //TODO
-                let (expr_ref, args) = self.get_stream_ref(&*expr, current_output).unwrap(); //TODO error case
-                                                                                             //TODO param function case
+                let (expr_ref, args) =
+                    self.get_stream_ref(&*expr, current_output).expect("Invalid streamaccess expression"); //TODO error case
+                                                                                                           //TODO param function case
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             }
             ast::ExpressionKind::Default(expr, def) => ExpressionKind::Default {
