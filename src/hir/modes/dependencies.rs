@@ -115,20 +115,27 @@ impl Dependencies {
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
-                Self::collect_edges(sr, spec.spawn(sr).0).into_iter().chain(Self::collect_edges(sr, spec.spawn(sr).1))
+                spec.spawn(sr).map(|(spawn_expr, spawn_cond)| {
+                    Self::collect_edges(sr, spawn_expr)
+                        .into_iter()
+                        .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(sr, spawn_cond)))
+                })
             })
+            .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::Spawn(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.filter(sr)))
+            .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(sr, filter)))
+            .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::Filter(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.close(sr)))
+            .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(sr, close)))
+            .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::Close(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges = edges_expr
             .chain(edges_spawn)

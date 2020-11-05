@@ -60,6 +60,7 @@ where
             SRef::OutRef(o) => self.outputs[o]
                 .instance_template
                 .spawn
+                .as_ref()
                 .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e)))),
         }
     }
