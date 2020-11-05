@@ -34,12 +34,14 @@ impl Hir<Raw> {
     }
 }
 
-type ExpressionLookUp = HashMap<ExprId, Expression>;
+pub(crate) type ExpressionLookUps = HashMap<ExprId, Expression>;
+pub(crate) type WindowLookUps = HashMap<ExprId, SlidingWindow>;
+pub(crate) type FunctionLookUps = HashMap<String, FuncDecl>;
 
 pub(crate) struct IrExpression {
-    exprid_to_expr: ExpressionLookUp,
-    windows: HashMap<ExprId, SlidingWindow>,
-    func_table: HashMap<String, FuncDecl>,
+    exprid_to_expr: ExpressionLookUps,
+    windows: WindowLookUps,
+    func_table: FunctionLookUps,
 }
 impl HirMode for IrExpression {}
 
@@ -71,15 +73,19 @@ pub(crate) enum EdgeWeight {
     Close(Box<EdgeWeight>),
 }
 
+pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
+pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
+pub(crate) type Graphrepresentation = Graph<SRef, EdgeWeight>;
+
 struct DependencyGraph {
-    accesses: HashMap<SRef, Vec<SRef>>,
-    accessed_by: HashMap<SRef, Vec<SRef>>,
-    aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>>,
-    aggregates: HashMap<SRef, Vec<(SRef, WRef)>>,
-    graph: Graph<SRef, EdgeWeight>,
+    accesses: Streamdependencies,
+    accessed_by: Streamdependencies,
+    aggregated_by: Windowdependencies,
+    aggregates: Windowdependencies,
+    graph: Graphrepresentation,
 }
 pub(crate) struct Dependencies {
-    expressions: HashMap<SRef, Expression>,
+    ir_expr: IrExpression,
     dg: DependencyGraph,
 }
 impl HirMode for Dependencies {}
@@ -90,11 +96,18 @@ impl Hir<Dependencies> {
     }
 }
 
+pub(crate) type StreamTypeTable = HashMap<SRef, HirType>;
+pub(crate) type ExpressionTypeTable = HashMap<SRef, HirType>; // -> why is expressionid not the key for this map
+
+pub(crate) struct TypeTables {
+    stream_tt: StreamTypeTable,
+    expr_tt: ExpressionTypeTable, // consider merging the tts.
+}
+
 pub(crate) struct Typed {
-    expressions: ExpressionLookUp,
+    ir_expr: IrExpression,
     dg: DependencyGraph,
-    stream_tt: HashMap<SRef, HirType>,
-    expr_tt: HashMap<SRef, HirType>, // consider merging the tts.
+    tts: TypeTables,
 }
 impl HirMode for Typed {}
 
@@ -104,15 +117,16 @@ impl Hir<Typed> {
     }
 }
 
+pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
+
 pub(crate) struct EvaluationOrder {
-    event_layers: HashMap<SRef, StreamLayers>,
-    periodic_layers: HashMap<SRef, StreamLayers>,
+    event_layers: LayerRepresentation,
+    periodic_layers: LayerRepresentation,
 }
 pub(crate) struct Ordered {
-    expressions: ExpressionLookUp,
-    dg: DependencyGraph,
-    stream_tt: HashMap<SRef, HirType>,
-    expr_tt: HashMap<SRef, HirType>,
+    ir_expr: IrExpression,
+    dependencies: Dependencies,
+    types: Typed,
     layers: EvaluationOrder,
 }
 impl HirMode for Ordered {}
@@ -126,12 +140,11 @@ pub(crate) struct Memory {
     memory_bound_per_stram: HashMap<SRef, MemorizationBound>,
 }
 pub(crate) struct MemBound {
-    memory: Memory,
-    expressions: ExpressionLookUp,
-    dg: DependencyGraph,
-    stream_tt: HashMap<SRef, HirType>,
-    expr_tt: HashMap<SRef, HirType>, // consider merging the tts.
+    ir_expr: IrExpression,
+    dependencies: Dependencies,
+    types: Typed,
     layers: EvaluationOrder,
+    memory: Memory,
 }
 impl HirMode for MemBound {}
 
@@ -142,11 +155,11 @@ impl Hir<MemBound> {
 }
 
 pub(crate) struct Complete {
-    memory: Memory,
-    dependencies: Dependencies,
     ir_expr: IrExpression,
+    dependencies: Dependencies,
     types: Typed,
     layers: EvaluationOrder,
+    memory: Memory,
 }
 impl HirMode for Complete {}
 
