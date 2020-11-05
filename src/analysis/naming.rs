@@ -110,6 +110,7 @@ impl<'b> NamingAnalysis<'b> {
     fn check_type(&mut self, ty: &Type) {
         match &ty.kind {
             TypeKind::Simple(name) => {
+                dbg!(&name);
                 if let Some(decl) = self.type_declarations.get_decl_for(&name) {
                     assert!(decl.is_type());
                     self.result.insert(ty.id, decl);

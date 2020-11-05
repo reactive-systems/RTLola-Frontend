@@ -293,7 +293,6 @@ impl ExpressionTransformer {
     fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
-        dbg!(&ast_expression.kind);
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
                 let constant = self.transform_literal(&lit);
@@ -715,7 +714,6 @@ mod tests {
         let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        dbg!(&ast);
         let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
         replaced
     }

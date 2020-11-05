@@ -15,7 +15,7 @@ pub struct FuncDecl {
 }
 
 lazy_static! {
-        // fn widen_signed<T: Signed, U: Signed>(T) -> U where U: T
+    // fn widen_signed<T: Signed, U: Signed>(T) -> U where U: T
     static ref WIDEN: FuncDecl = FuncDecl {
         name: FunctionName::new("widen".to_string(), &[None]),
         generics: vec![AnnotatedType::Numeric,AnnotatedType::Numeric],
