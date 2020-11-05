@@ -97,7 +97,7 @@ pub struct Output {
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
-    pub template_spec: InstanceTemplate,
+    pub instance_template: InstanceTemplate,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
     pub expr_id: ExprId,
     /// The reference pointing to this stream.

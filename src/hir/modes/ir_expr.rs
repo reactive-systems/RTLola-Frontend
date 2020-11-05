@@ -185,7 +185,7 @@ impl ExpressionTransformer {
                 default: self.transform_expression(*def, current_output).into(),
             },
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
-                use uom::si::time::{nanosecond, second};
+                use uom::si::time::nanosecond;
                 let ir_offset = match offset {
                     ast::Offset::Discrete(i) if i > 0 => Offset::FutureDiscreteOffset(i.abs() as u32),
                     ast::Offset::Discrete(i) => Offset::PastDiscreteOffset(i.abs() as u32),
@@ -195,7 +195,7 @@ impl ExpressionTransformer {
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
                         if offset_uom_time.get::<nanosecond>().numer() < &0i64 {
-                            let positive_dur = Duration::from_nanos((-1*dur) as u64);
+                            let positive_dur = Duration::from_nanos((-dur) as u64);
                             Offset::PastRealTimeOffset(positive_dur)
                         } else {
                             let positive_dur = Duration::from_nanos(dur as u64);
@@ -405,8 +405,7 @@ impl Hir<IrExpression> {
 
         for (ix, o) in outputs.into_iter().enumerate() {
             let sr = SRef::OutRef(ix);
-            let ast::Output { expression, name, params, template_spec, ty, extend, .. } =
-                (*o).clone();
+            let ast::Output { expression, name, params, template_spec, ty, extend, .. } = (*o).clone();
             let params: Vec<Parameter> = params
                 .iter()
                 .enumerate()
@@ -422,12 +421,13 @@ impl Hir<IrExpression> {
             let activation_condition = extend
                 .expr
                 .map(|act| insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(act, sr)));
-            let template_spec = transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr, sr);
+            let instance_template =
+                transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr, sr);
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
                 params,
-                template_spec,
+                instance_template,
                 annotated_type,
                 activation_condition,
                 expr_id,
@@ -584,8 +584,14 @@ mod tests {
             ("input o :Int8 output off := o.hold()", StreamAccessKind::Hold),
             ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
             ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
-            ("input o :Int8 output off := o.offset(by:-1s)",StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1)))),
-            ("input o :Int8 output off := o.offset(by: 1s)",StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1)))),
+            (
+                "input o :Int8 output off := o.offset(by:-1s)",
+                StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1))),
+            ),
+            (
+                "input o :Int8 output off := o.offset(by: 1s)",
+                StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1))),
+            ),
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
