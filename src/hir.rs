@@ -10,10 +10,10 @@ use crate::common_ir::*;
 use crate::hir::expression::{ExprId, SlidingWindow};
 use crate::parse;
 
-pub(crate) mod expression;
-pub(crate) mod function_lookup;
+pub mod expression;
+pub mod function_lookup;
 pub(crate) mod lowering;
-pub(crate) mod modes;
+pub mod modes;
 mod print;
 mod schedule;
 
@@ -24,7 +24,7 @@ pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export n
 use modes::HirMode;
 
 #[derive(Debug, Clone)]
-pub(crate) struct RTLolaHIR<M: HirMode> {
+pub struct RTLolaHIR<M: HirMode> {
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     triggers: Vec<Trigger>,
@@ -36,31 +36,31 @@ pub(crate) struct RTLolaHIR<M: HirMode> {
 pub(crate) type Hir<M> = RTLolaHIR<M>;
 
 impl<M: HirMode> Hir<M> {
-    pub(crate) fn inputs(&self) -> impl Iterator<Item = &Input> {
+    pub fn inputs(&self) -> impl Iterator<Item = &Input> {
         self.inputs.iter()
     }
 
-    pub(crate) fn outputs(&self) -> impl Iterator<Item = &Output> {
+    pub fn outputs(&self) -> impl Iterator<Item = &Output> {
         self.outputs.iter()
     }
 
-    pub(crate) fn triggers(&self) -> impl Iterator<Item = &Trigger> {
+    pub fn triggers(&self) -> impl Iterator<Item = &Trigger> {
         self.triggers.iter()
     }
 
-    pub(crate) fn num_inputs(&self) -> usize {
+    pub fn num_inputs(&self) -> usize {
         self.inputs.len()
     }
 
-    pub(crate) fn num_outputs(&self) -> usize {
+    pub fn num_outputs(&self) -> usize {
         self.outputs.len()
     }
 
-    pub(crate) fn num_triggers(&self) -> usize {
+    pub fn num_triggers(&self) -> usize {
         self.triggers.len()
     }
 
-    pub(crate) fn all_streams<'a>(&'a self) -> impl Iterator<Item = SRef> + 'a {
+    pub fn all_streams<'a>(&'a self) -> impl Iterator<Item = SRef> + 'a {
         self.inputs
             .iter()
             .map(|i| i.sr)
@@ -73,16 +73,16 @@ impl<M: HirMode> Hir<M> {
 #[derive(Debug, Clone)]
 pub struct Input {
     /// The name of the stream.
-    pub(crate) name: String,
+    pub name: String,
     /// The reference pointing to this stream.
-    pub(crate) sr: SRef,
+    pub sr: SRef,
     /// The user annotated Type
     pub annotated_type: AnnotatedType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Window {
-    pub(crate) expr: ExprId,
+    pub expr: ExprId,
 }
 
 /// Represents an output stream in an RTLola specification.
@@ -114,7 +114,7 @@ pub struct Parameter {
     pub idx: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct InstanceTemplate {
     /// The invoke condition of the parametrized stream.
     pub spawn: Option<SpawnTemplate>,
@@ -124,7 +124,7 @@ pub struct InstanceTemplate {
     pub close: Option<ExprId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: ExprId,
@@ -136,10 +136,10 @@ pub struct SpawnTemplate {
 
 #[derive(Debug, Clone)]
 pub struct Trigger {
-    pub(crate) name: String,
-    pub(crate) message: String,
+    pub name: String,
+    pub message: String,
     pub expr_id: ExprId,
-    pub(crate) sr: SRef,
+    pub sr: SRef,
 }
 
 impl Trigger {

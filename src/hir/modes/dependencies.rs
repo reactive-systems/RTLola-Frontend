@@ -210,13 +210,12 @@ impl Dependencies {
                 .chain(Self::collect_edges(src, alternative).into_iter())
                 .collect(),
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
-            ExpressionKind::Widen(inner) => Self::collect_edges(src, inner),
+            ExpressionKind::Widen(inner, _) => Self::collect_edges(src, inner),
             ExpressionKind::Default { expr, default } => Self::collect_edges(src, expr)
                 .into_iter()
                 .chain(Self::collect_edges(src, default).into_iter())
                 .collect(),
-            ExpressionKind::Window(_) => todo!(),
-            ExpressionKind::ParameterAccess(_) => Vec::new(), //check this
+            ExpressionKind::ParameterAccess(_, _) => Vec::new(), //check this
         }
     }
 
@@ -235,6 +234,7 @@ impl Dependencies {
                 _ => todo!("implement dependency analysis for real-time offsets"),
             },
             StreamAccessKind::Hold => EdgeWeight::Hold,
+
             StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
             StreamAccessKind::DiscreteWindow(wref) => EdgeWeight::Aggr(wref),
         }

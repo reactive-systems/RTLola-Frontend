@@ -33,7 +33,7 @@ pub enum ExpressionKind {
     /// The Expression vector containsthe arguments for a parametrized stream access
     StreamAccess(SRef, StreamAccessKind, Vec<Expression>),
     /// Accessing the n'th parameter of this parameterized stream
-    ParameterAccess(usize),
+    ParameterAccess(SRef, usize),
     /// An if-then-else expression
     Ite {
         condition: Box<Expression>,
@@ -52,7 +52,7 @@ pub enum ExpressionKind {
         args: Vec<Expression>,
         type_param: Vec<AnnotatedType>,
     },
-    Widen(Box<Expression>),
+    Widen(Box<Expression>, AnnotatedType),
     /// Transforms an optional value into a "normal" one
     Default {
         /// The expression that results in an optional value.
@@ -60,7 +60,6 @@ pub enum ExpressionKind {
         /// An infallible expression providing a default value of `expr` evaluates to `None`.
         default: Box<Expression>,
     },
-    Window(WRef),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -144,7 +143,7 @@ pub enum ArithLogOp {
 }
 
 /// Represents an instance of a sliding window.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct SlidingWindow {
     /// The stream whose values will be aggregated.
     pub target: SRef,
@@ -163,7 +162,7 @@ pub struct SlidingWindow {
 }
 
 /// Represents an instance of a discrete window.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct DiscreteWindow {
     /// The stream whose values will be aggregated.
     pub target: SRef,

@@ -16,26 +16,35 @@ use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
 use crate::reporting::Handler;
 use crate::FrontendConfig;
+use itertools::{Either, Itertools};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-pub(crate) trait WithIrExpr {
-    fn window_vec(&self) -> Vec<Window>;
+pub trait WithIrExpr {
+    fn window_refs(&self) -> Vec<Window>;
+    fn all_windows(&self) -> (Vec<SlidingWindow>, Vec<DiscreteWindow>) {
+        self.window_refs().into_iter().partition_map(|w| self.single_window(w))
+    }
+    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow>;
     fn expression(&self, id: ExprId) -> &Expression;
-    fn func_declaration(&self, func_name: String) -> &FuncDecl;
+    fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
 impl WithIrExpr for IrExpression {
-    fn window_vec(&self) -> Vec<Window> {
+    fn window_refs(&self) -> Vec<Window> {
         self.windows.values().map(|w| Window { expr: w.eid }).collect()
+    }
+
+    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow> {
+        Either::Left(self.windows[&window.expr])
     }
 
     fn expression(&self, id: ExprId) -> &Expression {
         &self.exprid_to_expr[&id]
     }
 
-    fn func_declaration(&self, func_name: String) -> &FuncDecl {
-        &self.func_table[&func_name]
+    fn func_declaration(&self, func_name: &str) -> &FuncDecl {
+        &self.func_table[func_name]
     }
 }
 
@@ -43,18 +52,19 @@ pub(crate) type SpawnDef<'a> = (&'a Expression, Option<&'a Expression>);
 
 impl<M> Hir<M>
 where
-    M: WithIrExpr + HirMode,
+    M: WithIrExpr + HirMode + 'static,
 {
-    pub(crate) fn windows(&self) -> Vec<Window> {
-        self.mode.window_vec()
+    pub fn windows(&self) -> Vec<Window> {
+        self.window_refs()
     }
-    pub(crate) fn expr(&self, sr: SRef) -> &Expression {
+
+    pub fn expr(&self, sr: SRef) -> &Expression {
         match sr {
             SRef::InRef(_) => unreachable!(),
             SRef::OutRef(o) => self.mode.expression(self.outputs[o].expr_id),
         }
     }
-    pub(crate) fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
+    pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
         match sr {
             SRef::InRef(_) => unreachable!(),
             SRef::OutRef(o) => self.outputs[o]
@@ -64,13 +74,13 @@ where
                 .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e)))),
         }
     }
-    pub(crate) fn filter(&self, sr: SRef) -> Option<&Expression> {
+    pub fn filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => unreachable!(),
             SRef::OutRef(o) => self.outputs[o].instance_template.filter.map(|e| self.mode.expression(e)),
         }
     }
-    pub(crate) fn close(&self, sr: SRef) -> Option<&Expression> {
+    pub fn close(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => unreachable!(),
             SRef::OutRef(o) => self.outputs[o].instance_template.close.map(|e| self.mode.expression(e)),
@@ -100,19 +110,23 @@ impl WithIrExpr for IrExpression {
 }
 */
 
-pub(crate) trait IrExprWrapper {
+pub trait IrExprWrapper {
     type InnerE: WithIrExpr;
     fn inner_expr(&self) -> &Self::InnerE;
 }
 
 impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
-    fn window_vec(&self) -> Vec<Window> {
-        self.inner_expr().window_vec()
+    fn window_refs(&self) -> Vec<Window> {
+        self.inner_expr().window_refs()
     }
+    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow> {
+        self.inner_expr().single_window(window)
+    }
+
     fn expression(&self, id: ExprId) -> &Expression {
         self.inner_expr().expression(id)
     }
-    fn func_declaration(&self, func_name: String) -> &FuncDecl {
+    fn func_declaration(&self, func_name: &str) -> &FuncDecl {
         self.inner_expr().func_declaration(func_name)
     }
 }
@@ -209,9 +223,10 @@ impl ExpressionTransformer {
                         annotated_type,
                     ))
                 }
-                Declaration::ParamOut(_o) => todo!("may be unreachable"),
-                Declaration::Param(p) => ExpressionKind::ParameterAccess(p.param_idx),
-                Declaration::Func(_) => todo!("Function identifier transform"),
+
+                Declaration::Param(p) => ExpressionKind::ParameterAccess(current_output, p.param_idx),
+                Declaration::ParamOut(_) => todo!("may be unreachable"),
+                Declaration::Func(_) => todo!("unreach"),
                 Declaration::Type(_) => todo!("type identifier transform"),
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
@@ -264,7 +279,7 @@ impl ExpressionTransformer {
                         eid: new_id,
                     };
                     self.sliding_windows.push(window);
-                    ExpressionKind::Window(WRef::SlidingRef(idx))
+                    ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::SlidingRef(idx)), Vec::new())
                 } else {
                     todo!("error case")
                 }
@@ -332,14 +347,30 @@ impl ExpressionTransformer {
             ast::ExpressionKind::Function(name, type_param, args) => {
                 let decl: Declaration = self.decl_table[&ast_expression.id].clone();
                 match decl {
-                    Declaration::Func(_) => ExpressionKind::Function {
-                        name: name.name.name,
-                        args: args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
-                        type_param: type_param
-                            .into_iter()
-                            .map(|t| annotated_type(&t).expect("given type arguments have to be replaceable"))
-                            .collect(),
-                    },
+                    Declaration::Func(_) => {
+                        let name = name.name.name;
+                        let args: Vec<Expression> =
+                            args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect();
+
+                        if name.starts_with("widen") {
+                            ExpressionKind::Widen(
+                                (args.get(0).expect("Widen is expecting exactly 1 Argument").clone()).into(),
+                                match type_param.get(0) {
+                                    Some(t) => annotated_type(t).expect("given type arguments have to be replaceable"),
+                                    None => todo!("error case"),
+                                },
+                            )
+                        } else {
+                            ExpressionKind::Function {
+                                name,
+                                args,
+                                type_param: type_param
+                                    .into_iter()
+                                    .map(|t| annotated_type(&t).expect("given type arguments have to be replaceable"))
+                                    .collect(),
+                            }
+                        }
+                    }
                     Declaration::ParamOut(_) => ExpressionKind::StreamAccess(
                         self.stream_by_name[&name.name.name],
                         IRAccess::Sync,
@@ -566,6 +597,7 @@ pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
 mod tests {
     use super::*;
     use crate::ast::WindowOperation;
+    use crate::hir::expression::StreamAccessKind;
     use crate::parse::{parse, SourceMapper};
     use std::path::PathBuf;
 
@@ -651,7 +683,10 @@ mod tests {
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.exprid_to_expr[&output_expr_id];
         let wref = WRef::SlidingRef(0);
-        assert!(matches!(expr.kind, ExpressionKind::Window(WRef::SlidingRef(0))));
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::SlidingRef(0)), _)
+        ));
         let window = &ir.mode.windows[&ExprId(0)].clone();
         assert_eq!(
             window,
@@ -675,9 +710,9 @@ mod tests {
         let expr = &ir.mode.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::Ite{..}));
         if let ExpressionKind::Ite { condition, consequence, alternative } = &expr.kind {
-            assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(2)));
-            assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(0)));
-            assert!(matches!(alternative.kind, ExpressionKind::ParameterAccess(1)));
+            assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(_, 2)));
+            assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(_, 0)));
+            assert!(matches!(alternative.kind, ExpressionKind::ParameterAccess(_, 1)));
         } else {
             unreachable!()
         }

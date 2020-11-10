@@ -17,7 +17,7 @@ pub mod analysis;
 pub mod ast;
 pub mod common_ir;
 mod export;
-mod hir;
+pub mod hir;
 pub mod mir;
 pub mod parse;
 pub mod reporting;
@@ -31,7 +31,7 @@ mod tests;
 // Re-export
 pub use ast::RTLolaAst;
 pub use export::analyze;
-pub(crate) use hir::RTLolaHIR;
+pub use hir::RTLolaHIR;
 use hir::{modes::Complete, modes::Raw, Hir};
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;

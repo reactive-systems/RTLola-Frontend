@@ -382,7 +382,6 @@ pub enum ExpressionKind {
     Ite(Box<Expression>, Box<Expression>, Box<Expression>),
     /// An expression enveloped in parentheses
     ParenthesizedExpression(Option<Box<Parenthesis>>, Box<Expression>, Option<Box<Parenthesis>>),
-
     /// An expression was expected, e.g., after an operator like `*`
     MissingExpression,
     /// A tuple expression

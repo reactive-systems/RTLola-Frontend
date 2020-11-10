@@ -1,10 +1,10 @@
-pub(crate) trait HirMode {}
+pub trait HirMode {}
 
 pub(crate) mod blanket;
 pub(crate) mod complete;
 pub(crate) mod dependencies;
 pub(crate) mod dg_functionality;
-pub(crate) mod ir_expr;
+pub mod ir_expr;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod raw;
@@ -34,11 +34,12 @@ impl Hir<Raw> {
     }
 }
 
-pub(crate) type ExpressionLookUps = HashMap<ExprId, Expression>;
-pub(crate) type WindowLookUps = HashMap<ExprId, SlidingWindow>;
-pub(crate) type FunctionLookUps = HashMap<String, FuncDecl>;
+pub type ExpressionLookUps = HashMap<ExprId, Expression>;
+pub type WindowLookUps = HashMap<ExprId, SlidingWindow>;
+pub type FunctionLookUps = HashMap<String, FuncDecl>;
 
-pub(crate) struct IrExpression {
+#[derive(Clone, Debug)]
+pub struct IrExpression {
     exprid_to_expr: ExpressionLookUps,
     windows: WindowLookUps,
     func_table: FunctionLookUps,
@@ -46,7 +47,7 @@ pub(crate) struct IrExpression {
 impl HirMode for IrExpression {}
 
 impl Hir<IrExpression> {
-    pub(crate) fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+    pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
         Hir::<IrExpression>::transform_expressions(ast, handler, config)
     }
 
