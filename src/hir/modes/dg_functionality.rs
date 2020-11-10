@@ -1,6 +1,6 @@
 use super::EdgeWeight;
 use super::SRef;
-use crate::hir::modes::{dependencies::DependenciesAnalyzed, ir_expr::WithIrExpr, types::TypeChecked};
+use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked};
 use crate::hir::HirMode;
 use crate::Hir;
 use petgraph::Graph;
@@ -45,7 +45,7 @@ pub(crate) fn split_graph<M>(
     graph: Graph<SRef, EdgeWeight>,
 ) -> (Graph<SRef, EdgeWeight>, Graph<SRef, EdgeWeight>)
 where
-    M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
+    M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
 {
     // remove edges and nodes, so mapping does not change
     let mut event_graph = graph.clone();

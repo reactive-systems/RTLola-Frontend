@@ -7,12 +7,12 @@ use crate::hir::{
     modes::dependencies::DependenciesWrapper, modes::memory_bounds::MemoryWrapper, modes::ordering::OrderedWrapper, Hir,
 };
 use crate::{
-    ast, common_ir::SRef, hir::modes::dependencies::DependenciesAnalyzed, hir::modes::ordering::EvaluationOrderBuilt,
+    ast, common_ir::SRef, hir::modes::dependencies::WithDependencies, hir::modes::ordering::EvaluationOrderBuilt,
 };
 
 impl<M> DependenciesWrapper for Hir<M>
 where
-    M: DependenciesAnalyzed + HirMode,
+    M: WithDependencies + HirMode,
 {
     type InnerD = M;
     fn inner_dep(&self) -> &Self::InnerD {

@@ -1,6 +1,6 @@
 // use crate::common_ir;
 // use crate::hir;
-// use crate::hir::FullInformationHirMode;
+// use crate::hir::modes::Complete;
 // use crate::hir::RTLolaHIR;
 // use crate::mir;
 // use crate::mir::RTLolaMIR;
@@ -40,12 +40,11 @@
 // pub(crate) struct Lowering<'a> {
 //     hir: &'a RTLolaHIR,
 // pub(crate) struct Lowering<'a> {
-//     hir: &'a RTLolaHIR<FullInformationHirMode>,
+//     hir: &'a RTLolaHIR<Complete>,
 //     mir: RTLolaMIR,
 // }
 // impl<'a> Lowering<'a> {
-//     pub(crate) fn new(hir: &'a RTLolaHIR) -> Lowering<'a> {
-//     pub(crate) fn new(hir: &'a RTLolaHIR<FullInformationHirMode>) -> Lowering<'a> {
+//     pub(crate) fn new(hir: &'a RTLolaHIR<Complete>) -> Lowering<'a> {
 //         let mut mir = RTLolaMIR {
 //             inputs: Vec::new(),
 //             outputs: Vec::new(),

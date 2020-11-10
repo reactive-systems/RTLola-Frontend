@@ -1,6 +1,6 @@
 use crate::common_ir::{SRef, WRef};
 
-use super::{Dependencies, DependencyGraph, EdgeWeight};
+use super::{Dependencies, EdgeWeight};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -14,7 +14,7 @@ use crate::{
 };
 use petgraph::{algo::is_cyclic_directed, graph::NodeIndex, Graph};
 
-pub(crate) trait DependenciesAnalyzed {
+pub(crate) trait WithDependencies {
     // https://github.com/rust-lang/rust/issues/63063
     // type I1 = impl Iterator<Item = SRef>;
     // type I2 = impl Iterator<Item = (SRef, WRef)>;
@@ -30,41 +30,38 @@ pub(crate) trait DependenciesAnalyzed {
     fn graph(&self) -> &Graph<SRef, EdgeWeight>;
 }
 
-impl DependenciesAnalyzed for Dependencies {
+impl WithDependencies for Dependencies {
     fn accesses(&self, who: SRef) -> Vec<SRef> {
-        self.dg.accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+        self.accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.dg
-            .accessed_by
-            .get(&who)
-            .map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
+        self.accessed_by.get(&who).map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.dg.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
+        self.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
             aggregated_by.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.dg.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
+        self.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
             aggregates.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn graph(&self) -> &Graph<SRef, EdgeWeight> {
-        &self.dg.graph
+        &self.graph
     }
 }
 
 pub(crate) trait DependenciesWrapper {
-    type InnerD: DependenciesAnalyzed;
+    type InnerD: WithDependencies;
     fn inner_dep(&self) -> &Self::InnerD;
 }
 
-impl<A: DependenciesWrapper<InnerD = T>, T: DependenciesAnalyzed + 'static> DependenciesAnalyzed for A {
+impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDependencies for A {
     fn accesses(&self, who: SRef) -> Vec<SRef> {
         self.inner_dep().accesses(who)
     }
@@ -108,7 +105,7 @@ impl Dependencies {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.expr(sr)))
+            .flat_map(|sr| Self::collect_edges(spec, sr, spec.expr(sr)))
             .map(|(src, w, tar)| (src, Self::stream_access_kind_to_edge_weight(w), tar));
         let edges_spawn = spec
             .outputs()
@@ -116,9 +113,9 @@ impl Dependencies {
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.spawn(sr).map(|(spawn_expr, spawn_cond)| {
-                    Self::collect_edges(sr, spawn_expr)
+                    Self::collect_edges(spec, sr, spawn_expr)
                         .into_iter()
-                        .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(sr, spawn_cond)))
+                        .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
                 })
             })
             .flatten()
@@ -127,14 +124,14 @@ impl Dependencies {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(sr, filter)))
+            .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(spec, sr, filter)))
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::Filter(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(sr, close)))
+            .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(spec, sr, close)))
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::Close(Box::new(Self::stream_access_kind_to_edge_weight(w))), tar));
         let edges = edges_expr
@@ -153,16 +150,16 @@ impl Dependencies {
         Self::check_well_formedness(&graph)?;
 
         // Describe dependencies in HashMaps
-        let mut accesses: HashMap<SRef, Vec<SRef>> = HashMap::new();
-        let mut accessed_by: HashMap<SRef, Vec<SRef>> = HashMap::new();
+        let mut accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
         edges.iter().for_each(|(src, w, tar)| {
-            let cur_accesses = &mut (*accesses.entry(*src).or_insert_with(Vec::new));
+            let cur_accesses = accesses.get_mut(src).unwrap();
             if !cur_accesses.contains(tar) {
                 cur_accesses.push(*tar);
             }
-            let cur_accessed_by = &mut (*accessed_by.entry(*tar).or_insert_with(Vec::new));
+            let cur_accessed_by = accessed_by.get_mut(tar).unwrap();
             if !cur_accessed_by.contains(src) {
                 cur_accessed_by.push(*src);
             }
@@ -177,8 +174,7 @@ impl Dependencies {
                 }
             }
         });
-        let _dg = DependencyGraph { accesses, accessed_by, aggregates, aggregated_by, graph };
-        todo!("Return Dependencies");
+        Ok(Dependencies { accesses, accessed_by, aggregates, aggregated_by, graph })
     }
 
     fn check_well_formedness(graph: &Graph<SRef, EdgeWeight>) -> Result<()> {
@@ -192,28 +188,39 @@ impl Dependencies {
         }
     }
 
-    fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
+    fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>
+    where
+        M: WithIrExpr + HirMode + 'static,
+    {
         match &expr.kind {
-            ExpressionKind::StreamAccess(target, stream_access_kind, _args) => {
-                vec![(src, *stream_access_kind, *target)];
-                todo!("args are new")
+            ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
+                let mut args = args.iter().map(|arg| Self::collect_edges(spec, src, arg)).flatten().collect::<Vec<(
+                    SRef,
+                    StreamAccessKind,
+                    SRef,
+                )>>(
+                );
+                args.push((src, *stream_access_kind, *target));
+                args
             }
             ExpressionKind::LoadConstant(_) => Vec::new(),
             ExpressionKind::ArithLog(_op, args) => {
-                args.iter().flat_map(|a| Self::collect_edges(src, a).into_iter()).collect()
+                args.iter().flat_map(|a| Self::collect_edges(spec, src, a).into_iter()).collect()
             }
-            ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
-            ExpressionKind::Function { args, .. } => args.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
-            ExpressionKind::Ite { condition, consequence, alternative } => Self::collect_edges(src, condition)
+            ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect(),
+            ExpressionKind::Function { args, .. } => {
+                args.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect()
+            }
+            ExpressionKind::Ite { condition, consequence, alternative } => Self::collect_edges(spec, src, condition)
                 .into_iter()
-                .chain(Self::collect_edges(src, consequence).into_iter())
-                .chain(Self::collect_edges(src, alternative).into_iter())
+                .chain(Self::collect_edges(spec, src, consequence).into_iter())
+                .chain(Self::collect_edges(spec, src, alternative).into_iter())
                 .collect(),
-            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
-            ExpressionKind::Widen(inner, _) => Self::collect_edges(src, inner),
-            ExpressionKind::Default { expr, default } => Self::collect_edges(src, expr)
+            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(spec, src, content),
+            ExpressionKind::Widen(inner, _) => Self::collect_edges(spec, src, inner),
+            ExpressionKind::Default { expr, default } => Self::collect_edges(spec, src, expr)
                 .into_iter()
-                .chain(Self::collect_edges(src, default).into_iter())
+                .chain(Self::collect_edges(spec, src, default).into_iter())
                 .collect(),
             ExpressionKind::ParameterAccess(_, _) => Vec::new(), //check this
         }
@@ -243,36 +250,46 @@ impl Dependencies {
 
 #[cfg(test)]
 mod tests {
-    use super::Dependencies;
+
+    use super::*;
+    use crate::hir::modes::IrExpression;
     use crate::hir::SRef;
     use crate::hir::WRef;
+    use crate::parse::{parse, SourceMapper};
+    use crate::reporting::Handler;
+    use crate::FrontendConfig;
     use std::collections::HashMap;
-    #[allow(unreachable_code, unused_variables)]
+    use std::path::PathBuf;
+
     fn check_graph_for_spec(
-        _spec: &str,
+        spec: &str,
         accesses: Option<HashMap<SRef, Vec<SRef>>>,
         accessed_by: Option<HashMap<SRef, Vec<SRef>>>,
         aggregates: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
         aggregated_by: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
     ) {
-        let hir: Result<Dependencies, ()> = todo!();
-        if let Ok(hir) = hir {
-            hir.dg.accesses.iter().for_each(|(sr, accesses_hir)| {
+        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let config = FrontendConfig::default();
+        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
+        let deps = Dependencies::analyze(&hir);
+        if let Ok(deps) = deps {
+            deps.accesses.iter().for_each(|(sr, accesses_hir)| {
                 let accesses_reference = accesses.as_ref().unwrap().get(sr).unwrap();
-                assert_eq!(accesses_hir.len(), accesses_reference.len(), "test");
-                accesses_hir.iter().for_each(|sr| assert!(accesses_reference.contains(sr)));
+                assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
+                accesses_hir.iter().for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
             });
-            hir.dg.accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
-                let accessed_by_reference = accesses.as_ref().unwrap().get(sr).unwrap();
-                assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "test");
-                accessed_by_hir.iter().for_each(|sr| assert!(accessed_by_reference.contains(sr)));
+            deps.accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
+                let accessed_by_reference = accessed_by.as_ref().unwrap().get(sr).unwrap();
+                assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
+                accessed_by_hir.iter().for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
             });
-            hir.dg.aggregates.iter().for_each(|(sr, aggregates_hir)| {
+            deps.aggregates.iter().for_each(|(sr, aggregates_hir)| {
                 let aggregates_reference = aggregates.as_ref().unwrap().get(sr).unwrap();
                 assert_eq!(aggregates_hir.len(), aggregates_reference.len(), "test");
                 aggregates_hir.iter().for_each(|lookup| assert!(aggregates_reference.contains(lookup)));
             });
-            hir.dg.aggregated_by.iter().for_each(|(sr, aggregated_by_hir)| {
+            deps.aggregated_by.iter().for_each(|(sr, aggregated_by_hir)| {
                 let aggregated_by_reference = aggregated_by.as_ref().unwrap().get(sr).unwrap();
                 assert_eq!(aggregated_by_hir.len(), aggregated_by_reference.len(), "test");
                 aggregated_by_hir.iter().for_each(|lookup| assert!(aggregated_by_reference.contains(lookup)));
@@ -283,7 +300,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn self_ref() {
         let spec = "input a: Int8\noutput b: Int8 := a+b";
         let accesses = None;
@@ -293,18 +309,16 @@ mod tests {
         check_graph_for_spec(spec, accesses, accessed_by, aggregates, aggregated_by);
     }
     #[test]
-    #[ignore]
     fn simple_cycle() {
         let spec = "input a: Int8\noutput b: Int8 := a+d\noutput c: Int8 := b\noutput d: Int8 := c";
         check_graph_for_spec(spec, None, None, None, None);
     }
 
     #[test]
-    #[ignore]
     fn linear_should_be_no_problem() {
         let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c";
         let name_mapping =
-            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1)), ("c", SRef::OutRef(2)), ("d", SRef::OutRef(1))]
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
                 .into_iter()
                 .collect::<HashMap<&str, SRef>>();
         let accesses = Some(
@@ -351,10 +365,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn negative_cycle_should_be_no_problem() {
         let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
-        let name_mapping = vec![("a", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+        let name_mapping = vec![("a", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let accesses = Some(vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect());
         let accessed_by = Some(vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect());
         let aggregates = Some(vec![(name_mapping["a"], vec![])].into_iter().collect());
@@ -363,7 +376,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn self_sliding_window() {
         let spec = "output a: Int8 := a.aggregate(over: 1s, using: sum)";
         check_graph_for_spec(spec, None, None, None, None);
@@ -376,14 +388,12 @@ mod tests {
     // }
 
     #[test]
-    #[ignore]
     fn self_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
         check_graph_for_spec(spec, None, None, None, None)
     }
 
     #[test]
-    #[ignore]
     fn parallel_edges_in_a_cycle() {
         let spec = "input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c";
         check_graph_for_spec(spec, None, None, None, None);
@@ -392,7 +402,7 @@ mod tests {
     #[test]
     #[ignore]
     fn spawn_self_ref() {
-        let spec = "input a: Int8\noutput b {spawn if b > 6} := a + 5";
+        let spec = "input a: Int8\noutput b(para) {spawn a if b(para) > 6} := a + para";
         check_graph_for_spec(spec, None, None, None, None);
     }
     #[test]
@@ -407,7 +417,7 @@ mod tests {
     fn close_self_ref() {
         let spec = "input a: Int8\noutput b {close b > 6} := a + 5";
         let name_mapping =
-            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let accesses = Some(
             vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"]])]
                 .into_iter()

@@ -51,15 +51,16 @@ impl Hir<IrExpression> {
         Hir::<IrExpression>::transform_expressions(ast, handler, config)
     }
 
-    pub(crate) fn build_dependency_graph(self) -> Result<Hir<Dependencies>, DependencyErr> {
-        let dep = Dependencies::analyze(&self)?;
+    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DependencyAnalysed>, DependencyErr> {
+        let dependencies = Dependencies::analyze(&self)?;
+        let mode = DependencyAnalysed { ir_expr: self.mode, dependencies };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
-            mode: dep,
+            mode,
         })
     }
 }
@@ -76,22 +77,22 @@ pub(crate) enum EdgeWeight {
 
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
-pub(crate) type Graphrepresentation = Graph<SRef, EdgeWeight>;
+pub(crate) type DependencyGraph = Graph<SRef, EdgeWeight>;
 
-struct DependencyGraph {
+pub(crate) struct Dependencies {
     accesses: Streamdependencies,
     accessed_by: Streamdependencies,
     aggregated_by: Windowdependencies,
     aggregates: Windowdependencies,
-    graph: Graphrepresentation,
+    graph: DependencyGraph,
 }
-pub(crate) struct Dependencies {
+pub(crate) struct DependencyAnalysed {
     ir_expr: IrExpression,
-    dg: DependencyGraph,
+    dependencies: Dependencies,
 }
-impl HirMode for Dependencies {}
+impl HirMode for DependencyAnalysed {}
 
-impl Hir<Dependencies> {
+impl Hir<DependencyAnalysed> {
     pub(crate) fn type_check(self) -> Hir<Typed> {
         unimplemented!()
     }
@@ -107,7 +108,7 @@ pub(crate) struct TypeTables {
 
 pub(crate) struct Typed {
     ir_expr: IrExpression,
-    dg: DependencyGraph,
+    dg: Dependencies,
     tts: TypeTables,
 }
 impl HirMode for Typed {}

@@ -2,7 +2,7 @@ use crate::common_ir::SRef;
 
 use super::{EdgeWeight, MemorizationBound, Memory};
 
-use crate::hir::modes::{dependencies::DependenciesAnalyzed, HirMode};
+use crate::hir::modes::{dependencies::WithDependencies, HirMode};
 use crate::hir::Hir;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -39,7 +39,7 @@ impl Memory {
     const DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Memory>
     where
-        M: HirMode + 'static + DependenciesAnalyzed,
+        M: HirMode + 'static + WithDependencies,
     {
         // Assign streams to default value
         let mut memory_bounds =

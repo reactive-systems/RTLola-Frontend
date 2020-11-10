@@ -5,7 +5,7 @@ use super::{EdgeWeight, EvaluationOrder};
 use super::dg_functionality::*;
 use std::collections::HashMap;
 
-use crate::hir::modes::{dependencies::DependenciesAnalyzed, ir_expr::WithIrExpr, types::TypeChecked, HirMode};
+use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, HirMode};
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Graph, Outgoing};
 
@@ -46,7 +46,7 @@ type Result<T> = std::result::Result<T, OrderingErr>;
 impl EvaluationOrder {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<EvaluationOrder>
     where
-        M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
+        M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
     {
         // Compute Evaluation Layers
         let graph = graph_without_negative_offset_edges(spec.graph());
@@ -60,7 +60,7 @@ impl EvaluationOrder {
 
     fn compute_layers<M>(spec: &Hir<M>, graph: &Graph<SRef, EdgeWeight>) -> Result<HashMap<SRef, StreamLayers>>
     where
-        M: WithIrExpr + HirMode + 'static + DependenciesAnalyzed + TypeChecked,
+        M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
     {
         debug_assert!(is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
         let graph_with_only_spawn_edges = only_spawn_edges(graph);
