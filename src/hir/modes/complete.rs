@@ -3,7 +3,7 @@ use crate::hir::modes::dependencies::{DependenciesWrapper, WithDependencies};
 
 use crate::hir::modes::ir_expr::IrExprWrapper;
 use crate::hir::modes::memory_bounds::{MemoryAnalyzed, MemoryWrapper};
-use crate::hir::modes::ordering::OrderedWrapper;
+use crate::hir::modes::ordering::{EvaluationOrderBuilt, OrderedWrapper};
 use crate::hir::modes::types::{HirType, TypeChecked, TypedWrapper};
 use crate::hir::modes::Complete;
 use crate::hir::modes::Dependencies;
@@ -27,9 +27,9 @@ impl Hir<Complete> {
                     name: i.name,
                     ty: Self::lower_type(self.stream_type(sr)),
                     // dependent_streams: mode.accessed_by(sr).into_iter().map(|sr| Self::lower_dependency(*sr)).collect(),
-                    dependent_streams: mode.accessed_by(sr).to_vec(),
+                    dependent_streams: mode.direct_accessed_by(sr).to_vec(),
                     dependent_windows: mode.aggregated_by(sr).to_vec(),
-                    layer: todo!("Fix type error"), //mode.layers(sr),
+                    layer: mode.stream_layers(sr),
                     memory_bound: mode.memory_bound(sr),
                     reference: sr,
                 }
@@ -43,12 +43,12 @@ impl Hir<Complete> {
                     name: o.name,
                     ty: Self::lower_type(self.stream_type(sr)),
                     expr: self.lower_expr(self.expr(sr)),
-                    input_dependencies: mode.accesses(sr).into_iter().filter(SRef::is_input).collect(), // TODO: Is this supposed to be transitive?
-                    outgoing_dependencies: mode.accesses(sr).into_iter().filter(|_sr| todo!()).collect(), // TODO: Is this supposed to be transitive?
-                    dependent_streams: mode.accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
+                    input_dependencies: mode.direct_accesses(sr).into_iter().filter(SRef::is_input).collect(), // TODO: Is this supposed to be transitive?
+                    outgoing_dependencies: mode.direct_accesses(sr).into_iter().filter(|_sr| todo!()).collect(), // TODO: Is this supposed to be transitive?
+                    dependent_streams: mode.direct_accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
                     dependent_windows: mode.aggregated_by(sr).into_iter().map(|(_sr, wr)| wr).collect(),
                     memory_bound: mode.memory_bound(sr),
-                    layer: todo!("Fix type error"), //self.layers(sr),
+                    layer: mode.stream_layers(sr),
                     reference: sr,
                 }
             })
@@ -73,7 +73,7 @@ impl Hir<Complete> {
     }
 
     fn lower_periodic(_sr: StreamReference) -> mir::TimeDrivenStream {
-        todo!("")
+        todo!()
     }
 
     fn lower_window(_win: Window) -> mir::SlidingWindow {

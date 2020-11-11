@@ -89,7 +89,7 @@ pub struct InputStream {
     pub dependent_windows: Vec<(StreamReference, WindowReference)>,
     // *was:* pub dependent_windows: Vec<WindowReference>,
     /// Indicates in which evaluation layer the stream is.  
-    pub layer: Layer,
+    pub layer: StreamLayers,
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// The reference pointing to this stream.
@@ -116,7 +116,7 @@ pub struct OutputStream {
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// Indicates in which evaluation layer the stream is.  
-    pub layer: Layer,
+    pub layer: StreamLayers,
     /// The reference pointing to this stream.
     pub reference: StreamReference,
 }
@@ -288,8 +288,11 @@ pub struct SlidingWindow {
 }
 
 impl Stream for OutputStream {
+    fn spawn_layer(&self) -> Layer {
+        self.layer.spawn_layer()
+    }
     fn eval_layer(&self) -> Layer {
-        self.layer
+        self.layer.evaluation_layer()
     }
     fn is_input(&self) -> bool {
         false
@@ -303,8 +306,11 @@ impl Stream for OutputStream {
 }
 
 impl Stream for InputStream {
+    fn spawn_layer(&self) -> Layer {
+        self.layer.spawn_layer()
+    }
     fn eval_layer(&self) -> Layer {
-        self.layer
+        self.layer.evaluation_layer()
     }
     fn is_input(&self) -> bool {
         true

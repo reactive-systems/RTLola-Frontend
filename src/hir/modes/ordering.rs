@@ -10,11 +10,11 @@ use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Graph, Outgoing};
 
 pub(crate) trait EvaluationOrderBuilt {
-    fn layers(&self, sr: SRef) -> StreamLayers;
+    fn stream_layers(&self, sr: SRef) -> StreamLayers;
 }
 
 impl EvaluationOrderBuilt for EvaluationOrder {
-    fn layers(&self, sr: SRef) -> StreamLayers {
+    fn stream_layers(&self, sr: SRef) -> StreamLayers {
         match self.event_layers.get(&sr) {
             Some(layer) => *layer,
             None => self.periodic_layers[&sr],
@@ -29,8 +29,8 @@ pub(crate) trait OrderedWrapper {
 }
 
 impl<A: OrderedWrapper<InnerO = T>, T: EvaluationOrderBuilt + 'static> EvaluationOrderBuilt for A {
-    fn layers(&self, sr: SRef) -> StreamLayers {
-        self.inner_order().layers(sr)
+    fn stream_layers(&self, sr: SRef) -> StreamLayers {
+        self.inner_order().stream_layers(sr)
     }
 }
 

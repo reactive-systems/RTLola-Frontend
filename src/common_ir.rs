@@ -237,6 +237,7 @@ impl Ord for StreamReference {
 /// A trait for any kind of stream.
 pub trait Stream {
     // TODO: probably not needed anymore
+    fn spawn_layer(&self) -> Layer;
     /// Returns the evaluation laying in which the stream resides.
     fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
