@@ -79,6 +79,7 @@ pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 pub(crate) type DependencyGraph = Graph<SRef, EdgeWeight>;
 
+#[derive(Debug, Clone)]
 pub(crate) struct Dependencies {
     accesses: Streamdependencies,
     accessed_by: Streamdependencies,
@@ -86,6 +87,7 @@ pub(crate) struct Dependencies {
     aggregates: Windowdependencies,
     graph: DependencyGraph,
 }
+#[derive(Debug, Clone)]
 pub(crate) struct DependencyAnalysed {
     ir_expr: IrExpression,
     dependencies: Dependencies,
@@ -101,11 +103,13 @@ impl Hir<DependencyAnalysed> {
 pub(crate) type StreamTypeTable = HashMap<SRef, HirType>;
 pub(crate) type ExpressionTypeTable = HashMap<SRef, HirType>; // -> why is expressionid not the key for this map
 
+#[derive(Debug, Clone)]
 pub(crate) struct TypeTables {
     stream_tt: StreamTypeTable,
     expr_tt: ExpressionTypeTable, // consider merging the tts.
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct Typed {
     ir_expr: IrExpression,
     dg: Dependencies,
@@ -121,10 +125,12 @@ impl Hir<Typed> {
 
 pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
 
+#[derive(Debug, Clone)]
 pub(crate) struct EvaluationOrder {
     event_layers: LayerRepresentation,
     periodic_layers: LayerRepresentation,
 }
+#[derive(Debug, Clone)]
 pub(crate) struct Ordered {
     ir_expr: IrExpression,
     dependencies: Dependencies,
@@ -138,9 +144,13 @@ impl Hir<Ordered> {
         unimplemented!()
     }
 }
+
+#[derive(Debug, Clone)]
 pub(crate) struct Memory {
     memory_bound_per_stram: HashMap<SRef, MemorizationBound>,
 }
+
+#[derive(Debug, Clone)]
 pub(crate) struct MemBound {
     ir_expr: IrExpression,
     dependencies: Dependencies,
@@ -156,6 +166,7 @@ impl Hir<MemBound> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct Complete {
     ir_expr: IrExpression,
     dependencies: Dependencies,

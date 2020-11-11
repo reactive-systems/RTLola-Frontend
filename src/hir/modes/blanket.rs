@@ -1,4 +1,4 @@
-use super::{ir_expr::WithIrExpr, AstExpr, HirMode};
+use super::{ir_expr::WithIrExpr, HirMode};
 use crate::hir::modes::ir_expr::IrExprWrapper;
 use crate::hir::modes::memory_bounds::MemoryAnalyzed;
 use crate::hir::modes::types::TypeChecked;
@@ -6,9 +6,17 @@ use crate::hir::modes::types::TypedWrapper;
 use crate::hir::{
     modes::dependencies::DependenciesWrapper, modes::memory_bounds::MemoryWrapper, modes::ordering::OrderedWrapper, Hir,
 };
-use crate::{
-    ast, common_ir::SRef, hir::modes::dependencies::WithDependencies, hir::modes::ordering::EvaluationOrderBuilt,
-};
+use crate::{hir::modes::dependencies::WithDependencies, hir::modes::ordering::EvaluationOrderBuilt};
+
+impl<M> IrExprWrapper for Hir<M>
+where
+    M: WithIrExpr + HirMode,
+{
+    type InnerE = M;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.mode
+    }
+}
 
 impl<M> DependenciesWrapper for Hir<M>
 where
@@ -40,16 +48,6 @@ where
     }
 }
 
-impl<M> IrExprWrapper for Hir<M>
-where
-    M: WithIrExpr + HirMode,
-{
-    type InnerE = M;
-    fn inner_expr(&self) -> &Self::InnerE {
-        &self.mode
-    }
-}
-
 impl<M> MemoryWrapper for Hir<M>
 where
     M: MemoryAnalyzed + HirMode,
@@ -57,14 +55,5 @@ where
     type InnerM = M;
     fn inner_memory(&self) -> &Self::InnerM {
         &self.mode
-    }
-}
-
-impl<M> AstExpr for Hir<M>
-where
-    M: AstExpr + HirMode,
-{
-    fn expr(&self, sr: SRef) -> ast::Expression {
-        self.mode.expr(sr)
     }
 }

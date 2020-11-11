@@ -43,5 +43,5 @@ impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
         unimplemented!()
     }
 }
-
+#[derive(Debug, Clone)]
 pub(crate) struct HirType {} // TBD
