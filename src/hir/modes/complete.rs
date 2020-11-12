@@ -64,8 +64,7 @@ impl Hir<Complete> {
             .map(|o| mir::EventDrivenStream { reference: o.reference })
             .collect::<Vec<mir::EventDrivenStream>>();
 
-        let sliding_windows =
-            self.windows().into_iter().map(|win| Self::lower_window(win)).collect::<Vec<mir::SlidingWindow>>();
+        let sliding_windows = self.windows().into_iter().map(Self::lower_window).collect::<Vec<mir::SlidingWindow>>();
         let triggers = triggers
             .into_iter()
             .map(|t| mir::Trigger { message: t.message, reference: t.sr })
@@ -172,10 +171,9 @@ impl Hir<Complete> {
         match constant {
             hir::expression::ConstantLiteral::Str(s) => mir::Constant::Str(s.clone()),
             hir::expression::ConstantLiteral::Bool(b) => mir::Constant::Bool(*b),
-            hir::expression::ConstantLiteral::UInt(u) => mir::Constant::UInt(*u),
-            hir::expression::ConstantLiteral::Int(i) => mir::Constant::Int(*i),
+            hir::expression::ConstantLiteral::Integer(_i) => todo!("type information needed"),
+            hir::expression::ConstantLiteral::SInt(_i) => todo!("review needed"),
             hir::expression::ConstantLiteral::Float(f) => mir::Constant::Float(*f),
-            hir::expression::ConstantLiteral::Numeric(_, _) => unimplemented!(),
         }
     }
 
