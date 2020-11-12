@@ -11,7 +11,7 @@ use front::common_ir::Offset;
 use front::hir::expression::{Expression, ExpressionKind};
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
-use front::hir::{Input, Output, Trigger};
+use front::hir::{Input, Output, Trigger, AC};
 use front::parse::Span;
 use front::RTLolaHIR;
 use rusttyc::types::AbstractTypeTable;
@@ -115,6 +115,42 @@ where
             .impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
+        if let Some(ac) = output.activation_condition {
+            match ac {
+                AC::Frequency(f) => todo!(),
+                AC::Expr(eid) => {
+                    let annotated_ac_key = self.tyc.new_term_key();
+                    self.node_key.insert(NodeId::Expr(eid), annotated_ac_key);
+                    //self.key_span.insert(annotated_ac_key, output.extend.span);
+                    let expr = self.hir.expr(output.sr);
+                    let annotated_ac =
+                        match parse_abstract_type(expr, &self.bdd_vars, self.hir.num_inputs()) {
+                            Ok(b) => b,
+                            Err(reason) => {
+                                return Err(TcErr::Bound(
+                                    annotated_ac_key,
+                                    None,
+                                    UnificationError::Other(reason),
+                                ));
+                            }
+                        };
+
+                    // Bind key to parsed type
+                    self.tyc
+                        .impose(annotated_ac_key.has_exactly_type(annotated_ac))?;
+
+                    // Annotated type should be more concrete than inferred type
+                    self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
+
+                    // Output type is equal to declared type
+                    self.tyc.impose(output_key.concretizes(annotated_ac_key))
+                }
+            }
+        } else {
+            // Output type is equal to inferred type
+            self.tyc.impose(output_key.concretizes(exp_key))
+        }
+        /*
         if let Some(expr) = self.hir.act_cond(output.sr) {
             let annotated_ac_key = self.tyc.new_term_key();
             self.node_key
@@ -146,6 +182,7 @@ where
             // Output type is equal to inferred type
             self.tyc.impose(output_key.concretizes(exp_key))
         }
+        */
     }
 
     pub(crate) fn expression_infer(
