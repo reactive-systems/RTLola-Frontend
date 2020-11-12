@@ -203,9 +203,8 @@ impl StderrEmitter {
             }
 
             let mut prev_line_number = None;
-            let mut num_messages = 0;
 
-            for (snippet, label, primary) in snippets {
+            for (num_messages, (snippet, label, primary)) in snippets.into_iter().enumerate() {
                 fn render_source_line(snippet: &CodeLine) -> ColoredLine {
                     let mut rendered_line = ColoredLine::new();
                     rendered_line.push(
@@ -284,7 +283,6 @@ impl StderrEmitter {
                     rendered_line.push(&format!(" {}", label), color);
                 }
                 lines.push(rendered_line);
-                num_messages += 1;
             }
         }
 

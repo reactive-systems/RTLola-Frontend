@@ -4,7 +4,7 @@ use super::WindowOperation;
 use crate::hir::AnnotatedType;
 use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub u32);
 
 /// Represents an expression.
@@ -62,7 +62,7 @@ pub enum ExpressionKind {
     },
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum StreamAccessKind {
     Sync,
     DiscreteWindow(WRef),
@@ -72,22 +72,26 @@ pub enum StreamAccessKind {
 }
 
 /// Represents a constant value of a certain kind.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum ConstantLiteral {
     #[allow(missing_docs)]
     Str(String),
     #[allow(missing_docs)]
     Bool(bool),
     #[allow(missing_docs)]
-    UInt(u64),
+    /// Integer constant with unknown sign
+    Integer(i64),
     #[allow(missing_docs)]
-    Int(i64),
+    /// Integer constant known to be signed
+    SInt(i128),
     #[allow(missing_docs)]
+    /// Floating point constant
     Float(f64),
-    Numeric(String, Option<String>),
+    //Frequency(UOM_Frequency),
+    //Numeric(String, Option<String>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Constant {
     BasicConstant(ConstantLiteral),
     InlinedConstant(ConstantLiteral, AnnotatedType),
@@ -179,3 +183,58 @@ pub struct DiscreteWindow {
     /// The ExprId references the window location
     pub eid: ExprId,
 }
+
+impl PartialEq for ExpressionKind {
+    fn eq(&self, other: &Self) -> bool {
+        use self::ExpressionKind::*;
+        match (self, other) {
+            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => sref == sref2 && idx == idx2,
+            (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
+            (ArithLog(op, args), ArithLog(op2, args2)) => {
+                op == op2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+            }
+            (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
+                sref == sref2 && kind == kind2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+            }
+            (
+                Ite { condition: c1, consequence: c2, alternative: c3 },
+                Ite { condition: b1, consequence: b2, alternative: b3 },
+            ) => c1.kind == b1.kind && c2.kind == b2.kind && c3.kind == b3.kind,
+            (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind),
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.kind == inner2.kind,
+            (Function { name, args, type_param }, Function { name: name2, args: args2, type_param: type_param2 }) => {
+                name == name2
+                    && type_param == type_param2
+                    && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+            }
+            (Widen(inner, t1), Widen(inner2, t2)) => t1 == t2 && inner.kind == inner2.kind,
+            (Default { expr, default }, Default { expr: expr2, default: default2 }) => {
+                expr.kind == expr2.kind && default.kind == default2.kind
+            }
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq for ConstantLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        use self::ConstantLiteral::*;
+        match (self, other) {
+            (Float(f1), Float(f2)) => f64::abs(f1 - f2) < 0.00001f64,
+            (Str(s1), Str(s2)) => s1 == s2,
+            (Bool(b1), Bool(b2)) => b1 == b2,
+            (Integer(i1), Integer(i2)) => i1 == i2,
+            (SInt(i1), SInt(i2)) => i1 == i2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ConstantLiteral {}
+
+impl PartialEq for Expression {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+impl Eq for Expression {}

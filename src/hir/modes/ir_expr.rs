@@ -4,6 +4,7 @@ use crate::{
         StreamAccessKind as IRAccess,
     },
     hir::modes::HirMode,
+    hir::AC,
     hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
 };
 
@@ -60,13 +61,30 @@ where
 
     pub fn expr(&self, sr: SRef) -> &Expression {
         match sr {
-            SRef::InRef(_) => unreachable!(),
+            SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
             SRef::OutRef(o) => self.mode.expression(self.outputs[o].expr_id),
         }
     }
+
+    pub fn act_cond(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => None,
+            SRef::OutRef(o) => {
+                if let Some(ac) = self.outputs[o].activation_condition {
+                    match ac {
+                        AC::Expr(e) => Some(self.mode.expression(e)),
+                        AC::Frequency(_) => None, //May change return type
+                    }
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
         match sr {
-            SRef::InRef(_) => unreachable!(),
+            SRef::InRef(_) => None,
             SRef::OutRef(o) => self.outputs[o]
                 .instance_template
                 .spawn
@@ -76,13 +94,13 @@ where
     }
     pub fn filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
-            SRef::InRef(_) => unreachable!(),
+            SRef::InRef(_) => None,
             SRef::OutRef(o) => self.outputs[o].instance_template.filter.map(|e| self.mode.expression(e)),
         }
     }
     pub fn close(&self, sr: SRef) -> Option<&Expression> {
         match sr {
-            SRef::InRef(_) => unreachable!(),
+            SRef::InRef(_) => None,
             SRef::OutRef(o) => self.outputs[o].instance_template.close.map(|e| self.mode.expression(e)),
         }
     }
@@ -191,8 +209,48 @@ impl ExpressionTransformer {
         match &lit.kind {
             ast::LitKind::Bool(b) => ConstantLiteral::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => ConstantLiteral::Str(s.clone()),
-            ast::LitKind::Numeric(num_str, postfix) => ConstantLiteral::Numeric(num_str.clone(), postfix.clone()),
+            ast::LitKind::Numeric(num_str, postfix) => {
+                match postfix {
+                    None => {
+                        if num_str.contains('.') {
+                            // Floating Point
+                            ConstantLiteral::Float(num_str.parse().expect("Expect numeric value for literal"))
+                        } else if num_str.starts_with('-') {
+                            ConstantLiteral::SInt(num_str.parse().expect("Expect numeric value for literal"))
+                        } else {
+                            ConstantLiteral::Integer(num_str.parse().expect("Expect numeric value for literal"))
+                        }
+                    }
+                    Some(s) if s.is_empty() => {
+                        if num_str.contains('.') {
+                            // Floating Point
+                            ConstantLiteral::Float(num_str.parse().expect("Expect numeric value for literal"))
+                        } else if num_str.starts_with('-') {
+                            ConstantLiteral::SInt(num_str.parse().expect("Expect numeric value for literal"))
+                        } else {
+                            ConstantLiteral::Integer(num_str.parse().expect("Expect numeric value for literal"))
+                        }
+                    }
+                    Some(_) => unreachable!(),
+                }
+            }
         }
+    }
+
+    fn transform_ac(
+        &mut self,
+        exprid_to_expr: &mut HashMap<ExprId, Expression>,
+        ac_expr: ast::Expression,
+        current: SRef,
+    ) -> AC {
+        if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
+            if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
+                return AC::Frequency(
+                    ac_expr.parse_freqspec().expect("Invalid Literal with Postfix (unable to parse Frequency)"),
+                );
+            }
+        }
+        AC::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)))
     }
 
     fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
@@ -243,24 +301,32 @@ impl ExpressionTransformer {
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
                 use uom::si::time::nanosecond;
                 let ir_offset = match offset {
-                    ast::Offset::Discrete(i) if i > 0 => Offset::FutureDiscreteOffset(i.abs() as u32),
-                    ast::Offset::Discrete(i) => Offset::PastDiscreteOffset(i.abs() as u32),
+                    ast::Offset::Discrete(i) if i == 0 => None,
+                    ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscreteOffset(i.abs() as u32)),
+                    ast::Offset::Discrete(i) => Some(Offset::PastDiscreteOffset(i.abs() as u32)),
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time =
                             offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
-                        if offset_uom_time.get::<nanosecond>().numer() < &0i64 {
-                            let positive_dur = Duration::from_nanos((-dur) as u64);
-                            Offset::PastRealTimeOffset(positive_dur)
-                        } else {
-                            let positive_dur = Duration::from_nanos(dur as u64);
-                            Offset::FutureRealTimeOffset(positive_dur)
+                        let time = offset_uom_time.get::<nanosecond>();
+                        let numer = time.numer();
+                        match numer {
+                            0 => None,
+                            i if i < &0 => {
+                                let positive_dur = Duration::from_nanos((-dur) as u64);
+                                Some(Offset::PastRealTimeOffset(positive_dur))
+                            }
+                            _ => {
+                                let positive_dur = Duration::from_nanos(dur as u64);
+                                Some(Offset::FutureRealTimeOffset(positive_dur))
+                            }
                         }
                     }
                 };
                 let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output).unwrap(); //TODO error case
-                ExpressionKind::StreamAccess(expr_ref, IRAccess::Offset(ir_offset), args)
+                let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
+                ExpressionKind::StreamAccess(expr_ref, kind, args)
             }
             ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
@@ -490,9 +556,7 @@ impl Hir<IrExpression> {
             let expression = expr_transformer.transform_expression(expression, sr);
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
-            let activation_condition = extend
-                .expr
-                .map(|act| insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(act, sr)));
+            let ac = extend.expr.map(|ex| expr_transformer.transform_ac(&mut exprid_to_expr, ex, sr));
             let instance_template =
                 transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr, sr);
             hir_outputs.push(Output {
@@ -501,7 +565,7 @@ impl Hir<IrExpression> {
                 params,
                 instance_template,
                 annotated_type,
-                activation_condition,
+                activation_condition: ac,
                 expr_id,
             });
         }
@@ -657,6 +721,7 @@ mod tests {
             ("input o :Int8 output off := o.hold()", StreamAccessKind::Hold),
             ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
             ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
+            ("input o :Int8 output off := o.offset(by: 0)", StreamAccessKind::Sync),
             (
                 "input o :Int8 output off := o.offset(by:-1s)",
                 StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1))),
@@ -665,6 +730,7 @@ mod tests {
                 "input o :Int8 output off := o.offset(by: 1s)",
                 StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1))),
             ),
+            ("input o :Int8 output off := o.offset(by: 0s)", StreamAccessKind::Sync),
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
@@ -825,5 +891,34 @@ mod tests {
         } else {
             unreachable!()
         }
+    }
+
+    #[test]
+    fn test_instance() {
+        use crate::hir::{Output, AC};
+        let spec = "input i: Bool output c(a: Int8): Bool @1Hz { invoke i if i extend i close i}:= i";
+        let ir = obtain_expressions(spec);
+        let output: Output = ir.outputs[0].clone();
+        assert!(output.annotated_type.is_some());
+        assert!(matches!(output.activation_condition, Some(AC::Frequency(_))));
+        assert!(output.params.len() == 1);
+        let fil: &Expression = ir.filter(output.sr).unwrap();
+        assert!(matches!(fil.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
+        let close = ir.close(output.sr).unwrap();
+        assert!(matches!(close.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
+        let (invoke, op_cond) = ir.spawn(output.sr).unwrap();
+        assert!(matches!(invoke.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
+        assert!(matches!(op_cond.unwrap().kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
+    }
+
+    #[test]
+    fn test_ac() {
+        use crate::hir::{Output, AC};
+        let spec = "input in: Bool output a: Bool @2.5Hz := true output b: Bool @in := false";
+        let ir = obtain_expressions(spec);
+        let a: Output = ir.outputs[0].clone();
+        assert!(matches!(a.activation_condition, Some(AC::Frequency(_))));
+        let b: &Output = &ir.outputs[1];
+        assert!(matches!(b.activation_condition, Some(AC::Expr(_))));
     }
 }

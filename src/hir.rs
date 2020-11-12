@@ -22,6 +22,7 @@ pub use crate::ast::WindowOperation;
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for MIR
 
 use modes::HirMode;
+use uom::si::rational64::Frequency as UOM_Frequency;
 
 #[derive(Debug, Clone)]
 pub struct RTLolaHIR<M: HirMode> {
@@ -93,7 +94,7 @@ pub struct Output {
     /// The user annotated Type
     pub annotated_type: Option<AnnotatedType>,
     /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
-    pub activation_condition: Option<ExprId>,
+    pub activation_condition: Option<AC>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
@@ -112,6 +113,13 @@ pub struct Parameter {
     pub annotated_type: Option<AnnotatedType>,
     /// The id, index in the parameter vector in the output stream, for this parameter
     pub idx: usize,
+}
+
+/// Use to hold either a frequency or an expression for the annotated activation condition
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AC {
+    Frequency(UOM_Frequency),
+    Expr(ExprId),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -152,7 +160,7 @@ impl Trigger {
 /// Represents the annotated given type for constants, input streams, etc.
 /// It is converted from the AST type and an input for the typechecker.
 /// After typechecking HirType is used to represent all type information.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum AnnotatedType {
     //Can be annotated
     Int(u32),

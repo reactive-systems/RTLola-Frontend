@@ -161,7 +161,7 @@ pub type InputReference = usize;
 pub type OutputReference = usize;
 
 /// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord)]
 pub enum StreamReference {
     /// References an input stream.
     InRef(InputReference),
@@ -206,6 +206,18 @@ impl StreamReference {
         match self {
             StreamReference::OutRef(_) => true,
             StreamReference::InRef(_) => false,
+        }
+    }
+}
+
+impl PartialOrd for StreamReference {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (StreamReference::InRef(i), StreamReference::InRef(i2)) => Some(i.cmp(&i2)),
+            (StreamReference::OutRef(o), StreamReference::OutRef(o2)) => Some(o.cmp(&o2)),
+            (StreamReference::InRef(_), StreamReference::OutRef(_)) => Some(Ordering::Less),
+            (StreamReference::OutRef(_), StreamReference::InRef(_)) => Some(Ordering::Greater),
         }
     }
 }
