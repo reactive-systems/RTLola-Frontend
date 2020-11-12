@@ -5,22 +5,44 @@ use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IConcreteType;
 use front::analysis::naming::DeclarationTable;
-use front::ast::RTLolaAst;
-use front::parse::NodeId;
+use front::common_ir::StreamReference;
+use front::hir::expression::ExprId;
+use front::hir::modes::ir_expr::WithIrExpr;
+use front::hir::modes::HirMode;
 use front::reporting::Handler;
+use front::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
-pub struct LolaTypeChecker<'a> {
-    pub(crate) ast: RTLolaAst,
+#[derive(Clone, Debug)]
+pub struct LolaTypeChecker<'a, M>
+where
+    M: WithIrExpr + HirMode + 'static,
+{
+    pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) declarations: DeclarationTable,
     pub(crate) handler: &'a Handler,
 }
 
-impl<'a> LolaTypeChecker<'a> {
-    pub fn new(spec: &RTLolaAst, declarations: DeclarationTable, handler: &'a Handler) -> Self {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Ord)]
+pub enum NodeId {
+    SRef(StreamReference),
+    Expr(ExprId),
+    Param(usize, StreamReference),
+}
+
+impl<'a, M> LolaTypeChecker<'a, M>
+where
+    M: WithIrExpr + HirMode + 'static,
+{
+    pub fn new(
+        hir: &'a RTLolaHIR<M>,
+        declarations: DeclarationTable,
+        handler: &'a Handler,
+    ) -> Self {
         LolaTypeChecker {
-            ast: spec.clone(),
+            hir,
             declarations,
             handler,
         }
@@ -40,33 +62,26 @@ impl<'a> LolaTypeChecker<'a> {
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
-        let mut ctx = PacingContext::new(&self.ast, &self.declarations);
+        let mut ctx = PacingContext::new(&self.hir);
         let input_names: HashMap<NodeId, &str> = self
-            .ast
-            .inputs
-            .iter()
-            .map(|i| (i.id, i.name.name.as_str()))
+            .hir
+            .inputs()
+            .map(|i| (NodeId::SRef(i.sr), i.name.as_str()))
             .collect();
 
-        for input in &self.ast.inputs {
+        for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
                 emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
-        for constant in &self.ast.constants {
-            if let Err(e) = ctx.constant_infer(constant) {
-                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
-            }
-        }
-
-        for output in &self.ast.outputs {
+        for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
                 emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
         }
 
-        for trigger in &self.ast.trigger {
+        for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
                 emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
             }
@@ -86,7 +101,7 @@ impl<'a> LolaTypeChecker<'a> {
             return None;
         }
 
-        for pe in PacingContext::post_process(nid_key, &self.ast, &tt) {
+        for pe in PacingContext::post_process(&self.hir, nid_key, &tt) {
             pe.emit(self.handler);
         }
         if self.handler.contains_error() {
@@ -120,35 +135,23 @@ impl<'a> LolaTypeChecker<'a> {
     ) -> Result<HashMap<NodeId, IConcreteType>, String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
-        let mut ctx = ValueContext::new(
-            &self.ast,
-            self.declarations.clone(),
-            self.handler,
-            pacing_tt,
-        );
+        let mut ctx = ValueContext::new(&self.hir, self.handler, pacing_tt);
 
-        for input in &self.ast.inputs {
+        for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
                 let msg = ctx.handle_error(e);
                 return Err(msg);
             }
         }
 
-        for constant in &self.ast.constants {
-            if let Err(e) = ctx.constant_infer(constant) {
-                let msg = ctx.handle_error(e);
-                return Err(msg);
-            }
-        }
-
-        for output in &self.ast.outputs {
+        for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
                 let msg = ctx.handle_error(e);
                 return Err(msg);
             }
         }
 
-        for trigger in &self.ast.trigger {
+        for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
                 let msg = ctx.handle_error(e);
                 return Err(msg);
@@ -161,20 +164,34 @@ impl<'a> LolaTypeChecker<'a> {
             return Err(msg);
         }
         let tt = tt_r.expect("Ensured by previous cases");
+        /*
         let bm = ctx.node_key;
         for (nid, k) in bm.iter() {
             //DEBUGG
             println!("{:?}", (*nid, tt[*k].clone()));
         }
+        */
         let rtt_r = tt.try_reified();
         if rtt_r.is_err() {
             return Err("TypeTable not reifiable: ValueType not constrained enough".to_string());
         }
         let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.unwrap();
         let mut result_map = HashMap::new();
-        for (nid, k) in bm.iter() {
+        for (nid, k) in ctx.node_key.iter() {
             result_map.insert(*nid, rtt[*k].clone());
         }
-        Ok(result_map)
+        todo!()
+        //Ok(result_map)
+    }
+}
+
+impl PartialOrd for NodeId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (NodeId::Expr(a), NodeId::Expr(b)) => Some(a.cmp(&b)),
+            (NodeId::SRef(a), NodeId::SRef(b)) => Some(a.cmp(&b)),
+            (NodeId::Param(_, _), _) => unreachable!(),
+            (_, _) => None,
+        }
     }
 }

@@ -2,19 +2,23 @@ use super::*;
 extern crate regex;
 
 use crate::pacing_types::{ConcretePacingType, Freq};
+use crate::rtltc::NodeId;
 use crate::value_types::IAbstractType;
 use bimap::BiMap;
-use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{Constant, Input, Output, Trigger};
-use front::ast::{Expression, LitKind, Type};
-use front::ast::{ExpressionKind, Parameter, TypeKind};
-use front::parse::{NodeId, Span};
+use front::common_ir::Offset;
+use front::hir::expression::{
+    Constant, ConstantLiteral, Expression, ExpressionKind, StreamAccessKind,
+};
+use front::hir::modes::ir_expr::WithIrExpr;
+use front::hir::modes::HirMode;
+use front::hir::{AnnotatedType, Input, Output, Trigger, Window};
+use front::parse::Span;
 use front::reporting::{Handler, LabeledSpan};
-use front::ty::{TypeConstraint, ValueTy};
+use front::RTLolaHIR;
+use itertools::Either;
 use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
-use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -23,68 +27,65 @@ pub struct Variable {
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct ValueContext<'a> {
+pub struct ValueContext<'a, M>
+where
+    M: WithIrExpr + HirMode + 'static,
+{
     pub(crate) tyc: TypeChecker<IAbstractType, Variable>,
-    pub(crate) decl: DeclarationTable,
+    //pub(crate) decl: DeclarationTable,
     //Map assumes uniqueness of Ast and Tc ids
     pub(crate) node_key: BiMap<NodeId, TcKey>,
     pub(crate) key_span: HashMap<TcKey, Span>,
     pub(crate) handler: &'a Handler,
+    pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) pacing_tt: HashMap<NodeId, ConcretePacingType>,
 }
 
-impl<'a> ValueContext<'a> {
+impl<'a, M> ValueContext<'a, M>
+where
+    M: WithIrExpr + HirMode + 'static,
+{
     pub fn new(
-        ast: &RTLolaAst,
-        decl: DeclarationTable,
+        hir: &'a RTLolaHIR<M>,
+        //decl: DeclarationTable,
         handler: &'a Handler,
         pacing_tt: HashMap<NodeId, ConcretePacingType>,
     ) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = BiMap::new();
-        let mut key_span = HashMap::new();
+        let key_span = HashMap::new();
 
-        for input in &ast.inputs {
+        for input in hir.inputs() {
             let key = tyc.get_var_key(&Variable {
-                name: input.name.name.clone(),
+                name: input.name.clone(),
             });
-            node_key.insert(input.id, key);
-            key_span.insert(key, input.span);
+            node_key.insert(NodeId::SRef(input.sr), key);
+            //key_span.insert(key, input.span);
         }
 
-        for cons in &ast.constants {
+        for out in hir.outputs() {
             let key = tyc.get_var_key(&Variable {
-                name: cons.name.name.clone(),
-            });
-            node_key.insert(cons.id, key);
-            key_span.insert(key, cons.span);
-        }
-
-        for out in &ast.outputs {
-            let key = tyc.get_var_key(&Variable {
-                name: out.name.name.clone(),
+                name: out.name.clone(),
             });
             dbg!(key);
-            node_key.insert(out.id, key);
-            key_span.insert(key, out.span);
+            node_key.insert(NodeId::SRef(out.sr), key);
+            //key_span.insert(key, out.span);
         }
 
-        for (ix, tr) in ast.trigger.iter().enumerate() {
-            let n = match &tr.name {
-                Some(ident) => ident.name.clone() + "_" + &ix.to_string(),
-                None => format!("trigger_{}", ix),
-            };
+        for (ix, tr) in hir.triggers().enumerate() {
+            let n = format!("trigger_{}", ix);
             let key = tyc.get_var_key(&Variable { name: n });
-            node_key.insert(tr.id, key);
-            key_span.insert(key, tr.span);
+            node_key.insert(NodeId::SRef(tr.sr), key);
+            //key_span.insert(key, tr.span);
         }
 
         ValueContext {
             tyc,
-            decl,
+            //decl,
             node_key,
             key_span,
             handler,
+            hir,
             pacing_tt,
         }
     }
@@ -92,16 +93,18 @@ impl<'a> ValueContext<'a> {
     pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self
             .node_key
-            .get_by_left(&input.id)
+            .get_by_left(&NodeId::SRef(input.sr))
             .expect("Added in constructor");
         //Annotated Type
 
-        let annotated_type_replaced = self.type_kind_match(&input.ty);
+        let annotated_type_replaced = self.match_annotated_type(&input.annotated_type);
         //can skip any case as type must be provided
         self.tyc
             .impose(term_key.has_exactly_type(annotated_type_replaced))?;
 
+        /*
         let mut param_types = Vec::new();
+
         for param in &input.params {
             let param_key = self.tyc.get_var_key(&Variable {
                 name: param.name.name.clone(),
@@ -115,9 +118,11 @@ impl<'a> ValueContext<'a> {
             param_types.is_empty(),
             "parametric input types currently not supported"
         );
+        */
         Ok(term_key)
     }
 
+    /*
     pub fn constant_infer(&mut self, cons: &Constant) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self
             .node_key
@@ -138,14 +143,19 @@ impl<'a> ValueContext<'a> {
         self.node_key.insert(cons.id, term_key);
         Ok(term_key)
     }
+    */
 
     pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
         let out_key = *self
             .node_key
-            .get_by_left(&out.id)
+            .get_by_left(&NodeId::SRef(out.sr))
             .expect("Added in constructor");
 
-        let annotated_type_replaced = self.type_kind_match(&out.ty);
+        let annotated_type_replaced = out
+            .annotated_type
+            .as_ref()
+            .map(|ty| self.match_annotated_type(ty))
+            .unwrap_or(IAbstractType::Any);
         dbg!(&annotated_type_replaced);
         if let IAbstractType::Any = annotated_type_replaced {
         } else {
@@ -156,33 +166,37 @@ impl<'a> ValueContext<'a> {
         let mut param_types = Vec::new();
         for param in &out.params {
             let param_key = self.tyc.get_var_key(&Variable {
-                name: out.name.name.clone() + "_" + &param.name.name.clone(),
+                name: out.name.clone() + "_" + &param.name.clone(),
             });
             dbg!(param_key);
-            self.node_key.insert(param.id, param_key);
-            self.key_span.insert(param_key, param.span);
+            self.node_key
+                .insert(NodeId::Param(param.idx, out.sr), param_key);
+            //self.key_span.insert(param_key, param.span);
 
-            let t = self.type_kind_match(&param.ty);
+            let t = param
+                .annotated_type
+                .as_ref()
+                .map(|t| self.match_annotated_type(t))
+                .unwrap_or(IAbstractType::Any);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             param_types.push(param_key);
         }
 
-        dbg!(&out.template_spec);
-        if let Some(template_spec) = &out.template_spec {
-            if let Some(inv) = &template_spec.inv {
-                //chek target exression type matches parameter type
-                let target_expr_key = self.expression_infer(&inv.target, None)?;
-                //TODO
-            }
-            if let Some(close) = &template_spec.ter {
-                self.expression_infer(&close.target, Some(IAbstractType::Bool))?;
-            }
-            if let Some(ext) = &template_spec.ext {
-                self.expression_infer(&ext.target, Some(IAbstractType::Bool))?;
-            }
+        dbg!(&out.instance_template);
+        let opt_spwan = &self.hir.spawn(out.sr);
+        if let Some((spawn, opt_cond)) = opt_spwan {
+            //chek target exression type matches parameter type
+            let _target_expr_key = self.expression_infer(spawn, Some(IAbstractType::Bool))?;
+            let _cond_key = opt_cond.map(|e| self.expression_infer(e, Some(IAbstractType::Bool)));
+        }
+        if let Some(close) = &self.hir.close(out.sr) {
+            self.expression_infer(close, Some(IAbstractType::Bool))?;
+        }
+        if let Some(filter) = &self.hir.filter(out.sr) {
+            self.expression_infer(filter, Some(IAbstractType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(&out.expression, None)?;
+        let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
 
         self.tyc.impose(out_key.equate_with(expression_key))?;
         Ok(out_key)
@@ -191,9 +205,10 @@ impl<'a> ValueContext<'a> {
     pub fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TcErr<IAbstractType>> {
         let tr_key = *self
             .node_key
-            .get_by_left(&tr.id)
+            .get_by_left(&NodeId::SRef(tr.sr))
             .expect("Added in constructor");
-        let expression_key = self.expression_infer(&tr.expression, Some(IAbstractType::Bool))?;
+        let expression_key =
+            self.expression_infer(&self.hir.expr(tr.sr), Some(IAbstractType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
@@ -211,48 +226,270 @@ impl<'a> ValueContext<'a> {
         }
         dbg!(&exp.kind);
         match &exp.kind {
-            ExpressionKind::Lit(lit) => {
-                let literal_type = self.match_lit_kind(lit.kind.clone());
-                //dbg!(&literal_type);
-                self.tyc
-                    .impose(term_key.concretizes_explicit(literal_type))?;
-            }
-            ExpressionKind::Ident(_) => {
-                let decl = &self.decl[&exp.id];
-                let node_id = match decl {
-                    Declaration::Const(c) => c.id,
-                    Declaration::Out(out) => out.id,
-                    Declaration::ParamOut(param) => param.id,
-                    Declaration::In(input) => input.id,
-                    Declaration::Param(p) => p.id,
-                    Declaration::Type(_) | Declaration::Func(_) => {
-                        unreachable!("ensured by naming analysis {:?}", decl)
+            ExpressionKind::LoadConstant(c) => {
+                let (cons_lit, anno_ty) = match c {
+                    Constant::BasicConstant(lit) => (lit, IAbstractType::Any),
+                    Constant::InlinedConstant(lit, anno_ty) => {
+                        (lit, self.match_annotated_type(anno_ty))
                     }
                 };
-                let key = self
-                    .node_key
-                    .get_by_left(&node_id)
-                    .expect("Value should be contained");
-                self.tyc.impose(term_key.equate_with(*key))?;
+                let literal_type = self.match_const_literal(cons_lit);
+                self.tyc
+                    .impose(term_key.concretizes_explicit(literal_type))?;
+                self.tyc.impose(term_key.has_exactly_type(anno_ty))?;
             }
-            ExpressionKind::StreamAccess(ex, kind) => {
-                use front::ast::StreamAccessKind::*;
-                let ex_key = self.expression_infer(&*ex, None)?;
+
+            ExpressionKind::StreamAccess(sr, kind, args) => {
+                //let ex_key = self.expression_infer(&self.hir.expr(sr), None)?;
+                /*
+                let target_key = match sr {
+                    StreamReference::OutRef(ix) => self.hir.outputs().nth(ix).expect("Idx of SRef is always valid"),
+                    StreamReference::InRef(ix) => self.hir.inputs().nth(ix).expect("Idx of SRef is always valid"),
+                }
+                let target_stream: &Output = self
+                    .hir
+                    .outputs()
+                    .nth(sr.out_ix())
+                    .expect("Idx of SRef is always valid");
+                */
+
+                if sr.is_input() {
+                    assert!(args.is_empty(), "Parametrized Input Stream are unsupported");
+                }
+
+                if !args.is_empty() {
+                    let target_stream: &Output = self
+                        .hir
+                        .outputs()
+                        .nth(sr.out_ix())
+                        .expect("Idx of SRef is always valid");
+                    let param_keys: Vec<_> = target_stream
+                        .params
+                        .iter()
+                        .map(|p| {
+                            let v = Variable {
+                                name: target_stream.name.clone() + "_" + &p.name,
+                            };
+                            self.tyc.get_var_key(&v)
+                        })
+                        .collect();
+                    let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> = args
+                        .iter()
+                        .map(|arg| self.expression_infer(arg, None))
+                        .collect();
+                    let arg_keys = arg_keys?;
+
+                    let res: Result<Vec<()>, TcErr<IAbstractType>> = param_keys
+                        .iter()
+                        .zip(arg_keys.iter())
+                        .map(|(p, a)| self.tyc.impose(a.concretizes(*p)))
+                        .collect();
+                    res?;
+                }
+
+                let target_key = self
+                    .node_key
+                    .get_by_left(&NodeId::SRef(*sr))
+                    .expect("Entered in constructor");
+
                 match kind {
-                    Sync => unreachable!("only used in IR after lowering"),
-                    Optional | Hold => {
-                        //Optional and Hold return Option<X> Type
+                    StreamAccessKind::Sync => {
+                        self.tyc.impose(term_key.equate_with(*target_key))?;
+                    }
+                    StreamAccessKind::DiscreteWindow(_wref)
+                    | StreamAccessKind::SlidingWindow(_wref) => {
+                        //TODO use acutall wref as access methdd
+                        let window = self.hir.single_window(Window { expr: exp.eid });
+                        let (target_key, op, wait) = match window {
+                            Either::Left(sw) => (
+                                self.node_key.get_by_left(&NodeId::SRef(sw.target)),
+                                sw.op,
+                                sw.wait,
+                            ),
+                            Either::Right(dw) => (
+                                self.node_key.get_by_left(&NodeId::SRef(dw.target)),
+                                dw.op,
+                                dw.wait,
+                            ),
+                        };
+                        let target_key = *target_key.expect("Entered in Constructor");
+                        //let duration_key = self.expression_infer(&*duration, None)?;
+                        //self.tyc.impose(duration_key.concretizes_explicit(IAbstractType::Numeric))?;
+
+                        use front::ast::WindowOperation;
+                        match op {
+                            //Min|Max|Avg <T:Num> T -> Option<T>
+                            WindowOperation::Min
+                            | WindowOperation::Max
+                            | WindowOperation::Average => {
+                                self.tyc.impose(term_key.concretizes_explicit(
+                                    IAbstractType::Option(IAbstractType::Any.into()),
+                                ))?;
+                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                self.tyc.impose(inner_key.equate_with(target_key))?;
+                            }
+                            //Count: Any -> uint
+                            WindowOperation::Count => {
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(IAbstractType::Any))?;
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(IAbstractType::UInteger(1)),
+                                )?;
+                            }
+                            //integral :T <T:Num> -> T
+                            //integral : T <T:Num> -> Float   <-- currently used
+                            WindowOperation::Integral => {
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(IAbstractType::Numeric),
+                                )?; //TODO maybe numeric
+                                if wait {
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        IAbstractType::Option(IAbstractType::Any.into()),
+                                    ))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                                    self.tyc.impose(
+                                        inner_key.concretizes_explicit(IAbstractType::Float(1)),
+                                    )?;
+                                } else {
+                                    //self.tyc.impose(term_key.concretizes(ex_key))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(IAbstractType::Float(1)),
+                                    )?;
+                                }
+                            }
+                            //Σ and Π :T <T:Num> -> T
+                            WindowOperation::Sum | WindowOperation::Product => {
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(IAbstractType::Numeric),
+                                )?;
+                                if wait {
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        IAbstractType::Option(IAbstractType::Any.into()),
+                                    ))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    self.tyc.impose(inner_key.equate_with(target_key))?;
+                                } else {
+                                    self.tyc.impose(term_key.concretizes(target_key))?;
+                                }
+                            }
+                            //bool -> bool
+                            WindowOperation::Conjunction | WindowOperation::Disjunction => {
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                            }
+                        }
+                    }
+                    StreamAccessKind::Hold => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(IAbstractType::Option(
                                 IAbstractType::Any.into(),
                             )))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                        self.tyc.impose(ex_key.equate_with(inner_key))?;
+                        self.tyc.impose(target_key.equate_with(inner_key))?;
                     }
+                    StreamAccessKind::Offset(off) => match off {
+                        Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
+                            self.tyc.impose(term_key.concretizes_explicit(
+                                IAbstractType::Option(IAbstractType::Any.into()),
+                            ))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            self.tyc.impose(target_key.equate_with(inner_key))?;
+                        }
+                        Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
+                            use num::rational::Rational64 as Rational;
+                            use uom::si::frequency::hertz;
+                            use uom::si::rational64::Frequency as UOM_Frequency;
+
+                            use crate::pacing_types::AbstractPacingType::*;
+                            //let n = UOM_Time::new::<second>(d);
+                            let mut duration_as_f = d.as_secs_f64();
+                            let mut c = 0;
+                            while duration_as_f % 1.0f64 > 0f64 {
+                                c += 1;
+                                duration_as_f *= 10f64;
+                            }
+                            let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
+                            let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
+                            let target_ratio =
+                                self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
+                            if let Ok(Periodic(target_freq)) = target_ratio {
+                                //fif the frequencies match no optional needed
+                                if let Ok(true) = freq.is_multiple_of(&target_freq) {
+                                    self.tyc.impose(term_key.equate_with(*target_key))?;
+                                } else {
+                                    //if the ey dont match return optional
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        IAbstractType::Option(IAbstractType::Any.into()),
+                                    ))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    self.tyc.impose(target_key.equate_with(inner_key))?;
+                                }
+                            } else {
+                                //Not a periodic target stream given
+                                return Err(TcErr::Bound(
+                                    *target_key,
+                                    None,
+                                    "Realtime offset on non periodic stream".to_string(),
+                                ));
+                            }
+                            /*
+                            front::ast::Offset::RealTime(r, unit) => {
+                                //if periode < offset -> optinal
+                                use num::rational::Rational64 as Rational;
+                                use uom::si::frequency::hertz;
+                                use uom::si::rational64::Frequency as UOM_Frequency;
+                                use uom::si::rational64::Time as UOM_Time;
+                                use uom::si::time::second;
+
+                                if *r.numer() == 0 {
+                                    self.tyc.impose(term_key.equate_with(ex_key))?;
+                                } else if *r.numer() > 0 {
+                                    return Err(TcErr::Bound(
+                                        term_key,
+                                        None,
+                                        "Found positive realtime offset - not yet supported".to_string(),
+                                    ));
+                                } else {
+                                    use crate::pacing_types::AbstractPacingType::*;
+                                    let uom_offset_duration = offset.to_uom_time().unwrap();
+                                    let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(
+                                        Rational::from_integer(1) / uom_offset_duration.get::<second>(),
+                                    ));
+                                    let target_ratio = self.pacing_tt[&target_expr.id].to_abstract_freq();
+                                    if let Ok(Periodic(target_freq)) = target_ratio {
+                                        //fif the frequencies match no optional needed
+                                        if let Ok(true) = freq.is_multiple_of(&target_freq) {
+                                            self.tyc.impose(term_key.equate_with(ex_key))?;
+                                        } else {
+                                            //if the ey dont match return optional
+                                            self.tyc.impose(term_key.concretizes_explicit(
+                                                IAbstractType::Option(IAbstractType::Any.into()),
+                                            ))?;
+                                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                            self.tyc.impose(ex_key.equate_with(inner_key))?;
+                                        }
+                                    } else {
+                                        //Not a periodic target stream given
+                                        return Err(TcErr::Bound(
+                                            ex_key,
+                                            None,
+                                            "Realtime offset on non periodic stream".to_string(),
+                                        ));
+                                    }
+                                }
+                                //unimplemented!("RealTime offset not yet supported in Value Type inference")
+                            }
+                            */
+                            todo!()
+                        }
+                    },
                 };
             }
-            ExpressionKind::Default(ex, default) => {
-                let ex_key = self.expression_infer(&*ex, None)?; //Option<X>
+            ExpressionKind::Default { expr, default } => {
+                let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
                 dbg!(ex_key, def_key);
                 self.tyc.impose(
@@ -264,6 +501,7 @@ impl<'a> ValueContext<'a> {
                 self.tyc
                     .impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
+            /*
             ExpressionKind::Offset(target_expr, offset) => {
                 let ex_key = self.expression_infer(&*target_expr, None)?;
                 //Want build: X or Option<X> if the access is synchronous or not
@@ -315,14 +553,16 @@ impl<'a> ValueContext<'a> {
                                 //fif the frequencies match no optional needed
                                 if let Ok(true) = freq.is_multiple_of(&target_freq) {
                                     self.tyc.impose(term_key.equate_with(ex_key))?;
-                                } else { //if the ey dont match return optional
+                                } else {
+                                    //if the ey dont match return optional
                                     self.tyc.impose(term_key.concretizes_explicit(
                                         IAbstractType::Option(IAbstractType::Any.into()),
                                     ))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(ex_key.equate_with(inner_key))?;
                                 }
-                            } else { //Not a periodic target stream given
+                            } else {
+                                //Not a periodic target stream given
                                 return Err(TcErr::Bound(
                                     ex_key,
                                     None,
@@ -334,175 +574,112 @@ impl<'a> ValueContext<'a> {
                     }
                 }
             }
-            ExpressionKind::SlidingWindowAggregation {
-                expr,
-                duration,
-                wait,
-                aggregation: aggr,
-            } => {
-                let ex_key = self.expression_infer(&*expr, None)?;
-                let duration_key = self.expression_infer(&*duration, None)?;
-
-                self.tyc
-                    .impose(duration_key.concretizes_explicit(IAbstractType::Numeric))?;
-
-                use front::ast::WindowOperation;
-                match aggr {
-                    //Min|Max|Avg <T:Num> T -> Option<T>
-                    WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Option(
-                                IAbstractType::Any.into(),
-                            )))?;
-                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                        self.tyc.impose(inner_key.equate_with(ex_key))?;
-                    }
-                    //Count: Any -> uint
-                    WindowOperation::Count => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Any))?;
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::UInteger(1)))?;
-                    }
-                    //integral :T <T:Num> -> T
-                    //integral : T <T:Num> -> Float   <-- currently used
-                    WindowOperation::Integral => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?; //TODO maybe numeric
-                        if *wait {
-                            self.tyc.impose(term_key.concretizes_explicit(
-                                IAbstractType::Option(IAbstractType::Any.into()),
-                            ))?;
-                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                            //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                            self.tyc
-                                .impose(inner_key.concretizes_explicit(IAbstractType::Float(1)))?;
-                        } else {
-                            //self.tyc.impose(term_key.concretizes(ex_key))?;
-                            self.tyc
-                                .impose(term_key.concretizes_explicit(IAbstractType::Float(1)))?;
-                        }
-                    }
-                    //all others :T <T:Num> -> T
-                    WindowOperation::Sum | WindowOperation::Product => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        if *wait {
-                            self.tyc.impose(term_key.concretizes_explicit(
-                                IAbstractType::Option(IAbstractType::Any.into()),
-                            ))?;
-                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                            self.tyc.impose(inner_key.equate_with(ex_key))?;
-                        } else {
-                            self.tyc.impose(term_key.concretizes(ex_key))?;
-                        }
-                    }
-                    //bool -> bool
-                    WindowOperation::Conjunction | WindowOperation::Disjunction => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Bool))?;
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
-                    }
-                }
-            }
+            */
             //TODO
             ///// implicit widening requieres join operand
             // a + b -> c c = meet(a,b) then equate a and b with join(a,b) //FIXME
-            ExpressionKind::Binary(op, left, right) => {
-                let left_key = self.expression_infer(&*left, None)?; // X
-                let right_key = self.expression_infer(&*right, None)?; // X
+            ExpressionKind::ArithLog(op, expr_v) => {
+                use front::hir::expression::ArithLogOp;
+                let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> = expr_v
+                    .iter()
+                    .map(|expr| self.expression_infer(expr, None))
+                    .collect();
+                let arg_keys = arg_keys?;
+                match arg_keys.len() {
+                    2 => {
+                        let left_key = arg_keys[0];
+                        let right_key = arg_keys[1];
+                        match op {
+                            // <T:Num> T x T -> T
+                            ArithLogOp::Add
+                            | ArithLogOp::Sub
+                            | ArithLogOp::Mul
+                            | ArithLogOp::Div
+                            | ArithLogOp::Rem
+                            | ArithLogOp::Pow
+                            | ArithLogOp::Shl
+                            | ArithLogOp::Shr
+                            | ArithLogOp::BitAnd
+                            | ArithLogOp::BitOr
+                            | ArithLogOp::BitXor => {
+                                self.tyc.impose(
+                                    left_key.concretizes_explicit(IAbstractType::Numeric),
+                                )?;
+                                self.tyc.impose(
+                                    right_key.concretizes_explicit(IAbstractType::Numeric),
+                                )?;
 
-                //let param_key = self.tyc.new_term_key();
+                                self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
+                                self.tyc.impose(term_key.equate_with(left_key))?;
+                                self.tyc.impose(term_key.equate_with(right_key))?;
+                            }
+                            // Bool x Bool -> Bool
+                            ArithLogOp::And | ArithLogOp::Or => {
+                                self.tyc
+                                    .impose(left_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc
+                                    .impose(right_key.concretizes_explicit(IAbstractType::Bool))?;
 
-                use front::ast::BinOp;
-                match op {
-                    // <T:Num> T x T -> T
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow => {
-                        /*
-                        self.tyc.impose(param_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        self.tyc.impose(param_key.concretizes(left_key))?;
-                        self.tyc.impose(param_key.concretizes(right_key))?;
-                        self.tyc.impose(term_key.concretizes(param_key))?;
-                        */
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                            }
+                            // Any x Any -> Bool COMPARATORS
+                            ArithLogOp::Eq
+                            | ArithLogOp::Lt
+                            | ArithLogOp::Le
+                            | ArithLogOp::Ne
+                            | ArithLogOp::Ge
+                            | ArithLogOp::Gt => {
+                                self.tyc.impose(left_key.equate_with(right_key))?;
 
-                        self.tyc
-                            .impose(left_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        self.tyc
-                            .impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
-
-                        self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
-                        self.tyc.impose(term_key.equate_with(left_key))?;
-                        self.tyc.impose(term_key.equate_with(right_key))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                            }
+                            ArithLogOp::Not | ArithLogOp::Neg | ArithLogOp::BitNot => {
+                                unreachable!("unary operator cannot have 2 arguments")
+                            }
+                        }
                     }
-                    // Bool x Bool -> Bool
-                    BinOp::And | BinOp::Or => {
-                        self.tyc
-                            .impose(left_key.concretizes_explicit(IAbstractType::Bool))?;
-                        self.tyc
-                            .impose(right_key.concretizes_explicit(IAbstractType::Bool))?;
+                    1 => {
+                        let arg_key = arg_keys[0];
+                        match op {
+                            // Bool -> Bool
+                            ArithLogOp::Not => {
+                                self.tyc
+                                    .impose(arg_key.concretizes_explicit(IAbstractType::Bool))?;
 
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
-                    }
-                    // Num x Num -> Num
-                    BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr | BinOp::Shl | BinOp::Shr => {
-                        self.tyc
-                            .impose(left_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        self.tyc
-                            .impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                            }
+                            //Num -> Num
+                            ArithLogOp::Neg | ArithLogOp::BitNot => {
+                                self.tyc
+                                    .impose(arg_key.concretizes_explicit(IAbstractType::Numeric))?;
 
-                        self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
-                        self.tyc.impose(term_key.equate_with(left_key))?;
-                        self.tyc.impose(term_key.equate_with(right_key))?;
+                                self.tyc.impose(term_key.equate_with(arg_key))?;
+                            }
+                            _ => unreachable!("All other operators have 2 given arguments"),
+                        }
                     }
-                    // Any x Any -> Bool COMPARATORS
-                    BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt => {
-                        //self.tyc
-                        //    .impose(left_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        //self.tyc
-                        //    .impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
-                        self.tyc.impose(left_key.equate_with(right_key))?;
-
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
-                    }
+                    _ => unreachable!(),
                 }
             }
-            ExpressionKind::Unary(op, expr) => {
-                let ex_key = self.expression_infer(&*expr, None)?; // expr
-
-                use front::ast::UnOp;
-                match op {
-                    //Num -> Num
-                    UnOp::BitNot | UnOp::Neg => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Numeric))?;
-
-                        self.tyc.impose(term_key.equate_with(ex_key))?;
-                    }
-                    // Bool -> Bool
-                    UnOp::Not => {
-                        self.tyc
-                            .impose(ex_key.concretizes_explicit(IAbstractType::Bool))?;
-
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
-                    }
-                }
-            }
-            ExpressionKind::Ite(cond, cons, alt) => {
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
                 // Bool for condition - check given in the second argument
-                self.expression_infer(&*cond, Some(IAbstractType::Bool))?;
-                let cons_key = self.expression_infer(&*cons, None)?; // X
-                let alt_key = self.expression_infer(&*alt, None)?; // X
-                                                                   //Bool x T x T -> T
+                self.expression_infer(&*condition, Some(IAbstractType::Bool))?;
+                let cons_key = self.expression_infer(&*consequence, None)?; // X
+                let alt_key = self.expression_infer(&*alternative, None)?; // X
+                                                                           //Bool x T x T -> T
 
                 self.tyc
                     .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
                 //self.tyc.impose(cons_key.equate_with(alt_key))?;
             }
-            ExpressionKind::MissingExpression => unreachable!(),
+
             ExpressionKind::Tuple(vec) => {
                 let key_vec: Result<Vec<TcKey>, TcErr<IAbstractType>> = vec
                     .iter()
@@ -517,236 +694,160 @@ impl<'a> ValueContext<'a> {
                         .impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
             }
-            ExpressionKind::Field(expr, ident) => {
+
+            ExpressionKind::TupleAccess(expr, idx) => {
                 let ex_key = self.expression_infer(expr, None)?;
                 //Only Tuple case allowed for Field expression FIXME TODO
-                let n: usize = ident.name.parse().expect("checked in AST verifier");
                 //TODO enforce Vector type -> child access on any fails
-                let accessed_child = self.tyc.get_child_key(ex_key, n)?;
+                let accessed_child = self.tyc.get_child_key(ex_key, *idx)?;
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
             }
-            ExpressionKind::Method(_, _, _, _) => unimplemented!("TODO"),
-            ExpressionKind::Function(name, types, args) => {
+
+            ExpressionKind::Widen(inner, ty) => {
+                let inner_expr_key = self.expression_infer(inner, None)?;
+                let type_bound = match ty {
+                    AnnotatedType::UInt(_) => IAbstractType::UInteger(1),
+                    AnnotatedType::Int(_) => IAbstractType::SInteger(1),
+                    AnnotatedType::Float(_) => IAbstractType::Float(1),
+                    _ => unimplemented!("Unsupported widen Type"),
+                };
+                self.tyc
+                    .impose(inner_expr_key.concretizes_explicit(type_bound))?;
+                self.tyc
+                    .impose(term_key.concretizes_explicit(self.match_annotated_type(ty)))?;
+            }
+            ExpressionKind::Function {
+                name,
+                type_param,
+                args,
+            } => {
                 dbg!("Function Infer");
                 //transform Type into new internal types.
-                let types_vec: Vec<IAbstractType> =
-                    types.iter().map(|t| self.type_kind_match(&t)).collect();
+                let types_vec: Vec<IAbstractType> = type_param
+                    .iter()
+                    .map(|t| self.match_annotated_type(t))
+                    .collect();
                 // check for name in context
-                let decl = self
-                    .decl
-                    .get(&exp.id)
-                    .expect("declaration checked by naming analysis")
-                    .clone();
-                match &decl {
-                    Declaration::Func(fun_decl) => {
-                        dbg!(fun_decl);
-                        //Generics
-                        let generics: Vec<TcKey> = fun_decl
-                            .generics
-                            .iter()
-                            .map(|gen| {
-                                let gen_key: TcKey = self.tyc.new_term_key();
-                                dbg!(gen_key);
-                                let rusttyc_result = match &gen {
-                                    ValueTy::Constr(tc) => {
-                                        let cons = match_constraint(tc);
-                                        self.tyc.impose(gen_key.concretizes_explicit(cons))
-                                    }
-                                    _ => unreachable!("function declarations are not user-definable and currently, only constraints are allowed for generic types"),
-                                };
-                                rusttyc_result.map(|_| gen_key)
-                            })
-                            .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
-
-                        for (t, gen) in types_vec.iter().zip(generics.iter()) {
-                            let t_key = self.tyc.new_term_key();
-
-                            self.tyc.impose(t_key.concretizes_explicit(t.clone()))?;
-                            self.tyc.impose(t_key.equate_with(*gen))?;
-                        }
-                        //FOR: type.captures(generic)
-                        let arg_keys_result: Result<Vec<TcKey>, TcErr<IAbstractType>> = args
-                            .iter()
-                            .zip(fun_decl.parameters.iter())
-                            .map(|(arg, param)| {
-                                //for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
-                                let p = self.replace_type(param, &generics)?;
-                                let arg_key = self.expression_infer(&*arg, None)?;
-                                self.tyc.impose(arg_key.concretizes(p))?;
-                                Ok(arg_key)
-                                //}
-                            })
-                            .collect();
-                        let arg_keys = arg_keys_result?;
-
-                        let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
-                        if name.name.name.contains("widen_") {
-                            self.tyc.impose(
-                                return_type.concretizes(
-                                    *arg_keys
-                                        .get(0)
-                                        .expect("build in widen function have exactly 1 argument"),
-                                ),
-                            )?;
-                        }
-
-                        self.tyc.impose(term_key.concretizes(return_type))?;
-                    }
-                    Declaration::ParamOut(out) => {
-                        // output a(i: int, flag: bool) @1hz spawn (input_int , input_bool) if input_bool term b := if flag then i else 0
-                        // output c @1hz := a(input_int, false)
-                        let params: &[Rc<Parameter>] = out.params.as_slice();
-                        let param_out_tckey = self.tyc.get_var_key(&Variable {
-                            name: out.name.name.clone(),
-                        });
-
-                        let param_keys: Vec<TcKey> = out
-                            .params
-                            .iter()
-                            .map(|p| {
-                                self.tyc.get_var_key(&Variable {
-                                    name: out.name.name.clone() + "_" + &p.name.name.clone(),
-                                })
-                            })
-                            .collect();
-
-                        let param_types: Vec<IAbstractType> =
-                            params.iter().map(|p| self.type_kind_match(&p.ty)).collect();
-                        //dbg!(&param_types);
-                        for ((arg, param_t), p_key) in
-                            args.iter().zip(param_types.iter()).zip(param_keys.iter())
-                        {
-                            let arg_key = self.expression_infer(&*arg, Some(param_t.clone()))?;
-                            /*
-                            dbg!(arg, param_t);
-                            self.node_key.insert(arg.id,arg_key);
-                            dbg!(arg.id,arg_key,p_key);
-                            */
-                            self.tyc.impose(p_key.equate_with(arg_key))?;
-                            self.tyc
-                                .impose(p_key.concretizes_explicit(param_t.clone()))?;
-
-                            self.tyc
-                                .impose(arg_key.concretizes_explicit(param_t.clone()))?;
-                        }
-
-                        let annotated_type = self.type_kind_match(&out.ty);
-                        //dbg!(&annotated_type);
+                let fun_decl = self.hir.func_declaration(name);
+                dbg!(fun_decl);
+                //Generics
+                let generics: Vec<TcKey> = fun_decl
+                    .generics
+                    .iter()
+                    .map(|gen| {
+                        let gen_key: TcKey = self.tyc.new_term_key();
+                        let ty = self.match_annotated_type(gen);
                         self.tyc
-                            .impose(term_key.concretizes_explicit(annotated_type))?;
-                        self.tyc.impose(term_key.concretizes(param_out_tckey))?;
-                    }
-                    _ => unreachable!("ensured by naming analysis"),
-                };
+                            .impose(gen_key.concretizes_explicit(ty))
+                            .map(|_| gen_key)
+                    })
+                    .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
+
+                for (t, gen) in types_vec.iter().zip(generics.iter()) {
+                    self.tyc.impose(gen.concretizes_explicit(t.clone()))?;
+                }
+                //FOR: type.captures(generic)
+                args.iter()
+                    .zip(fun_decl.parameters.iter())
+                    .map(|(arg, param)| {
+                        //for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
+                        let p = self.replace_type(param, &generics)?;
+                        let arg_key = self.expression_infer(&*arg, None)?;
+                        self.tyc.impose(arg_key.concretizes(p))?;
+                        Ok(arg_key)
+                        //}
+                    })
+                    .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
+
+                let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
+                /*
+                if name.name.contains("widen_") {
+                    self.tyc.impose(
+                        return_type.concretizes(
+                            *arg_keys
+                                .get(0)
+                                .expect("build in widen function have exactly 1 argument"),
+                        ),
+                    )?;
+                }
+                */
+
+                self.tyc.impose(term_key.concretizes(return_type))?;
             }
-            ExpressionKind::ParenthesizedExpression(_, _, _) => unimplemented!(),
+            ExpressionKind::ParameterAccess(current_stream, ix) => {
+                let output: &Output = self
+                    .hir
+                    .outputs()
+                    .nth(current_stream.out_ix())
+                    .expect("StreamRef idx always valid");
+                //let par_name = output.params[*ix].name.clone();
+                let v = Variable {
+                    name: output.name.clone() + "_" + &output.params[*ix].name,
+                };
+                let par_key = self.tyc.get_var_key(&v);
+                self.tyc.impose(term_key.equate_with(par_key))?;
+            }
         };
 
-        self.node_key.insert(exp.id, term_key);
+        self.node_key.insert(NodeId::Expr(exp.eid), term_key);
         Ok(term_key)
         //Err(String::from("Error"))
     }
 
-    fn replace_type(&mut self, vt: &ValueTy, to: &[TcKey]) -> Result<TcKey, TcErr<IAbstractType>> {
-        match vt {
-            &ValueTy::Param(idx, _) => Ok(to[idx as usize]),
-            ValueTy::Option(o) => {
-                let op_key = self.tyc.new_term_key();
-                let inner = self.replace_type(o, to)?;
-                self.tyc.impose(
-                    op_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                )?;
-                let inner_tc = self.tyc.get_child_key(op_key, 0)?;
-                self.tyc.impose(inner_tc.equate_with(inner))?;
-                Ok(op_key)
-            }
-            ValueTy::Constr(c) => {
-                let key = self.tyc.new_term_key();
-                dbg!(key);
+    fn replace_type(
+        &mut self,
+        at: &AnnotatedType,
+        to: &[TcKey],
+    ) -> Result<TcKey, TcErr<IAbstractType>> {
+        match at {
+            AnnotatedType::Param(idx, _) => Ok(to[*idx]),
+            AnnotatedType::Numeric
+            | AnnotatedType::Int(_)
+            | AnnotatedType::Float(_)
+            | AnnotatedType::UInt(_)
+            | AnnotatedType::Bool
+            | AnnotatedType::String
+            | AnnotatedType::Bytes
+            | AnnotatedType::Option(_)
+            | AnnotatedType::Tuple(_) => {
+                let replace_key = self.tyc.new_term_key();
                 self.tyc
-                    .impose(key.concretizes_explicit(match_constraint(c)))
-                    .map(|_| key)
+                    .impose(replace_key.concretizes_explicit(self.match_annotated_type(at)))?;
+                Ok(replace_key)
             }
-            _ if vt.is_primitive() => {
-                let key = self.tyc.new_term_key();
-                self.tyc
-                    .impose(key.concretizes_explicit(self.value_type_match(vt)))
-                    .map(|_| key)
-            }
-            _ => unreachable!("replace for {}", vt),
         }
     }
 
-    fn type_kind_match(&self, t: &Type) -> IAbstractType {
-        let kind = &t.kind;
-        match kind {
-            TypeKind::Simple(_) => {
-                let decl = self.decl[&t.id].clone();
-                if let Declaration::Type(ty) = decl {
-                    self.value_type_match(&ty)
-                } else {
-                    unreachable!("ensured by naming analysis")
-                }
+    fn match_annotated_type(&self, t: &AnnotatedType) -> IAbstractType {
+        match t {
+            AnnotatedType::String => IAbstractType::TString,
+            AnnotatedType::Int(x) => IAbstractType::SInteger(*x),
+            AnnotatedType::Float(f) => IAbstractType::Float(*f),
+            AnnotatedType::UInt(u) => IAbstractType::UInteger(*u),
+            AnnotatedType::Bool => IAbstractType::Bool,
+            AnnotatedType::Bytes => IAbstractType::UInteger(8),
+            AnnotatedType::Option(op) => {
+                IAbstractType::Option(self.match_annotated_type(&(**op)).into())
             }
-            TypeKind::Tuple(v) => {
-                IAbstractType::Tuple(v.iter().map(|t| self.type_kind_match(&t)).collect())
-            }
-            TypeKind::Optional(op) => IAbstractType::Option(self.type_kind_match(&op).into()),
-            TypeKind::Inferred => IAbstractType::Any,
+            AnnotatedType::Tuple(v) => IAbstractType::Tuple(
+                v.iter()
+                    .map(|inner| self.match_annotated_type(inner))
+                    .collect(),
+            ),
+            AnnotatedType::Numeric => IAbstractType::Numeric,
+            AnnotatedType::Param(_, _) => todo!("currently handled externally"),
         }
     }
 
-    fn value_type_match(&self, vt: &ValueTy) -> IAbstractType {
-        match vt {
-            ValueTy::Bool => IAbstractType::Bool,
-            ValueTy::Int(i) => {
-                use front::ty::IntTy;
-                match i {
-                    IntTy::I8 => IAbstractType::SInteger(8),
-                    IntTy::I16 => IAbstractType::SInteger(16),
-                    IntTy::I32 => IAbstractType::SInteger(32),
-                    IntTy::I64 => IAbstractType::SInteger(64),
-                }
-            }
-            ValueTy::UInt(u) => {
-                use front::ty::UIntTy;
-                match u {
-                    UIntTy::U8 => IAbstractType::UInteger(8),
-                    UIntTy::U16 => IAbstractType::UInteger(16),
-                    UIntTy::U32 => IAbstractType::UInteger(32),
-                    UIntTy::U64 => IAbstractType::UInteger(64),
-                }
-            }
-            ValueTy::Float(f) => {
-                use front::ty::FloatTy;
-                match f {
-                    //Float 16 is direclty widend into float32 as Concrete Float16 is n
-                    FloatTy::F16 | FloatTy::F32 => IAbstractType::Float(32),
-                    FloatTy::F64 => IAbstractType::Float(64),
-                }
-            }
-            ValueTy::String => IAbstractType::TString,
-            ValueTy::Bytes => unimplemented!(),
-            ValueTy::Tuple(vec) => {
-                IAbstractType::Tuple(vec.iter().map(|t| self.value_type_match(t)).collect())
-            }
-            ValueTy::Option(o) => IAbstractType::Option(self.value_type_match(&**o).into()),
-            ValueTy::Infer(_) => unreachable!(),
-            ValueTy::Constr(c) => match_constraint(c),
-            ValueTy::Param(_, _) => {
-                unimplemented!("Param case should only be addressed in replace_type(...)")
-            }
-            ValueTy::Error => unreachable!("Error should be checked before hand"),
-        }
-    }
-
-    fn match_lit_kind(&self, lit: LitKind) -> IAbstractType {
+    fn match_const_literal(&self, lit: &ConstantLiteral) -> IAbstractType {
         dbg!(&lit);
         match lit {
-            LitKind::Str(_) | LitKind::RawStr(_) => IAbstractType::TString,
-            //TODO post unused
-            LitKind::Numeric(n, _post) => get_abstract_type_of_string_value(&n).unwrap(),
-            LitKind::Bool(_) => IAbstractType::Bool,
+            ConstantLiteral::Str(_) => IAbstractType::TString,
+            //ConstantLiteral::Numeric(n, _post) => get_abstract_type_of_string_value(&n).unwrap(),
+            ConstantLiteral::Bool(_) => IAbstractType::Bool,
+            ConstantLiteral::Integer(_) => IAbstractType::Integer,
+            ConstantLiteral::SInt(_) => IAbstractType::SInteger(1),
+            ConstantLiteral::Float(_) => IAbstractType::Float(1),
         }
     }
 
@@ -818,6 +919,7 @@ impl<'a> ValueContext<'a> {
     }
 }
 
+/*
 fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, String> {
     let int_parse = value_str.parse::<i64>();
     let uint_parse = value_str.parse::<u64>();
@@ -842,62 +944,52 @@ fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, S
     }
     Err(format!("Non matching String Literal: {}", value_str))
 }
-
-fn match_constraint(cons: &TypeConstraint) -> IAbstractType {
-    //TODO
-    let r = match cons {
-        TypeConstraint::Numeric => IAbstractType::Numeric,
-        TypeConstraint::SignedInteger => IAbstractType::SInteger(1),
-        TypeConstraint::UnsignedInteger => IAbstractType::UInteger(1),
-        TypeConstraint::FloatingPoint => IAbstractType::Float(1),
-        TypeConstraint::Integer => IAbstractType::Integer,
-        TypeConstraint::Equatable => unimplemented!(),
-        TypeConstraint::Comparable => unimplemented!(),
-        TypeConstraint::Unconstrained => IAbstractType::Any,
-    };
-    dbg!(&r);
-    r
-}
+*/
 
 #[cfg(test)]
 mod value_type_tests {
     use crate::value_types::IConcreteType;
     use crate::LolaTypeChecker;
     use front::analysis::naming::Declaration;
+    use front::hir::modes::IrExpression;
     use front::parse::NodeId;
     use front::parse::SourceMapper;
     use front::reporting::Handler;
-    use front::RTLolaAst;
+    use front::RTLolaHIR;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
     struct TestBox {
-        pub spec: RTLolaAst,
-        pub dec: HashMap<NodeId, Declaration>,
+        pub hir: RTLolaHIR<IrExpression>,
         pub handler: Handler,
     }
 
-    fn setup_ast(spec: &str) -> TestBox {
+    fn setup_hir(spec: &str) -> TestBox {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
-        let spec: RTLolaAst =
+        let ast: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
                 Ok(s) => s,
                 Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
             };
+        let hir = front::hir::RTLolaHIR::<IrExpression>::transform_expressions(
+            ast,
+            handler,
+            front::FrontendConfig::default(),
+        );
         let mut na = front::analysis::naming::NamingAnalysis::new(
             &handler,
             front::FrontendConfig::default(),
         );
-        let mut dec = na.check(&spec);
+        //let mut dec = na.check(&spec);
         assert!(
             !handler.contains_error(),
             "Spec produces errors in naming analysis."
         );
-        TestBox { spec, dec, handler }
+        TestBox { hir, handler }
     }
 
     fn complete_check(spec: &str) -> usize {
-        let test_box = setup_ast(spec);
+        let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         let pacing_tt = ltc.pacing_type_infer().unwrap();
         ltc.value_type_infer(pacing_tt);
@@ -905,7 +997,7 @@ mod value_type_tests {
     }
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
-        let test_box = setup_ast(spec);
+        let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
         let tt_result = ltc.value_type_infer(pacing_tt);
@@ -921,7 +1013,7 @@ mod value_type_tests {
     }
 
     fn check_expect_error(spec: &str) -> TestBox {
-        let test_box = setup_ast(spec);
+        let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.spec, test_box.dec.clone(), &test_box.handler);
         let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
         let tt_result = ltc.value_type_infer(pt);
@@ -941,8 +1033,8 @@ mod value_type_tests {
     fn direct_implication() {
         let spec = "input i: Int8\noutput o := i";
         let (tb, result_map) = check_value_type(spec);
-        let input_id = tb.spec.inputs[0].id;
-        let output_id = tb.spec.outputs[0].id;
+        let input_id = tb.hir.inputs[0].id;
+        let output_id = tb.hir.outputs[0].id;
         assert_eq!(result_map[&input_id], IConcreteType::Integer8);
         assert_eq!(result_map[&output_id], IConcreteType::Integer8);
         assert_eq!(0, complete_check(spec));
@@ -952,8 +1044,8 @@ mod value_type_tests {
     fn direct_widening() {
         let spec = "input i: Int8\noutput o :Int32 := widen_signed(i)";
         let (tb, result_map) = check_value_type(spec);
-        let input_id = tb.spec.inputs[0].id;
-        let output_id = tb.spec.outputs[0].id;
+        let input_id = tb.hir.inputs[0].id;
+        let output_id = tb.hir.outputs[0].id;
         assert_eq!(result_map[&input_id], IConcreteType::Integer8);
         assert_eq!(result_map[&output_id], IConcreteType::Integer32);
         assert_eq!(0, complete_check(spec));
@@ -963,9 +1055,9 @@ mod value_type_tests {
     fn integer_addition_wideing() {
         let spec = "input i: Int8\ninput i1: Int16\noutput o := widen_signed(i) + i1";
         let (tb, result_map) = check_value_type(spec);
-        let input_i_id = tb.spec.inputs[0].id;
-        let input_i1_id = tb.spec.inputs[1].id;
-        let output_id = tb.spec.outputs[0].id;
+        let input_i_id = tb.hir.inputs[0].id;
+        let input_i1_id = tb.hir.inputs[1].id;
+        let output_id = tb.hir.outputs[0].id;
         assert_eq!(result_map[&input_i_id], IConcreteType::Integer8);
         assert_eq!(result_map[&input_i1_id], IConcreteType::Integer16);
         assert_eq!(result_map[&output_id], IConcreteType::Integer16);
@@ -976,8 +1068,8 @@ mod value_type_tests {
     fn parametric_access_default() {
         let spec = "output i(a: Int8, b: Bool): Int8 @1Hz := if b then a else 0\noutput o := i(1,false)[-1].defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
-        let o2_id = tb.spec.outputs[1].id;
-        let o1_id = tb.spec.outputs[0].id;
+        let o2_id = tb.hir.outputs[1].id;
+        let o1_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&o1_id], IConcreteType::Integer8);
         assert_eq!(result_map[&o1_id], IConcreteType::Integer8);
@@ -987,7 +1079,7 @@ mod value_type_tests {
     fn parametric_declaration_x() {
         let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1";
         let (tb, result_map) = check_value_type(spec);
-        let output_id = tb.spec.outputs[0].id;
+        let output_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&output_id], IConcreteType::Integer8);
     }
@@ -996,7 +1088,7 @@ mod value_type_tests {
     fn parametric_declaration_param_infer() {
         let spec = "output x(a: UInt8, b: Bool) @1Hz := a";
         let (tb, result_map) = check_value_type(spec);
-        let output_id = tb.spec.outputs[0].id;
+        let output_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(0, tb.handler.emitted_errors());
         assert_eq!(result_map[&output_id], IConcreteType::UInteger8);
@@ -1006,8 +1098,8 @@ mod value_type_tests {
     fn parametric_declaration() {
         let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1 output y @1Hz := x(1, false)";
         let (tb, result_map) = check_value_type(spec);
-        let output_id = tb.spec.outputs[0].id;
-        let output_2_id = tb.spec.outputs[1].id;
+        let output_id = tb.hir.outputs[0].id;
+        let output_2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&output_id], IConcreteType::Integer8);
         assert_eq!(result_map[&output_2_id], IConcreteType::Integer8);
@@ -1017,7 +1109,7 @@ mod value_type_tests {
     fn simple_const_float() {
         let spec = "constant c: Float32 := 2.1";
         let (tb, result_map) = check_value_type(spec);
-        let cons_id = tb.spec.constants[0].id;
+        let cons_id = tb.hir.constants[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&cons_id], IConcreteType::Float32);
     }
@@ -1027,7 +1119,7 @@ mod value_type_tests {
     fn simple_const_float16() {
         let spec = "constant c: Float16 := 2.1";
         let (tb, result_map) = check_value_type(spec);
-        let cons_id = tb.spec.constants[0].id;
+        let cons_id = tb.hir.constants[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&cons_id], IConcreteType::Float32);
     }
@@ -1036,7 +1128,7 @@ mod value_type_tests {
     fn simple_const_int() {
         let spec = "constant c: Int8 := 3";
         let (tb, result_map) = check_value_type(spec);
-        let cons_id = tb.spec.constants[0].id;
+        let cons_id = tb.hir.constants[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&cons_id], IConcreteType::Integer8);
     }
@@ -1094,9 +1186,9 @@ mod value_type_tests {
         let spec =
             "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen_signed(d)";
         let (tb, result_map) = check_value_type(spec);
-        let c_id = tb.spec.constants[0].id;
-        let d_id = tb.spec.constants[1].id;
-        let o_id = tb.spec.outputs[0].id;
+        let c_id = tb.hir.constants[0].id;
+        let d_id = tb.hir.constants[1].id;
+        let o_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&c_id], IConcreteType::Integer32);
         assert_eq!(result_map[&d_id], IConcreteType::Integer8);
@@ -1107,7 +1199,7 @@ mod value_type_tests {
     fn simple_trigger() {
         let spec = "trigger false";
         let (tb, result_map) = check_value_type(spec);
-        let tr_id = tb.spec.trigger[0].id;
+        let tr_id = tb.hir.trigger[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&tr_id], IConcreteType::Bool);
     }
@@ -1116,7 +1208,7 @@ mod value_type_tests {
     fn simple_trigger_message() {
         let spec = "trigger false \"alert always\"";
         let (tb, result_map) = check_value_type(spec);
-        let tr_id = tb.spec.trigger[0].id;
+        let tr_id = tb.hir.trigger[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&tr_id], IConcreteType::Bool);
     }
@@ -1132,7 +1224,7 @@ mod value_type_tests {
     fn simple_binary() {
         let spec = "output o: Int8 @1Hz := 3 + 5";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
@@ -1141,8 +1233,8 @@ mod value_type_tests {
     fn simple_binary_input() {
         let spec = "input i: Int8\noutput o: Int8 := 3 + i";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
@@ -1153,8 +1245,8 @@ mod value_type_tests {
         let spec = "output o @1Hz:= !false \n\
                            output u: Bool @1Hz:= !false";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let out_id_2 = tb.spec.outputs[1].id;
+        let out_id = tb.hir.outputs[0].id;
+        let out_id_2 = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Bool);
         assert_eq!(result_map[&out_id_2], IConcreteType::Bool);
@@ -1180,7 +1272,7 @@ mod value_type_tests {
     fn simple_ite() {
         let spec = "output o: Int8 @1Hz := if false then 1 else 2";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
@@ -1189,7 +1281,7 @@ mod value_type_tests {
     fn simple_ite_compare() {
         let spec = "output e :Int8 @1Hz := if 1 == 0 then 0 else -1";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
     }
@@ -1198,7 +1290,7 @@ mod value_type_tests {
     fn underspecified_ite_type() {
         let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
     }
@@ -1221,8 +1313,8 @@ mod value_type_tests {
     fn test_parenthesized_expr() {
         let spec = "input s: String\noutput o: Bool := s[-1].defaults(to: \"\") == \"a\"";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Bool);
         assert_eq!(result_map[&in_id], IConcreteType::TString);
@@ -1233,7 +1325,7 @@ mod value_type_tests {
         //Default for num literals applied
         let spec = "output o @1Hz := 2";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         let res_type = &result_map[&out_id];
         assert!(*res_type == IConcreteType::Integer32 || *res_type == IConcreteType::Integer64);
@@ -1243,8 +1335,8 @@ mod value_type_tests {
     fn test_input_lookup() {
         let spec = "input a: UInt8\n output b: UInt8 := a";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
@@ -1261,8 +1353,8 @@ mod value_type_tests {
     fn test_stream_lookup() {
         let spec = "output a: UInt8 @1Hz:= 3\n output b: UInt8 := a[0]";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out2_id], IConcreteType::UInteger8);
@@ -1279,8 +1371,8 @@ mod value_type_tests {
     fn test_stream_lookup_dft() {
         let spec = "output a: UInt8 @1Hz := 3\n output b: UInt8 := a[-1].defaults(to: 3)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.outputs[1].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
@@ -1290,13 +1382,12 @@ mod value_type_tests {
     fn test_offset_regression() {
         let spec = "input a: UInt8 \n output sum := sum[-1].defaults(to: 0) + a";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
-
 
     #[test]
     fn test_stream_lookup_dft_fault() {
@@ -1309,8 +1400,8 @@ mod value_type_tests {
     fn test_extend_type() {
         let spec = "input in: Bool\n output a: Int8 @1Hz { extend in } := 3";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
         assert_eq!(result_map[&in_id], IConcreteType::Bool);
@@ -1328,8 +1419,8 @@ mod value_type_tests {
     fn test_terminate_type() {
         let spec = "input in: Bool\n output a(b: Bool): Int8 @1Hz {close in} := 3";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
         assert_eq!(result_map[&in_id], IConcreteType::Bool);
@@ -1347,8 +1438,8 @@ mod value_type_tests {
     fn test_param_spec() {
         let spec = "output a(p1: Int8): Int8 @1Hz:= 3 output b: Int8 := a(3)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
@@ -1365,9 +1456,9 @@ mod value_type_tests {
     fn test_param_inferred() {
         let spec = "input i: Int8 output x(param): Int8 := i output y: Int8 := x(i)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
@@ -1393,7 +1484,7 @@ mod value_type_tests {
     fn test_tuple() {
         let spec = "output out: (Int8, Bool) @1Hz:= (14, false)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(
             result_map[&out_id],
@@ -1413,8 +1504,8 @@ mod value_type_tests {
         //TODO runs with 'in.1' not with 'in[0].1' - zero offset still optional result
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(
             result_map[&in_id],
@@ -1443,8 +1534,8 @@ mod value_type_tests {
     fn test_optional_type() {
         let spec = "input in: Int8\noutput out: Int8? := in.offset(by: -1)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(
@@ -1464,8 +1555,8 @@ mod value_type_tests {
     fn test_input_offset() {
         let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         //assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
@@ -1475,8 +1566,8 @@ mod value_type_tests {
     fn test_tuple_of_tuples() {
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Int16 := widen_signed(in[0].0)";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         let input_type = IConcreteType::Tuple(vec![
             IConcreteType::Integer8, //Changed to 16 FIXME
@@ -1491,8 +1582,8 @@ mod value_type_tests {
     fn test_tuple_of_tuples2() {
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in.1.1";
         let (tb, result_map) = check_value_type(spec);
-        let out_id = tb.spec.outputs[0].id;
-        let in_id = tb.spec.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
         assert_eq!(0, complete_check(spec));
         let input_type = IConcreteType::Tuple(vec![
             IConcreteType::Integer8,
@@ -1506,8 +1597,8 @@ mod value_type_tests {
     fn test_window_widening() {
         let spec = "input in: Int8\n output out: Int64 @5Hz:= in.aggregate(over: 3s, using: Σ)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Integer64);
@@ -1517,8 +1608,8 @@ mod value_type_tests {
     fn test_window() {
         let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Integer8);
@@ -1556,8 +1647,8 @@ mod value_type_tests {
         let spec =
             "input in: UInt8\n output out: Int16 @5Hz := in.aggregate(over_exactly: 3s, using: Σ).defaults(to: 5)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::Integer16);
@@ -1569,8 +1660,8 @@ mod value_type_tests {
         let spec =
             "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
@@ -1582,8 +1673,8 @@ mod value_type_tests {
         let spec =
             "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
@@ -1602,16 +1693,16 @@ mod value_type_tests {
         let spec =
             "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
         let spec =
             "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
@@ -1621,8 +1712,8 @@ mod value_type_tests {
     fn test_involved() {
         let spec = "input velo: Float32\n output avg: Float64 @5Hz := widen_float(velo.aggregate(over_exactly: 1h, using: avg).defaults(to: 10000.0))";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Float32);
         assert_eq!(result_map[&out_id], IConcreteType::Float64);
@@ -1633,19 +1724,18 @@ mod value_type_tests {
     fn test_rt_offset() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let out1_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out1_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
 
-
     #[test]
     fn test_rt_offset_regression() {
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to: 0) + 1";
         let (tb, result_map) = check_value_type(spec);
-        let out1_id = tb.spec.outputs[0].id;
+        let out1_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out1_id], IConcreteType::Integer32);
     }
@@ -1657,32 +1747,30 @@ mod value_type_tests {
             output x_diff := x - x.offset(by:-1s).defaults(to: x)
         ";
         let (tb, result_map) = check_value_type(spec);
-        let out1_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out1_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out1_id], IConcreteType::Integer32);
         assert_eq!(result_map[&out2_id], IConcreteType::Integer32);
     }
 
-
     #[test]
     fn test_rt_offset_skip() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let out1_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out1_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
     }
 
-
     #[test]
     fn test_rt_offset_skip2() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-2s].defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let out1_id = tb.spec.outputs[0].id;
-        let out2_id = tb.spec.outputs[1].id;
+        let out1_id = tb.hir.outputs[0].id;
+        let out2_id = tb.hir.outputs[1].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&out1_id], IConcreteType::Integer8);
         assert_eq!(result_map[&out2_id], IConcreteType::Integer8);
@@ -1692,33 +1780,31 @@ mod value_type_tests {
     fn test_sample_and_hold_noop() {
         let spec = "input x: UInt8\noutput y: UInt8 @ x := x.hold().defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
-
 
     #[test]
     fn test_sample_and_hold_useful() {
         let spec = "input x: UInt8\noutput y: UInt8 @1Hz := x.hold().defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);
     }
-
 
     #[test]
     #[ignore] //implicit casting not usable currently
     fn test_casting_implicit_types() {
         let spec = "input x: UInt8\noutput y: Float32 := cast(x)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::Float32);
@@ -1728,13 +1814,12 @@ mod value_type_tests {
     fn test_casting_explicit_types() {
         let spec = "input x: Int32\noutput y: UInt32 := cast<Int32,UInt32>(x)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::Integer32);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger32);
     }
-
 
     #[test]
     fn infinite_recursion_regression() {
@@ -1771,8 +1856,8 @@ mod value_type_tests {
     fn test_sample_and_hold_sync() {
         let spec = "input x: UInt8\noutput y: UInt8 := x.hold().defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.spec.inputs[0].id;
-        let out_id = tb.spec.outputs[0].id;
+        let in_id = tb.hir.inputs[0].id;
+        let out_id = tb.hir.outputs[0].id;
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&in_id], IConcreteType::UInteger8);
         assert_eq!(result_map[&out_id], IConcreteType::UInteger8);

@@ -8,7 +8,7 @@ mod value_ast_climber;
 mod value_types;
 
 use crate::rtltc::LolaTypeChecker;
-use front::ast::RTLolaAst;
+use front::hir::modes::IrExpression;
 use front::parse::SourceMapper;
 use front::FrontendConfig;
 use std::env;
@@ -57,8 +57,13 @@ fn main() {
         let mut na =
             front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
         let decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
+        let hir = front::RTLolaHIR::<IrExpression>::from_ast(
+            lola_spec,
+            &handler,
+            &FrontendConfig::default(),
+        );
 
-        let mut checker = LolaTypeChecker::new(&lola_spec, decl_table, &handler);
+        let mut checker = LolaTypeChecker::new(&hir, decl_table, &handler);
 
         print!("{:#?}", checker.check());
     }

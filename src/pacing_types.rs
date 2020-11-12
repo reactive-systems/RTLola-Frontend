@@ -1,8 +1,9 @@
+use crate::rtltc::NodeId;
 use biodivine_lib_bdd::boolean_expression::BooleanExpression;
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
-use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{BinOp, Expression, ExpressionKind, LitKind};
-use front::parse::{NodeId, Span};
+use front::common_ir::StreamReference;
+use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use front::parse::Span;
 use front::reporting::{Handler, LabeledSpan};
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
@@ -12,54 +13,60 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 /// Parses either a periodic or an event based pacing type from an expression
-pub fn parse_abstract_type<'a>(
-    ast_expr: &Expression,
+pub fn parse_abstract_type(
+    hir_expr: &Expression,
     var_set: &BddVariableSet,
-    decl: &'a DeclarationTable,
-) -> Result<AbstractPacingType, (String, Span)> {
-    match &ast_expr.kind {
-        ExpressionKind::Lit(l) => match l.kind {
-            LitKind::Bool(_) => {
-                let ac = parse_ac(ast_expr, var_set, decl)?;
-                Ok(AbstractPacingType::Event(ac))
-            }
-            _ => {
-                let freq: UOM_Frequency = ast_expr
-                    .parse_freqspec()
-                    .map_err(|reason| (reason, ast_expr.span))?;
-                Ok(AbstractPacingType::Periodic(Freq::Fixed(freq)))
-            }
+    num_inputs: usize,
+) -> Result<AbstractPacingType, String> {
+    match &hir_expr.kind {
+        ExpressionKind::LoadConstant(c) => match c {
+            Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
+                ConstantLiteral::Bool(_) => {
+                    let ac = parse_ac(hir_expr, var_set, num_inputs)?;
+                    Ok(AbstractPacingType::Event(ac))
+                }
+                _ => Err("Cant infere pacing type of non bool constant".into()),
+            },
         },
         _ => {
-            let ac = parse_ac(ast_expr, var_set, decl)?;
+            let ac = parse_ac(hir_expr, var_set, num_inputs)?;
             Ok(AbstractPacingType::Event(ac))
         }
     }
 }
 
-fn parse_ac<'a>(
+fn parse_ac(
     ast_expr: &Expression,
     var_set: &BddVariableSet,
-    decl: &'a DeclarationTable,
-) -> Result<Bdd, (String, Span)> {
+    num_inputs: usize,
+) -> Result<Bdd, String> {
     use ExpressionKind::*;
     match &ast_expr.kind {
-        Lit(l) => match l.kind {
-            LitKind::Bool(b) => {
-                if b {
-                    Ok(var_set.mk_true())
-                } else {
-                    Err((
-                        "Only 'True' is supported as literals in activation conditions.".into(),
-                        l.span,
-                    ))
+        LoadConstant(c) => match c {
+            Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
+                ConstantLiteral::Bool(b) => {
+                    if *b {
+                        Ok(var_set.mk_true())
+                    } else {
+                        Err(
+                            "Only 'True' is supported as literals in activation conditions.".into(), //l.span,
+                        )
+                    }
                 }
-            }
-            _ => Err((
-                "Only 'True' is supported as literals in activation conditions.".into(),
-                l.span,
-            )),
+                _ => Err("Only 'True' is supported as literals in activation conditions.".into()),
+            },
         },
+        StreamAccess(sref, kind, args) => {
+            use front::hir::expression::StreamAccessKind;
+            assert!(args.is_empty());
+            assert!(matches!(kind, StreamAccessKind::Sync));
+            let id = match sref {
+                StreamReference::InRef(o) => *o,
+                StreamReference::OutRef(o) => o + num_inputs,
+            };
+            Ok(var_set.mk_var_by_name(&id.to_string()))
+        }
+        /*
         Ident(i) => {
             let declartation = &decl[&ast_expr.id];
             let id = match declartation {
@@ -78,24 +85,26 @@ fn parse_ac<'a>(
             };
             Ok(var_set.mk_var_by_name(&id.to_string()))
         }
-        Binary(op, l, r) => {
-            let ac_l = parse_ac(l, var_set, decl)?;
-            let ac_r = parse_ac(r, var_set, decl)?;
-            use BinOp::*;
+        */
+        ArithLog(op, v) => {
+            assert!(
+                v.len() == 2,
+                "An activation condition can only contain literals and binary operators."
+            );
+            let ac_l = parse_ac(&v[0], var_set, num_inputs)?;
+            let ac_r = parse_ac(&v[1], var_set, num_inputs)?;
+            use front::hir::expression::ArithLogOp;
             match op {
-                And => Ok(ac_l.and(&ac_r)),
-                Or => Ok(ac_l.or(&ac_r)),
-                _ => Err((
-                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                    ast_expr.span,
-                )),
+                ArithLogOp::And => Ok(ac_l.and(&ac_r)),
+                ArithLogOp::Or => Ok(ac_l.or(&ac_r)),
+                _ => Err(
+                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(), //ast_expr.span,
+                ),
             }
         }
-        ParenthesizedExpression(_, exp, _) => parse_ac(exp, var_set, decl),
-        _ => Err((
-            "An activation condition can only contain literals and binary operators.".into(),
-            ast_expr.span,
-        )),
+        _ => Err(
+            "An activation condition can only contain literals and binary operators.".into(), //ast_expr.span,
+        ),
     }
 }
 
@@ -156,7 +165,12 @@ fn bexp_to_string(exp: BooleanExpression, input_names: &HashMap<NodeId, &str>) -
             }
         }
         Variable(s) => {
+            /*
             let id = NodeId::new(s.parse::<usize>().unwrap());
+            input_names[&id].to_string()
+            */
+            let idx = s.parse::<usize>().unwrap();
+            let id = NodeId::SRef(StreamReference::InRef(idx));
             input_names[&id].to_string()
         }
         Not(exp) => format!("!{}", bexp_to_string(*exp, input_names)),
@@ -443,7 +457,9 @@ impl ActivationCondition {
             Variable(s) => {
                 let id = s.parse::<usize>();
                 match id {
-                    Ok(i) => Ok(ActivationCondition::Stream(NodeId::new(i))),
+                    Ok(i) => Ok(ActivationCondition::Stream(NodeId::SRef(
+                        StreamReference::InRef(i),
+                    ))),
                     Err(_) => Err(PacingError::MalformedAC("Wrong Variable in AC".to_string())),
                 }
             }
