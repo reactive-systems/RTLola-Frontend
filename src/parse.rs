@@ -991,7 +991,7 @@ impl SourceMapper {
             }
             byte_offset = line_end;
         }
-        unreachable!();
+        None
     }
 }
 

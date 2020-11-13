@@ -68,8 +68,7 @@ where
                 } else {
                     self.mode.expression(self.outputs[o].expr_id)
                 }
-
-            },
+            }
         }
     }
 
@@ -863,9 +862,8 @@ mod tests {
         let tr = &ir.triggers[0];
         //let expr = &ir.mode.exprid_to_expr[&tr.expr_id];
         let expr = ir.expr(tr.sr);
-        assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Eq,_)));
+        assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Eq, _)));
     }
-
 
     #[test]
     fn arith_op() {
