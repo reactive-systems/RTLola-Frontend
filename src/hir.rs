@@ -68,6 +68,12 @@ impl<M: HirMode> Hir<M> {
             .chain(self.outputs.iter().map(|o| o.sr))
             .chain(self.triggers.iter().map(|t| t.sr))
     }
+    pub fn get_input_with_name(&self, name: &str) -> Option<&Input> {
+        self.inputs.iter().find(|&i| i.name == name)
+    }
+    pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
+        self.outputs.iter().find(|&o| o.name == name)
+    }
 }
 
 /// Represents an input stream in an RTLola specification.
