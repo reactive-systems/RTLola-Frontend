@@ -62,7 +62,14 @@ where
     pub fn expr(&self, sr: SRef) -> &Expression {
         match sr {
             SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
-            SRef::OutRef(o) => self.mode.expression(self.outputs[o].expr_id),
+            SRef::OutRef(o) => {
+                if o >= self.outputs.len() {
+                    self.mode.expression(self.triggers[o - self.outputs.len()].expr_id)
+                } else {
+                    self.mode.expression(self.outputs[o].expr_id)
+                }
+
+            },
         }
     }
 
@@ -836,6 +843,29 @@ mod tests {
         let expr = &ir.mode.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::TupleAccess(_, 1)));
     }
+
+    #[test]
+    fn simple_trigger() {
+        let spec = "trigger true";
+        let ir = obtain_expressions(spec);
+        assert_eq!(ir.num_triggers(), 1);
+        let tr = &ir.triggers[0];
+        let expr = &ir.mode.exprid_to_expr[&tr.expr_id];
+        assert!(matches!(expr.kind, ExpressionKind::LoadConstant(_)));
+    }
+
+    #[test]
+    fn input_trigger() {
+        use crate::hir::expression::ArithLogOp;
+        let spec = "input a: Int8\n trigger a == 42";
+        let ir = obtain_expressions(spec);
+        assert_eq!(ir.num_triggers(), 1);
+        let tr = &ir.triggers[0];
+        //let expr = &ir.mode.exprid_to_expr[&tr.expr_id];
+        let expr = ir.expr(tr.sr);
+        assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Eq,_)));
+    }
+
 
     #[test]
     fn arith_op() {
