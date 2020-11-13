@@ -411,38 +411,46 @@ impl ExpressionTransformer {
             }
             ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
             ast::ExpressionKind::Function(name, type_param, args) => {
-                let decl: Declaration = self.decl_table[&ast_expression.id].clone();
-                match decl {
-                    Declaration::Func(_) => {
-                        let name = name.name.name;
-                        let args: Vec<Expression> =
-                            args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect();
+                let decl = self.decl_table.get(&ast_expression.id);
+                if let Some(decl) = decl {
+                    match decl {
+                        Declaration::Func(_) => {
+                            let name = name.name.name;
+                            let args: Vec<Expression> =
+                                args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect();
 
-                        if name.starts_with("widen") {
-                            ExpressionKind::Widen(
-                                (args.get(0).expect("Widen is expecting exactly 1 Argument").clone()).into(),
-                                match type_param.get(0) {
-                                    Some(t) => annotated_type(t).expect("given type arguments have to be replaceable"),
-                                    None => todo!("error case"),
-                                },
-                            )
-                        } else {
-                            ExpressionKind::Function {
-                                name,
-                                args,
-                                type_param: type_param
-                                    .into_iter()
-                                    .map(|t| annotated_type(&t).expect("given type arguments have to be replaceable"))
-                                    .collect(),
+                            if name.starts_with("widen") {
+                                ExpressionKind::Widen(
+                                    (args.get(0).expect("Widen is expecting exactly 1 Argument").clone()).into(),
+                                    match type_param.get(0) {
+                                        Some(t) => {
+                                            annotated_type(t).expect("given type arguments have to be replaceable")
+                                        }
+                                        None => todo!("error case"),
+                                    },
+                                )
+                            } else {
+                                ExpressionKind::Function {
+                                    name,
+                                    args,
+                                    type_param: type_param
+                                        .into_iter()
+                                        .map(|t| {
+                                            annotated_type(&t).expect("given type arguments have to be replaceable")
+                                        })
+                                        .collect(),
+                                }
                             }
                         }
+                        Declaration::ParamOut(_) => ExpressionKind::StreamAccess(
+                            self.stream_by_name[&name.name.name],
+                            IRAccess::Sync,
+                            args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
+                        ),
+                        _ => todo!("error case"),
                     }
-                    Declaration::ParamOut(_) => ExpressionKind::StreamAccess(
-                        self.stream_by_name[&name.name.name],
-                        IRAccess::Sync,
-                        args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
-                    ),
-                    _ => todo!("error case"),
+                } else {
+                    todo!("Error case: unknown function")
                 }
             }
         };

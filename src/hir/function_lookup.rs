@@ -15,6 +15,13 @@ pub struct FuncDecl {
 }
 
 lazy_static! {
+        // fn widen_signed<T: Signed, U: Signed>(T) -> U where U: T
+    static ref WIDEN: FuncDecl = FuncDecl {
+        name: FunctionName::new("widen".to_string(), &[None]),
+        generics: vec![AnnotatedType::Numeric,AnnotatedType::Numeric],
+        parameters: vec![AnnotatedType::Param(0, "T".to_string())],
+        return_type: AnnotatedType::Param(1, "U".to_string()),
+    };
     // fn sqrt<T: FloatingPoint>(T) -> T
     static ref SQRT: FuncDecl = FuncDecl {
         name: FunctionName::new("sqrt".to_string(), &[None]),
@@ -106,6 +113,7 @@ lazy_static! {
 }
 
 pub(crate) fn import_implicit_module(fun_scope: &mut ScopedDecl) {
+    fun_scope.add_fun_decl(&WIDEN);
     fun_scope.add_fun_decl(&CAST);
 }
 
