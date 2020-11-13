@@ -1,9 +1,7 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{
-    parse_abstract_type, AbstractPacingType, Freq, PacingError, UnificationError,
-};
+use crate::pacing_types::{AbstractPacingType, Freq, PacingError, UnificationError, parse_ac};
 
 use crate::rtltc::NodeId;
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
@@ -56,14 +54,6 @@ where
             node_key.insert(NodeId::SRef(output.sr), key);
             //key_span.insert(key, output.span);
         }
-        /*
-        for ast_const in &ast.constants {
-            bdd_var_builder.make_variable(&ast_const.id.to_string());
-            let key = tyc.get_var_key(&Variable(ast_const.name.name.clone()));
-            node_key.insert(ast_const.id, key);
-            key_span.insert(key, ast_const.span);
-        }
-        */
         let bdd_vars = bdd_var_builder.build();
 
         Context {
@@ -81,17 +71,6 @@ where
         let input_key = self.node_key[&NodeId::SRef(input.sr)];
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
-
-    /*
-    pub(crate) fn constant_infer(
-        &mut self,
-        constant: &Constant,
-    ) -> Result<(), TcErr<AbstractPacingType>> {
-        let ac = AbstractPacingType::Any;
-        let const_key = self.node_key[&constant.id];
-        self.tyc.impose(const_key.concretizes_explicit(ac))
-    }
-    */
 
     pub(crate) fn trigger_infer(
         &mut self,
@@ -111,47 +90,43 @@ where
         // Type Expression
         let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
         let output_key = self.node_key[&NodeId::SRef(output.sr)];
+
         self.tyc
             .impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
         if let Some(ac) = output.activation_condition {
-            match ac {
+            let annotated_ty_key = self.tyc.new_term_key();
+            let annotated_ty = match ac {
                 AC::Frequency(f) => {
-                    // Output type is equal to declared type
-                    self.tyc.impose(
-                        output_key
-                            .concretizes_explicit(AbstractPacingType::Periodic(Freq::Fixed(f))),
-                    )
+                    AbstractPacingType::Periodic(Freq::Fixed(f))
                 }
                 AC::Expr(eid) => {
-                    let annotated_ac_key = self.tyc.new_term_key();
-                    self.node_key.insert(NodeId::Expr(eid), annotated_ac_key);
-                    //self.key_span.insert(annotated_ac_key, output.extend.span);
-                    let expr = self.hir.expr(output.sr);
-                    let annotated_ac =
-                        match parse_abstract_type(expr, &self.bdd_vars, self.hir.num_inputs()) {
-                            Ok(b) => b,
-                            Err(reason) => {
-                                return Err(TcErr::Bound(
-                                    annotated_ac_key,
-                                    None,
-                                    UnificationError::Other(reason),
-                                ));
-                            }
-                        };
+                    let expr = self.hir.expression(eid);
+                    self.node_key.insert(NodeId::Expr(expr.eid), annotated_ty_key);
+                    self.key_span.insert(annotated_ty_key, expr.span);
 
-                    // Bind key to parsed type
-                    self.tyc
-                        .impose(annotated_ac_key.has_exactly_type(annotated_ac))?;
-
-                    // Annotated type should be more concrete than inferred type
-                    self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
-
-                    // Output type is equal to declared type
-                    self.tyc.impose(output_key.concretizes(annotated_ac_key))
+                    match parse_ac(expr, &self.bdd_vars, self.hir.num_inputs()) {
+                        Ok(b) => AbstractPacingType::Event(b),
+                        Err(reason) => {
+                            return Err(TcErr::Bound(
+                                annotated_ty_key,
+                                None,
+                                UnificationError::Other(reason),
+                            ));
+                        }
+                    }
                 }
-            }
+            };
+            // Bind key to parsed type
+            self.tyc
+                .impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
+
+            // Annotated type should be more concrete than inferred type
+            self.tyc.impose(annotated_ty_key.concretizes(exp_key))?;
+
+            // Output type is equal to declared type
+            self.tyc.impose(output_key.equate_with(annotated_ty_key))
         } else {
             // Output type is equal to inferred type
             self.tyc.impose(output_key.concretizes(exp_key))
@@ -311,7 +286,7 @@ where
             }
         };
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        //self.key_span.insert(term_key, exp.span);
+        self.key_span.insert(term_key, exp.span);
         Ok(term_key)
     }
 

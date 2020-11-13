@@ -12,30 +12,7 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-/// Parses either a periodic or an event based pacing type from an expression
-pub fn parse_abstract_type(
-    hir_expr: &Expression,
-    var_set: &BddVariableSet,
-    num_inputs: usize,
-) -> Result<AbstractPacingType, String> {
-    match &hir_expr.kind {
-        ExpressionKind::LoadConstant(c) => match c {
-            Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
-                ConstantLiteral::Bool(_) => {
-                    let ac = parse_ac(hir_expr, var_set, num_inputs)?;
-                    Ok(AbstractPacingType::Event(ac))
-                }
-                _ => Err("Cant infere pacing type of non bool constant".into()),
-            },
-        },
-        _ => {
-            let ac = parse_ac(hir_expr, var_set, num_inputs)?;
-            Ok(AbstractPacingType::Event(ac))
-        }
-    }
-}
-
-fn parse_ac(
+pub(crate) fn parse_ac(
     ast_expr: &Expression,
     var_set: &BddVariableSet,
     num_inputs: usize,
