@@ -21,7 +21,6 @@ where
     M: WithIrExpr + HirMode + 'static,
 {
     pub(crate) hir: &'a RTLolaHIR<M>,
-    pub(crate) declarations: DeclarationTable,
     pub(crate) handler: &'a Handler,
 }
 
@@ -36,16 +35,8 @@ impl<'a, M> LolaTypeChecker<'a, M>
 where
     M: WithIrExpr + HirMode + 'static,
 {
-    pub fn new(
-        hir: &'a RTLolaHIR<M>,
-        declarations: DeclarationTable,
-        handler: &'a Handler,
-    ) -> Self {
-        LolaTypeChecker {
-            hir,
-            declarations,
-            handler,
-        }
+    pub fn new(hir: &'a RTLolaHIR<M>, handler: &'a Handler) -> Self {
+        LolaTypeChecker { hir, handler }
     }
 
     pub fn check(&mut self) {
@@ -180,8 +171,7 @@ where
         for (nid, k) in ctx.node_key.iter() {
             result_map.insert(*nid, rtt[*k].clone());
         }
-        todo!()
-        //Ok(result_map)
+        Ok(result_map)
     }
 }
 

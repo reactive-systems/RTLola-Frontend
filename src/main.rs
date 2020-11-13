@@ -63,7 +63,7 @@ fn main() {
             &FrontendConfig::default(),
         );
 
-        let mut checker = LolaTypeChecker::new(&hir, decl_table, &handler);
+        let mut checker = LolaTypeChecker::new(&hir, &handler);
 
         print!("{:#?}", checker.check());
     }

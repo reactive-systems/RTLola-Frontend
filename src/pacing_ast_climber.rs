@@ -117,7 +117,13 @@ where
         // Check if there is a type is annotated
         if let Some(ac) = output.activation_condition {
             match ac {
-                AC::Frequency(f) => todo!(),
+                AC::Frequency(f) => {
+                    // Output type is equal to declared type
+                    self.tyc.impose(
+                        output_key
+                            .concretizes_explicit(AbstractPacingType::Periodic(Freq::Fixed(f))),
+                    )
+                }
                 AC::Expr(eid) => {
                     let annotated_ac_key = self.tyc.new_term_key();
                     self.node_key.insert(NodeId::Expr(eid), annotated_ac_key);
@@ -344,10 +350,11 @@ mod pacing_type_tests {
     use crate::pacing_types::{ActivationCondition, ConcretePacingType};
     use crate::LolaTypeChecker;
     use front::analysis::naming::Declaration;
+    use front::hir::modes::IrExpression;
+    use front::hir::RTLolaHIR;
     use front::parse::NodeId;
     use front::parse::SourceMapper;
     use front::reporting::Handler;
-    use front::RTLolaAst;
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use std::collections::HashMap;
@@ -355,7 +362,8 @@ mod pacing_type_tests {
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
 
-    fn setup_ast(spec: &str) -> (RTLolaAst, HashMap<NodeId, Declaration>, Handler) {
+    /*
+    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, HashMap<NodeId, Declaration>, Handler) {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
         let spec: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
@@ -767,4 +775,5 @@ mod pacing_type_tests {
         let spec = "input x: UInt8\n output a @1Hz := x.hold()\noutput b := a.offset(by: 1s)";
         assert_eq!(0, num_errors(spec));
     }
+    */
 }
