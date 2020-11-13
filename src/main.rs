@@ -54,9 +54,6 @@ fn main() {
             Ok(parsed_spec) => parsed_spec,
         };
 
-        let mut na =
-            front::analysis::naming::NamingAnalysis::new(&handler, FrontendConfig::default());
-        let decl_table: front::analysis::naming::DeclarationTable = na.check(&lola_spec);
         let hir = front::RTLolaHIR::<IrExpression>::from_ast(
             lola_spec,
             &handler,

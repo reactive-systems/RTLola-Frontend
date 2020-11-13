@@ -4,11 +4,11 @@ use crate::pacing_ast_climber::Context as PacingContext;
 use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IConcreteType;
-use front::analysis::naming::DeclarationTable;
 use front::common_ir::StreamReference;
 use front::hir::expression::ExprId;
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
+use front::parse::Span;
 use front::reporting::Handler;
 use front::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
@@ -107,7 +107,10 @@ where
                 match ConcretePacingType::from_abstract(tt[*key].clone(), &vars) {
                     Ok(ct) => Some((*id, ct)),
                     Err(e) => {
-                        e.emit_with_span(self.handler, key_span[key]);
+                        e.emit_with_span(
+                            self.handler,
+                            *key_span.get(key).unwrap_or(&Span::unknown()),
+                        );
                         None
                     }
                 }

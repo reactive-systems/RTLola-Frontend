@@ -64,10 +64,12 @@ pub(crate) fn parse_ac(
         }
         */
         ArithLog(op, v) => {
-            assert!(
-                v.len() == 2,
-                "An activation condition can only contain literals and binary operators."
-            );
+            if v.len() != 2 {
+                return Err(
+                    "An activation condition can only contain literals and binary operators."
+                        .into(),
+                );
+            }
             let ac_l = parse_ac(&v[0], var_set, num_inputs)?;
             let ac_r = parse_ac(&v[1], var_set, num_inputs)?;
             use front::hir::expression::ArithLogOp;
@@ -212,18 +214,23 @@ pub(crate) fn emit_error(
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(spans[k1], "here", true);
-            let span2 = LabeledSpan::new(spans[k2], "and here", true);
+            let span1 = LabeledSpan::new(*spans.get(k1).unwrap_or(&Span::unknown()), "here", true);
+            let span2 =
+                LabeledSpan::new(*spans.get(k2).unwrap_or(&Span::unknown()), "and here", true);
             let mut diag = handler.build_error_with_span(msg, span1);
             diag.add_labeled_span(span2);
             diag.emit();
         }
         TcErr::Bound(k1, k2o, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(spans[k1], "here", true);
+            let span1 = LabeledSpan::new(*spans.get(k1).unwrap_or(&Span::unknown()), "here", true);
             let mut diag = handler.build_error_with_span(msg, span1);
             if let Some(k2) = k2o {
-                let span2 = LabeledSpan::new(spans[k2], "and here", false);
+                let span2 = LabeledSpan::new(
+                    *spans.get(k2).unwrap_or(&Span::unknown()),
+                    "and here",
+                    false,
+                );
                 diag.add_labeled_span(span2);
             }
             diag.emit();
@@ -233,7 +240,7 @@ pub(crate) fn emit_error(
                 "In pacing type analysis:\n Child type out of bounds for type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
+            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
             handler.error_with_span(msg, span);
         }
         TcErr::ExactTypeViolation(key, ty) => {
@@ -241,7 +248,7 @@ pub(crate) fn emit_error(
                 "In pacing type analysis:\n Expected type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
+            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
             handler.error_with_span(msg, span);
         }
         TcErr::ConflictingExactBounds(key, ty1, ty2) => {
@@ -250,7 +257,7 @@ pub(crate) fn emit_error(
                 ty1.to_string(vars, names),
                 ty2.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
+            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
             handler.error_with_span(msg, span);
         }
     }
@@ -411,7 +418,7 @@ pub enum ActivationCondition {
     /**
     Whenever the specified stream produces a new value.
     */
-    Stream(NodeId),
+    Stream(StreamReference),
     /**
     Whenever an event-based stream produces a new value.
     */
@@ -434,9 +441,7 @@ impl ActivationCondition {
             Variable(s) => {
                 let id = s.parse::<usize>();
                 match id {
-                    Ok(i) => Ok(ActivationCondition::Stream(NodeId::SRef(
-                        StreamReference::InRef(i),
-                    ))),
+                    Ok(i) => Ok(ActivationCondition::Stream(StreamReference::InRef(i))),
                     Err(_) => Err(PacingError::MalformedAC("Wrong Variable in AC".to_string())),
                 }
             }

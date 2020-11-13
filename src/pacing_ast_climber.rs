@@ -1,7 +1,7 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{AbstractPacingType, Freq, PacingError, UnificationError, parse_ac};
+use crate::pacing_types::{parse_ac, AbstractPacingType, Freq, PacingError, UnificationError};
 
 use crate::rtltc::NodeId;
 use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
@@ -98,12 +98,11 @@ where
         if let Some(ac) = output.activation_condition {
             let annotated_ty_key = self.tyc.new_term_key();
             let annotated_ty = match ac {
-                AC::Frequency(f) => {
-                    AbstractPacingType::Periodic(Freq::Fixed(f))
-                }
+                AC::Frequency(f) => AbstractPacingType::Periodic(Freq::Fixed(f)),
                 AC::Expr(eid) => {
                     let expr = self.hir.expression(eid);
-                    self.node_key.insert(NodeId::Expr(expr.eid), annotated_ty_key);
+                    self.node_key
+                        .insert(NodeId::Expr(expr.eid), annotated_ty_key);
                     self.key_span.insert(annotated_ty_key, expr.span);
 
                     match parse_ac(expr, &self.bdd_vars, self.hir.num_inputs()) {
@@ -323,107 +322,106 @@ Todo:
  */
 mod pacing_type_tests {
     use crate::pacing_types::{ActivationCondition, ConcretePacingType};
+    use crate::rtltc::NodeId;
     use crate::LolaTypeChecker;
-    use front::analysis::naming::Declaration;
+    use front::common_ir::StreamReference;
     use front::hir::modes::IrExpression;
     use front::hir::RTLolaHIR;
-    use front::parse::NodeId;
     use front::parse::SourceMapper;
     use front::reporting::Handler;
+    use front::RTLolaAst;
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
-    use std::collections::HashMap;
     use std::path::PathBuf;
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
 
-    /*
-    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, HashMap<NodeId, Declaration>, Handler) {
+    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
         let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
-        let spec: RTLolaAst =
+        let ast: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
                 Ok(s) => s,
-                Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+                Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
             };
-        let mut na = front::analysis::naming::NamingAnalysis::new(
+        let hir = front::hir::RTLolaHIR::<IrExpression>::from_ast(
+            ast,
             &handler,
-            front::FrontendConfig::default(),
+            &front::FrontendConfig::default(),
         );
-        let dec = na.check(&spec);
-        assert!(
-            !handler.contains_error(),
-            "Spec produces errors in naming analysis."
-        );
-        (spec, dec, handler)
+        (hir, handler)
     }
 
     fn num_errors(spec: &str) -> usize {
-        let (spec, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&spec, dec.clone(), &handler);
+        let (spec, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&spec, &handler);
         ltc.pacing_type_infer();
         return handler.emitted_errors();
+    }
+
+    fn get_sr_for_name(hir: &RTLolaHIR<IrExpression>, name: &str) -> StreamReference {
+        if let Some(i) = hir.get_input_with_name(name) {
+            i.sr
+        } else {
+            hir.get_output_with_name(name).unwrap().sr
+        }
+    }
+    fn get_node_for_name(hir: &RTLolaHIR<IrExpression>, name: &str) -> NodeId {
+        NodeId::SRef(get_sr_for_name(hir, name))
     }
 
     #[test]
     fn test_input_simple() {
         let spec = "input i: Int8";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
-            tt[&ast.inputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "i")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")))
         );
     }
 
     #[test]
     fn test_output_simple() {
         let spec = "input a: Int8\n input b: Int8 \n output o := a + b";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
-        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
-        let ac_b = ActivationCondition::Stream(ast.inputs[1].id);
+        let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
+        let ac_b = ActivationCondition::Stream(get_sr_for_name(&hir, "b"));
         assert_eq!(
-            tt[&ast.outputs[0].id],
+            tt[&get_node_for_name(&hir, "o")],
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![ac_a, ac_b]))
         );
     }
 
     #[test]
-    fn test_constant_simple() {
-        let spec = "constant c: UInt8 := -2";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
-        let tt = ltc.pacing_type_infer().unwrap();
-        assert_eq!(num_errors(spec), 0);
-        assert_eq!(tt[&ast.constants[0].id], ConcretePacingType::Constant);
-    }
-
-    #[test]
     fn test_trigger_simple() {
         let spec = "input a: Int8\n trigger a == 42";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
-        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
-        assert_eq!(tt[&ast.trigger[0].id], ConcretePacingType::Event(ac_a));
+        let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
+        assert_eq!(
+            tt[&NodeId::SRef(hir.triggers().nth(0).unwrap().sr)],
+            ConcretePacingType::Event(ac_a)
+        );
     }
 
     #[test]
     fn test_disjunction_annotated() {
         let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := 1";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
-        let ac_a = ActivationCondition::Stream(ast.inputs[0].id);
-        let ac_b = ActivationCondition::Stream(ast.inputs[1].id);
+        let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
+        let ac_b = ActivationCondition::Stream(get_sr_for_name(&hir, "b"));
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
-            tt[&ast.outputs[0].id],
+            tt[&get_node_for_name(&hir, "x")],
             ConcretePacingType::Event(ActivationCondition::Disjunction(vec![ac_a, ac_b]))
         );
     }
@@ -431,12 +429,12 @@ mod pacing_type_tests {
     #[test]
     fn test_frequency_simple() {
         let spec = "output a: UInt8 @10Hz := 0";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
-            tt[&ast.outputs[0].id],
+            tt[&get_node_for_name(&hir, "a")],
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(10).unwrap()
             ))
@@ -446,13 +444,13 @@ mod pacing_type_tests {
     #[test]
     fn test_frequency_conjunction() {
         let spec = "output a: Int32 @10Hz := 0\noutput b: Int32 @5Hz := 0\noutput x := a+b";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
         assert_eq!(
-            tt[&ast.outputs[2].id],
+            tt[&get_node_for_name(&hir, "x")],
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(5).unwrap()
             ))
@@ -471,21 +469,21 @@ mod pacing_type_tests {
     #[test]
     fn test_normalization_event_streams() {
         let spec = "input a: Int32\ninput b: Int32\ninput c: Int32\noutput x := a + b\noutput y := x + x + c";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         // node ids can be verified using `rtlola-analyze spec.lola ast`
         //  input `a` has NodeId =  1
-        let a_id = NodeId::new(1);
+        let a_id = get_sr_for_name(&hir, "a");
         //  input `b` has NodeId =  3
-        let b_id = NodeId::new(3);
+        let b_id = get_sr_for_name(&hir, "b");
         //  input `c` has NodeId =  5
-        let c_id = NodeId::new(5);
+        let c_id = get_sr_for_name(&hir, "c");
         // output `x` has NodeId = 11
-        let x_id = NodeId::new(11);
+        let x_id = get_node_for_name(&hir, "x");
         // output `y` has NodeId = 19
-        let y_id = NodeId::new(19);
+        let y_id = get_node_for_name(&hir, "y");
 
         assert_eq!(
             tt[&x_id],
@@ -548,13 +546,13 @@ mod pacing_type_tests {
     fn test_1hz_meet() {
         let spec =
             "input i: Int64\noutput a @ 5Hz := 42\noutput b @ 2Hz := 1337\noutput c := a + b";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
         assert_eq!(
-            tt[&ast.outputs[2].id],
+            tt[&get_node_for_name(&hir, "c")],
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(1).unwrap()
             ))
@@ -565,13 +563,13 @@ mod pacing_type_tests {
     fn test_0_1hz_meet() {
         let spec =
             "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 0.3Hz := 1337\noutput c := a + b";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
         assert_eq!(
-            tt[&ast.outputs[2].id],
+            tt[&get_node_for_name(&hir, "c")],
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_f32(0.1).unwrap()
             ))
@@ -589,90 +587,91 @@ mod pacing_type_tests {
     fn test_parametric_output() {
         let spec =
             "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
-        let i_type = ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id));
+        let i_type =
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")));
         assert_eq!(0, num_errors(spec));
-        assert_eq!(tt[&ast.outputs[0].id], i_type);
-        assert_eq!(tt[&ast.outputs[1].id], i_type);
+        assert_eq!(tt[&get_node_for_name(&hir, "x")], i_type);
+        assert_eq!(tt[&get_node_for_name(&hir, "y")], i_type);
     }
 
     #[test]
     fn test_parametric_output_parameter() {
         let spec = "input i: UInt8\noutput x(a: UInt8, b: Bool) @i := a";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "x")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")))
         );
     }
 
     #[test]
     fn test_trigonometric() {
         let spec = "import math\ninput i: UInt8\noutput o: Float32 @i := sin(2.0)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "o")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")))
         );
     }
 
     #[test]
     fn test_tuple() {
         let spec = "input i: UInt8\noutput out: (Int8, Bool) @i:= (14, false)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "out")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")))
         );
     }
 
     #[test]
     fn test_tuple_access() {
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "out")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "in")))
         );
     }
 
     #[test]
     fn test_input_offset() {
         let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
-            tt[&ast.outputs[0].id],
-            ConcretePacingType::Event(ActivationCondition::Stream(ast.inputs[0].id))
+            tt[&get_node_for_name(&hir, "b")],
+            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "a")))
         );
     }
 
     #[test]
     fn test_window() {
         let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
-        let (ast, dec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&ast, dec.clone(), &handler);
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
         assert_eq!(
-            tt[&ast.outputs[0].id],
+            tt[&get_node_for_name(&hir, "out")],
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
                 Rational::from_u8(5).unwrap()
             ))
@@ -750,5 +749,4 @@ mod pacing_type_tests {
         let spec = "input x: UInt8\n output a @1Hz := x.hold()\noutput b := a.offset(by: 1s)";
         assert_eq!(0, num_errors(spec));
     }
-    */
 }
