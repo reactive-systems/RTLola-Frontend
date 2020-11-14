@@ -20,7 +20,7 @@ use simplelog::*;
 use crate::analysis;
 use crate::parse::{LolaParser, Rule, SourceMapper};
 #[allow(unused_imports)]
-use crate::reporting::Handler;
+use crate::reporting_old::Handler;
 use crate::ty::TypeConfig;
 use crate::FrontendConfig;
 

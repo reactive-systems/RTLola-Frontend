@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[allow(unused_imports)]
 use crate::analysis;
 use crate::parse::SourceMapper;
-use crate::reporting::Handler;
+use crate::reporting_old::Handler;
 use crate::FrontendConfig;
 
 #[rustfmt::skip]

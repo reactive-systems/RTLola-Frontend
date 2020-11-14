@@ -15,7 +15,7 @@ use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
-use crate::reporting::Handler;
+use crate::reporting_old::Handler;
 use crate::FrontendConfig;
 use itertools::{Either, Itertools};
 use std::collections::HashMap;

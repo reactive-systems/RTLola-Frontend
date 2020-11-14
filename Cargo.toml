@@ -28,6 +28,7 @@ lazy_static = "1.3.0" # lazy_static! macro
 clap = "2.33.0"  # command line parsing
 termcolor = "1"  # color output to terminal
 petgraph = "0.5"
+codespan-reporting = "0.9.5" # Error Reporting
 ena = "0.13.0" # union-find implementation
 num = "0.2"     # infinite precision rationals
 color-backtrace = "0.3"

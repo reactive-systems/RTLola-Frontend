@@ -254,7 +254,7 @@ mod tests {
     use crate::hir::SRef;
     use crate::hir::WRef;
     use crate::parse::{parse, SourceMapper};
-    use crate::reporting::Handler;
+    use crate::reporting_old::Handler;
     use crate::FrontendConfig;
     use std::collections::HashMap;
     use std::path::PathBuf;

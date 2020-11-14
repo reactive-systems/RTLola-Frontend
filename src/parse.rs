@@ -1,7 +1,7 @@
 //! This module contains the parser for the Lola Language.
 
 use super::ast::*;
-use crate::reporting::{Handler, LabeledSpan};
+use crate::reporting_old::{Handler, LabeledSpan};
 use crate::FrontendConfig;
 use lazy_static::lazy_static;
 use pest::iterators::{Pair, Pairs};
