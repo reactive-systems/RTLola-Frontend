@@ -73,10 +73,15 @@ impl Span {
 
 /// A handler is responsible for emitting warnings and errors
 pub struct Handler {
+    /// The number of errors that have already occurred
     error_count: RwLock<usize>,
+    /// The number of warnings that have already occurred
     warning_count: RwLock<usize>,
+    /// The input file the handler refers to given by a path and its content
     input: SimpleFile<String, String>,
+    /// The output the handler is emitting to
     output: RwLock<Box<dyn WriteColor>>,
+    /// The config for the error formatting
     config: Config,
 }
 impl Debug for Handler {
@@ -91,6 +96,9 @@ impl Debug for Handler {
 }
 
 impl Handler {
+    /// Creates a new Handler
+    /// `input_path` refers to the path of the input file
+    /// `input_content` refers to the content of the input file
     pub fn new(input_path: PathBuf, input_content: String) -> Self {
         Handler {
             error_count: RwLock::new(0),
@@ -101,7 +109,7 @@ impl Handler {
         }
     }
 
-    pub fn emit(&self, diag: &RepDiagnostic<()>) {
+    fn emit(&self, diag: &RepDiagnostic<()>) {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
@@ -112,22 +120,28 @@ impl Handler {
             .expect("Could not write diagnostic.");
     }
 
+    /// Returns true if an error has occurred
     pub fn contains_error(&self) -> bool {
         self.emitted_errors() > 0
     }
 
+    /// Returns the number of emitted errors
     pub fn emitted_errors(&self) -> usize {
         *self.error_count.read().unwrap()
     }
 
+    /// Returns the number of emitted warnings
     pub fn emitted_warnings(&self) -> usize {
         *self.warning_count.read().unwrap()
     }
 
+    /// Emits a simple warning with a message
     pub fn warn(&self, message: &str) {
         self.emit(&RepDiagnostic::warning().with_message(message))
     }
 
+    /// Emits a warning referring to the code span `span` with and optional label `span_label`
+    /// that is printed next to the code fragment
     pub fn warn_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RepDiagnostic::warning().with_message(message);
         if !span.is_unknown() {
@@ -143,10 +157,13 @@ impl Handler {
         self.emit(&diag)
     }
 
+    /// Emits a simple error with a message
     pub fn error(&self, message: &str) {
         self.emit(&RepDiagnostic::error().with_message(message))
     }
 
+    /// Emits an error referring to the code span `span` with and optional label `span_label`
+    /// that is printed next to the code fragment
     pub fn error_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RepDiagnostic::error().with_message(message);
         if !span.is_unknown() {
@@ -165,16 +182,22 @@ impl Handler {
 
 /// `Diagnostic` a more flexible way to build a diagnostic.
 pub struct Diagnostic<'a> {
+    /// The handler used for emitting the diagnostic
     handler: &'a Handler,
+    /// The internal representation of the diagnostic
     diag: RepDiagnostic<()>,
+    /// True if the diagnostic was emitted
     emitted: bool,
+    /// True if the diagnostic refers to at least one indirect span
     has_indirect_span: bool,
+    /// The note to display when an indirect span occurs
     indirect_note_text: String,
 }
 
 impl<'a> Diagnostic<'a> {
+    /// Creates a new warning with the message `message`
     #[allow(dead_code)]
-    pub(crate) fn warning(handler: &'a Handler, message: &str) -> Self {
+    pub fn warning(handler: &'a Handler, message: &str) -> Self {
         Diagnostic {
             handler,
             diag: RepDiagnostic::warning().with_message(message),
@@ -184,7 +207,8 @@ impl<'a> Diagnostic<'a> {
         }
     }
 
-    pub(crate) fn error(handler: &'a Handler, message: &str) -> Self {
+    /// Creates a new error with the message `message`
+    pub fn error(handler: &'a Handler, message: &str) -> Self {
         Diagnostic {
             handler,
             diag: RepDiagnostic::error().with_message(message),
@@ -194,7 +218,8 @@ impl<'a> Diagnostic<'a> {
         }
     }
 
-    pub(crate) fn emit(mut self) {
+    /// Emits the diagnostic using the given `Handler`
+    pub fn emit(mut self) {
         assert!(!self.emitted, "Diagnostic can only be emitted once!");
         if self.has_indirect_span {
             self.diag.notes.push(self.indirect_note_text);
@@ -203,7 +228,10 @@ impl<'a> Diagnostic<'a> {
         self.emitted = true;
     }
 
-    pub(crate) fn add_span_with_label(mut self, span: Span, label: Option<&str>, primary: bool) -> Self {
+    /// Adds a code span to the diagnostic.
+    /// The `label` is printed next to the code fragment the span refers to.
+    /// If `primary` is set to true the span is treated as the primary code fragment.
+    pub fn add_span_with_label(mut self, span: Span, label: Option<&str>, primary: bool) -> Self {
         if span.is_unknown() {
             return self;
         }
@@ -215,8 +243,10 @@ impl<'a> Diagnostic<'a> {
         self.diag.labels.push(rep_label);
         self
     }
+
+    /// Adds a note to the bottom of the diagnostic.
     #[allow(dead_code)]
-    pub(crate) fn add_note(mut self, note: &str) -> Self {
+    pub fn add_note(mut self, note: &str) -> Self {
         self.diag.notes.push(note.into());
         self
     }

@@ -85,7 +85,7 @@ where
                     if let Some(ac) = output.and_then(|o| o.activation_condition) {
                         match ac {
                             AC::Expr(e) => Some(self.mode.expression(e)),
-                            AC::Frequency(_) => None, //May change return type
+                            AC::Frequency { .. } => None, //May change return type
                         }
                     } else {
                         None
@@ -282,9 +282,10 @@ impl ExpressionTransformer {
     ) -> AC {
         if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                return AC::Frequency(
-                    ac_expr.parse_freqspec().expect("Invalid Literal with Postfix (unable to parse Frequency)"),
-                );
+                return AC::Frequency {
+                    span: ac_expr.span.clone(),
+                    value: ac_expr.parse_freqspec().expect("Invalid Literal with Postfix (unable to parse Frequency)"),
+                };
             }
         }
         AC::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)))
@@ -594,7 +595,12 @@ impl Hir<IrExpression> {
                 .enumerate()
                 .map(|(ix, p)| {
                     assert_eq!(ix, p.param_idx);
-                    Parameter { name: p.name.name.clone(), annotated_type: annotated_type(&p.ty), idx: p.param_idx }
+                    Parameter {
+                        name: p.name.name.clone(),
+                        annotated_type: annotated_type(&p.ty),
+                        idx: p.param_idx,
+                        span: p.span.clone(),
+                    }
                 })
                 .collect();
             let annotated_type = annotated_type(&ty);
@@ -612,17 +618,18 @@ impl Hir<IrExpression> {
                 annotated_type,
                 activation_condition: ac,
                 expr_id,
+                span: o.span.clone(),
             });
         }
         let hir_outputs = hir_outputs;
         let mut hir_triggers = vec![];
         for (ix, t) in trigger.into_iter().enumerate() {
             let sr = SRef::OutRef(hir_outputs.len() + ix);
-            let ast::Trigger { message, name, expression, .. } =
+            let ast::Trigger { message, name, expression, span, .. } =
                 Rc::try_unwrap(t).expect("other strong references should be dropped now");
             let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression, sr));
 
-            hir_triggers.push(Trigger::new(name, message, expr_id, sr));
+            hir_triggers.push(Trigger::new(name, message, expr_id, sr, span));
         }
         let hir_triggers = hir_triggers;
         let hir_inputs: Vec<Input> = inputs
@@ -632,6 +639,7 @@ impl Hir<IrExpression> {
                 annotated_type: annotated_type(&i.ty).expect("Input Streams must have type annotation"),
                 name: i.name.name.clone(),
                 sr: SRef::InRef(ix),
+                span: i.span.clone(),
             })
             .collect();
 
@@ -986,7 +994,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         let output: Output = ir.outputs[0].clone();
         assert!(output.annotated_type.is_some());
-        assert!(matches!(output.activation_condition, Some(AC::Frequency(_))));
+        assert!(matches!(output.activation_condition, Some(AC::Frequency { .. })));
         assert!(output.params.len() == 1);
         let fil: &Expression = ir.filter(output.sr).unwrap();
         assert!(matches!(fil.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
@@ -1003,7 +1011,7 @@ mod tests {
         let spec = "input in: Bool output a: Bool @2.5Hz := true output b: Bool @in := false";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(matches!(a.activation_condition, Some(AC::Frequency(_))));
+        assert!(matches!(a.activation_condition, Some(AC::Frequency { .. })));
         let b: &Output = &ir.outputs[1];
         assert!(matches!(b.activation_condition, Some(AC::Expr(_))));
     }
