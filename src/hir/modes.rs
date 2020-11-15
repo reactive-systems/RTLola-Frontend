@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use crate::{
     ast, ast::Ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
     common_ir::WindowReference as WRef, hir::expression::Expression, hir::modes::types::HirType, hir::ExprId, hir::Hir,
-    reporting_old::Handler, FrontendConfig,
+    reporting::Handler, FrontendConfig,
 };
 
 use self::dependencies::DependencyErr;

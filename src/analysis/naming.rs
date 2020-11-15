@@ -2,8 +2,8 @@
 
 use crate::ast::*;
 use crate::hir::function_lookup::FuncDecl;
-use crate::parse::{Ident, NodeId, Span};
-use crate::reporting_old::{Handler, LabeledSpan};
+use crate::parse::{Ident, NodeId};
+use crate::reporting::{Diagnostic, Handler, Span};
 #[allow(unused_imports)]
 use crate::stdlib;
 use crate::ty::ValueTy;
@@ -88,19 +88,22 @@ impl<'b> NamingAnalysis<'b> {
         if KEYWORDS.contains(&lower.as_str()) {
             self.handler.error_with_span(
                 &format!("`{}` is a reserved keyword", name),
-                LabeledSpan::new(span, "use a different name here", true),
+                span.clone(),
+                Some("use a different name here"),
             )
         }
 
         if let Some(decl) = self.declarations.get_decl_in_current_scope_for(name) {
-            let mut builder = self.handler.build_error_with_span(
-                &format!("the name `{}` is defined multiple times", name),
-                LabeledSpan::new(span, &format!("`{}` redefined here", name), true),
-            );
+            let mut diag = Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", name))
+                .add_span_with_label(span.clone(), Some(&format!("`{}` redefined here", name)), true);
             if let Some(span) = decl.get_span() {
-                builder.add_span_with_label(span, &format!("previous definition of the value `{}` here", name), false);
+                diag = diag.add_span_with_label(
+                    span.clone(),
+                    Some(&format!("previous definition of the value `{}` here", name)),
+                    false,
+                );
             }
-            builder.emit();
+            diag.emit();
         } else {
             self.declarations.add_decl_for(name, decl.clone());
         }
@@ -118,7 +121,8 @@ impl<'b> NamingAnalysis<'b> {
                     // it does not exist
                     self.handler.error_with_span(
                         &format!("cannot find type `{}` in this scope", name),
-                        LabeledSpan::new(ty.span, "not found in this scope", true),
+                        ty.span.clone(),
+                        Some("not found in this scope"),
                     );
                 }
             }
@@ -138,20 +142,21 @@ impl<'b> NamingAnalysis<'b> {
 
             // check if there is a parameter with the same name
             if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&param.name.name) {
-                let mut builder = self.handler.build_error_with_span(
+                Diagnostic::error(
+                    self.handler,
                     &format!("identifier `{}` is use more than once in this paramater list", param.name.name),
-                    LabeledSpan::new(
-                        param.name.span,
-                        &format!("`{}` used as a parameter more than once", param.name.name),
-                        true,
-                    ),
-                );
-                builder.add_span_with_label(
+                )
+                .add_span_with_label(
+                    param.name.span.clone(),
+                    Some(&format!("`{}` used as a parameter more than once", param.name.name)),
+                    true,
+                )
+                .add_span_with_label(
                     decl.get_span().expect("as it is in parameter list, it has a span"),
-                    &format!("previous use of the parameter `{}` here", param.name.name),
+                    Some(&format!("previous use of the parameter `{}` here", param.name.name)),
                     false,
-                );
-                builder.emit();
+                )
+                .emit();
             }
         } else {
             // it does not exist
@@ -172,7 +177,8 @@ impl<'b> NamingAnalysis<'b> {
                 "regex" => function_lookup::import_regex_module(&mut self.fun_declarations),
                 n => self.handler.error_with_span(
                     &format!("unresolved import `{}`", n),
-                    LabeledSpan::new(import.name.span, &format!("no `{}` in the root", n), true),
+                    import.name.span.clone(),
+                    Some(&format!("no `{}` in the root", n)),
                 ),
             }
         }
@@ -216,35 +222,44 @@ impl<'b> NamingAnalysis<'b> {
         for trigger in &spec.trigger {
             if let Some(ident) = &trigger.name {
                 if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&ident.name) {
-                    let mut builder = self.handler.build_error_with_span(
+                    let mut diag = Diagnostic::error(
+                        self.handler,
                         &format!("the name `{}` is defined multiple times", ident.name),
-                        LabeledSpan::new(ident.span, &format!("`{}` redefined here", ident.name), true),
+                    )
+                    .add_span_with_label(
+                        ident.span.clone(),
+                        Some(&format!("`{}` redefined here", ident.name)),
+                        true,
                     );
                     if let Some(span) = decl.get_span() {
-                        builder.add_span_with_label(
+                        diag = diag.add_span_with_label(
                             span,
-                            &format!("previous definition of the value `{}` here", ident.name),
+                            Some(&format!("previous definition of the value `{}` here", ident.name)),
                             false,
                         );
                     }
-                    builder.emit();
+                    diag.emit();
                 }
                 let mut found = false;
                 for previous_entry in &trigger_names {
                     let (name, previous_trigger) = previous_entry;
                     if ident.name == **name {
                         found = true;
-                        let mut builder = self.handler.build_error_with_span(
+                        Diagnostic::error(
+                            self.handler,
                             &format!("the trigger `{}` is defined multiple times", ident.name),
-                            LabeledSpan::new(ident.span, &format!("`{}` redefined here", ident.name), true),
-                        );
-                        builder.add_span_with_label(
-                            previous_trigger.span,
-                            &format!("previous trigger definition `{}` here", ident.name),
+                        )
+                        .add_span_with_label(
+                            ident.span.clone(),
+                            Some(&format!("`{}` redefined here", ident.name)),
+                            true,
+                        )
+                        .add_span_with_label(
+                            previous_trigger.span.clone(),
+                            Some(&format!("previous trigger definition `{}` here", ident.name)),
                             false,
-                        );
-                        builder.emit();
-
+                        )
+                        .emit();
                         break;
                     }
                 }
@@ -297,7 +312,8 @@ impl<'b> NamingAnalysis<'b> {
         } else {
             self.handler.error_with_span(
                 &format!("name `{}` does not exist in current scope", &ident.name),
-                LabeledSpan::new(ident.span, "does not exist", true),
+                ident.span.clone(),
+                Some("does not exist"),
             );
         }
     }
@@ -314,7 +330,8 @@ impl<'b> NamingAnalysis<'b> {
         } else {
             self.handler.error_with_span(
                 &format!("function name `{}` does not exist in current scope", str_repr),
-                LabeledSpan::new(name.name.span, "does not exist", true),
+                name.name.span.clone(),
+                Some("does not exist"),
             );
         }
     }
@@ -439,11 +456,11 @@ pub enum Declaration {
 impl Declaration {
     fn get_span(&self) -> Option<Span> {
         match &self {
-            Declaration::Const(constant) => Some(constant.name.span),
-            Declaration::In(input) => Some(input.name.span),
-            Declaration::Out(output) => Some(output.name.span),
-            Declaration::ParamOut(output) => Some(output.name.span),
-            Declaration::Param(p) => Some(p.name.span),
+            Declaration::Const(constant) => Some(constant.name.span.clone()),
+            Declaration::In(input) => Some(input.name.span.clone()),
+            Declaration::Out(output) => Some(output.name.span.clone()),
+            Declaration::ParamOut(output) => Some(output.name.span.clone()),
+            Declaration::Param(p) => Some(p.name.span.clone()),
             Declaration::Type(_) | Declaration::Func(_) => None,
         }
     }
@@ -480,12 +497,12 @@ impl Declaration {
 mod tests {
 
     use super::*;
-    use crate::parse::{parse, SourceMapper};
+    use crate::parse::parse;
     use std::path::PathBuf;
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
-        let handler = Handler::new(SourceMapper::new(PathBuf::new(), content));
+        let handler = Handler::new(PathBuf::new(), content.into());
         let ast = parse(content, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
         let mut naming_analyzer = NamingAnalysis::new(&handler, FrontendConfig::default());
         naming_analyzer.check(&ast);

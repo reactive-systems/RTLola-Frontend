@@ -253,8 +253,8 @@ mod tests {
     use crate::hir::modes::IrExpression;
     use crate::hir::SRef;
     use crate::hir::WRef;
-    use crate::parse::{parse, SourceMapper};
-    use crate::reporting_old::Handler;
+    use crate::parse::parse;
+    use crate::reporting::Handler;
     use crate::FrontendConfig;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -266,7 +266,7 @@ mod tests {
         aggregates: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
         aggregated_by: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
     ) {
-        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let hir = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);

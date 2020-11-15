@@ -18,7 +18,7 @@ use crate::ast;
 #[allow(unused_imports)]
 use crate::ast::RTLolaAst;
 #[allow(unused_imports)]
-use crate::reporting_old::Handler;
+use crate::reporting::Handler;
 #[allow(unused_imports)]
 //use crate::ty::check::TypeAnalysis;
 #[allow(unused_imports)]

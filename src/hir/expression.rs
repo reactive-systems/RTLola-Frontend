@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use super::WindowOperation;
 use crate::hir::AnnotatedType;
-use crate::{common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, parse::Span};
+use crate::{
+    common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, reporting::Span,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub u32);

@@ -22,7 +22,6 @@ pub mod mir;
 pub(crate) mod new_analysis;
 pub mod parse;
 mod reporting;
-pub mod reporting_old;
 mod stdlib;
 mod transformations;
 pub mod ty;
@@ -98,8 +97,7 @@ pub(crate) fn parse_to_hir(
     spec_str: &str,
     config: FrontendConfig,
 ) -> Result<RTLolaHIR<Complete>, String> {
-    let mapper = crate::parse::SourceMapper::new(std::path::PathBuf::from(filename), spec_str);
-    let handler = reporting_old::Handler::new(mapper);
+    let handler = reporting::Handler::new(std::path::PathBuf::from(filename), spec_str.into());
 
     let spec = match crate::parse::parse(&spec_str, &handler, config) {
         Ok(spec) => spec,

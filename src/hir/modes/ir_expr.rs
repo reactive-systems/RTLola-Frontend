@@ -15,7 +15,7 @@ use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
-use crate::reporting_old::Handler;
+use crate::reporting::Handler;
 use crate::FrontendConfig;
 use itertools::{Either, Itertools};
 use std::collections::HashMap;
@@ -707,11 +707,11 @@ mod tests {
     use super::*;
     use crate::ast::WindowOperation;
     use crate::hir::expression::StreamAccessKind;
-    use crate::parse::{parse, SourceMapper};
+    use crate::parse::parse;
     use std::path::PathBuf;
 
     fn obtain_expressions(spec: &str) -> Hir<IrExpression> {
-        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
