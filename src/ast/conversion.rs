@@ -130,7 +130,7 @@ impl Expression {
             if seconds.is_positive() {
                 Ok(UOM_Frequency::new::<hertz>(seconds.inv()))
             } else {
-                Err(format!("duration of periodic stream specification must be positiv, found `{:#?}`", period))
+                Err(format!("duration of periodic stream specification must be positive, found `{:#?}`", period))
             }
         } else {
             Err(format!("expected frequency or duration, found `{}`", self))

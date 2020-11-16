@@ -253,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] //Depends on Typechecker, NYI
     fn test_extension_rate_extraction() {
         let input = "input a: UInt64\n";
         let hz50 = "output b: UInt64 @50Hz := 1\n";

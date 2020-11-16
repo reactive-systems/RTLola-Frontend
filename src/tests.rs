@@ -1,5 +1,4 @@
 //! End-to-end tests of the RTLola frontend
-
 use super::*;
 
 fn parse(spec: &str) -> Result<RTLolaMIR, String> {

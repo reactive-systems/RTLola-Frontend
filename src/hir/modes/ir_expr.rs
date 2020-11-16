@@ -63,10 +63,14 @@ where
         match sr {
             SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
             SRef::OutRef(o) => {
-                if o >= self.outputs.len() {
-                    self.mode.expression(self.triggers[o - self.outputs.len()].expr_id)
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    let id = output.expect("Accessing non-existing Output-Stream").expr_id;
+                    self.mode.expression(id)
                 } else {
-                    self.mode.expression(self.outputs[o].expr_id)
+                    let tr = self.triggers.iter().find(|tr| tr.sr == sr);
+                    let id = tr.expect("Accessing non-existing Trigger").expr_id;
+                    self.mode.expression(id)
                 }
             }
         }
@@ -76,10 +80,15 @@ where
         match sr {
             SRef::InRef(_) => None,
             SRef::OutRef(o) => {
-                if let Some(ac) = self.outputs[o].activation_condition {
-                    match ac {
-                        AC::Expr(e) => Some(self.mode.expression(e)),
-                        AC::Frequency(_) => None, //May change return type
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    if let Some(ac) = output.and_then(|o| o.activation_condition) {
+                        match ac {
+                            AC::Expr(e) => Some(self.mode.expression(e)),
+                            AC::Frequency(_) => None, //May change return type
+                        }
+                    } else {
+                        None
                     }
                 } else {
                     None
@@ -91,23 +100,45 @@ where
     pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
         match sr {
             SRef::InRef(_) => None,
-            SRef::OutRef(o) => self.outputs[o]
-                .instance_template
-                .spawn
-                .as_ref()
-                .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e)))),
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| {
+                        o.instance_template
+                            .spawn
+                            .as_ref()
+                            .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e))))
+                    })
+                } else {
+                    None
+                }
+            }
         }
     }
     pub fn filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => None,
-            SRef::OutRef(o) => self.outputs[o].instance_template.filter.map(|e| self.mode.expression(e)),
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| o.instance_template.filter.map(|e| self.mode.expression(e)))
+                } else {
+                    None
+                }
+            }
         }
     }
     pub fn close(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => None,
-            SRef::OutRef(o) => self.outputs[o].instance_template.close.map(|e| self.mode.expression(e)),
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| o.instance_template.close.map(|e| self.mode.expression(e)))
+                } else {
+                    None
+                }
+            }
         }
     }
 }

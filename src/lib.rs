@@ -25,14 +25,15 @@ mod stdlib;
 mod transformations;
 pub mod ty;
 
-#[cfg(test)]
-mod tests;
+//#[cfg(test)]
+//mod tests;
 
 // Re-export
+use crate::hir::modes::IrExpression;
 pub use ast::RTLolaAst;
 pub use export::analyze;
 pub use hir::RTLolaHIR;
-use hir::{modes::Complete, modes::Raw, Hir};
+use hir::{modes::Complete, Hir};
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;
 
@@ -104,8 +105,7 @@ pub(crate) fn parse_to_hir(
             return Err(format!("error: invalid syntax:\n{}", e));
         }
     };
-    Ok(Hir::<Raw>::from(spec)
-        .replace_expressions()
+    Ok(Hir::<IrExpression>::transform_expressions(spec, &handler, &config)
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
         .type_check()
