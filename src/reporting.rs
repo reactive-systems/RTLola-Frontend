@@ -115,7 +115,6 @@ impl Handler {
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
             _ => {}
         }
-        //#[cfg(not(test))]
         term::emit((*self.output.write().unwrap()).as_mut(), &self.config, &self.input, diag)
             .expect("Could not write diagnostic.");
     }
