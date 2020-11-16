@@ -147,7 +147,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                 if !self.config.allow_parameters {
                     self.handler.error_with_span(
                         "Parameterization is disabled",
-                        res[0].span.clone().into(),
+                        res[0].span.clone(),
                         Some("found parameter"),
                     )
                 }
@@ -193,7 +193,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             if !self.config.allow_parameters {
                 self.handler.error_with_span(
                     "Parameterization is disabled",
-                    res[0].span.clone().into(),
+                    res[0].span.clone(),
                     Some("found parameter"),
                 )
             }
@@ -236,14 +236,14 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             if !self.config.allow_parameters {
                 self.handler.error_with_span(
                     "Parameterization is disabled",
-                    expr.span.clone().into(),
+                    expr.span.clone(),
                     Some("found termination condition"),
                 )
             }
             if params.is_empty() {
                 self.handler.error_with_span(
                     "Termination condition is only allowed for parameterized streams",
-                    expr.span.clone().into(),
+                    expr.span.clone(),
                     Some("found termination condition"),
                 )
             }
@@ -568,7 +568,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                     _ => {
                                         self.handler.error_with_span(
                                             &format!("expected unsigned integer, found {}", l),
-                                            rhs.span.into(),
+                                            rhs.span,
                                             Some("unexpected"),
                                         );
                                         std::process::exit(1);
@@ -582,7 +582,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         return Expression::new(
                                             self.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
-                                            span.clone().into(),
+                                            span,
                                         )
                                     }
                                 }
@@ -603,7 +603,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                             Err(reason) => {
                                                 self.handler.error_with_span(
                                                     "failed to parse offset",
-                                                    rhs.span.into(),
+                                                    rhs.span,
                                                     Some(&reason),
                                                 );
                                                 std::process::exit(1);
@@ -620,7 +620,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         let lhs = Expression::new(
                                             self.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Hold),
-                                            span.clone().into(),
+                                            span.clone(),
                                         );
                                         ExpressionKind::Default(Box::new(lhs), args[0].clone())
                                     }
@@ -648,8 +648,8 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                                 fun => {
                                                     self.handler.error_with_span(
                                                         &format!("unknown aggregation function {}", fun),
-                                                            i.span.clone(),
-                                                            Some("available: count, min, max, sum, average, exists, forall, integral"),
+                                                        i.span.clone(),
+                                              Some("available: count, min, max, sum, average, exists, forall, integral"),
                                                     );
                                                     std::process::exit(1);
                                                 }
@@ -657,7 +657,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                             _ => {
                                                 self.handler.error_with_span(
                                                     "expected aggregation function",
-                                                    args[1].span.clone().into(),
+                                                    args[1].span.clone(),
                                                     Some("available: count, min, max, sum, average, integral"),
                                                 );
                                                 std::process::exit(1);
@@ -688,7 +688,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                                         return Expression::new(
                                             self.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
-                                            span.clone().into(),
+                                            span,
                                         )
                                     }
                                 }
@@ -696,7 +696,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                             _ => {
                                 self.handler.error_with_span(
                                     &format!("expected method call or tuple access, found {}", rhs),
-                                    rhs.span.into(),
+                                    rhs.span,
                                     Some("unexpected"),
                                 );
                                 std::process::exit(1);
@@ -709,7 +709,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                             Err(reason) => {
                                 self.handler.error_with_span(
                                     "failed to parse offset expression",
-                                    rhs.span.into(),
+                                    rhs.span,
                                     Some(&reason),
                                 );
                                 std::process::exit(1);

@@ -95,10 +95,10 @@ impl<'b> NamingAnalysis<'b> {
 
         if let Some(decl) = self.declarations.get_decl_in_current_scope_for(name) {
             let mut diag = Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", name))
-                .add_span_with_label(span.clone(), Some(&format!("`{}` redefined here", name)), true);
+                .add_span_with_label(span, Some(&format!("`{}` redefined here", name)), true);
             if let Some(span) = decl.get_span() {
                 diag = diag.add_span_with_label(
-                    span.clone(),
+                    span,
                     Some(&format!("previous definition of the value `{}` here", name)),
                     false,
                 );

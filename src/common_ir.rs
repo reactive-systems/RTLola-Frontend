@@ -161,7 +161,7 @@ pub type InputReference = usize;
 pub type OutputReference = usize;
 
 /// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StreamReference {
     /// References an input stream.
     InRef(InputReference),

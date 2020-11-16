@@ -82,9 +82,9 @@ where
             SRef::OutRef(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    if let Some(ac) = output.and_then(|o| o.activation_condition) {
+                    if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
                         match ac {
-                            AC::Expr(e) => Some(self.mode.expression(e)),
+                            AC::Expr(e) => Some(self.mode.expression(*e)),
                             AC::Frequency { .. } => None, //May change return type
                         }
                     } else {
