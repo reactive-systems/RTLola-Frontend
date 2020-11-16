@@ -181,6 +181,7 @@ impl Handler {
 }
 
 /// `Diagnostic` a more flexible way to build a diagnostic.
+#[derive(Debug, Clone)]
 pub struct Diagnostic<'a> {
     /// The handler used for emitting the diagnostic
     handler: &'a Handler,

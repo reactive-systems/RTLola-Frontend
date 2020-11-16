@@ -21,7 +21,7 @@ pub mod hir;
 pub mod mir;
 pub(crate) mod new_analysis;
 pub mod parse;
-mod reporting;
+pub mod reporting;
 mod stdlib;
 mod transformations;
 pub mod ty;
