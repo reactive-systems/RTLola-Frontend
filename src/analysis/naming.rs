@@ -94,16 +94,14 @@ impl<'b> NamingAnalysis<'b> {
         }
 
         if let Some(decl) = self.declarations.get_decl_in_current_scope_for(name) {
-            let mut diag = Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", name))
-                .add_span_with_label(span, Some(&format!("`{}` redefined here", name)), true);
-            if let Some(span) = decl.get_span() {
-                diag = diag.add_span_with_label(
-                    span,
+            Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", name))
+                .add_span_with_label(span, Some(&format!("`{}` redefined here", name)), true)
+                .maybe_add_span_with_label(
+                    decl.get_span(),
                     Some(&format!("previous definition of the value `{}` here", name)),
                     false,
-                );
-            }
-            diag.emit();
+                )
+                .emit();
         } else {
             self.declarations.add_decl_for(name, decl.clone());
         }
@@ -222,23 +220,18 @@ impl<'b> NamingAnalysis<'b> {
         for trigger in &spec.trigger {
             if let Some(ident) = &trigger.name {
                 if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&ident.name) {
-                    let mut diag = Diagnostic::error(
-                        self.handler,
-                        &format!("the name `{}` is defined multiple times", ident.name),
-                    )
-                    .add_span_with_label(
-                        ident.span.clone(),
-                        Some(&format!("`{}` redefined here", ident.name)),
-                        true,
-                    );
-                    if let Some(span) = decl.get_span() {
-                        diag = diag.add_span_with_label(
-                            span,
+                    Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", ident.name))
+                        .add_span_with_label(
+                            ident.span.clone(),
+                            Some(&format!("`{}` redefined here", ident.name)),
+                            true,
+                        )
+                        .maybe_add_span_with_label(
+                            decl.get_span(),
                             Some(&format!("previous definition of the value `{}` here", ident.name)),
                             false,
-                        );
-                    }
-                    diag.emit();
+                        )
+                        .emit();
                 }
                 let mut found = false;
                 for previous_entry in &trigger_names {

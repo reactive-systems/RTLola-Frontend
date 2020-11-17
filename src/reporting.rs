@@ -244,6 +244,23 @@ impl<'a> Diagnostic<'a> {
         self
     }
 
+    /// Adds a code span to the diagnostic if the span is available.
+    /// The `label` is printed next to the code fragment the span refers to.
+    /// If `primary` is set to true the span is treated as the primary code fragment.
+    pub fn maybe_add_span_with_label(mut self, span: Option<Span>, label: Option<&str>, primary: bool) -> Self {
+        let span = match span {
+            None | Some(Span::Unknown) => return self,
+            Some(s) => s,
+        };
+        self.has_indirect_span |= span.is_indirect();
+        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
+        if let Some(l) = label {
+            rep_label.message = l.into();
+        }
+        self.diag.labels.push(rep_label);
+        self
+    }
+
     /// Adds a note to the bottom of the diagnostic.
     #[allow(dead_code)]
     pub fn add_note(mut self, note: &str) -> Self {
@@ -299,9 +316,12 @@ mod tests {
         let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
         let span1 = Span::Direct { start: 9, end: 12 };
         let span2 = Span::Indirect(Box::new(Span::Direct { start: 20, end: 21 }));
+        let span3 = Span::Direct { start: 24, end: 25 };
         Diagnostic::error(&handler, "Failed with love")
             .add_span_with_label(span1, Some("here"), true)
             .add_span_with_label(span2, Some("and here"), false)
+            .maybe_add_span_with_label(None, Some("Maybe there is no span"), false)
+            .maybe_add_span_with_label(Some(span3), None, false)
             .add_note("This is a note")
             .emit();
         assert_eq!(handler.emitted_errors(), 1);
