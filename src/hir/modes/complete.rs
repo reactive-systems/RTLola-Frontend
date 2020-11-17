@@ -241,7 +241,7 @@ impl OrderedWrapper for Complete {
 }
 
 impl MemoryAnalyzed for Complete {
-    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
+    fn memory_bound(&self, _sr: SRef) -> MemorizationBound {
         todo!()
     }
 }

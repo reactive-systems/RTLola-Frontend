@@ -123,7 +123,7 @@ impl DependencyGraph {
                 args.iter().flat_map(|a| Self::collect_edges(src, a).into_iter()).collect()
             }
             ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
-            ExpressionKind::Function { name, args, type_param } => {
+            ExpressionKind::Function { name: _, args, type_param: _ } => {
                 args.iter().flat_map(|a| Self::collect_edges(src, a)).collect()
             }
             ExpressionKind::Ite { condition, consequence, alternative } => Self::collect_edges(src, condition)

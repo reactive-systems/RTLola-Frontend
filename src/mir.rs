@@ -388,7 +388,7 @@ impl RTLolaMIR {
     }
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
-    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+    pub fn get_discrete_window(&self, _window: WindowReference) -> &DiscreteWindow {
         // match window {
         //     WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
         //     WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
