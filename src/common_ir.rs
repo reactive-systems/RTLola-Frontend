@@ -222,6 +222,18 @@ impl PartialOrd for StreamReference {
     }
 }
 
+impl Ord for StreamReference {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (StreamReference::InRef(i), StreamReference::InRef(i2)) => i.cmp(&i2),
+            (StreamReference::OutRef(o), StreamReference::OutRef(o2)) => o.cmp(&o2),
+            (StreamReference::InRef(_), StreamReference::OutRef(_)) => Ordering::Less,
+            (StreamReference::OutRef(_), StreamReference::InRef(_)) => Ordering::Greater,
+        }
+    }
+}
+
 /// A trait for any kind of stream.
 pub trait Stream {
     // TODO: probably not needed anymore
