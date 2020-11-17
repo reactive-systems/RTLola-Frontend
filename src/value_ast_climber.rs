@@ -12,8 +12,7 @@ use front::hir::expression::{
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
 use front::hir::{AnnotatedType, Input, Output, Trigger, Window};
-use front::parse::Span;
-use front::reporting::{Handler, LabeledSpan};
+use front::reporting::{Handler, Span};
 use front::RTLolaHIR;
 use itertools::Either;
 use rusttyc::types::Abstract;
@@ -198,7 +197,7 @@ where
     ) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = self.tyc.new_term_key();
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        self.key_span.insert(term_key, exp.span);
+        self.key_span.insert(term_key, exp.span.clone());
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
@@ -825,7 +824,8 @@ where
         if let Some(error_key_span) = self.key_span.get(&primal_key) {
             self.handler.error_with_span(
                 "Stream inference error",
-                LabeledSpan::new(*error_key_span, &msg, true),
+                error_key_span.clone(),
+                Some(&msg),
             );
         } else {
             self.handler.error(&msg);
@@ -866,10 +866,8 @@ mod value_type_tests {
     use crate::rtltc::NodeId;
     use crate::value_types::IConcreteType;
     use crate::LolaTypeChecker;
-    use front::analysis::naming::Declaration;
     use front::common_ir::StreamReference;
     use front::hir::modes::IrExpression;
-    use front::parse::SourceMapper;
     use front::reporting::Handler;
     use front::RTLolaAst;
     use front::RTLolaHIR;
@@ -892,7 +890,7 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
         let ast: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
                 Ok(s) => s,

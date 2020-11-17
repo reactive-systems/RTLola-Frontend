@@ -3,8 +3,7 @@ use biodivine_lib_bdd::boolean_expression::BooleanExpression;
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
 use front::common_ir::StreamReference;
 use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use front::parse::Span;
-use front::reporting::{Handler, LabeledSpan};
+use front::reporting::{Diagnostic, Handler, Span};
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
 use uom::lib::collections::HashMap;
@@ -105,12 +104,14 @@ impl PacingError {
     pub fn emit(self, handler: &Handler) {
         match self {
             PacingError::FreqAnnotationNeeded(span) => {
-                let ls = LabeledSpan::new(span, "here", true);
-                handler.error_with_span("Frequency annotation needed.", ls);
+                handler.error_with_span("Frequency annotation needed.", span, Some("here"));
             }
             PacingError::NeverEval(span) => {
-                let ls = LabeledSpan::new(span, "here", true);
-                handler.error_with_span("The following stream is never evaluated.", ls);
+                handler.error_with_span(
+                    "The following stream is never evaluated.",
+                    span,
+                    Some("here"),
+                );
             }
             PacingError::MalformedAC(reason) => {
                 handler.error(&format!("Malformed activation condition: {}", reason));
@@ -122,8 +123,11 @@ impl PacingError {
         match self {
             PacingError::FreqAnnotationNeeded(_) | PacingError::NeverEval(_) => self.emit(handler),
             PacingError::MalformedAC(reason) => {
-                let ls = LabeledSpan::new(s, "here", true);
-                handler.error_with_span(&format!("Malformed activation condition: {}", reason), ls);
+                handler.error_with_span(
+                    &format!("Malformed activation condition: {}", reason),
+                    s,
+                    Some("here"),
+                );
             }
         }
     }
@@ -214,42 +218,43 @@ pub(crate) fn emit_error(
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(*spans.get(k1).unwrap_or(&Span::unknown()), "here", true);
-            let span2 =
-                LabeledSpan::new(*spans.get(k2).unwrap_or(&Span::unknown()), "and here", true);
-            let mut diag = handler.build_error_with_span(msg, span1);
-            diag.add_labeled_span(span2);
-            diag.emit();
+            Diagnostic::error(handler, msg)
+                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
+                .maybe_add_span_with_label(spans.get(k2).cloned(), Some("and here"), false)
+                .emit();
         }
-        TcErr::Bound(k1, k2o, err) => {
+        TcErr::Bound(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(*spans.get(k1).unwrap_or(&Span::unknown()), "here", true);
-            let mut diag = handler.build_error_with_span(msg, span1);
-            if let Some(k2) = k2o {
-                let span2 = LabeledSpan::new(
-                    *spans.get(k2).unwrap_or(&Span::unknown()),
-                    "and here",
+            Diagnostic::error(handler, msg)
+                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
+                .maybe_add_span_with_label(
+                    k2.and_then(|k2| spans.get(&k2).cloned()),
+                    Some("and here"),
                     false,
-                );
-                diag.add_labeled_span(span2);
-            }
-            diag.emit();
+                )
+                .emit();
         }
         TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
                 "In pacing type analysis:\n Child type out of bounds for type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
         TcErr::ExactTypeViolation(key, ty) => {
             let msg = &format!(
                 "In pacing type analysis:\n Expected type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
         TcErr::ConflictingExactBounds(key, ty1, ty2) => {
             let msg = &format!(
@@ -257,8 +262,11 @@ pub(crate) fn emit_error(
                 ty1.to_string(vars, names),
                 ty2.to_string(vars, names)
             );
-            let span = LabeledSpan::new(*spans.get(key).unwrap_or(&Span::unknown()), "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
     }
 }
@@ -405,7 +413,7 @@ impl AbstractPacingType {
 /**
 The activation condition describes when an event-based stream produces a new value.
 */
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Ord, Hash)]
 pub enum ActivationCondition {
     /**
     When all of the activation conditions is true.

@@ -8,8 +8,7 @@ use front::common_ir::StreamReference;
 use front::hir::expression::ExprId;
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
-use front::parse::Span;
-use front::reporting::Handler;
+use front::reporting::{Handler, Span};
 use front::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
 use std::cmp::Ordering;
@@ -24,7 +23,7 @@ where
     pub(crate) handler: &'a Handler,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NodeId {
     SRef(StreamReference),
     Expr(ExprId),
@@ -109,7 +108,7 @@ where
                     Err(e) => {
                         e.emit_with_span(
                             self.handler,
-                            *key_span.get(key).unwrap_or(&Span::unknown()),
+                            key_span.get(key).unwrap_or(&Span::Unknown).clone(),
                         );
                         None
                     }

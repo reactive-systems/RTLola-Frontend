@@ -10,7 +10,7 @@ use front::hir::expression::{Expression, ExpressionKind};
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
 use front::hir::{Input, Output, Trigger, AC};
-use front::parse::Span;
+use front::reporting::Span;
 use front::RTLolaHIR;
 use rusttyc::types::AbstractTypeTable;
 use rusttyc::{TcErr, TcKey, TypeChecker};
@@ -40,19 +40,19 @@ where
         let mut bdd_var_builder = BddVariableSetBuilder::new();
         let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
-        let key_span = HashMap::new();
+        let mut key_span = HashMap::new();
 
         for input in hir.inputs() {
             bdd_var_builder.make_variable(&input.sr.in_ix().to_string()); //TODO
             let key = tyc.get_var_key(&Variable(input.name.clone()));
             node_key.insert(NodeId::SRef(input.sr), key);
-            //key_span.insert(key, input.span);
+            key_span.insert(key, input.span.clone());
         }
         for output in hir.outputs() {
             bdd_var_builder.make_variable(&(output.sr.out_ix() + hir.num_inputs()).to_string()); //TODO
             let key = tyc.get_var_key(&Variable(output.name.clone()));
             node_key.insert(NodeId::SRef(output.sr), key);
-            //key_span.insert(key, output.span);
+            key_span.insert(key, output.span.clone());
         }
         let bdd_vars = bdd_var_builder.build();
 
@@ -95,15 +95,18 @@ where
             .impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
-        if let Some(ac) = output.activation_condition {
+        if let Some(ac) = &output.activation_condition {
             let annotated_ty_key = self.tyc.new_term_key();
             let annotated_ty = match ac {
-                AC::Frequency(f) => AbstractPacingType::Periodic(Freq::Fixed(f)),
+                AC::Frequency { span, value } => {
+                    self.key_span.insert(annotated_ty_key, span.clone());
+                    AbstractPacingType::Periodic(Freq::Fixed(*value))
+                }
                 AC::Expr(eid) => {
-                    let expr = self.hir.expression(eid);
+                    let expr = self.hir.expression(*eid);
                     self.node_key
                         .insert(NodeId::Expr(expr.eid), annotated_ty_key);
-                    self.key_span.insert(annotated_ty_key, expr.span);
+                    self.key_span.insert(annotated_ty_key, expr.span.clone());
 
                     match parse_ac(expr, &self.bdd_vars, self.hir.num_inputs()) {
                         Ok(b) => AbstractPacingType::Event(b),
@@ -285,7 +288,7 @@ where
             }
         };
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        self.key_span.insert(term_key, exp.span);
+        self.key_span.insert(term_key, exp.span.clone());
         Ok(term_key)
     }
 
@@ -300,12 +303,12 @@ where
             let at = &tt[nid_key[&NodeId::SRef(output.sr)]];
             match at {
                 AbstractPacingType::Periodic(Freq::Any) => {
-                    res.push(PacingError::FreqAnnotationNeeded(Span::unknown()));
+                    res.push(PacingError::FreqAnnotationNeeded(output.span.clone()));
                     //TODO
                 }
                 AbstractPacingType::Never => {
                     //TOD
-                    res.push(PacingError::NeverEval(Span::unknown()));
+                    res.push(PacingError::NeverEval(output.span.clone()));
                     //TOD
                 }
                 _ => {}
@@ -327,7 +330,6 @@ mod pacing_type_tests {
     use front::common_ir::StreamReference;
     use front::hir::modes::IrExpression;
     use front::hir::RTLolaHIR;
-    use front::parse::SourceMapper;
     use front::reporting::Handler;
     use front::RTLolaAst;
     use num::rational::Rational64 as Rational;
@@ -337,7 +339,7 @@ mod pacing_type_tests {
     use uom::si::rational64::Frequency as UOM_Frequency;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
-        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
         let ast: RTLolaAst =
             match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
                 Ok(s) => s,

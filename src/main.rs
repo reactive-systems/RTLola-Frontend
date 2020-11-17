@@ -9,7 +9,6 @@ mod value_types;
 
 use crate::rtltc::LolaTypeChecker;
 use front::hir::modes::IrExpression;
-use front::parse::SourceMapper;
 use front::FrontendConfig;
 use std::env;
 use std::fs::File;
@@ -46,7 +45,7 @@ fn main() {
 
         let prog = prog;
         let spec = &prog;
-        let handler = front::reporting::Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = front::reporting::Handler::new(PathBuf::from(path), spec.into());
         let ast = front::parse::parse(spec, &handler, front::FrontendConfig::default());
 
         let lola_spec = match ast {
