@@ -857,25 +857,6 @@ mod tests {
     }
 
     #[test]
-    fn parametrized_access() {
-        use crate::hir::expression::StreamAccessKind;
-        let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
-        let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.exprid_to_expr[&output_expr_id];
-        assert!(matches!(
-            expr.kind,
-            ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscreteOffset(_)), _)
-        ));
-        if let ExpressionKind::StreamAccess(sr, _, v) = &expr.kind {
-            assert_eq!(*sr, SRef::OutRef(0));
-            assert_eq!(v.len(), 3);
-        } else {
-            unreachable!()
-        }
-    }
-
-    #[test]
     fn tuple() {
         let spec = "output o := (1,2,3)";
         let ir = obtain_expressions(spec);

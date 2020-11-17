@@ -976,249 +976,249 @@
 // }
 // }
 
-#[cfg(test)]
-mod tests {
-    use crate::mir::*;
-    use crate::FrontendConfig;
+// #[cfg(test)]
+// mod tests {
+//     use crate::mir::*;
+//     use crate::FrontendConfig;
 
-    fn spec_to_ir(spec: &str) -> RTLolaMIR {
-        crate::parse("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
-    }
+//     fn spec_to_ir(spec: &str) -> RTLolaMIR {
+//         crate::parse("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
+//     }
 
-    fn check_stream_number(
-        ir: &RTLolaMIR,
-        inputs: usize,
-        outputs: usize,
-        time: usize,
-        event: usize,
-        sliding: usize,
-        triggers: usize,
-    ) {
-        assert_eq!(inputs, ir.inputs.len());
-        assert_eq!(outputs, ir.outputs.len());
-        assert_eq!(time, ir.time_driven.len());
-        assert_eq!(event, ir.event_driven.len());
-        assert_eq!(sliding, ir.sliding_windows.len());
-        assert_eq!(triggers, ir.triggers.len());
-    }
+//     fn check_stream_number(
+//         ir: &RTLolaMIR,
+//         inputs: usize,
+//         outputs: usize,
+//         time: usize,
+//         event: usize,
+//         sliding: usize,
+//         triggers: usize,
+//     ) {
+//         assert_eq!(inputs, ir.inputs.len());
+//         assert_eq!(outputs, ir.outputs.len());
+//         assert_eq!(time, ir.time_driven.len());
+//         assert_eq!(event, ir.event_driven.len());
+//         assert_eq!(sliding, ir.sliding_windows.len());
+//         assert_eq!(triggers, ir.triggers.len());
+//     }
 
-    #[test]
-    fn lower_one_input() {
-        let ir = spec_to_ir("input a: Int32");
-        check_stream_number(&ir, 1, 0, 0, 0, 0, 0);
-    }
+//     #[test]
+//     fn lower_one_input() {
+//         let ir = spec_to_ir("input a: Int32");
+//         check_stream_number(&ir, 1, 0, 0, 0, 0, 0);
+//     }
 
-    #[test]
-    fn lower_triggers() {
-        let ir = spec_to_ir("input a: Int32\ntrigger a > 50\ntrigger a < 30 \"So low...\"");
-        // Note: Each trigger needs to be accounted for as an output stream.
-        check_stream_number(&ir, 1, 2, 0, 2, 0, 2);
-    }
+//     #[test]
+//     fn lower_triggers() {
+//         let ir = spec_to_ir("input a: Int32\ntrigger a > 50\ntrigger a < 30 \"So low...\"");
+//         // Note: Each trigger needs to be accounted for as an output stream.
+//         check_stream_number(&ir, 1, 2, 0, 2, 0, 2);
+//     }
 
-    #[test]
-    fn lower_one_output_event() {
-        let ir = spec_to_ir("output a: Int32 := 34");
-        check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
-    }
+//     #[test]
+//     fn lower_one_output_event() {
+//         let ir = spec_to_ir("output a: Int32 := 34");
+//         check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
+//     }
 
-    #[test]
-    fn lower_one_output_event_float() {
-        let ir = spec_to_ir("output a: Float64 := 34.");
-        check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
-    }
+//     #[test]
+//     fn lower_one_output_event_float() {
+//         let ir = spec_to_ir("output a: Float64 := 34.");
+//         check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
+//     }
 
-    #[test]
-    fn lower_one_output_event_float16() {
-        let ir = spec_to_ir("output a: Float16 := 34.");
-        check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
-    }
+//     #[test]
+//     fn lower_one_output_event_float16() {
+//         let ir = spec_to_ir("output a: Float16 := 34.");
+//         check_stream_number(&ir, 0, 1, 0, 1, 0, 0);
+//     }
 
-    #[test]
-    fn lower_one_output_time() {
-        let ir = spec_to_ir("output a: Int32 @1Hz := 34");
-        check_stream_number(&ir, 0, 1, 1, 0, 0, 0);
-    }
+//     #[test]
+//     fn lower_one_output_time() {
+//         let ir = spec_to_ir("output a: Int32 @1Hz := 34");
+//         check_stream_number(&ir, 0, 1, 1, 0, 0, 0);
+//     }
 
-    #[test]
-    fn lower_one_sliding() {
-        let ir = spec_to_ir("input a: Int32 output b: Int64 @1Hz := a.aggregate(over: 3s, using: sum)");
-        check_stream_number(&ir, 1, 1, 1, 0, 1, 0);
-    }
+//     #[test]
+//     fn lower_one_sliding() {
+//         let ir = spec_to_ir("input a: Int32 output b: Int64 @1Hz := a.aggregate(over: 3s, using: sum)");
+//         check_stream_number(&ir, 1, 1, 1, 0, 1, 0);
+//     }
 
-    #[test]
-    #[ignore] // Trigger needs to be periodic, and if it were event based, the type checker needs to reject the access w/o s&h or default.
-    fn lower_multiple_streams_with_windows() {
-        let ir = spec_to_ir(
-            "\
-             input a: Int32 \n\
-             input b: Bool \n\
-             output c: Int32 := a \n\
-             output d: Int64 @1Hz := a[3s, sum].defaults(to: 19) \n\
-             output e: Bool := a > 4 && b \n\
-             output f: Int64 @1Hz := if (e ! true) then (c ! 0) else 0 \n\
-             output g: Float64 @0.1Hz :=  cast(f[10s, avg].defaults(to: 0)) \n\
-             trigger g > 17.0 \
-             ",
-        );
-        check_stream_number(&ir, 2, 6, 5, 1, 2, 1);
-    }
+//     #[test]
+//     #[ignore] // Trigger needs to be periodic, and if it were event based, the type checker needs to reject the access w/o s&h or default.
+//     fn lower_multiple_streams_with_windows() {
+//         let ir = spec_to_ir(
+//             "\
+//              input a: Int32 \n\
+//              input b: Bool \n\
+//              output c: Int32 := a \n\
+//              output d: Int64 @1Hz := a[3s, sum].defaults(to: 19) \n\
+//              output e: Bool := a > 4 && b \n\
+//              output f: Int64 @1Hz := if (e ! true) then (c ! 0) else 0 \n\
+//              output g: Float64 @0.1Hz :=  cast(f[10s, avg].defaults(to: 0)) \n\
+//              trigger g > 17.0 \
+//              ",
+//         );
+//         check_stream_number(&ir, 2, 6, 5, 1, 2, 1);
+//     }
 
-    #[test]
-    fn lower_constant_expression() {
-        let ir = spec_to_ir("output a: Int32 := 3+4*7");
-        let stream: &OutputStream = &ir.outputs[0];
+//     #[test]
+//     fn lower_constant_expression() {
+//         let ir = spec_to_ir("output a: Int32 := 3+4*7");
+//         let stream: &OutputStream = &ir.outputs[0];
 
-        let ty = Type::Int(crate::ty::IntTy::I32);
+//         let ty = Type::Int(crate::ty::IntTy::I32);
 
-        assert_eq!(stream.ty, ty);
+//         assert_eq!(stream.ty, ty);
 
-        let tar = &ir.outputs[0];
-        assert_eq!("+(3,*(4,7) : [(Int32,Int32) -> Int32]) : [(Int32,Int32) -> Int32]", format!("{}", tar.expr))
-    }
+//         let tar = &ir.outputs[0];
+//         assert_eq!("+(3,*(4,7) : [(Int32,Int32) -> Int32]) : [(Int32,Int32) -> Int32]", format!("{}", tar.expr))
+//     }
 
-    #[test]
-    fn lower_expr_with_widening() {
-        let ir = spec_to_ir("input a: UInt8 output b: UInt16 := a");
-        let stream = &ir.outputs[0];
+//     #[test]
+//     fn lower_expr_with_widening() {
+//         let ir = spec_to_ir("input a: UInt8 output b: UInt16 := a");
+//         let stream = &ir.outputs[0];
 
-        let expr = &stream.expr;
-        assert_eq!("cast<UInt8,UInt16>(In(0))", format!("{}", expr))
-    }
+//         let expr = &stream.expr;
+//         assert_eq!("cast<UInt8,UInt16>(In(0))", format!("{}", expr))
+//     }
 
-    #[test]
-    fn lower_function_expression() {
-        let ir = spec_to_ir("import math input a: Float32 output v: Float64 := sqrt(a)");
-        let stream: &OutputStream = &ir.outputs[0];
+//     #[test]
+//     fn lower_function_expression() {
+//         let ir = spec_to_ir("import math input a: Float32 output v: Float64 := sqrt(a)");
+//         let stream: &OutputStream = &ir.outputs[0];
 
-        let ty = Type::Float(crate::ty::FloatTy::F64);
+//         let ty = Type::Float(crate::ty::FloatTy::F64);
 
-        assert_eq!(stream.ty, ty);
+//         assert_eq!(stream.ty, ty);
 
-        let expr = &stream.expr;
-        assert_eq!("cast<Float32,Float64>(sqrt(In(0): Float32) -> Float32)", format!("{}", expr))
-    }
+//         let expr = &stream.expr;
+//         assert_eq!("cast<Float32,Float64>(sqrt(In(0): Float32) -> Float32)", format!("{}", expr))
+//     }
 
-    #[test]
-    fn lower_cast_expression() {
-        let ir = spec_to_ir("input a: Float64 output v: Float32 := cast(a)");
-        let stream: &OutputStream = &ir.outputs[0];
+//     #[test]
+//     fn lower_cast_expression() {
+//         let ir = spec_to_ir("input a: Float64 output v: Float32 := cast(a)");
+//         let stream: &OutputStream = &ir.outputs[0];
 
-        let ty = Type::Float(crate::ty::FloatTy::F32);
+//         let ty = Type::Float(crate::ty::FloatTy::F32);
 
-        assert_eq!(stream.ty, ty);
+//         assert_eq!(stream.ty, ty);
 
-        let expr = &stream.expr;
-        assert_eq!("cast<Float64,Float32>(In(0))", format!("{}", expr))
-    }
+//         let expr = &stream.expr;
+//         assert_eq!("cast<Float64,Float32>(In(0))", format!("{}", expr))
+//     }
 
-    #[ignore] // Needs to be adapted to new lowering.
-    #[test]
-    fn lower_function_expression_regex() {
-        //        let ir = spec_to_ir("import regex\ninput a: String output v: Bool := matches_regex(a, r\"a*b\")");
-        //
-        //        let stream: &OutputStream = &ir.outputs[0];
-        //
-        //        let ty = Type::Bool;
-        //
-        //        assert_eq!(stream.ty, ty);
-        //
-        //        let expr = &stream.expr;
-        //        assert_eq!(expr.stmts.len(), 3);
-        //
-        //        let load = &expr.stmts[0];
-        //
-        //        match &load.op {
-        //            Op::SyncStreamLookup(StreamInstance { reference, arguments }) => {
-        //                assert!(arguments.is_empty(), "Lookup does not have arguments.");
-        //                match reference {
-        //                    StreamReference::InRef(0) => {}
-        //                    _ => unreachable!("Incorrect StreamReference"),
-        //                }
-        //            }
-        //            _ => unreachable!("Need to load the constant first."),
-        //        };
-        //
-        //        let constant = &expr.stmts[1];
-        //        match &constant.op {
-        //            Op::LoadConstant(Constant::Str(s)) => assert_eq!(s, "a*b"),
-        //            c => unreachable!("expected constant, found {:?}", c),
-        //        }
-        //
-        //        let regex_match = &expr.stmts[2];
-        //
-        //        match &regex_match.op {
-        //            Op::Function(s) => assert_eq!(s, "matches_regex"),
-        //            _ => unreachable!("Need to apply the function!"),
-        //        }
-    }
+//     #[ignore] // Needs to be adapted to new lowering.
+//     #[test]
+//     fn lower_function_expression_regex() {
+//         //        let ir = spec_to_ir("import regex\ninput a: String output v: Bool := matches_regex(a, r\"a*b\")");
+//         //
+//         //        let stream: &OutputStream = &ir.outputs[0];
+//         //
+//         //        let ty = Type::Bool;
+//         //
+//         //        assert_eq!(stream.ty, ty);
+//         //
+//         //        let expr = &stream.expr;
+//         //        assert_eq!(expr.stmts.len(), 3);
+//         //
+//         //        let load = &expr.stmts[0];
+//         //
+//         //        match &load.op {
+//         //            Op::SyncStreamLookup(StreamInstance { reference, arguments }) => {
+//         //                assert!(arguments.is_empty(), "Lookup does not have arguments.");
+//         //                match reference {
+//         //                    StreamReference::InRef(0) => {}
+//         //                    _ => unreachable!("Incorrect StreamReference"),
+//         //                }
+//         //            }
+//         //            _ => unreachable!("Need to load the constant first."),
+//         //        };
+//         //
+//         //        let constant = &expr.stmts[1];
+//         //        match &constant.op {
+//         //            Op::LoadConstant(Constant::Str(s)) => assert_eq!(s, "a*b"),
+//         //            c => unreachable!("expected constant, found {:?}", c),
+//         //        }
+//         //
+//         //        let regex_match = &expr.stmts[2];
+//         //
+//         //        match &regex_match.op {
+//         //            Op::Function(s) => assert_eq!(s, "matches_regex"),
+//         //            _ => unreachable!("Need to apply the function!"),
+//         //        }
+//     }
 
-    #[test]
-    fn input_lookup() {
-        let ir = spec_to_ir("input a: Int32");
-        let inp = &ir.inputs[0];
-        assert_eq!(inp, ir.get_in(inp.reference));
-    }
+//     #[test]
+//     fn input_lookup() {
+//         let ir = spec_to_ir("input a: Int32");
+//         let inp = &ir.inputs[0];
+//         assert_eq!(inp, ir.get_in(inp.reference));
+//     }
 
-    #[test]
-    fn output_lookup() {
-        let ir = spec_to_ir("output b: Int32 := 3 + 4");
-        let outp = &ir.outputs[0];
-        assert_eq!(outp, ir.get_out(outp.reference));
-    }
+//     #[test]
+//     fn output_lookup() {
+//         let ir = spec_to_ir("output b: Int32 := 3 + 4");
+//         let outp = &ir.outputs[0];
+//         assert_eq!(outp, ir.get_out(outp.reference));
+//     }
 
-    #[test]
-    fn window_lookup() {
-        let ir = spec_to_ir("input a: Int32 output b: Int32 @1Hz := a.aggregate(over: 3s, using: sum)");
-        let window = &ir.sliding_windows[0];
-        assert_eq!(window, ir.get_window(window.reference));
-    }
+//     #[test]
+//     fn window_lookup() {
+//         let ir = spec_to_ir("input a: Int32 output b: Int32 @1Hz := a.aggregate(over: 3s, using: sum)");
+//         let window = &ir.sliding_windows[0];
+//         assert_eq!(window, ir.get_window(window.reference));
+//     }
 
-    #[test]
-    #[should_panic]
-    fn invalid_lookup_no_out() {
-        let ir = spec_to_ir("input a: Int32");
-        let r = StreamReference::OutRef(0);
-        ir.get_in(r);
-    }
+//     #[test]
+//     #[should_panic]
+//     fn invalid_lookup_no_out() {
+//         let ir = spec_to_ir("input a: Int32");
+//         let r = StreamReference::OutRef(0);
+//         ir.get_in(r);
+//     }
 
-    #[test]
-    #[should_panic]
-    fn invalid_lookup_index_oob() {
-        let ir = spec_to_ir("input a: Int32");
-        let r = StreamReference::InRef(24);
-        ir.get_in(r);
-    }
+//     #[test]
+//     #[should_panic]
+//     fn invalid_lookup_index_oob() {
+//         let ir = spec_to_ir("input a: Int32");
+//         let r = StreamReference::InRef(24);
+//         ir.get_in(r);
+//     }
 
-    #[test]
-    fn dependency_test() {
-        let ir = spec_to_ir(
-            "input a: Int32\ninput b: Int32\ninput c: Int32\noutput d: Int32 := a + b + b[-1].defaults(to: 0) + a[-2].defaults(to: 0) + c",
-        );
-        let mut in_refs: [StreamReference; 3] =
-            [StreamReference::InRef(5), StreamReference::InRef(5), StreamReference::InRef(5)];
-        for i in ir.inputs {
-            if i.name == "a" {
-                in_refs[0] = i.reference;
-            }
-            if i.name == "b" {
-                in_refs[1] = i.reference;
-            }
-            if i.name == "c" {
-                in_refs[2] = i.reference;
-            }
-        }
-        let out_dep = &ir.outputs[0].outgoing_dependencies;
-        assert_eq!(out_dep.len(), 3);
-        let a_dep = out_dep.iter().find(|&x| x.stream == in_refs[0]).expect("a dependencies not found");
-        let b_dep = out_dep.iter().find(|&x| x.stream == in_refs[1]).expect("b dependencies not found");
-        let c_dep = out_dep.iter().find(|&x| x.stream == in_refs[2]).expect("c dependencies not found");
-        assert_eq!(a_dep.offsets.len(), 2);
-        assert_eq!(b_dep.offsets.len(), 2);
-        assert_eq!(c_dep.offsets.len(), 1);
-        assert!(a_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
-        assert!(a_dep.offsets.contains(&Offset::PastDiscreteOffset(2)));
-        assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
-        assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(1)));
-        assert!(c_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
-    }
-}
+//     #[test]
+//     fn dependency_test() {
+//         let ir = spec_to_ir(
+//             "input a: Int32\ninput b: Int32\ninput c: Int32\noutput d: Int32 := a + b + b[-1].defaults(to: 0) + a[-2].defaults(to: 0) + c",
+//         );
+//         let mut in_refs: [StreamReference; 3] =
+//             [StreamReference::InRef(5), StreamReference::InRef(5), StreamReference::InRef(5)];
+//         for i in ir.inputs {
+//             if i.name == "a" {
+//                 in_refs[0] = i.reference;
+//             }
+//             if i.name == "b" {
+//                 in_refs[1] = i.reference;
+//             }
+//             if i.name == "c" {
+//                 in_refs[2] = i.reference;
+//             }
+//         }
+//         let out_dep = &ir.outputs[0].outgoing_dependencies;
+//         assert_eq!(out_dep.len(), 3);
+//         let a_dep = out_dep.iter().find(|&x| x.stream == in_refs[0]).expect("a dependencies not found");
+//         let b_dep = out_dep.iter().find(|&x| x.stream == in_refs[1]).expect("b dependencies not found");
+//         let c_dep = out_dep.iter().find(|&x| x.stream == in_refs[2]).expect("c dependencies not found");
+//         assert_eq!(a_dep.offsets.len(), 2);
+//         assert_eq!(b_dep.offsets.len(), 2);
+//         assert_eq!(c_dep.offsets.len(), 1);
+//         assert!(a_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
+//         assert!(a_dep.offsets.contains(&Offset::PastDiscreteOffset(2)));
+//         assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
+//         assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(1)));
+//         assert!(c_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
+//     }
+// }
