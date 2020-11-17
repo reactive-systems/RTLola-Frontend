@@ -125,3 +125,4 @@ Cargo.lock
 
 # gitignore for mac
 .DS_Store
+.idea/

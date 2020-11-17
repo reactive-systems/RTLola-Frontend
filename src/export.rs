@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 #[allow(unused_imports)]
 use crate::analysis;
-use crate::parse::SourceMapper;
 use crate::reporting::Handler;
 use crate::FrontendConfig;
 
@@ -20,8 +19,7 @@ pub fn analyze(filename: &str, config: FrontendConfig) {
         eprintln!("Could not read file `{}`: {}", filename, e);
         std::process::exit(1)
     });
-    let mapper = SourceMapper::new(PathBuf::from(filename), &contents);
-    let handler = Handler::new(mapper);
+    let handler = Handler::new(PathBuf::from(filename), contents.clone());
     let spec = crate::parse::parse(&contents, &handler, config).unwrap_or_else(|e| {
         eprintln!("parse error:\n{}", e);
         std::process::exit(1)

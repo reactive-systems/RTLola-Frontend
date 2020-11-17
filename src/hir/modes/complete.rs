@@ -1,4 +1,4 @@
-use crate::common_ir::SRef;
+use crate::common_ir::{MemorizationBound, SRef};
 use crate::hir::modes::dependencies::{DependenciesWrapper, WithDependencies};
 
 use crate::hir::modes::ir_expr::IrExprWrapper;
@@ -237,5 +237,11 @@ impl OrderedWrapper for Complete {
     type InnerO = EvaluationOrder;
     fn inner_order(&self) -> &Self::InnerO {
         &self.layers
+    }
+}
+
+impl MemoryAnalyzed for Complete {
+    fn memory_bound(&self, _sr: SRef) -> MemorizationBound {
+        todo!()
     }
 }

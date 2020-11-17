@@ -1,4 +1,3 @@
-// use rtlola_frontend::app;
 use std::env;
 use std::error::Error;
 

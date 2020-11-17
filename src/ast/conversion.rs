@@ -347,8 +347,8 @@ mod tests {
     fn time_spec_int(val: &str, unit: &str) -> Duration {
         let expr = Expression::new(
             NodeId::new(32),
-            ExpressionKind::Lit(Literal::new_numeric(NodeId::new(24), val, Some(unit.to_string()), Span::unknown())),
-            Span::unknown(),
+            ExpressionKind::Lit(Literal::new_numeric(NodeId::new(24), val, Some(unit.to_string()), Span::Unknown)),
+            Span::Unknown,
         );
         let freq = expr.parse_freqspec().unwrap();
         let period = UOM_Time::new::<second>(freq.get::<hertz>().inv());

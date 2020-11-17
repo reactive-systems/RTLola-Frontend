@@ -18,8 +18,6 @@ use std::time::Duration;
 
 pub(crate) type Mir = RTLolaMIR;
 
-/// Intermediate representation of an RTLola specification.
-/// Contains all relevant information found in the underlying specification and is enriched with information collected in semantic analyses.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RTLolaMIR {
     /// All input streams.
@@ -289,27 +287,6 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
-/////// Referencing Structures ///////
-
-/// Allows for referencing an input stream within the specification.
-pub type InputReference = usize;
-/// Allows for referencing an output stream within the specification.
-pub type OutputReference = usize;
-
-/// A trait for any kind of stream.
-pub trait Stream {
-    /// Returns the evaluation laying in which the stream resides.
-    fn eval_layer(&self) -> Layer;
-    /// Indicates whether or not the stream is an input stream.
-    fn is_input(&self) -> bool;
-    /// Indicates how many values need to be memorized.
-    fn values_to_memorize(&self) -> MemorizationBound;
-    /// Produces a stream references referring to the stream.
-    fn as_stream_ref(&self) -> StreamReference;
-}
-
-////////// Implementations //////////
-
 impl Stream for OutputStream {
     fn eval_layer(&self) -> Layer {
         self.layer
@@ -411,7 +388,7 @@ impl RTLolaMIR {
     }
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
-    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+    pub fn get_discrete_window(&self, _window: WindowReference) -> &DiscreteWindow {
         // match window {
         //     WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
         //     WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),

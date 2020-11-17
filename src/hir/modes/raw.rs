@@ -17,18 +17,15 @@ use std::{collections::HashMap, rc::Rc};
 use super::{IrExpression, Raw};
 
 impl From<Ast> for Hir<Raw> {
-    #[allow(unreachable_code)]
-    #[allow(unused_mut)]
-    #[allow(unused_variables)]
-    fn from(ast: Ast) -> Hir<Raw> {
-        let Ast {
-            imports: _, // todo
-            constants,
-            inputs,
-            outputs,
-            trigger,
-            type_declarations: _,
-        } = ast;
+    fn from(_ast: Ast) -> Hir<Raw> {
+        // let Ast {
+        //     _imports: _, // todo
+        //     _constants,
+        //     _inputs,
+        //     _outputs,
+        //     _trigger,
+        //     _type_declarations: _,
+        // } = ast;
         /*
         let mut expressions: HashMap<SRef, ast::Expression> = HashMap::new();
         let mut template_specs: HashMap<SRef, ast::TemplateSpec> = HashMap::new();

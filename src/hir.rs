@@ -21,6 +21,7 @@ pub use crate::ast::StreamAccessKind;
 pub use crate::ast::WindowOperation;
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for MIR
 
+use crate::reporting::Span;
 use modes::HirMode;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
@@ -85,6 +86,8 @@ pub struct Input {
     pub sr: SRef,
     /// The user annotated Type
     pub annotated_type: AnnotatedType,
+    /// The code span the input represents
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -109,6 +112,8 @@ pub struct Output {
     pub expr_id: ExprId,
     /// The reference pointing to this stream.
     pub sr: StreamReference,
+    /// The code span the output represents
+    pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -119,12 +124,14 @@ pub struct Parameter {
     pub annotated_type: Option<AnnotatedType>,
     /// The id, index in the parameter vector in the output stream, for this parameter
     pub idx: usize,
+    /// The code span of the parameter
+    pub span: Span,
 }
 
 /// Use to hold either a frequency or an expression for the annotated activation condition
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AC {
-    Frequency(UOM_Frequency),
+    Frequency { span: Span, value: UOM_Frequency },
     Expr(ExprId),
 }
 
@@ -154,12 +161,14 @@ pub struct Trigger {
     pub message: String,
     pub expr_id: ExprId,
     pub sr: SRef,
+    /// The code span the trigger represents
+    pub span: Span,
 }
 
 impl Trigger {
-    fn new(name: Option<parse::Ident>, msg: Option<String>, expr_id: ExprId, sr: SRef) -> Self {
+    fn new(name: Option<parse::Ident>, msg: Option<String>, expr_id: ExprId, sr: SRef, span: Span) -> Self {
         let name_str = name.map(|ident| ident.name).unwrap_or_else(String::new);
-        Self { name: name_str, message: msg.unwrap_or_else(String::new), expr_id, sr }
+        Self { name: name_str, message: msg.unwrap_or_else(String::new), expr_id, sr, span }
     }
 }
 

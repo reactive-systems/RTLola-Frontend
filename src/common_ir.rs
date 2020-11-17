@@ -1,7 +1,7 @@
 /*!
 This module describes intermediate representations that are use in the high level intermediate representation and in the mid level intermediate representation.
 */
-#![allow(dead_code)]
+
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::rational64::Time as UOM_Time;
@@ -161,7 +161,7 @@ pub type InputReference = usize;
 pub type OutputReference = usize;
 
 /// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StreamReference {
     /// References an input stream.
     InRef(InputReference),

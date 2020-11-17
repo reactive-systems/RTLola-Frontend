@@ -9,7 +9,7 @@ pub(crate) mod print;
 
 use super::parse::Ident;
 use crate::parse::NodeId;
-use crate::parse::Span;
+use crate::reporting::Span;
 use num::rational::Rational64 as Rational;
 use std::rc::Rc;
 
@@ -259,7 +259,7 @@ pub struct TypeDeclField {
 /**
 An AST node representing an opening or closing parenthesis.
 */
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Parenthesis {
     /// The ID of the node in the AST
     pub id: NodeId,
@@ -301,7 +301,7 @@ impl Type {
     }
 
     pub(crate) fn new_inferred(id: NodeId) -> Type {
-        Type { id, kind: TypeKind::Inferred, span: Span::unknown() }
+        Type { id, kind: TypeKind::Inferred, span: Span::Unknown }
     }
 }
 
@@ -574,8 +574,8 @@ pub struct FunctionName {
 impl FunctionName {
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
         Self {
-            name: Ident::new(name, Span::unknown()),
-            arg_names: arg_names.iter().map(|o| o.clone().map(|s| Ident::new(s, Span::unknown()))).collect(),
+            name: Ident::new(name, Span::Unknown),
+            arg_names: arg_names.iter().map(|o| o.clone().map(|s| Ident::new(s, Span::Unknown))).collect(),
         }
     }
 }

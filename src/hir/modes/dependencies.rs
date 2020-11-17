@@ -85,10 +85,8 @@ impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDepe
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DependencyErr {
-    NegativeCycle, // Should probably contain the cycle
     WellFormedNess,
 }
-
 pub(crate) struct DependencyReport {}
 
 type Result<T> = std::result::Result<T, DependencyErr>;
@@ -255,7 +253,7 @@ mod tests {
     use crate::hir::modes::IrExpression;
     use crate::hir::SRef;
     use crate::hir::WRef;
-    use crate::parse::{parse, SourceMapper};
+    use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
     use std::collections::HashMap;
@@ -268,7 +266,7 @@ mod tests {
         aggregates: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
         aggregated_by: Option<HashMap<SRef, Vec<(SRef, WRef)>>>,
     ) {
-        let handler = Handler::new(SourceMapper::new(PathBuf::new(), spec));
+        let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let hir = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);

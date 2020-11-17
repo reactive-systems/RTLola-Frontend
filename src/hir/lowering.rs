@@ -1,4 +1,4 @@
-// use crate::analysis::{naming::DeclarationTable, GraphAnalysisResult};
+// use crate::analysis::naming::DeclarationTable;
 // use crate::ty::check::TypeTable;
 // // Only import the unambiguous Nodes, use `ast::`/`ir::` prefix for disambiguation.
 // use crate::analysis::naming::Declaration;
@@ -7,9 +7,11 @@
 // use crate::ast::{ExpressionKind, RTLolaAst};
 // use crate::common_ir::{EventDrivenStream, MemorizationBound, StreamReference, TimeDrivenStream, WindowReference};
 // use crate::common_ir::{
+// };
 // use std::collections::HashMap;
 // use std::convert::TryInto;
 // use std::{rc::Rc, time::Duration};
+
 // use crate::analysis::graph_based_analysis::evaluation_order::{EvalOrder, EvaluationOrderResult};
 // use crate::analysis::graph_based_analysis::space_requirements::{
 //     SpaceRequirements as MemoryTable, TrackingRequirements,
@@ -19,26 +21,30 @@
 //     Report,
 // };
 
-// use hir::{modes::MemBound, Input, Output, Trigger};
 // use num::{traits::Inv, Signed, ToPrimitive};
 // use uom::si::frequency::hertz;
 // use uom::si::rational64::Time as UOM_Time;
 // use uom::si::time::{nanosecond, second};
+
+// type EvalTable = HashMap<NodeId, u32>;
+
+// pub(crate) struct Lowering<'a> {
 //     ast: &'a RTLolaAst,
 //     inputs: Vec<Input>,
-//     ref_lookup: HashMap<NodeId, StreamReference>,
-//     dt: &'a DeclarationTable,
-//     et: EvalTable,
+//     outputs: Vec<Output>,
 //     mt: &'a MemoryTable,
 //     tr: &'a TrackingRequirements,
+//     ir: RTLolaHIR,
 //     ri: &'a RequiredInputs,
 // }
+
+// impl<'a> Lowering<'a> {
+//     pub(crate) fn new(ast: &'a RTLolaAst, analysis_result: &'a Report) -> Lowering<'a> {
 //         let mut ir = RTLolaHIR {
 //             inputs: Vec::new(),
 //             outputs: Vec::new(),
 //             time_driven: Vec::new(),
 //             event_driven: Vec::new(),
-//             // discrete_windows: Vec::new(),
 //             sliding_windows: Vec::new(),
 //             triggers: Vec::new(),
 //         };
@@ -64,99 +70,6 @@
 //         self.ir
 //     }
 
-//         let Report { declaration_table, type_table, graph_analysis_result } = analysis_result;
-//         let GraphAnalysisResult {
-//             evaluation_order,
-//             future_dependent_streams,
-//             space_requirements,
-//             tracking_requirements,
-//             memory_requirements,
-//             input_dependencies,
-//         } = graph_analysis_result;
-
-//         let lookup: HashMap<NodeId, SRef> = unimplemented!();
-//         let refs = lookup.values().clone();
-
-//         let memory =
-//             space_requirements.into_iter().map(|nid, req| (lookup[nid], Self::lower_storage_req(req))).collect();
-//         let types = lookup.iter().map(|(nid, sr)| (sr, type_table.get_value_type(nid))).collect();
-//         let outgoing_dependencies =
-
-//         MemBound {
-//             memory,              //: HashMap<SRef, MemorizationBound>,
-//             types,               //: HashMap<SRef, Type>,
-//             outgoing_dependencies, //: HashMap<SRef, Vec<Dependency>>,
-//             input_dependencies,    //: HashMap<SRef, Vec<SRef>>,
-//             dependent_streams,   //: HashMap<SRef, Vec<Tracking>>,
-//             dependent_windows,   //: HashMap<SRef, Vec<WindowReference>>,
-//             layer,               //: HashMap<SRef, u32>,
-//         }
-//     }
-
-//     fn lower_storage_req(req: StorageRequirement) -> MemorizationBound {
-//         match req {
-//             StorageRequirement::Finite(b) => MemorizationBound::Bounded(b),
-//             StorageRequirement::FutureRef(b) => MemorizationBound::Bounded(b),
-//             StorageRequirement::Unbounded => MemorizationBound::Unbounded,
-//         }
-//     }
-
-//     /// Finds all streams the expression accesses, excluding windows.
-//     fn find_dependencies(expr: &ast::Expression, deps: &mut Vec<hir::Dependency>) {
-//         use ExpressionKind::*;
-//         match &expr.kind {
-//             Offset(inner, offset) => match &inner.kind {
-//                 Ident(_ident) => {
-//                     let sr = self.get_ref_for_ident(inner.id);
-//                     let offset = self.lower_offset(sr, offset);
-//                     deps.push(hir::Dependency { stream: sr, offsets: vec![offset] })
-//                 }
-//                 _ => {
-//                     unreachable!("checked in AST verification");
-//                 }
-//             },
-//             Lit(_) => {}
-//             Ident(_) => match self.get_decl(expr.id) {
-//                 Declaration::In(inp) => {
-//                     let sr = self.get_ref_for_stream(inp.id);
-//                     deps.push(hir::Dependency { stream: sr, offsets: vec![hir::Offset::PastDiscreteOffset(0)] })
-//                 }
-//                 Declaration::Out(out) => {
-//                     let sr = self.get_ref_for_stream(out.id);
-//                     deps.push(hir::Dependency { stream: sr, offsets: vec![hir::Offset::PastDiscreteOffset(0)] })
-//                 }
-//                 _ => {}
-//             },
-//             StreamAccess(e, _) | Unary(_, e) | ParenthesizedExpression(_, e, _) | Field(e, _) => {
-//                 self.find_dependencies(e, deps)
-//             }
-//             Default(left, right) | Binary(_, left, right) => {
-//                 self.find_dependencies(left, deps);
-//                 self.find_dependencies(right, deps);
-//             }
-//             SlidingWindowAggregation { .. } => {
-//                 // ignore sliding windows
-//             }
-//             Ite(cond, cons, alt) => {
-//                 self.find_dependencies(cond, deps);
-//                 self.find_dependencies(cons, deps);
-//                 self.find_dependencies(alt, deps);
-//             }
-//             MissingExpression => unreachable!("checked in AST verification"),
-//             Tuple(exprs) | Function(_, _, exprs) => {
-//                 exprs.iter().for_each(|e| self.find_dependencies(e, deps));
-//             }
-//             Method(inner, _, _, params) => {
-//                 self.find_dependencies(inner, deps);
-//                 params.iter().for_each(|e| self.find_dependencies(e, deps));
-//             }
-//         }
-//     }
-
-//     //////////// OLD ///////////////
-
-//     pub(crate) fn lower(mut self) -> RTLolaHIR<MemBound> {}
-
 //     fn lower_ast(&mut self) {
 //         self.ast.inputs.iter().for_each(|i| self.lower_input(i));
 //         self.ast.outputs.iter().for_each(|o| self.lower_output_declaration(o));
@@ -172,15 +85,15 @@
 //     fn link_windows(&mut self) {
 //         // Extract and copy relevant information before-hand to avoid double burrow.
 //         let essences: Vec<(StreamReference, WindowReference)> =
-//             self.ir.sliding_windows_as_mut().iter().map(|window| (window.target, window.reference)).collect();
+//             self.ir.sliding_windows.iter().map(|window| (window.target, window.reference)).collect();
 //         for (target, window) in essences {
 //             match target {
 //                 StreamReference::InRef(_) => {
-//                     let windows = &mut self.ir.input_as_mut(target).dependent_windows;
+//                     let windows = &mut self.ir.get_in_mut(target).dependent_windows;
 //                     windows.push(window);
 //                 }
 //                 StreamReference::OutRef(_) => {
-//                     let windows = &mut self.ir.output_as_mut(target).dependent_windows;
+//                     let windows = &mut self.ir.get_out_mut(target).dependent_windows;
 //                     windows.push(window);
 //                 }
 //             }
@@ -208,10 +121,10 @@
 //         };
 
 //         let debug_clone = input.clone();
-//         self.ir.inputs_as_mut().push(input);
+//         self.ir.inputs.push(input);
 
 //         assert_eq!(
-//             self.ir.input(reference),
+//             self.ir.get_in(reference),
 //             &debug_clone,
 //             "Bug in implementation: Output vector in IR changed between creation of reference and insertion of stream."
 //         );
@@ -230,10 +143,10 @@
 
 //         let ty = hir::Type::Bool;
 //         let expr = self.lower_stream_expression(&trigger.expression, &ty);
-//         let reference = StreamReference::OutRef(self.ir.outputs_as_mut().len());
+//         let reference = StreamReference::OutRef(self.ir.outputs.len());
 //         let mut outgoing_dependencies = Vec::new();
 //         self.find_dependencies(&trigger.expression, &mut outgoing_dependencies);
-//             Some(_tds) => None,
+//         let ac = match self.check_time_driven(trigger.id, reference) {
 //         let output = hir::OutputStream {
 //             name,
 //             ty,
@@ -247,17 +160,17 @@
 //             input_dependencies,
 //             ac,
 //         };
-//         self.ir.outputs_as_mut().push(output);
+//         self.ir.outputs.push(output);
 //         let trig = hir::Trigger {
 //             message: trigger.message.clone().unwrap_or_else(|| format!("{}", trigger.expression)),
 //             reference,
-//             trigger_idx: self.ir.triggers().len(),
+//             trigger_idx: self.ir.triggers.len(),
 //         };
 //         match self.check_time_driven(trigger.id, reference) {
-//             None => self.ir.event_driven_as_mut().push(EventDrivenStream { reference }),
-//             Some(tds) => self.ir.time_driven_as_mut().push(tds),
+//             None => self.ir.event_driven.push(EventDrivenStream { reference }),
+//             Some(tds) => self.ir.time_driven.push(tds),
 //         }
-//         self.ir.triggers_as_mut().push(trig);
+//         self.ir.triggers.push(trig);
 //     }
 
 //     fn collect_tracking_info(&self, nid: NodeId, time_driven: Option<&TimeDrivenStream>) -> Vec<hir::Tracking> {
@@ -306,17 +219,17 @@
 //         };
 
 //         let debug_clone = output.clone();
-//         self.ir.outputs_as_mut().push(output);
+//         self.ir.outputs.push(output);
 //         assert_eq!(
-//             self.ir.output(reference),
+//             self.ir.get_out(reference),
 //             &debug_clone,
 //             "Bug in implementation: Output vector in IR changed between creation of reference and insertion of stream."
 //         );
 
 //         if let Some(td_ref) = time_driven {
-//             self.ir.time_driven_as_mut().push(td_ref)
+//             self.ir.time_driven.push(td_ref)
 //         } else {
-//             self.ir.event_driven_as_mut().push(EventDrivenStream { reference })
+//             self.ir.event_driven.push(EventDrivenStream { reference })
 //         }
 //     }
 
@@ -337,9 +250,17 @@
 
 //         let output_type = self.lower_node_type(nid);
 //         let expr = self.lower_stream_expression(&ast_output.expression, &output_type);
-//         let output = self.ir.output_as_mut(reference);
+//         let output = self.ir.get_out_mut(reference);
 
+//         output.ty = output_type;
+//         output.input_dependencies = input_dependencies;
+//         output.outgoing_dependencies = outgoing_dependencies;
+//         output.expr = expr;
+//     }
+
+//     /// Returns the flattened result of calling `map` on each node recursively in `pre_order` or post_order.
 //     /// Applies filter to each node before mapping. Children of filtered nodes will not be taken into account.
+//     #[allow(dead_code)]
 //     fn collect_expression<T, M, F>(expr: &'a ast::Expression, map: &M, filter: &F, pre_order: bool) -> Vec<T>
 //     where
 //         M: Fn(&'a ast::Expression) -> Vec<T>,
@@ -464,14 +385,15 @@
 
 //     /// Creates a SlidingWindow, adds it to the IR, and returns a reference to it.
 //     fn lower_window(&mut self, win_expr: &ast::Expression) -> WindowReference {
-//         match &win_expr.kind {
-//             ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } => {
-//                 if let ExpressionKind::Ident(_) = &expr.kind {
-//                     let target = self.get_ref_for_ident(expr.id);
-//                     let duration = self.lower_duration(duration.as_ref());
+//         if let ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } = &win_expr.kind {
+//             if let ExpressionKind::Ident(_) = &expr.kind {
+//                 let target = self.get_ref_for_ident(expr.id);
+//                 let duration = self.lower_duration(duration.as_ref());
+//                 let op = *aggregation;
+//                 let reference = WindowReference(self.ir.sliding_windows.len());
 //                 let ty = self.lower_node_type(win_expr.id);
 //                 let window = hir::SlidingWindow { target, duration, wait: *wait, op, reference, ty };
-//                 self.ir.sliding_windows_as_mut().push(window);
+//                 self.ir.sliding_windows.push(window);
 //                 reference
 //             } else {
 //                 unreachable!("Verified in TypeChecker")
@@ -483,11 +405,12 @@
 
 //     fn lower_duration(&self, duration: &ast::Expression) -> Duration {
 //         let exact_duration = duration.parse_duration().expect("Duration literal needs to be a duration specification.");
+//         Duration::from_nanos(
 //             exact_duration.get::<nanosecond>().to_integer().to_u64().expect("Period [ns] too large for u64!"),
 //         )
 //     }
 
-//     fn lower_storage_req(req: StorageRequirement) -> MemorizationBound {
+//     fn lower_storage_req(&self, req: StorageRequirement) -> MemorizationBound {
 //         match req {
 //             StorageRequirement::Finite(b) => MemorizationBound::Bounded(b),
 //             StorageRequirement::FutureRef(b) => MemorizationBound::Bounded(b),
@@ -787,7 +710,7 @@
 //                 let uom_offset = offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
 //                 let period = self
 //                     .ir
-//                     .time_driven()
+//                     .time_driven
 //                     .iter()
 //                     .find(|td| td.reference == target)
 //                     .expect("target should exist in ir.time_driven")
@@ -941,27 +864,32 @@
 
 // #[cfg(test)]
 // mod tests {
-//     use crate::hir::StreamReference;
 //     use crate::hir::*;
 //     use crate::FrontendConfig;
 
-//     fn spec_to_ir(spec: &str) -> RTLolaHIR<FullInformationHirMode> {
+//     fn spec_to_ir(spec: &str) -> RTLolaHIR {
 //         crate::parse_to_hir("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
 //     }
 
 //     fn check_stream_number(
-//         ir: &RTLolaHIR<FullInformationHirMode>,
+//         ir: &RTLolaHIR,
 //         inputs: usize,
 //         outputs: usize,
+//         time: usize,
+//         event: usize,
+//         sliding: usize,
 //         triggers: usize,
+//     ) {
 //         assert_eq!(inputs, ir.inputs.len());
 //         assert_eq!(outputs, ir.outputs.len());
 //         assert_eq!(time, ir.time_driven.len());
-//         assert_eq!(sliding, ir.sliding_windows().len());
-//         assert_eq!(triggers, ir.triggers().len());
+//         assert_eq!(event, ir.event_driven.len());
+//         assert_eq!(sliding, ir.sliding_windows.len());
+//         assert_eq!(triggers, ir.triggers.len());
 //     }
 
 //     #[test]
+//     fn lower_one_input() {
 //         let ir = spec_to_ir("input a: Int32");
 //         check_stream_number(&ir, 1, 0, 0, 0, 0, 0);
 //     }
@@ -1024,20 +952,20 @@
 //     #[test]
 //     fn lower_constant_expression() {
 //         let ir = spec_to_ir("output a: Int32 := 3+4*7");
-//         let stream: &OutputStream = &ir.output(StreamReference::OutRef(ir.output_refs()[0]));
+//         let stream: &OutputStream = &ir.outputs[0];
 
 //         let ty = Type::Int(crate::ty::IntTy::I32);
 
 //         assert_eq!(stream.ty, ty);
 
-//         let tar = &ir.output(StreamReference::OutRef(ir.output_refs()[0]));
+//         let tar = &ir.outputs[0];
 //         assert_eq!("+(3,*(4,7) : [(Int32,Int32) -> Int32]) : [(Int32,Int32) -> Int32]", format!("{}", tar.expr))
 //     }
 
 //     #[test]
 //     fn lower_expr_with_widening() {
 //         let ir = spec_to_ir("input a: UInt8 output b: UInt16 := a");
-//         let stream = &ir.output(StreamReference::OutRef(ir.output_refs()[0]));
+//         let stream = &ir.outputs[0];
 
 //         let expr = &stream.expr;
 //         assert_eq!("cast<UInt8,UInt16>(In(0))", format!("{}", expr))
@@ -1046,7 +974,11 @@
 //     #[test]
 //     fn lower_function_expression() {
 //         let ir = spec_to_ir("import math input a: Float32 output v: Float64 := sqrt(a)");
-//         let stream: &OutputStream = &ir.output(StreamReference::OutRef(ir.output_refs()[0]));
+//         let stream: &OutputStream = &ir.outputs[0];
+
+//         let ty = Type::Float(crate::ty::FloatTy::F64);
+
+//         assert_eq!(stream.ty, ty);
 
 //         let expr = &stream.expr;
 //         assert_eq!("cast<Float32,Float64>(sqrt(In(0): Float32) -> Float32)", format!("{}", expr))
@@ -1055,7 +987,7 @@
 //     #[test]
 //     fn lower_cast_expression() {
 //         let ir = spec_to_ir("input a: Float64 output v: Float32 := cast(a)");
-//         let stream: &OutputStream = &ir.output(StreamReference::OutRef(ir.output_refs()[0]));
+//         let stream: &OutputStream = &ir.outputs[0];
 
 //         let ty = Type::Float(crate::ty::FloatTy::F32);
 
@@ -1109,22 +1041,22 @@
 //     #[test]
 //     fn input_lookup() {
 //         let ir = spec_to_ir("input a: Int32");
-//         let inp = ir.input(StreamReference::InRef(ir.input_refs()[0]));
-//         assert_eq!(inp, ir.input(inp.reference));
+//         let inp = &ir.inputs[0];
+//         assert_eq!(inp, ir.get_in(inp.reference));
 //     }
 
 //     #[test]
 //     fn output_lookup() {
 //         let ir = spec_to_ir("output b: Int32 := 3 + 4");
-//         let outp = ir.output(StreamReference::OutRef(ir.output_refs()[0]));
-//         assert_eq!(outp, ir.output(outp.reference));
+//         let outp = &ir.outputs[0];
+//         assert_eq!(outp, ir.get_out(outp.reference));
 //     }
 
 //     #[test]
 //     fn window_lookup() {
 //         let ir = spec_to_ir("input a: Int32 output b: Int32 @1Hz := a.aggregate(over: 3s, using: sum)");
-//         let window = ir.sliding_window(ir.sliding_windows()[0]);
-//         assert_eq!(window, ir.sliding_window(window.reference));
+//         let window = &ir.sliding_windows[0];
+//         assert_eq!(window, ir.get_window(window.reference));
 //     }
 
 //     #[test]
@@ -1132,11 +1064,15 @@
 //     fn invalid_lookup_no_out() {
 //         let ir = spec_to_ir("input a: Int32");
 //         let r = StreamReference::OutRef(0);
-//         ir.input(r);
+//         ir.get_in(r);
+//     }
+
+//     #[test]
 //     #[should_panic]
+//     fn invalid_lookup_index_oob() {
 //         let ir = spec_to_ir("input a: Int32");
 //         let r = StreamReference::InRef(24);
-//         ir.input(r);
+//         ir.get_in(r);
 //     }
 
 //     #[test]
@@ -1146,8 +1082,7 @@
 //         );
 //         let mut in_refs: [StreamReference; 3] =
 //             [StreamReference::InRef(5), StreamReference::InRef(5), StreamReference::InRef(5)];
-//         for i in ir.input_refs() {
-//             let i = ir.input(StreamReference::InRef(i));
+//         for i in ir.inputs {
 //             if i.name == "a" {
 //                 in_refs[0] = i.reference;
 //             }
@@ -1158,7 +1093,7 @@
 //                 in_refs[2] = i.reference;
 //             }
 //         }
-//         let out_dep = &ir.output(StreamReference::OutRef(ir.output_refs()[0])).outgoing_dependencies;
+//         let out_dep = &ir.outputs[0].outgoing_dependencies;
 //         assert_eq!(out_dep.len(), 3);
 //         let a_dep = out_dep.iter().find(|&x| x.stream == in_refs[0]).expect("a dependencies not found");
 //         let b_dep = out_dep.iter().find(|&x| x.stream == in_refs[1]).expect("b dependencies not found");
@@ -1172,6 +1107,4 @@
 //         assert!(b_dep.offsets.contains(&Offset::PastDiscreteOffset(1)));
 //         assert!(c_dep.offsets.contains(&Offset::PastDiscreteOffset(0)));
 //     }
-
-//     #[test]
-//     fn test_discrete_window() {
+// }

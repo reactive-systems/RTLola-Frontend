@@ -1,474 +1,309 @@
 //! This module contains helper to report messages (warnings/errors)
+use codespan_reporting::diagnostic::{Diagnostic as RepDiagnostic, Label, Severity};
+use codespan_reporting::files::SimpleFile;
+use codespan_reporting::term;
+use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
+use codespan_reporting::term::Config;
+use std::fmt::Debug;
+use std::ops::Range;
+use std::path::PathBuf;
+use uom::lib::sync::RwLock;
 
-use self::Level::*;
-use crate::parse::Span;
-use crate::parse::{CodeLine, SourceMapper};
-use std::cell::RefCell;
-#[cfg(not(test))]
-use std::io::Write;
-use termcolor::{Color, ColorSpec};
-#[cfg(not(test))]
-use termcolor::{ColorChoice, StandardStream, WriteColor};
-
-/// A handler is responsible for emitting warnings and errors
-#[derive(Debug)]
-pub struct Handler {
-    error_count: RefCell<usize>,
-    warning_count: RefCell<usize>,
-    emitter: RefCell<Box<dyn Emitter>>,
-    mapper: SourceMapper,
+/// Represents a location in the source
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Span {
+    /// Direct code reference through byte offset
+    Direct { start: usize, end: usize },
+    /// Indirect code reference created through ast refactoring
+    Indirect(Box<Self>),
+    /// An unknown code reference
+    Unknown,
 }
-
-impl Handler {
-    pub fn new(mapper: SourceMapper) -> Self {
-        Handler {
-            error_count: RefCell::new(0),
-            warning_count: RefCell::new(0),
-            emitter: RefCell::new(Box::new(StderrEmitter::new())),
-            mapper,
+impl<'a> From<pest::Span<'a>> for Span {
+    fn from(span: pest::Span<'a>) -> Self {
+        Span::Direct { start: span.start(), end: span.end() }
+    }
+}
+impl Into<Range<usize>> for Span {
+    fn into(self) -> Range<usize> {
+        let (s, e) = self.get_bounds();
+        Range { start: s, end: e }
+    }
+}
+impl Span {
+    pub fn is_indirect(&self) -> bool {
+        match self {
+            Span::Direct { .. } => false,
+            Span::Indirect(_) => true,
+            Span::Unknown => false,
+        }
+    }
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            Span::Direct { .. } => false,
+            Span::Indirect(_) => false,
+            Span::Unknown => true,
         }
     }
 
+    fn get_bounds(&self) -> (usize, usize) {
+        match self {
+            Span::Direct { start: s, end: e } => (*s, *e),
+            Span::Indirect(s) => s.get_bounds(),
+            Span::Unknown => (usize::min_value(), usize::max_value()),
+        }
+    }
+    /// Combines two spans to their union
+    pub fn union(&self, other: &Self) -> Self {
+        if self.is_unknown() {
+            return other.clone();
+        }
+        if other.is_unknown() {
+            return self.clone();
+        }
+        let (start1, end1) = self.get_bounds();
+        let (start2, end2) = other.get_bounds();
+        if self.is_indirect() || other.is_indirect() {
+            Span::Indirect(Box::new(Span::Direct { start: start1.min(start2), end: end1.max(end2) }))
+        } else {
+            Span::Direct { start: start1.min(start2), end: end1.max(end2) }
+        }
+    }
+}
+
+/// A handler is responsible for emitting warnings and errors
+pub struct Handler {
+    /// The number of errors that have already occurred
+    error_count: RwLock<usize>,
+    /// The number of warnings that have already occurred
+    warning_count: RwLock<usize>,
+    /// The input file the handler refers to given by a path and its content
+    input: SimpleFile<String, String>,
+    /// The output the handler is emitting to
+    output: RwLock<Box<dyn WriteColor>>,
+    /// The config for the error formatting
+    config: Config,
+}
+impl Debug for Handler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Handler")
+            .field("error_count", &self.error_count)
+            .field("warning_count", &self.warning_count)
+            .field("input", &self.input)
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
+impl Handler {
+    /// Creates a new Handler
+    /// `input_path` refers to the path of the input file
+    /// `input_content` refers to the content of the input file
+    pub fn new(input_path: PathBuf, input_content: String) -> Self {
+        Handler {
+            error_count: RwLock::new(0),
+            warning_count: RwLock::new(0),
+            input: SimpleFile::new(input_path.to_str().unwrap_or("unknown file").into(), input_content),
+            output: RwLock::new(Box::new(StandardStream::stderr(ColorChoice::Always))),
+            config: Config::default(),
+        }
+    }
+
+    fn emit(&self, diag: &RepDiagnostic<()>) {
+        match diag.severity {
+            Severity::Error => *self.error_count.write().unwrap() += 1,
+            Severity::Warning => *self.warning_count.write().unwrap() += 1,
+            _ => {}
+        }
+        term::emit((*self.output.write().unwrap()).as_mut(), &self.config, &self.input, diag)
+            .expect("Could not write diagnostic.");
+    }
+
+    /// Returns true if an error has occurred
     pub fn contains_error(&self) -> bool {
         self.emitted_errors() > 0
     }
 
+    /// Returns the number of emitted errors
     pub fn emitted_errors(&self) -> usize {
-        *self.error_count.borrow()
+        *self.error_count.read().unwrap()
     }
 
-    #[allow(dead_code)]
+    /// Returns the number of emitted warnings
     pub fn emitted_warnings(&self) -> usize {
-        *self.warning_count.borrow()
+        *self.warning_count.read().unwrap()
     }
 
-    /// Displays diagnostic to user
-    fn emit(&self, diagnostic: &Diagnostic) {
-        if diagnostic.is_error() {
-            let mut count = self.error_count.borrow_mut();
-            *count += 1;
-        }
-        if diagnostic.is_warning() {
-            let mut count = self.warning_count.borrow_mut();
-            *count += 1;
-        }
-        self.emitter.borrow_mut().emit(&self.mapper, &diagnostic)
-    }
-
-    #[allow(dead_code)]
+    /// Emits a simple warning with a message
     pub fn warn(&self, message: &str) {
-        self.emit(&Diagnostic {
-            level: Warning,
-            message: message.to_owned(),
-            span: Vec::new(),
-            children: vec![],
-            sort_spans: true,
-        });
+        self.emit(&RepDiagnostic::warning().with_message(message))
     }
 
-    pub fn warn_with_span(&self, message: &str, span: LabeledSpan) {
-        self.emit(&Diagnostic {
-            level: Warning,
-            message: message.to_owned(),
-            span: vec![span],
-            children: vec![],
-            sort_spans: true,
-        });
+    /// Emits a warning referring to the code span `span` with and optional label `span_label`
+    /// that is printed next to the code fragment
+    pub fn warn_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
+        let mut diag = RepDiagnostic::warning().with_message(message);
+        if !span.is_unknown() {
+            let mut label = Label::primary((), span.clone());
+            if let Some(l) = span_label {
+                label.message = l.into();
+            }
+            diag.labels = vec![label];
+        }
+        if span.is_indirect() {
+            diag.notes = vec!["Warning was caused indirectly by transformations.".into()];
+        }
+        self.emit(&diag)
     }
 
+    /// Emits a simple error with a message
     pub fn error(&self, message: &str) {
-        self.emit(&Diagnostic {
-            level: Error,
-            message: message.to_owned(),
-            span: Vec::new(),
-            children: vec![],
-            sort_spans: true,
-        });
+        self.emit(&RepDiagnostic::error().with_message(message))
     }
 
-    pub fn error_with_span(&self, message: &str, span: LabeledSpan) {
-        self.emit(&Diagnostic {
-            level: Error,
-            message: message.to_owned(),
-            span: vec![span],
-            children: vec![],
-            sort_spans: true,
-        });
-    }
-
-    pub fn build_error_with_span(&self, message: &str, span: LabeledSpan) -> DiagnosticBuilder<'_> {
-        let mut builder = DiagnosticBuilder::new(&self, Error, message);
-        builder.add_labeled_span(span);
-        builder
-    }
-
-    pub fn build_diagnostic(&self, message: &str, level: Level) -> DiagnosticBuilder<'_> {
-        DiagnosticBuilder::new(&self, level, message)
-    }
-
-    #[allow(dead_code)]
-    pub fn bug_with_span(&self, message: &str, span: LabeledSpan) {
-        self.emit(&Diagnostic {
-            level: Bug,
-            message: message.to_owned(),
-            span: vec![span],
-            children: vec![],
-            sort_spans: true,
-        });
-    }
-}
-
-/// Emitter trait for emitting errors.
-pub(crate) trait Emitter: std::fmt::Debug {
-    /// Emit a structured diagnostic.
-    fn emit(&mut self, mapper: &SourceMapper, diagnostic: &Diagnostic);
-}
-
-/// Emits errors to stderr
-#[derive(Debug)]
-struct StderrEmitter {}
-
-impl StderrEmitter {
-    fn new() -> Self {
-        StderrEmitter {}
-    }
-}
-
-impl Emitter for StderrEmitter {
-    /// Implement two versions of emit in order to suppress output when testing.
-
-    /// standard emit implementation
-    #[cfg(not(test))]
-    fn emit(&mut self, mapper: &SourceMapper, diagnostic: &Diagnostic) {
-        let mut stderr = StandardStream::stderr(ColorChoice::Always);
-        for line in self.render(mapper, diagnostic) {
-            for part in &line.strings {
-                stderr.set_color(&part.color).expect("cannot set output color");
-                write!(&mut stderr, "{}", part.string).expect("writing to stderr failed");
+    /// Emits an error referring to the code span `span` with and optional label `span_label`
+    /// that is printed next to the code fragment
+    pub fn error_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
+        let mut diag = RepDiagnostic::error().with_message(message);
+        if !span.is_unknown() {
+            let mut label = Label::primary((), span.clone());
+            if let Some(l) = span_label {
+                label.message = l.into();
             }
-            writeln!(&mut stderr).expect("writing to stderr failed");
+            diag.labels = vec![label];
         }
-        stderr.reset().expect("cannot reset output color");
-        stderr.flush().expect("flushing stderr failed");
-    }
-
-    /// test emit implementation
-    #[cfg(test)]
-    fn emit(&mut self, _mapper: &SourceMapper, _diagnostic: &Diagnostic) {}
-}
-
-impl StderrEmitter {
-    #[allow(dead_code)]
-    fn render(&mut self, mapper: &SourceMapper, diagnostic: &Diagnostic) -> Vec<ColoredLine> {
-        let mut lines = Vec::new();
-
-        // write header, e.g., `error: some error message`
-        let mut line = ColoredLine::new();
-        line.push(&diagnostic.level.to_str(), diagnostic.level.to_color());
-        line.push(": ", ColorSpec::new());
-        line.push(&diagnostic.message, ColorSpec::new().set_bold(true).clone());
-        lines.push(line);
-
-        // output source code snippet with annotations
-        // first, try to get code lines from spans
-        let mut snippets: Vec<(CodeLine, Option<String>, bool)> = diagnostic
-            .span
-            .iter()
-            .flat_map(|s| mapper.get_line(s.span).map(|l| (l, s.label.clone(), s.primary)))
-            .collect();
-
-        if !snippets.is_empty() && snippets.len() == diagnostic.span.len() {
-            let line_number_length =
-                snippets.iter().map(|(s, _, _)| format!("{}", s.line_number).len()).fold(0, std::cmp::max);
-
-            // we assume the first span is the main one, i.e., we output path information
-            let path = {
-                let (main, _, _) = snippets.first().unwrap();
-
-                // emit path information
-                let mut rendered_line = ColoredLine::new();
-                rendered_line.push(&" ".repeat(line_number_length), ColorSpec::new());
-                rendered_line.push("--> ", ColorSpec::new().set_fg(Some(Color::Blue)).clone());
-                rendered_line.push(
-                    &format!("{}:{}:{}", main.path.display(), main.line_number, main.column_number,),
-                    ColorSpec::new(),
-                );
-                lines.push(rendered_line);
-                main.path.clone()
-            };
-
-            // we sort the code lines, i.e., earlier lines come first
-            if diagnostic.sort_spans {
-                snippets.sort_unstable();
-            }
-
-            let mut prev_line_number = None;
-
-            for (num_messages, (snippet, label, primary)) in snippets.into_iter().enumerate() {
-                fn render_source_line(snippet: &CodeLine) -> ColoredLine {
-                    let mut rendered_line = ColoredLine::new();
-                    rendered_line.push(
-                        &format!("{} | ", snippet.line_number),
-                        ColorSpec::new().set_fg(Some(Color::Blue)).clone(),
-                    );
-                    rendered_line.push(&snippet.line, ColorSpec::new());
-                    rendered_line
-                }
-
-                assert_eq!(path, snippet.path, "assume snippets to be in same source file, use `SubDiagnostic` if not");
-
-                // source code snippet
-                if let Some(prev_line_number) = prev_line_number {
-                    //                    assert!(prev_line_number.unwrap() <= snippet.line_number);
-                    if diagnostic.sort_spans && prev_line_number + 1 < snippet.line_number {
-                        // print ...
-                        let mut rendered_line = ColoredLine::new();
-                        rendered_line.push("...", ColorSpec::new().set_fg(Some(Color::Blue)).clone());
-                        lines.push(rendered_line);
-                    }
-
-                    if prev_line_number != snippet.line_number {
-                        // do not print line twice
-                        lines.push(render_source_line(&snippet));
-                    }
-                } else {
-                    // print leading space
-                    let mut rendered_line = ColoredLine::new();
-                    rendered_line.push(
-                        &format!("{} | ", " ".repeat(line_number_length)),
-                        ColorSpec::new().set_fg(Some(Color::Blue)).clone(),
-                    );
-                    lines.push(rendered_line);
-
-                    lines.push(render_source_line(&snippet));
-                }
-                prev_line_number = Some(snippet.line_number);
-
-                let color = if primary {
-                    diagnostic.level.to_color()
-                } else {
-                    let mut colorspec = ColorSpec::new();
-                    colorspec.set_intense(true).set_bold(true).set_fg(Some(Color::Blue));
-                    colorspec
-                };
-
-                if num_messages > 0 {
-                    // add an empty line
-                    let mut empty_line = ColoredLine::new();
-                    empty_line.push(
-                        &format!("{} | ", " ".repeat(line_number_length)),
-                        ColorSpec::new().set_fg(Some(Color::Blue)).clone(),
-                    );
-                    empty_line.push(&format!("{}|", " ".repeat(snippet.highlight.start)), color.clone());
-                    lines.push(empty_line);
-                }
-
-                let mut rendered_line = ColoredLine::new();
-                rendered_line.push(
-                    &format!("{} | ", " ".repeat(line_number_length)),
-                    ColorSpec::new().set_fg(Some(Color::Blue)).clone(),
-                );
-                let highlight_char: String =
-                    if primary && num_messages == 0 { String::from("^") } else { "-".repeat(num_messages + 1) };
-
-                rendered_line.push(
-                    &format!(
-                        "{}{}",
-                        " ".repeat(snippet.highlight.start),
-                        highlight_char.repeat(snippet.highlight.end - snippet.highlight.start)
-                    ),
-                    color.clone(),
-                );
-                if let Some(label) = label {
-                    rendered_line.push(&format!(" {}", label), color);
-                }
-                lines.push(rendered_line);
-            }
+        if span.is_indirect() {
+            diag.notes = vec!["Error was caused indirectly by transformations.".into()];
         }
-
-        /*for child in &diagnostic.children {
-            eprintln!("| {}: {}", child.level.to_str(), child.message);
-            if let Some(span) = child.span {
-                // TODO: actually map back to source code
-                eprintln!("| {:?}", span);
-            }
-        }*/
-        lines.push(ColoredLine::new());
-        lines
+        self.emit(&diag)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Level {
-    /// A compiler bug
-    #[allow(dead_code)]
-    Bug,
-    /// A fatal error, immediate exit afterwards
-    #[allow(dead_code)]
-    Fatal,
-    Error,
-    Warning,
-    #[allow(dead_code)]
-    Note,
-    #[allow(dead_code)]
-    Help,
-}
-
-/// A structured representation of a user-facing diagnostic.
+/// `Diagnostic` a more flexible way to build a diagnostic.
 #[derive(Debug, Clone)]
-pub struct Diagnostic {
-    pub(crate) level: Level,
-    pub(crate) message: String,
-    pub(crate) span: Vec<LabeledSpan>,
-    pub(crate) children: Vec<SubDiagnostic>,
-    pub(crate) sort_spans: bool,
-}
-
-impl Diagnostic {
-    fn is_error(&self) -> bool {
-        match self.level {
-            Bug | Fatal | Error => true,
-            Warning | Note | Help => false,
-        }
-    }
-    fn is_warning(&self) -> bool {
-        match self.level {
-            Bug | Fatal | Error | Note | Help => false,
-            Warning => true,
-        }
-    }
-}
-
-/// For example a note attached to an error.
-#[derive(Debug, Clone)]
-pub(crate) struct SubDiagnostic {
-    pub(crate) level: Level,
-    pub(crate) message: String,
-    pub(crate) span: Option<Span>,
-}
-
-impl Level {
-    pub(crate) fn to_str(self) -> &'static str {
-        match self {
-            Bug => "error: internal compiler error",
-            Fatal | Error => "error",
-            Warning => "warning",
-            Note => "note",
-            Help => "help",
-        }
-    }
-
-    pub(crate) fn to_color(self) -> ColorSpec {
-        let mut colorspec = ColorSpec::new();
-        colorspec.set_intense(true).set_bold(true);
-        match self {
-            Bug | Fatal | Error => colorspec.set_fg(Some(Color::Red)),
-            Warning => colorspec.set_fg(Some(Color::Yellow)),
-            Note => colorspec.set_fg(Some(Color::Green)),
-            Help => colorspec.set_fg(Some(Color::Cyan)),
-        };
-        colorspec
-    }
-}
-
-/// Show a label (message) next to the position in source code
-#[derive(Debug, Clone)]
-pub struct LabeledSpan {
-    span: Span,
-    label: Option<String>,
-    primary: bool,
-}
-
-impl LabeledSpan {
-    pub fn new(span: Span, label: &str, primary: bool) -> Self {
-        LabeledSpan { span, label: Some(label.to_string()), primary }
-    }
-}
-
-/// Sometimes diagnostics cannot be emitted directly as important information is still missing.
-/// `DiagnosticBuilder` helps in this situations by allowing to incrementally build diagnostics.
-#[derive(Debug)]
-pub struct DiagnosticBuilder<'a> {
+pub struct Diagnostic<'a> {
+    /// The handler used for emitting the diagnostic
     handler: &'a Handler,
-    diagnostic: Diagnostic,
-    status: DiagnosticBuilderStatus,
+    /// The internal representation of the diagnostic
+    diag: RepDiagnostic<()>,
+    /// True if the diagnostic was emitted
+    emitted: bool,
+    /// True if the diagnostic refers to at least one indirect span
+    has_indirect_span: bool,
+    /// The note to display when an indirect span occurs
+    indirect_note_text: String,
 }
 
-impl<'a> DiagnosticBuilder<'a> {
-    fn new(handler: &'a Handler, level: Level, messgage: &str) -> Self {
-        DiagnosticBuilder {
+impl<'a> Diagnostic<'a> {
+    /// Creates a new warning with the message `message`
+    #[allow(dead_code)]
+    pub fn warning(handler: &'a Handler, message: &str) -> Self {
+        Diagnostic {
             handler,
-            diagnostic: Diagnostic {
-                level,
-                message: messgage.to_string(),
-                span: Vec::new(),
-                children: Vec::new(),
-                sort_spans: true,
-            },
-            status: DiagnosticBuilderStatus::Building,
+            diag: RepDiagnostic::warning().with_message(message),
+            emitted: false,
+            has_indirect_span: false,
+            indirect_note_text: "Warning was caused indirectly by transformations.".into(),
         }
     }
 
-    pub fn emit(&mut self) {
-        assert_eq!(self.status, DiagnosticBuilderStatus::Building);
-        self.handler.emit(&self.diagnostic);
-        self.status = DiagnosticBuilderStatus::Emitted;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn cancel(&mut self) {
-        assert_eq!(self.status, DiagnosticBuilderStatus::Building);
-        self.status = DiagnosticBuilderStatus::Cancelled;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn prevent_sorting(&mut self) {
-        assert_eq!(self.status, DiagnosticBuilderStatus::Building);
-        self.diagnostic.sort_spans = false;
-    }
-
-    pub fn add_span_with_label(&mut self, span: Span, label: &str, primary: bool) {
-        self.diagnostic.span.push(LabeledSpan::new(span, label, primary))
-    }
-
-    pub fn add_labeled_span(&mut self, span: LabeledSpan) {
-        self.diagnostic.span.push(span)
-    }
-}
-
-impl<'a> Drop for DiagnosticBuilder<'a> {
-    fn drop(&mut self) {
-        // make sure that diagnostic is either emitted or canceled
-        if self.status == DiagnosticBuilderStatus::Building {
-            panic!("Diagnostic was build but was neither emitted, nor cancelled.");
+    /// Creates a new error with the message `message`
+    pub fn error(handler: &'a Handler, message: &str) -> Self {
+        Diagnostic {
+            handler,
+            diag: RepDiagnostic::error().with_message(message),
+            emitted: false,
+            has_indirect_span: false,
+            indirect_note_text: "Error was caused indirectly by transformations.".into(),
         }
     }
-}
 
-#[derive(Debug, PartialEq, Eq)]
-enum DiagnosticBuilderStatus {
-    Building,
-    Emitted,
-    Cancelled,
-}
-
-#[derive(Debug)]
-struct ColoredString {
-    string: String,
-    color: ColorSpec,
-}
-
-#[derive(Debug)]
-struct ColoredLine {
-    strings: Vec<ColoredString>,
-}
-
-impl ColoredLine {
-    fn new() -> ColoredLine {
-        ColoredLine { strings: Vec::new() }
+    /// Emits the diagnostic using the given `Handler`
+    pub fn emit(mut self) {
+        assert!(!self.emitted, "Diagnostic can only be emitted once!");
+        if self.has_indirect_span {
+            self.diag.notes.push(self.indirect_note_text);
+        }
+        self.handler.emit(&self.diag);
+        self.emitted = true;
     }
 
-    fn push(&mut self, string: &str, color: ColorSpec) {
-        self.strings.push(ColoredString { string: string.to_owned(), color })
+    /// Adds a code span to the diagnostic.
+    /// The `label` is printed next to the code fragment the span refers to.
+    /// If `primary` is set to true the span is treated as the primary code fragment.
+    pub fn add_span_with_label(mut self, span: Span, label: Option<&str>, primary: bool) -> Self {
+        if span.is_unknown() {
+            return self;
+        }
+        self.has_indirect_span |= span.is_indirect();
+        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
+        if let Some(l) = label {
+            rep_label.message = l.into();
+        }
+        self.diag.labels.push(rep_label);
+        self
+    }
+
+    /// Adds a note to the bottom of the diagnostic.
+    #[allow(dead_code)]
+    pub fn add_note(mut self, note: &str) -> Self {
+        self.diag.notes.push(note.into());
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_span() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let span = Span::Direct { start: 9, end: 12 };
+        handler.error_with_span("Unknown Type", span, Some("here".into()));
+        assert_eq!(handler.emitted_errors(), 1);
+    }
+
+    #[test]
+    fn warning_span() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let span = Span::Direct { start: 9, end: 12 };
+        handler.warn_with_span("Unknown Type", span, Some("here".into()));
+        assert_eq!(handler.emitted_warnings(), 1);
+    }
+
+    #[test]
+    fn error() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        handler.error("Unknown Type");
+        assert_eq!(handler.emitted_errors(), 1);
+    }
+
+    #[test]
+    fn warning() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        handler.warn("Unknown Type");
+        assert_eq!(handler.emitted_warnings(), 1);
+    }
+
+    #[test]
+    fn error_span_no_label() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let span = Span::Direct { start: 9, end: 12 };
+        handler.error_with_span("Unknown Type", span, None);
+        assert_eq!(handler.emitted_errors(), 1);
+    }
+
+    #[test]
+    fn custom() {
+        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let span1 = Span::Direct { start: 9, end: 12 };
+        let span2 = Span::Indirect(Box::new(Span::Direct { start: 20, end: 21 }));
+        Diagnostic::error(&handler, "Failed with love")
+            .add_span_with_label(span1, Some("here"), true)
+            .add_span_with_label(span2, Some("and here"), false)
+            .add_note("This is a note")
+            .emit();
+        assert_eq!(handler.emitted_errors(), 1);
     }
 }
