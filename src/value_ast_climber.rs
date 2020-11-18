@@ -581,7 +581,6 @@ where
                 type_param,
                 args,
             } => {
-                dbg!("Function Infer");
                 //transform Type into new internal types.
                 let types_vec: Vec<IAbstractType> = type_param
                     .iter()
@@ -589,7 +588,6 @@ where
                     .collect();
                 // check for name in context
                 let fun_decl = self.hir.func_declaration(name);
-                dbg!(fun_decl);
                 //Generics
                 let generics: Vec<TcKey> = fun_decl
                     .generics
@@ -610,27 +608,14 @@ where
                 args.iter()
                     .zip(fun_decl.parameters.iter())
                     .map(|(arg, param)| {
-                        //for (arg, param) in args.iter().zip(fun_decl.parameters.iter()) {
                         let p = self.replace_type(param, &generics)?;
                         let arg_key = self.expression_infer(&*arg, None)?;
                         self.tyc.impose(arg_key.concretizes(p))?;
                         Ok(arg_key)
-                        //}
                     })
                     .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
                 let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
-                /*
-                if name.name.contains("widen_") {
-                    self.tyc.impose(
-                        return_type.concretizes(
-                            *arg_keys
-                                .get(0)
-                                .expect("build in widen function have exactly 1 argument"),
-                        ),
-                    )?;
-                }
-                */
 
                 self.tyc.impose(term_key.concretizes(return_type))?;
             }
@@ -638,9 +623,8 @@ where
                 let output: &Output = self
                     .hir
                     .outputs()
-                    .nth(current_stream.out_ix())
-                    .expect("StreamRef idx always valid");
-                //let par_name = output.params[*ix].name.clone();
+                    .find(|o| o.sr == *current_stream)
+                    .expect("Expect valid stream reference");
                 let v = Variable {
                     name: output.name.clone() + "_" + &output.params[*ix].name,
                 };
@@ -651,7 +635,6 @@ where
         };
 
         Ok(term_key)
-        //Err(String::from("Error"))
     }
 
     fn replace_type(
@@ -685,7 +668,7 @@ where
             AnnotatedType::Float(f) => IAbstractType::Float(*f),
             AnnotatedType::UInt(u) => IAbstractType::UInteger(*u),
             AnnotatedType::Bool => IAbstractType::Bool,
-            AnnotatedType::Bytes => IAbstractType::UInteger(8),
+            AnnotatedType::Bytes => IAbstractType::Bytes,
             AnnotatedType::Option(op) => {
                 IAbstractType::Option(self.match_annotated_type(&(**op)).into())
             }
@@ -695,7 +678,9 @@ where
                     .collect(),
             ),
             AnnotatedType::Numeric => IAbstractType::Numeric,
-            AnnotatedType::Param(_, _) => todo!("currently handled externally"),
+            AnnotatedType::Param(_, _) => {
+                unreachable!("Param-Type only reachable in function calls and Param-Output calls")
+            }
         }
     }
 
@@ -703,7 +688,6 @@ where
         dbg!(&lit);
         match lit {
             ConstantLiteral::Str(_) => IAbstractType::TString,
-            //ConstantLiteral::Numeric(n, _post) => get_abstract_type_of_string_value(&n).unwrap(),
             ConstantLiteral::Bool(_) => IAbstractType::Bool,
             ConstantLiteral::Integer(_) => IAbstractType::Integer,
             ConstantLiteral::SInt(_) => IAbstractType::SInteger(1),
@@ -955,7 +939,6 @@ mod value_type_tests {
     }
 
     #[test]
-    //#[ignore] //PARSER ERROR TODO after typecheck ,during error reporting
     fn parametric_access_default() {
         let spec = "output i(a: Int8, b: Bool): Int8 @1Hz := if b then a else 0 \n output o := i(1,false).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
@@ -1544,8 +1527,8 @@ mod value_type_tests {
     #[test]
     #[ignore] // uint to int cast currently not allowed
     fn test_aggregation_implicit_cast() {
-        let spec =
-                            "input in: UInt8\n output out: Int16 @5Hz := in.aggregate(over_exactly: 3s, using: Σ).defaults(to: 5)";
+        let spec = "input in: UInt8\n\
+             output out: Int16 @5Hz := in.aggregate(over_exactly: 3s, using: Σ).defaults(to: 5)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");

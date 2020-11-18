@@ -13,6 +13,7 @@ pub enum IAbstractType {
     Bool,
     Tuple(Vec<IAbstractType>),
     TString,
+    Bytes,
     Option(Box<IAbstractType>),
 }
 
@@ -80,6 +81,8 @@ impl Abstract for IAbstractType {
             (TString, _) | (_, TString) => {
                 Err(String::from("String unification only with other Strings"))
             }
+            (Bytes, Bytes) => Ok(Bytes),
+            (Bytes, _) | (_, Bytes) => Err(String::from("Bytes unification only with other Bytes")),
             (Option(l), Option(r)) => match Self::meet(l, r) {
                 Ok(t) => Ok(Option(Box::new(t))),
                 Err(e) => Err(e),
@@ -95,9 +98,8 @@ impl Abstract for IAbstractType {
         match self {
             Option(_) => Some(1),
             Tuple(t) => Some(t.len()),
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString => {
-                Some(0)
-            }
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString
+            | Bytes => Some(0),
         }
     }
 
@@ -106,9 +108,8 @@ impl Abstract for IAbstractType {
         match self {
             Option(op) => &*op,
             Tuple(vec) => &vec[n],
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString => {
-                unreachable!()
-            }
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString
+            | Bytes => unreachable!(),
         }
     }
 
@@ -140,6 +141,7 @@ pub enum IConcreteType {
     Float64,
     Tuple(Vec<IConcreteType>),
     TString,
+    Byte,
     Option(Box<IConcreteType>),
 }
 use IConcreteType::*;
@@ -198,6 +200,7 @@ impl rusttyc::types::TryReifiable for IAbstractType {
                 }
             }
             IAbstractType::TString => Ok(IConcreteType::TString),
+            IAbstractType::Bytes => Ok(IConcreteType::Byte),
             IAbstractType::Option(inner_type) => {
                 let res: Result<IConcreteType, ReificationErr> = Self::try_reify(&**inner_type);
                 match res {
@@ -231,6 +234,7 @@ impl rusttyc::types::Generalizable for IConcreteType {
                 IAbstractType::Tuple(result_vec)
             }
             IConcreteType::TString => IAbstractType::TString,
+            IConcreteType::Byte => IAbstractType::Bytes,
             IConcreteType::Option(inner_type) => {
                 let result: IAbstractType = Self::generalize(&**inner_type);
                 IAbstractType::Option(Box::new(result))
