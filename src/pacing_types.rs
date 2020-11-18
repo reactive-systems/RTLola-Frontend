@@ -1,9 +1,9 @@
+use crate::rtltc::NodeId;
 use biodivine_lib_bdd::boolean_expression::BooleanExpression;
 use biodivine_lib_bdd::{Bdd, BddVariableSet};
-use front::analysis::naming::{Declaration, DeclarationTable};
-use front::ast::{BinOp, Expression, ExpressionKind, LitKind};
-use front::parse::{NodeId, Span};
-use front::reporting::{Handler, LabeledSpan};
+use front::common_ir::StreamReference;
+use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use front::reporting::{Diagnostic, Handler, Span};
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
 use uom::lib::collections::HashMap;
@@ -11,55 +11,38 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-/// Parses either a periodic or an event based pacing type from an expression
-pub fn parse_abstract_type<'a>(
+pub(crate) fn parse_ac(
     ast_expr: &Expression,
     var_set: &BddVariableSet,
-    decl: &'a DeclarationTable,
-) -> Result<AbstractPacingType, (String, Span)> {
-    match &ast_expr.kind {
-        ExpressionKind::Lit(l) => match l.kind {
-            LitKind::Bool(_) => {
-                let ac = parse_ac(ast_expr, var_set, decl)?;
-                Ok(AbstractPacingType::Event(ac))
-            }
-            _ => {
-                let freq: UOM_Frequency = ast_expr
-                    .parse_freqspec()
-                    .map_err(|reason| (reason, ast_expr.span))?;
-                Ok(AbstractPacingType::Periodic(Freq::Fixed(freq)))
-            }
-        },
-        _ => {
-            let ac = parse_ac(ast_expr, var_set, decl)?;
-            Ok(AbstractPacingType::Event(ac))
-        }
-    }
-}
-
-fn parse_ac<'a>(
-    ast_expr: &Expression,
-    var_set: &BddVariableSet,
-    decl: &'a DeclarationTable,
-) -> Result<Bdd, (String, Span)> {
+    num_inputs: usize,
+) -> Result<Bdd, String> {
     use ExpressionKind::*;
     match &ast_expr.kind {
-        Lit(l) => match l.kind {
-            LitKind::Bool(b) => {
-                if b {
-                    Ok(var_set.mk_true())
-                } else {
-                    Err((
-                        "Only 'True' is supported as literals in activation conditions.".into(),
-                        l.span,
-                    ))
+        LoadConstant(c) => match c {
+            Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
+                ConstantLiteral::Bool(b) => {
+                    if *b {
+                        Ok(var_set.mk_true())
+                    } else {
+                        Err(
+                            "Only 'True' is supported as literals in activation conditions.".into(), //l.span,
+                        )
+                    }
                 }
-            }
-            _ => Err((
-                "Only 'True' is supported as literals in activation conditions.".into(),
-                l.span,
-            )),
+                _ => Err("Only 'True' is supported as literals in activation conditions.".into()),
+            },
         },
+        StreamAccess(sref, kind, args) => {
+            use front::hir::expression::StreamAccessKind;
+            assert!(args.is_empty());
+            assert!(matches!(kind, StreamAccessKind::Sync));
+            let id = match sref {
+                StreamReference::InRef(o) => *o,
+                StreamReference::OutRef(o) => o + num_inputs,
+            };
+            Ok(var_set.mk_var_by_name(&id.to_string()))
+        }
+        /*
         Ident(i) => {
             let declartation = &decl[&ast_expr.id];
             let id = match declartation {
@@ -78,24 +61,28 @@ fn parse_ac<'a>(
             };
             Ok(var_set.mk_var_by_name(&id.to_string()))
         }
-        Binary(op, l, r) => {
-            let ac_l = parse_ac(l, var_set, decl)?;
-            let ac_r = parse_ac(r, var_set, decl)?;
-            use BinOp::*;
+        */
+        ArithLog(op, v) => {
+            if v.len() != 2 {
+                return Err(
+                    "An activation condition can only contain literals and binary operators."
+                        .into(),
+                );
+            }
+            let ac_l = parse_ac(&v[0], var_set, num_inputs)?;
+            let ac_r = parse_ac(&v[1], var_set, num_inputs)?;
+            use front::hir::expression::ArithLogOp;
             match op {
-                And => Ok(ac_l.and(&ac_r)),
-                Or => Ok(ac_l.or(&ac_r)),
-                _ => Err((
-                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                    ast_expr.span,
-                )),
+                ArithLogOp::And => Ok(ac_l.and(&ac_r)),
+                ArithLogOp::Or => Ok(ac_l.or(&ac_r)),
+                _ => Err(
+                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(), //ast_expr.span,
+                ),
             }
         }
-        ParenthesizedExpression(_, exp, _) => parse_ac(exp, var_set, decl),
-        _ => Err((
-            "An activation condition can only contain literals and binary operators.".into(),
-            ast_expr.span,
-        )),
+        _ => Err(
+            "An activation condition can only contain literals and binary operators.".into(), //ast_expr.span,
+        ),
     }
 }
 
@@ -117,12 +104,14 @@ impl PacingError {
     pub fn emit(self, handler: &Handler) {
         match self {
             PacingError::FreqAnnotationNeeded(span) => {
-                let ls = LabeledSpan::new(span, "here", true);
-                handler.error_with_span("Frequency annotation needed.", ls);
+                handler.error_with_span("Frequency annotation needed.", span, Some("here"));
             }
             PacingError::NeverEval(span) => {
-                let ls = LabeledSpan::new(span, "here", true);
-                handler.error_with_span("The following stream is never evaluated.", ls);
+                handler.error_with_span(
+                    "The following stream is never evaluated.",
+                    span,
+                    Some("here"),
+                );
             }
             PacingError::MalformedAC(reason) => {
                 handler.error(&format!("Malformed activation condition: {}", reason));
@@ -134,8 +123,11 @@ impl PacingError {
         match self {
             PacingError::FreqAnnotationNeeded(_) | PacingError::NeverEval(_) => self.emit(handler),
             PacingError::MalformedAC(reason) => {
-                let ls = LabeledSpan::new(s, "here", true);
-                handler.error_with_span(&format!("Malformed activation condition: {}", reason), ls);
+                handler.error_with_span(
+                    &format!("Malformed activation condition: {}", reason),
+                    s,
+                    Some("here"),
+                );
             }
         }
     }
@@ -156,7 +148,12 @@ fn bexp_to_string(exp: BooleanExpression, input_names: &HashMap<NodeId, &str>) -
             }
         }
         Variable(s) => {
+            /*
             let id = NodeId::new(s.parse::<usize>().unwrap());
+            input_names[&id].to_string()
+            */
+            let idx = s.parse::<usize>().unwrap();
+            let id = NodeId::SRef(StreamReference::InRef(idx));
             input_names[&id].to_string()
         }
         Not(exp) => format!("!{}", bexp_to_string(*exp, input_names)),
@@ -221,37 +218,43 @@ pub(crate) fn emit_error(
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(spans[k1], "here", true);
-            let span2 = LabeledSpan::new(spans[k2], "and here", true);
-            let mut diag = handler.build_error_with_span(msg, span1);
-            diag.add_labeled_span(span2);
-            diag.emit();
+            Diagnostic::error(handler, msg)
+                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
+                .maybe_add_span_with_label(spans.get(k2).cloned(), Some("and here"), false)
+                .emit();
         }
-        TcErr::Bound(k1, k2o, err) => {
+        TcErr::Bound(k1, k2, err) => {
             let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            let span1 = LabeledSpan::new(spans[k1], "here", true);
-            let mut diag = handler.build_error_with_span(msg, span1);
-            if let Some(k2) = k2o {
-                let span2 = LabeledSpan::new(spans[k2], "and here", false);
-                diag.add_labeled_span(span2);
-            }
-            diag.emit();
+            Diagnostic::error(handler, msg)
+                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
+                .maybe_add_span_with_label(
+                    k2.and_then(|k2| spans.get(&k2).cloned()),
+                    Some("and here"),
+                    false,
+                )
+                .emit();
         }
         TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
                 "In pacing type analysis:\n Child type out of bounds for type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
         TcErr::ExactTypeViolation(key, ty) => {
             let msg = &format!(
                 "In pacing type analysis:\n Expected type: {}",
                 ty.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
         TcErr::ConflictingExactBounds(key, ty1, ty2) => {
             let msg = &format!(
@@ -259,8 +262,11 @@ pub(crate) fn emit_error(
                 ty1.to_string(vars, names),
                 ty2.to_string(vars, names)
             );
-            let span = LabeledSpan::new(spans[key], "here", true);
-            handler.error_with_span(msg, span);
+            handler.error_with_span(
+                msg,
+                spans.get(key).unwrap_or(&Span::Unknown).clone(),
+                Some("here"),
+            );
         }
     }
 }
@@ -407,7 +413,7 @@ impl AbstractPacingType {
 /**
 The activation condition describes when an event-based stream produces a new value.
 */
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Ord, Hash)]
 pub enum ActivationCondition {
     /**
     When all of the activation conditions is true.
@@ -420,7 +426,7 @@ pub enum ActivationCondition {
     /**
     Whenever the specified stream produces a new value.
     */
-    Stream(NodeId),
+    Stream(StreamReference),
     /**
     Whenever an event-based stream produces a new value.
     */
@@ -443,7 +449,7 @@ impl ActivationCondition {
             Variable(s) => {
                 let id = s.parse::<usize>();
                 match id {
-                    Ok(i) => Ok(ActivationCondition::Stream(NodeId::new(i))),
+                    Ok(i) => Ok(ActivationCondition::Stream(StreamReference::InRef(i))),
                     Err(_) => Err(PacingError::MalformedAC("Wrong Variable in AC".to_string())),
                 }
             }
