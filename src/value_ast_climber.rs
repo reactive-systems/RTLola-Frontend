@@ -66,7 +66,6 @@ where
             let key = tyc.get_var_key(&Variable {
                 name: out.name.clone(),
             });
-            dbg!(key);
             node_key.insert(NodeId::SRef(out.sr), key);
             //key_span.insert(key, out.span);
         }
@@ -220,19 +219,6 @@ where
             }
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
-                //let ex_key = self.expression_infer(&self.hir.expr(sr), None)?;
-                /*
-                let target_key = match sr {
-                    StreamReference::OutRef(ix) => self.hir.outputs().nth(ix).expect("Idx of SRef is always valid"),
-                    StreamReference::InRef(ix) => self.hir.inputs().nth(ix).expect("Idx of SRef is always valid"),
-                }
-                let target_stream: &Output = self
-                    .hir
-                    .outputs()
-                    .nth(sr.out_ix())
-                    .expect("Idx of SRef is always valid");
-                */
-
                 if sr.is_input() {
                     assert!(args.is_empty(), "Parametrized Input Stream are unsupported");
                 }
@@ -241,8 +227,8 @@ where
                     let target_stream: &Output = self
                         .hir
                         .outputs()
-                        .nth(sr.out_ix())
-                        .expect("Idx of SRef is always valid");
+                        .find(|o| o.sr == *sr)
+                        .expect("Unable to find referenced stream");
                     let param_keys: Vec<_> = target_stream
                         .params
                         .iter()
@@ -253,16 +239,16 @@ where
                             self.tyc.get_var_key(&v)
                         })
                         .collect();
-                    let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> = args
+                    dbg!(&param_keys);
+                    let arg_keys: Vec<TcKey> = args
                         .iter()
                         .map(|arg| self.expression_infer(arg, None))
-                        .collect();
-                    let arg_keys = arg_keys?;
+                        .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
                     let res: Result<Vec<()>, TcErr<IAbstractType>> = param_keys
                         .iter()
                         .zip(arg_keys.iter())
-                        .map(|(p, a)| self.tyc.impose(a.concretizes(*p)))
+                        .map(|(p, a)| self.tyc.impose(a.equate_with(*p)))
                         .collect();
                     res?;
                 }
@@ -379,6 +365,7 @@ where
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
                         Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
+                            dbg!("RealTimeOffset");
                             use num::rational::Rational64 as Rational;
                             use uom::si::frequency::hertz;
                             use uom::si::rational64::Frequency as UOM_Frequency;
@@ -391,21 +378,32 @@ where
                                 c += 1;
                                 duration_as_f *= 10f64;
                             }
+                            dbg!(duration_as_f);
                             let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
                             let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
                             let target_ratio =
                                 self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
+                            //TODO special case: period of current output > offset
+                            // && offset is multiple of target stream (no optional needed)
                             if let Ok(Periodic(target_freq)) = target_ratio {
-                                //fif the frequencies match no optional needed
-                                if let Ok(true) = freq.is_multiple_of(&target_freq) {
-                                    self.tyc.impose(term_key.equate_with(*target_key))?;
-                                } else {
-                                    //if the ey dont match return optional
+                                //fif the frequencies match the access is possible
+                                dbg!(&freq, &target_freq);
+                                if let Ok(true) = target_freq.is_multiple_of(&freq) {
+                                    dbg!("frequencies compatible");
                                     self.tyc.impose(term_key.concretizes_explicit(
                                         IAbstractType::Option(IAbstractType::Any.into()),
                                     ))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(target_key.equate_with(inner_key))?;
+                                } else {
+                                    dbg!("frequencies NOT compatible");
+                                    //if the ey dont match return error
+                                    return Err(TcErr::Bound(
+                                        *target_key,
+                                        None,
+                                        "Can't use realtime offset with non-matching frequencies"
+                                            .to_string(),
+                                    ));
                                 }
                             } else {
                                 //Not a periodic target stream given
@@ -415,54 +413,6 @@ where
                                     "Realtime offset on non periodic stream".to_string(),
                                 ));
                             }
-                            /*
-                            front::ast::Offset::RealTime(r, unit) => {
-                                //if periode < offset -> optinal
-                                use num::rational::Rational64 as Rational;
-                                use uom::si::frequency::hertz;
-                                use uom::si::rational64::Frequency as UOM_Frequency;
-                                use uom::si::rational64::Time as UOM_Time;
-                                use uom::si::time::second;
-
-                                if *r.numer() == 0 {
-                                    self.tyc.impose(term_key.equate_with(ex_key))?;
-                                } else if *r.numer() > 0 {
-                                    return Err(TcErr::Bound(
-                                        term_key,
-                                        None,
-                                        "Found positive realtime offset - not yet supported".to_string(),
-                                    ));
-                                } else {
-                                    use crate::pacing_types::AbstractPacingType::*;
-                                    let uom_offset_duration = offset.to_uom_time().unwrap();
-                                    let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(
-                                        Rational::from_integer(1) / uom_offset_duration.get::<second>(),
-                                    ));
-                                    let target_ratio = self.pacing_tt[&target_expr.id].to_abstract_freq();
-                                    if let Ok(Periodic(target_freq)) = target_ratio {
-                                        //fif the frequencies match no optional needed
-                                        if let Ok(true) = freq.is_multiple_of(&target_freq) {
-                                            self.tyc.impose(term_key.equate_with(ex_key))?;
-                                        } else {
-                                            //if the ey dont match return optional
-                                            self.tyc.impose(term_key.concretizes_explicit(
-                                                IAbstractType::Option(IAbstractType::Any.into()),
-                                            ))?;
-                                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                                            self.tyc.impose(ex_key.equate_with(inner_key))?;
-                                        }
-                                    } else {
-                                        //Not a periodic target stream given
-                                        return Err(TcErr::Bound(
-                                            ex_key,
-                                            None,
-                                            "Realtime offset on non periodic stream".to_string(),
-                                        ));
-                                    }
-                                }
-                                //unimplemented!("RealTime offset not yet supported in Value Type inference")
-                            }
-                            */
                         }
                     },
                 };
@@ -620,12 +570,11 @@ where
                 };
                 let internal_key = self.tyc.new_term_key();
                 self.tyc
-                    .impose(internal_key.concretizes_explicit(type_bound.clone()))?;
-                self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
-
+                    .impose(internal_key.concretizes_explicit(type_bound))?;
                 self.tyc
                     .impose(inner_expr_key.concretizes_explicit(upper_bound))?;
-                self.tyc.impose(term_key.has_exactly_type(type_bound))?;
+                self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
+                self.tyc.impose(term_key.equate_with(internal_key))?;
             }
             ExpressionKind::Function {
                 name,
@@ -1671,9 +1620,8 @@ mod value_type_tests {
     }
 
     #[test]
-    //#[ignore] //TODO real time offsets based on pacing type analysis
     fn test_rt_offset() {
-        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to: 0)";
+        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to:1)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
@@ -1684,7 +1632,7 @@ mod value_type_tests {
 
     #[test]
     fn test_rt_offset_regression() {
-        let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to: 0) + 1";
+        let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to:0) + 1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         assert_eq!(0, complete_check(spec));
@@ -1699,7 +1647,7 @@ mod value_type_tests {
                         ";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
-        let out_id2 = tb.output("x2");
+        let out_id2 = tb.output("x_diff");
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Integer32);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], IConcreteType::Integer32);
@@ -1707,7 +1655,7 @@ mod value_type_tests {
 
     #[test]
     fn test_rt_offset_skip() {
-        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to: 0)";
+        let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to:1)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
