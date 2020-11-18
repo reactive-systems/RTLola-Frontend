@@ -569,6 +569,7 @@ where
                     _ => unimplemented!("Unsupported widen Type"),
                 };
                 let internal_key = self.tyc.new_term_key();
+                self.key_span.insert(internal_key, exp.span.clone());
                 self.tyc
                     .impose(internal_key.concretizes_explicit(type_bound))?;
                 self.tyc
@@ -834,10 +835,6 @@ mod value_type_tests {
             &handler,
             &front::FrontendConfig::default(),
         );
-        let mut na = front::analysis::naming::NamingAnalysis::new(
-            &handler,
-            front::FrontendConfig::default(),
-        );
         //let mut dec = na.check(&spec);
         assert!(
             !handler.contains_error(),
@@ -850,7 +847,7 @@ mod value_type_tests {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
         let pacing_tt = ltc.pacing_type_infer().unwrap();
-        ltc.value_type_infer(pacing_tt);
+        assert!(ltc.value_type_infer(pacing_tt).is_ok());
         test_box.handler.emitted_errors()
     }
 
@@ -1048,7 +1045,6 @@ mod value_type_tests {
             "constant c: UInt16 := 1\noutput o: UInt64 @1Hz:= widen<UInt64>(c)",
             "constant c: Float32 := 1.0\noutput o: Float64 @1Hz:= widen<Float64>(c)",
         ] {
-            let (tb, result_map) = check_value_type(spec);
             assert_eq!(0, complete_check(spec));
         }
     }
@@ -1351,8 +1347,7 @@ mod value_type_tests {
     fn test_param_inferred_conflicting() {
         let spec = "input i: Int8, j: UInt8 output x(param): Int8 := i output y: Int8 := x(i) output z: Int8 := x(j)";
         let tb = check_expect_error(spec);
-        assert_eq!(complete_check(spec), 1);
-        //assert_eq!(get_type(spec), ValueTy::Int(IntTy::I8)); //TODO
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
