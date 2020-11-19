@@ -1,9 +1,10 @@
-use crate::rtltc::NodeId;
-use biodivine_lib_bdd::boolean_expression::BooleanExpression;
-use biodivine_lib_bdd::{Bdd, BddVariableSet};
+use crate::pacing_types::PacingError::MalformedAC;
 use front::common_ir::StreamReference;
-use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use front::hir::expression::{
+    Constant, ConstantLiteral, Expression, ExpressionKind, StreamAccessKind,
+};
 use front::reporting::{Diagnostic, Handler, Span};
+use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
 use uom::lib::collections::HashMap;
@@ -11,199 +12,312 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-pub(crate) fn parse_ac(
-    ast_expr: &Expression,
-    var_set: &BddVariableSet,
-    num_inputs: usize,
-) -> Result<Bdd, String> {
-    use ExpressionKind::*;
-    match &ast_expr.kind {
-        LoadConstant(c) => match c {
-            Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
-                ConstantLiteral::Bool(b) => {
-                    if *b {
-                        Ok(var_set.mk_true())
-                    } else {
-                        Err(
-                            "Only 'True' is supported as literals in activation conditions.".into(), //l.span,
-                        )
-                    }
-                }
-                _ => Err("Only 'True' is supported as literals in activation conditions.".into()),
-            },
-        },
-        StreamAccess(sref, kind, args) => {
-            use front::common_ir::StreamAccessKind;
-            assert!(args.is_empty());
-            assert!(matches!(kind, StreamAccessKind::Sync));
-            let id = match sref {
-                StreamReference::InRef(o) => *o,
-                StreamReference::OutRef(o) => o + num_inputs,
-            };
-            Ok(var_set.mk_var_by_name(&id.to_string()))
-        }
-        /*
-        Ident(i) => {
-            let declartation = &decl[&ast_expr.id];
-            let id = match declartation {
-                Declaration::Out(out) => out.id,
-                Declaration::ParamOut(param) => param.id,
-                Declaration::In(input) => input.id,
-                Declaration::Type(_)
-                | Declaration::Param(_)
-                | Declaration::Func(_)
-                | Declaration::Const(_) => {
-                    return Err((
-                        "An activation condition can only refer to inputs or outputs.".into(),
-                        i.span,
-                    ));
-                }
-            };
-            Ok(var_set.mk_var_by_name(&id.to_string()))
-        }
-        */
-        ArithLog(op, v) => {
-            if v.len() != 2 {
-                return Err(
-                    "An activation condition can only contain literals and binary operators."
-                        .into(),
-                );
-            }
-            let ac_l = parse_ac(&v[0], var_set, num_inputs)?;
-            let ac_r = parse_ac(&v[1], var_set, num_inputs)?;
-            use front::hir::expression::ArithLogOp;
-            match op {
-                ArithLogOp::And => Ok(ac_l.and(&ac_r)),
-                ArithLogOp::Or => Ok(ac_l.or(&ac_r)),
-                _ => Err(
-                    "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(), //ast_expr.span,
-                ),
-            }
-        }
-        _ => Err(
-            "An activation condition can only contain literals and binary operators.".into(), //ast_expr.span,
-        ),
-    }
+/// The activation condition describes when an event-based stream produces a new value.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Ord, Hash)]
+pub enum ActivationCondition {
+    /**
+    When all of the activation conditions is true.
+    */
+    Conjunction(Vec<Self>),
+    /**
+    When one of the activation conditions is true.
+    */
+    Disjunction(Vec<Self>),
+    /**
+    Whenever the specified stream produces a new value.
+    */
+    Stream(StreamReference),
+    /**
+    Whenever an event-based stream produces a new value.
+    */
+    True,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UnificationError {
-    MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
-    //IncompatibleFrequencies(AbstractPacingType, AbstractPacingType),
-    Other(String),
+/// Represents the frequency of a periodic stream
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub(crate) enum Freq {
+    Any,
+    Fixed(UOM_Frequency),
 }
 
+/// The internal representation of a pacing type
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AbstractPacingType {
+    /// An event stream is extended when its activation condition is satisfied.
+    Event(ActivationCondition),
+    /// A real-time stream is extended periodically.
+    Periodic(Freq),
+    /// An undetermined type that can be unified into either of the other options.
+    Any,
+    /// An event stream with this type is never evaluated.
+    Never,
+}
+
+/// The general error structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PacingError {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
-    MalformedAC(String),
+    MalformedAC(Span, String),
+    MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
+    Other(Span, String),
+}
+
+/// The external definition of a pacing type
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+pub enum ConcretePacingType {
+    /// The stream / expression can be evaluated whenever the activation condition is satisfied.
+    Event(ActivationCondition),
+    /// The stream / expression can be evaluated with a fixed frequency.
+    FixedPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with any frequency.
+    Periodic,
+    /// The stream / expression can always be evaluated.
+    Constant,
+}
+
+impl ActivationCondition {
+    pub(crate) fn and(self, other: Self) -> Self {
+        let ac = match (self, other) {
+            (
+                ActivationCondition::Conjunction(mut left),
+                ActivationCondition::Conjunction(mut right),
+            ) => {
+                left.append(&mut right);
+                left.sort();
+                left.dedup();
+                ActivationCondition::Conjunction(left)
+            }
+            (ActivationCondition::True, other) | (other, ActivationCondition::True) => other,
+            (ActivationCondition::Conjunction(mut other_con), other_ac)
+            | (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
+                other_con.push(other_ac);
+                other_con.sort();
+                other_con.dedup();
+                ActivationCondition::Conjunction(other_con)
+            }
+            (a, b) => {
+                let mut childs = vec![a, b];
+                childs.sort();
+                childs.dedup();
+                ActivationCondition::Conjunction(childs)
+            }
+        };
+        match &ac {
+            ActivationCondition::Conjunction(v) | ActivationCondition::Disjunction(v) => {
+                if v.len() == 1 {
+                    return v[0].clone();
+                }
+            }
+            _ => {}
+        }
+        ac
+    }
+    pub(crate) fn or(self, other: Self) -> Self {
+        let ac = match (self, other) {
+            (
+                ActivationCondition::Disjunction(mut left),
+                ActivationCondition::Disjunction(mut right),
+            ) => {
+                left.append(&mut right);
+                left.sort();
+                left.dedup();
+                ActivationCondition::Disjunction(left)
+            }
+            (ActivationCondition::True, _) | (_, ActivationCondition::True) => {
+                ActivationCondition::True
+            }
+            (ActivationCondition::Disjunction(mut other_dis), other_ac)
+            | (other_ac, ActivationCondition::Disjunction(mut other_dis)) => {
+                other_dis.push(other_ac);
+                other_dis.sort();
+                other_dis.dedup();
+                ActivationCondition::Disjunction(other_dis)
+            }
+            (a, b) => {
+                let mut childs = vec![a, b];
+                childs.sort();
+                childs.dedup();
+                ActivationCondition::Disjunction(childs)
+            }
+        };
+        match &ac {
+            ActivationCondition::Conjunction(v) | ActivationCondition::Disjunction(v) => {
+                if v.len() == 1 {
+                    return v[0].clone();
+                }
+            }
+            _ => {}
+        }
+        ac
+    }
+
+    pub(crate) fn parse(ast_expr: &Expression) -> Result<Self, PacingError> {
+        use ExpressionKind::*;
+        match &ast_expr.kind {
+            LoadConstant(c) => match c {
+                Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
+                    ConstantLiteral::Bool(b) => {
+                        if *b {
+                            Ok(ActivationCondition::True)
+                        } else {
+                            Err(MalformedAC(
+                                ast_expr.span.clone(),
+                                "Only 'True' is supported as literals in activation conditions."
+                                    .into(),
+                            ))
+                        }
+                    }
+                    _ => Err(MalformedAC(
+                        ast_expr.span.clone(),
+                        "Only 'True' is supported as literals in activation conditions.".into(),
+                    )),
+                },
+            },
+            StreamAccess(sref, kind, args) => {
+                if !args.is_empty() {
+                    return Err(PacingError::MalformedAC(
+                        ast_expr.span.clone(),
+                        "An activation condition can only contain literals and binary operators."
+                            .into(),
+                    ));
+                }
+                match kind {
+                    StreamAccessKind::Sync => {}
+                    _ => {
+                        return Err(PacingError::MalformedAC(
+                            ast_expr.span.clone(),
+                            "An activation condition can only contain literals and binary operators.".into(),
+                        ));
+                    }
+                }
+                if sref.is_output() {
+                    return Err(PacingError::MalformedAC(
+                        ast_expr.span.clone(),
+                        "An activation condition can only refer to input streams".into(),
+                    ));
+                }
+                Ok(ActivationCondition::Stream(sref.clone()))
+            }
+            ArithLog(op, v) => {
+                if v.len() != 2 {
+                    return Err(PacingError::MalformedAC(
+                        ast_expr.span.clone(),
+                        "An activation condition can only contain literals and binary operators."
+                            .into(),
+                    ));
+                }
+                let ac_l = Self::parse(&v[0])?;
+                let ac_r = Self::parse(&v[1])?;
+                use front::hir::expression::ArithLogOp;
+                match op {
+                    ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l.and(ac_r)),
+                    ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l.or(ac_r)),
+                    _ => Err(PacingError::MalformedAC(
+                        ast_expr.span.clone(),
+                        "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
+                    )),
+                }
+            }
+            _ => Err(PacingError::MalformedAC(
+                ast_expr.span.clone(),
+                "An activation condition can only contain literals and binary operators.".into(),
+            )),
+        }
+    }
+
+    pub fn to_string(&self, stream_names: &HashMap<StreamReference, &str>) -> String {
+        use ActivationCondition::*;
+        match self {
+            True => "⊤".into(),
+            Stream(sr) => stream_names[&sr].into(),
+            Conjunction(childs) => {
+                let child_string: String = childs
+                    .iter()
+                    .map(|ac| ac.to_string(stream_names))
+                    .join(" ∧ ");
+                format!("({})", child_string).into()
+            }
+            Disjunction(childs) => {
+                let child_string: String = childs
+                    .iter()
+                    .map(|ac| ac.to_string(stream_names))
+                    .join(" ∨ ");
+                format!("({})", child_string).into()
+            }
+        }
+    }
 }
 
 impl PacingError {
-    pub fn emit(self, handler: &Handler) {
+    pub fn emit(
+        &self,
+        handler: &Handler,
+        spans: &HashMap<TcKey, Span>,
+        names: &HashMap<StreamReference, &str>,
+        key1: Option<TcKey>,
+        key2: Option<TcKey>,
+    ) {
         match self {
             PacingError::FreqAnnotationNeeded(span) => {
-                handler.error_with_span("Frequency annotation needed.", span, Some("here"));
+                handler.error_with_span(
+                    "In pacing type analysis:\nFrequency annotation needed.",
+                    span.clone(),
+                    Some("here"),
+                );
             }
             PacingError::NeverEval(span) => {
+                Diagnostic::error(
+                    handler,
+                    "In pacing type analysis:\nThe following stream is never evaluated.",
+                )
+                .add_span_with_label(span.clone(), Some("here"), true)
+                .add_note("Consider annotating a pacing type explicitly.")
+                .emit();
+            }
+            PacingError::MalformedAC(span, reason) => {
                 handler.error_with_span(
-                    "The following stream is never evaluated.",
-                    span,
+                    &format!(
+                        "In pacing type analysis:\nMalformed activation condition: {}",
+                        reason
+                    ),
+                    span.clone(),
                     Some("here"),
                 );
             }
-            PacingError::MalformedAC(reason) => {
-                handler.error(&format!("Malformed activation condition: {}", reason));
+            PacingError::MixedEventPeriodic(absty1, absty2) => {
+                let span1 = key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+                let ty1 = absty1.to_string(names);
+                let ty2 = absty2.to_string(names);
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\nMixed an event and a periodic type: {} and {}",
+                        ty1.clone(),
+                        ty2.clone()
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(
+                    span1,
+                    Some(format!("Found {} here", ty1).as_str()),
+                    true,
+                )
+                .maybe_add_span_with_label(
+                    span2,
+                    Some(format!("and found {} here", ty2).as_str()),
+                    false,
+                )
+                .emit();
             }
-        }
-    }
-
-    pub fn emit_with_span(self, handler: &Handler, s: Span) {
-        match self {
-            PacingError::FreqAnnotationNeeded(_) | PacingError::NeverEval(_) => self.emit(handler),
-            PacingError::MalformedAC(reason) => {
+            PacingError::Other(span, reason) => {
                 handler.error_with_span(
-                    &format!("Malformed activation condition: {}", reason),
-                    s,
+                    format!("In pacing type analysis:\n{}", reason).as_str(),
+                    span.clone(),
                     Some("here"),
                 );
             }
-        }
-    }
-}
-
-fn bdd_to_string(bdd: &Bdd, vars: &BddVariableSet, input_names: &HashMap<NodeId, &str>) -> String {
-    let exp = bdd.to_boolean_expression(vars);
-    bexp_to_string(exp, input_names)
-}
-fn bexp_to_string(exp: BooleanExpression, input_names: &HashMap<NodeId, &str>) -> String {
-    use BooleanExpression::*;
-    match exp {
-        Const(b) => {
-            if b {
-                "True".to_string()
-            } else {
-                "False".to_string()
-            }
-        }
-        Variable(s) => {
-            /*
-            let id = NodeId::new(s.parse::<usize>().unwrap());
-            input_names[&id].to_string()
-            */
-            let idx = s.parse::<usize>().unwrap();
-            let id = NodeId::SRef(StreamReference::InRef(idx));
-            input_names[&id].to_string()
-        }
-        Not(exp) => format!("!{}", bexp_to_string(*exp, input_names)),
-        And(l, r) => format!(
-            "({} & {})",
-            bexp_to_string(*l, input_names),
-            bexp_to_string(*r, input_names)
-        ),
-        Or(l, r) => format!(
-            "({} | {})",
-            bexp_to_string(*l, input_names),
-            bexp_to_string(*r, input_names)
-        ),
-        Xor(l, r) => format!(
-            "({} ^ {})",
-            bexp_to_string(*l, input_names),
-            bexp_to_string(*r, input_names)
-        ),
-        Imp(l, r) => format!(
-            "({} -> {})",
-            bexp_to_string(*l, input_names),
-            bexp_to_string(*r, input_names)
-        ),
-        Iff(l, r) => format!(
-            "({} <-> {})",
-            bexp_to_string(*l, input_names),
-            bexp_to_string(*r, input_names)
-        ),
-    }
-}
-
-impl UnificationError {
-    pub(crate) fn to_string(
-        &self,
-        bdd_vars: &BddVariableSet,
-        input_name: &HashMap<NodeId, &str>,
-    ) -> String {
-        use UnificationError::*;
-        match self {
-            Other(s) => s.clone(),
-            /*            IncompatibleFrequencies(f1, f2) => format!(
-                "Found incompatible frequencies: '{}' and '{}'",
-                f1.to_string(bdd_vars, input_name),
-                f2.to_string(bdd_vars, input_name)
-            ),*/
-            MixedEventPeriodic(t1, t2) => format!(
-                "Mixed event and periodic type: '{}' and '{}'",
-                t1.to_string(bdd_vars, input_name),
-                t2.to_string(bdd_vars, input_name)
-            ),
         }
     }
 }
@@ -211,33 +325,20 @@ impl UnificationError {
 pub(crate) fn emit_error(
     tce: &TcErr<AbstractPacingType>,
     handler: &Handler,
-    vars: &BddVariableSet,
     spans: &HashMap<TcKey, Span>,
-    names: &HashMap<NodeId, &str>,
+    names: &HashMap<StreamReference, &str>,
 ) {
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
-            let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            Diagnostic::error(handler, msg)
-                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
-                .maybe_add_span_with_label(spans.get(k2).cloned(), Some("and here"), false)
-                .emit();
+            err.emit(handler, spans, names, Some(k1.clone()), Some(k2.clone()));
         }
         TcErr::Bound(k1, k2, err) => {
-            let msg = &format!("In pacing type analysis:\n {}", err.to_string(vars, names));
-            Diagnostic::error(handler, msg)
-                .maybe_add_span_with_label(spans.get(k1).cloned(), Some("here"), true)
-                .maybe_add_span_with_label(
-                    k2.and_then(|k2| spans.get(&k2).cloned()),
-                    Some("and here"),
-                    false,
-                )
-                .emit();
+            err.emit(handler, spans, names, Some(k1.clone()), k2.clone());
         }
         TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
                 "In pacing type analysis:\n Child type out of bounds for type: {}",
-                ty.to_string(vars, names)
+                ty.to_string(names)
             );
             handler.error_with_span(
                 msg,
@@ -248,7 +349,7 @@ pub(crate) fn emit_error(
         TcErr::ExactTypeViolation(key, ty) => {
             let msg = &format!(
                 "In pacing type analysis:\n Expected type: {}",
-                ty.to_string(vars, names)
+                ty.to_string(names)
             );
             handler.error_with_span(
                 msg,
@@ -259,8 +360,8 @@ pub(crate) fn emit_error(
         TcErr::ConflictingExactBounds(key, ty1, ty2) => {
             let msg = &format!(
                 "In pacing type analysis:\n Conflicting type bounds: {} and {}",
-                ty1.to_string(vars, names),
-                ty2.to_string(vars, names)
+                ty1.to_string(names),
+                ty2.to_string(names)
             );
             handler.error_with_span(
                 msg,
@@ -272,12 +373,6 @@ pub(crate) fn emit_error(
 }
 
 // Abstract Type Definition
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum Freq {
-    Any,
-    Fixed(UOM_Frequency),
-}
 
 impl std::fmt::Display for Freq {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -296,7 +391,7 @@ impl std::fmt::Display for Freq {
 }
 
 impl Freq {
-    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, UnificationError> {
+    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, PacingError> {
         let lhs = match self {
             Freq::Fixed(f) => f,
             Freq::Any => return Ok(false),
@@ -311,10 +406,10 @@ impl Freq {
         }
         match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
             Some(q) => Ok(q.is_integer()),
-            None => Err(UnificationError::Other(format!(
-                "division of frequencies `{:?}`/`{:?}` failed",
-                &lhs, &rhs
-            ))),
+            None => Err(PacingError::Other(
+                Span::Unknown,
+                format!("division of frequencies `{:?}`/`{:?}` failed", &lhs, &rhs),
+            )),
         }
     }
 
@@ -336,20 +431,8 @@ impl Freq {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AbstractPacingType {
-    /// An event stream is extended when its activation condition is satisfied.
-    Event(Bdd),
-    /// A real-time stream is extended periodically.
-    Periodic(Freq),
-    /// An undetermined type that can be unified into either of the other options.
-    Any,
-    /// An event stream with this type is never evaluated.
-    Never,
-}
-
 impl rusttyc::types::Abstract for AbstractPacingType {
-    type Err = UnificationError;
+    type Err = PacingError;
 
     fn unconstrained() -> Self {
         AbstractPacingType::Any
@@ -360,15 +443,15 @@ impl rusttyc::types::Abstract for AbstractPacingType {
         match (self, other) {
             (Any, x) | (x, Any) => Ok(x.clone()),
             (Never, x) | (x, Never) => Ok(x.clone()),
-            (Event(ac), Periodic(f)) => Err(UnificationError::MixedEventPeriodic(
+            (Event(ac), Periodic(f)) => Err(PacingError::MixedEventPeriodic(
                 Event(ac.clone()),
                 Periodic(*f),
             )),
-            (Periodic(f), Event(ac)) => Err(UnificationError::MixedEventPeriodic(
+            (Periodic(f), Event(ac)) => Err(PacingError::MixedEventPeriodic(
                 Periodic(*f),
                 Event(ac.clone()),
             )),
-            (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(&ac2))),
+            (Event(ac1), Event(ac2)) => Ok(Event(ac1.clone().and(ac2.clone()))),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
                     Ok(Periodic(*f2))
@@ -398,9 +481,9 @@ impl rusttyc::types::Abstract for AbstractPacingType {
 }
 
 impl AbstractPacingType {
-    pub(crate) fn to_string(&self, vars: &BddVariableSet, names: &HashMap<NodeId, &str>) -> String {
+    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
-            AbstractPacingType::Event(b) => format!("Event({})", bdd_to_string(b, vars, names)),
+            AbstractPacingType::Event(ac) => format!("Event({})", ac.to_string(names)),
             AbstractPacingType::Periodic(freq) => format!("Periodic({})", freq),
             AbstractPacingType::Any => "Any".to_string(),
             AbstractPacingType::Never => "Never".to_string(),
@@ -410,130 +493,19 @@ impl AbstractPacingType {
 
 // Concrete Type Definition
 
-/**
-The activation condition describes when an event-based stream produces a new value.
-*/
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Ord, Hash)]
-pub enum ActivationCondition {
-    /**
-    When all of the activation conditions is true.
-    */
-    Conjunction(Vec<Self>),
-    /**
-    When one of the activation conditions is true.
-    */
-    Disjunction(Vec<Self>),
-    /**
-    Whenever the specified stream produces a new value.
-    */
-    Stream(StreamReference),
-    /**
-    Whenever an event-based stream produces a new value.
-    */
-    True,
-}
-
-impl ActivationCondition {
-    pub(crate) fn from_expression(exp: BooleanExpression) -> Result<Self, PacingError> {
-        use BooleanExpression::*;
-        match exp {
-            Const(b) => {
-                if b {
-                    Ok(ActivationCondition::True)
-                } else {
-                    Err(PacingError::MalformedAC(
-                        "False in Activation Condition".to_string(),
-                    ))
-                }
-            }
-            Variable(s) => {
-                let id = s.parse::<usize>();
-                match id {
-                    Ok(i) => Ok(ActivationCondition::Stream(StreamReference::InRef(i))),
-                    Err(_) => Err(PacingError::MalformedAC("Wrong Variable in AC".to_string())),
-                }
-            }
-            And(left, right) => {
-                let l = ActivationCondition::from_expression(*left)?;
-                let r = ActivationCondition::from_expression(*right)?;
-                match (l, r) {
-                    (
-                        ActivationCondition::Conjunction(mut left),
-                        ActivationCondition::Conjunction(mut right),
-                    ) => {
-                        left.append(&mut right);
-                        left.dedup();
-                        left.sort();
-                        Ok(ActivationCondition::Conjunction(left))
-                    }
-                    (ActivationCondition::Conjunction(mut other_con), other_ac)
-                    | (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
-                        other_con.push(other_ac);
-                        other_con.dedup();
-                        other_con.sort();
-                        Ok(ActivationCondition::Conjunction(other_con))
-                    }
-                    (a, b) => Ok(ActivationCondition::Conjunction(vec![a, b])),
-                }
-            }
-            Or(left, right) => {
-                let l = ActivationCondition::from_expression(*left)?;
-                let r = ActivationCondition::from_expression(*right)?;
-                match (l, r) {
-                    (
-                        ActivationCondition::Disjunction(mut left),
-                        ActivationCondition::Disjunction(mut right),
-                    ) => {
-                        left.append(&mut right);
-                        left.dedup();
-                        left.sort();
-                        Ok(ActivationCondition::Disjunction(left))
-                    }
-                    (ActivationCondition::Disjunction(mut other_con), other_ac)
-                    | (other_ac, ActivationCondition::Disjunction(mut other_con)) => {
-                        other_con.push(other_ac);
-                        other_con.dedup();
-                        other_con.sort();
-                        Ok(ActivationCondition::Disjunction(other_con))
-                    }
-                    (a, b) => Ok(ActivationCondition::Disjunction(vec![a, b])),
-                }
-            }
-            _ => Err(PacingError::MalformedAC(
-                "Unsupported Operation in AC".to_string(),
-            )),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub enum ConcretePacingType {
-    /// The stream / expression can be evaluated whenever the activation condition is satisfied.
-    Event(ActivationCondition),
-    /// The stream / expression can be evaluated with a fixed frequency.
-    FixedPeriodic(UOM_Frequency),
-    /// The stream / expression can be evaluated with any frequency.
-    Periodic,
-    /// The stream / expression can always be evaluated.
-    Constant,
-}
-
 impl ConcretePacingType {
-    pub(crate) fn from_abstract(
-        abs_t: AbstractPacingType,
-        vars: &BddVariableSet,
-    ) -> Result<Self, PacingError> {
+    pub(crate) fn from_abstract(abs_t: AbstractPacingType) -> Result<Self, PacingError> {
         match abs_t {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
-            AbstractPacingType::Event(b) => {
-                ActivationCondition::from_expression(b.to_boolean_expression(vars))
-                    .map(ConcretePacingType::Event)
-            }
+            AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac)),
             AbstractPacingType::Periodic(freq) => match freq {
                 Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f)),
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
-            AbstractPacingType::Never => unreachable!(),
+            AbstractPacingType::Never => Err(PacingError::Other(
+                Span::Unknown,
+                "Tried to concretize abstract type never!".into(),
+            )),
         }
     }
 

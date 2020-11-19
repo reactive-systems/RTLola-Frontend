@@ -8,7 +8,7 @@ use front::common_ir::StreamReference;
 use front::hir::expression::{ExprId, Expression};
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
-use front::reporting::{Handler, Span};
+use front::reporting::Handler;
 use front::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
 use std::cmp::Ordering;
@@ -138,36 +138,36 @@ where
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
         let mut ctx = PacingContext::new(&self.hir);
-        let input_names: HashMap<NodeId, &str> = self
+        let stream_names: HashMap<StreamReference, &str> = self
             .hir
             .inputs()
-            .map(|i| (NodeId::SRef(i.sr), i.name.as_str()))
+            .map(|i| (i.sr, i.name.as_str()))
+            .chain(self.hir.outputs().map(|o| (o.sr, o.name.as_str())))
             .collect();
-
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
-                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
+                emit_error(&e, self.handler, &ctx.key_span, &stream_names);
             }
         }
 
         for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
-                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
+                emit_error(&e, self.handler, &ctx.key_span, &stream_names);
             }
         }
 
         for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
-                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
+                emit_error(&e, self.handler, &ctx.key_span, &stream_names);
             }
         }
 
-        let vars = ctx.bdd_vars.clone();
         let nid_key = ctx.node_key.clone();
+        print!("{:?}", &ctx.tyc);
         let tt = match ctx.tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                emit_error(&e, self.handler, &ctx.bdd_vars, &ctx.key_span, &input_names);
+                emit_error(&e, self.handler, &ctx.key_span, &stream_names);
                 return None;
             }
         };
@@ -177,7 +177,7 @@ where
         }
 
         for pe in PacingContext::post_process(&self.hir, nid_key, &tt) {
-            pe.emit(self.handler);
+            pe.emit(self.handler, &ctx.key_span, &stream_names, None, None);
         }
         if self.handler.contains_error() {
             return None;
@@ -187,18 +187,15 @@ where
         let ctt: HashMap<NodeId, ConcretePacingType> = ctx
             .node_key
             .iter()
-            .filter_map(|(id, key)| {
-                match ConcretePacingType::from_abstract(tt[*key].clone(), &vars) {
+            .filter_map(
+                |(id, key)| match ConcretePacingType::from_abstract(tt[*key].clone()) {
                     Ok(ct) => Some((*id, ct)),
                     Err(e) => {
-                        e.emit_with_span(
-                            self.handler,
-                            key_span.get(key).unwrap_or(&Span::Unknown).clone(),
-                        );
+                        e.emit(self.handler, &key_span, &stream_names, None, None);
                         None
                     }
-                }
-            })
+                },
+            )
             .collect();
 
         if self.handler.contains_error() {

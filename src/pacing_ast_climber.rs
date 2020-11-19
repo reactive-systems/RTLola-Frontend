@@ -1,10 +1,9 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{parse_ac, AbstractPacingType, Freq, PacingError, UnificationError};
+use crate::pacing_types::{AbstractPacingType, ActivationCondition, Freq, PacingError};
 
 use crate::rtltc::NodeId;
-use biodivine_lib_bdd::{BddVariableSet, BddVariableSetBuilder};
 use front::common_ir::Offset;
 use front::hir::expression::{Expression, ExpressionKind};
 use front::hir::modes::ir_expr::WithIrExpr;
@@ -28,7 +27,6 @@ where
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
     pub(crate) node_key: HashMap<NodeId, TcKey>,
-    pub(crate) bdd_vars: BddVariableSet,
     pub(crate) key_span: HashMap<TcKey, Span>,
 }
 
@@ -37,37 +35,31 @@ where
     M: HirMode + WithIrExpr + 'static,
 {
     pub(crate) fn new(hir: &'a RTLolaHIR<M>) -> Self {
-        let mut bdd_var_builder = BddVariableSetBuilder::new();
         let mut node_key = HashMap::new();
         let mut tyc = TypeChecker::new();
         let mut key_span = HashMap::new();
 
         for input in hir.inputs() {
-            bdd_var_builder.make_variable(&input.sr.in_ix().to_string()); //TODO
             let key = tyc.get_var_key(&Variable(input.name.clone()));
             node_key.insert(NodeId::SRef(input.sr), key);
             key_span.insert(key, input.span.clone());
         }
         for output in hir.outputs() {
-            bdd_var_builder.make_variable(&(output.sr.out_ix() + hir.num_inputs()).to_string()); //TODO
             let key = tyc.get_var_key(&Variable(output.name.clone()));
             node_key.insert(NodeId::SRef(output.sr), key);
             key_span.insert(key, output.span.clone());
         }
-        let bdd_vars = bdd_var_builder.build();
 
         Context {
             hir,
             tyc,
             node_key,
-            bdd_vars,
             key_span,
         }
     }
 
     pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
-        let ac =
-            AbstractPacingType::Event(self.bdd_vars.mk_var_by_name(&input.sr.in_ix().to_string()));
+        let ac = AbstractPacingType::Event(ActivationCondition::Stream(input.sr));
         let input_key = self.node_key[&NodeId::SRef(input.sr)];
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
@@ -107,17 +99,10 @@ where
                     self.node_key
                         .insert(NodeId::Expr(expr.eid), annotated_ty_key);
                     self.key_span.insert(annotated_ty_key, expr.span.clone());
-
-                    match parse_ac(expr, &self.bdd_vars, self.hir.num_inputs()) {
-                        Ok(b) => AbstractPacingType::Event(b),
-                        Err(reason) => {
-                            return Err(TcErr::Bound(
-                                annotated_ty_key,
-                                None,
-                                UnificationError::Other(reason),
-                            ));
-                        }
-                    }
+                    AbstractPacingType::Event(
+                        ActivationCondition::parse(expr)
+                            .map_err(|pe| TcErr::Bound(annotated_ty_key, None, pe))?,
+                    )
                 }
             };
             // Bind key to parsed type
@@ -304,12 +289,9 @@ where
             match at {
                 AbstractPacingType::Periodic(Freq::Any) => {
                     res.push(PacingError::FreqAnnotationNeeded(output.span.clone()));
-                    //TODO
                 }
                 AbstractPacingType::Never => {
-                    //TOD
                     res.push(PacingError::NeverEval(output.span.clone()));
-                    //TOD
                 }
                 _ => {}
             }
@@ -319,11 +301,7 @@ where
 }
 
 #[cfg(test)]
-/*
-Todo:
-- aggregations
- */
-mod pacing_type_tests {
+mod tests {
     use crate::pacing_types::{ActivationCondition, ConcretePacingType};
     use crate::rtltc::NodeId;
     use crate::LolaTypeChecker;
@@ -503,6 +481,18 @@ mod pacing_type_tests {
                 ActivationCondition::Stream(c_id)
             ]))
         );
+    }
+
+    #[test]
+    fn test_output_in_ac() {
+        let spec = "input a: Int32\ninput b: Int32\ninput c: Int32\noutput x := a + b\noutput y @(x & c) := a + b + c";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_counter() {
+        let spec = "output b := b.offset(by: -1).defaults(to: 0) + 1";
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
