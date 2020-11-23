@@ -7,7 +7,7 @@ The module occurs in different modes, adding different information to the interm
 */
 use crate::common_ir::StreamReference as SRef;
 use crate::common_ir::*;
-use crate::hir::expression::{ExprId, SlidingWindow};
+use crate::hir::expression::{DiscreteWindow, ExprId, SlidingWindow};
 use crate::parse;
 
 pub mod expression;

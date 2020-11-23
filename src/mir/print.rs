@@ -6,9 +6,9 @@ impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.kind {
             ExpressionKind::LoadConstant(c) => write!(f, "{}", c),
-            ExpressionKind::Function(name, args, ty) => {
+            ExpressionKind::Function(name, args) => {
                 write!(f, "{}(", name)?;
-                if let Type::Function(arg_tys, res) = ty {
+                if let Type::Function(arg_tys, res) = &self.ty {
                     let zipped: Vec<(&Type, &Expression)> = arg_tys.iter().zip(args.iter()).collect();
                     if let Some((last, prefix)) = zipped.split_last() {
                         prefix.iter().fold(Ok(()), |accu, (t, a)| accu.and_then(|()| write!(f, "{}: {}, ", a, t)))?;
@@ -19,23 +19,24 @@ impl Display for Expression {
                     unreachable!("The type of a function needs to be a function.")
                 }
             }
-            ExpressionKind::Convert { from, to, expr } => write!(f, "cast<{},{}>({})", from, to, expr),
+            ExpressionKind::Convert { expr } => write!(f, "cast<{},{}>({})", expr.ty, self.ty, expr),
             ExpressionKind::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             ExpressionKind::Ite { condition, consequence, alternative, .. } => {
                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
             }
-            ExpressionKind::ArithLog(op, args, ty) => {
-                write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", ty), ",")
+            ExpressionKind::ArithLog(op, args) => {
+                write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", self.ty), ",")
             }
-            ExpressionKind::DiscreteWindowLookup(wr) => write!(f, "{:?}", wr),
-            ExpressionKind::WindowLookup(wr) => write!(f, "{:?}", wr),
             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
-            ExpressionKind::OffsetLookup { target, offset } => write!(f, "{:?}.offset({})", target, offset),
-            ExpressionKind::StreamAccess(sr, access) => match access {
-                StreamAccessKind::Sync => write!(f, "{:?}", sr),
-                StreamAccessKind::Hold => write!(f, "{:?}.hold()", sr),
-                StreamAccessKind::Optional => write!(f, "{:?}.get()", sr),
-            },
+            ExpressionKind::StreamAccess(sr, access, para) => {
+                assert!(para.is_empty());
+                match access {
+                    StreamAccessKind::Sync => write!(f, "{}", sr),
+                    StreamAccessKind::Hold => write!(f, "{}.hold()", sr),
+                    StreamAccessKind::Offset(offset) => write!(f, "{}.offset({})", sr, offset),
+                    StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
+                }
+            }
             ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
         }
     }

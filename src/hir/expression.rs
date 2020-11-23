@@ -3,7 +3,8 @@ use std::time::Duration;
 use super::WindowOperation;
 use crate::hir::AnnotatedType;
 use crate::{
-    common_ir::Offset, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef, reporting::Span,
+    common_ir::StreamAccessKind, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef,
+    reporting::Span,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -63,16 +64,6 @@ pub enum ExpressionKind {
         default: Box<Expression>,
     },
 }
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum StreamAccessKind {
-    Sync,
-    DiscreteWindow(WRef),
-    SlidingWindow(WRef),
-    Hold,
-    Offset(Offset),
-}
-
 /// Represents a constant value of a certain kind.
 #[derive(Debug, Clone)]
 pub enum ConstantLiteral {

@@ -8,7 +8,6 @@ pub(crate) mod lowering;
 mod print;
 mod schedule;
 
-pub use crate::ast::StreamAccessKind;
 pub use crate::ast::WindowOperation;
 pub use crate::common_ir::{EventDrivenStream, Layer, StreamReference, TimeDrivenStream, Trigger, WindowReference};
 pub use crate::mir::schedule::{Deadline, Schedule};
@@ -82,11 +81,10 @@ pub struct InputStream {
     pub name: String,
     /// The type of the stream.
     pub ty: Type,
-    /// What streams depend, i.e., access values of this stream.
-    pub dependent_streams: Vec<StreamReference>,
-    // *was:* pub dependent_streams: Vec<Tracking>,
-    /// Which sliding windows aggregate values of this stream.
-    pub dependent_windows: Vec<(StreamReference, WindowReference)>,
+    /// The List of streams that access the current stream. (non-transitive)
+    pub acccessed_by: Vec<SRef>,
+    /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
+    pub aggregates: Vec<(StreamReference, WindowReference)>,
     // *was:* pub dependent_windows: Vec<WindowReference>,
     /// Indicates in which evaluation layer the stream is.  
     pub layer: StreamLayers,
@@ -105,14 +103,12 @@ pub struct OutputStream {
     pub ty: Type,
     /// The stream expression
     pub expr: Expression,
-    /// The input streams on which this stream depends.
-    pub input_dependencies: Vec<StreamReference>,
-    /// The output streams on which this stream depends.
-    pub outgoing_dependencies: Vec<StreamReference>,
-    /// The Tracking of all streams that depend on this stream.
-    pub dependent_streams: Vec<Tracking>,
-    /// The sliding windows depending on this stream.
-    pub dependent_windows: Vec<WindowReference>,
+    /// The List of streams that are accessed by the stream expression, spawn expression, filter expression, close expression. (non-transitive)
+    pub acccesses: Vec<SRef>,
+    /// The List of streams that access the current stream. (non-transitive)
+    pub acccessed_by: Vec<SRef>,
+    /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
+    pub aggregates: Vec<(StreamReference, WindowReference)>,
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// Indicates in which evaluation layer the stream is.  
@@ -140,21 +136,10 @@ pub enum ExpressionKind {
     /// Unary: 1st argument -> operand
     /// Binary: 1st argument -> lhs, 2nd argument -> rhs
     /// n-ary: kth argument -> kth operand
-    ArithLog(ArithLogOp, Vec<Expression>, Type),
-    /// Accessing another stream with a potentially 0 offset
-    /// 1st argument -> default
-    OffsetLookup {
-        /// The target of the lookup.
-        target: StreamReference,
-        /// The offset of the lookup.
-        offset: Offset,
-    },
+    ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
-    StreamAccess(StreamReference, StreamAccessKind),
-    /// A discrete window expression over a duration
-    DiscreteWindowLookup(WindowReference),
-    /// A sliding window expression over a duration
-    WindowLookup(WindowReference),
+    StreamAccess(StreamReference, StreamAccessKind, Vec<Expression>),
+    /// A window expression over a duration
     /// An if-then-else expression
     Ite {
         #[allow(missing_docs)]
@@ -170,13 +155,9 @@ pub enum ExpressionKind {
     TupleAccess(Box<Expression>, usize),
     /// A function call with its monomorphic type
     /// Arguments never need to be coerced, @see `Expression::Convert`.
-    Function(String, Vec<Expression>, Type),
+    Function(String, Vec<Expression>),
     /// Converting a value to a different type
     Convert {
-        /// The original type
-        from: Type,
-        /// The target type
-        to: Type,
         /// The expression that produces a value of type `from` which should be converted to `to`.
         expr: Box<Expression>,
     },
@@ -253,18 +234,20 @@ pub enum ArithLogOp {
     Gt,
 }
 
-/// Represents an instance of a discrete window.
+/// Represents an instance of a sliding window.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DiscreteWindow {
     /// The stream whose values will be aggregated.
     pub target: StreamReference,
-    /// The duration (number of events) over which the window aggregates.
-    pub duration: u64,
+    /// The stream calling and evaluating this window.
+    pub caller: StreamReference,
+    /// The duration over which the window aggregates.
+    pub duration: u32,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
     /// The aggregation operation.
     pub op: WindowOperation,
-    /// A reference to this discrete window.
+    /// A reference to this sliding window.
     pub reference: WindowReference,
     /// The type of value the window produces.
     pub ty: Type,
@@ -275,6 +258,8 @@ pub struct DiscreteWindow {
 pub struct SlidingWindow {
     /// The stream whose values will be aggregated.
     pub target: StreamReference,
+    /// The stream calling and evaluating this window.
+    pub caller: StreamReference,
     /// The duration over which the window aggregates.
     pub duration: Duration,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
@@ -287,6 +272,7 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
+////////// Implementations //////////
 impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
         self.layer.spawn_layer()

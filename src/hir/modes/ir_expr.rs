@@ -1,7 +1,7 @@
 use crate::{
+    common_ir::StreamAccessKind as IRAccess,
     hir::expression::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
-        StreamAccessKind as IRAccess,
     },
     hir::modes::HirMode,
     hir::AC,
@@ -714,7 +714,7 @@ pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
 mod tests {
     use super::*;
     use crate::ast::WindowOperation;
-    use crate::hir::expression::StreamAccessKind;
+    use crate::common_ir::StreamAccessKind;
     use crate::parse::parse;
     use std::path::PathBuf;
 
@@ -766,7 +766,7 @@ mod tests {
 
     #[test]
     fn transform_offset() {
-        use crate::hir::expression::StreamAccessKind;
+        use crate::common_ir::StreamAccessKind;
         //TODO do remaining cases
         for (spec, offset) in &[
             ("input o :Int8 output off := o", StreamAccessKind::Sync),
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn parametrized_access() {
-        use crate::hir::expression::StreamAccessKind;
+        use crate::common_ir::StreamAccessKind;
         let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[1].expr_id;
@@ -940,7 +940,7 @@ mod tests {
 
     #[test]
     fn functions() {
-        use crate::hir::expression::StreamAccessKind;
+        use crate::common_ir::StreamAccessKind;
         let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
         assert_eq!(ir.mode.func_table.len(), 1);

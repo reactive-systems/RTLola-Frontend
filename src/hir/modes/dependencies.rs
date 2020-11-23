@@ -7,9 +7,9 @@ use std::convert::TryFrom;
 
 use super::dg_functionality::*;
 use crate::hir::expression::{Expression, ExpressionKind};
-use crate::hir::{expression::StreamAccessKind, Hir};
+use crate::hir::Hir;
 use crate::{
-    common_ir::Offset,
+    common_ir::{Offset, StreamAccessKind},
     hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
 use petgraph::Outgoing;
@@ -22,15 +22,15 @@ pub(crate) trait WithDependencies {
 
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
-    fn transitiv_accesses(&self, who: SRef) -> Vec<SRef>;
+    fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
 
-    fn transitiv_accessed_by(&self, who: SRef) -> Vec<SRef>;
+    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef>;
 
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>;
+    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
 
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>;
+    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
 
     fn graph(&self) -> &Graph<SRef, EdgeWeight>;
 }
@@ -40,8 +40,10 @@ impl WithDependencies for Dependencies {
         self.direct_accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
-    fn transitiv_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.transitiv_accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+    fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
+        self.transitive_accesses
+            .get(&who)
+            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
@@ -50,8 +52,8 @@ impl WithDependencies for Dependencies {
             .map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
     }
 
-    fn transitiv_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.transitiv_accessed_by
+    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
+        self.transitive_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
@@ -83,16 +85,16 @@ impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDepe
         self.inner_dep().direct_accesses(who)
     }
 
-    fn transitiv_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().transitiv_accesses(who)
+    fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
+        self.inner_dep().transitive_accesses(who)
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
         self.inner_dep().direct_accessed_by(who)
     }
 
-    fn transitiv_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().transitiv_accessed_by(who)
+    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
+        self.inner_dep().transitive_accessed_by(who)
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
@@ -197,35 +199,35 @@ impl Dependencies {
                 }
             }
         });
-        let transitiv_accesses = graph
+        let transitive_accesses = graph
             .node_indices()
             .map(|from_index| {
                 let sr = *(graph.node_weight(from_index).unwrap());
-                let transitiv_dependencies = graph
+                let transitive_dependencies = graph
                     .node_indices()
                     .filter(|to_index| Self::has_transitive_connection(&graph, from_index, *to_index))
                     .map(|to_index| *(graph.node_weight(to_index).unwrap()))
                     .collect::<Vec<SRef>>();
-                (sr, transitiv_dependencies)
+                (sr, transitive_dependencies)
             })
             .collect::<HashMap<SRef, Vec<SRef>>>();
-        let transitiv_accessed_by = graph
+        let transitive_accessed_by = graph
             .node_indices()
             .map(|to_index| {
                 let sr = *(graph.node_weight(to_index).unwrap());
-                let transitiv_dependencies = graph
+                let transitive_dependencies = graph
                     .node_indices()
                     .filter(|from_index| Self::has_transitive_connection(&graph, *from_index, to_index))
                     .map(|from_index| *(graph.node_weight(from_index).unwrap()))
                     .collect::<Vec<SRef>>();
-                (sr, transitiv_dependencies)
+                (sr, transitive_dependencies)
             })
             .collect::<HashMap<SRef, Vec<SRef>>>();
         Ok(Dependencies {
             direct_accesses,
-            transitiv_accesses,
+            transitive_accesses,
             direct_accessed_by,
-            transitiv_accessed_by,
+            transitive_accessed_by,
             aggregates,
             aggregated_by,
             graph,
@@ -251,7 +253,7 @@ impl Dependencies {
             // Second check if one of the neighbors has a connection to the current node
             let neighbor_check = graph
                 .neighbors_directed(from, Outgoing)
-                .fold(false, |cur_res, cur_neigbor| cur_res || has_path_connecting(graph, cur_neigbor, to, None));
+                .any(|cur_neigbor| has_path_connecting(graph, cur_neigbor, to, None));
             self_check.is_some() || neighbor_check
         }
     }
@@ -363,9 +365,9 @@ mod tests {
         if let Ok(deps) = deps {
             let (
                 direct_accesses,
-                transitiv_accesses,
+                transitive_accesses,
                 direct_accessed_by,
-                transitiv_accessed_by,
+                transitive_accessed_by,
                 aggregates,
                 aggregated_by,
             ) = dependencies.unwrap();
@@ -374,8 +376,8 @@ mod tests {
                 assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
                 accesses_hir.iter().for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
             });
-            deps.transitiv_accesses.iter().for_each(|(sr, accesses_hir)| {
-                let accesses_reference = transitiv_accesses.get(sr).unwrap();
+            deps.transitive_accesses.iter().for_each(|(sr, accesses_hir)| {
+                let accesses_reference = transitive_accesses.get(sr).unwrap();
                 assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
                 accesses_hir.iter().for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
             });
@@ -384,8 +386,8 @@ mod tests {
                 assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
                 accessed_by_hir.iter().for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
             });
-            deps.transitiv_accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
-                let accessed_by_reference = transitiv_accessed_by.get(sr).unwrap();
+            deps.transitive_accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
+                let accessed_by_reference = transitive_accessed_by.get(sr).unwrap();
                 assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
                 accessed_by_hir.iter().for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
             });
@@ -430,7 +432,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let transitiv_accesses = vec![
+        let transitive_accesses = vec![
             (name_mapping["a"], vec![]),
             (name_mapping["b"], vec![name_mapping["a"]]),
             (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"]]),
@@ -446,7 +448,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let transitiv_accessed_by = vec![
+        let transitive_accessed_by = vec![
             (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
             (name_mapping["b"], vec![name_mapping["c"], name_mapping["d"]]),
             (name_mapping["c"], vec![name_mapping["d"]]),
@@ -474,9 +476,9 @@ mod tests {
             spec,
             Some((
                 direct_accesses,
-                transitiv_accesses,
+                transitive_accesses,
                 direct_accessed_by,
-                transitiv_accessed_by,
+                transitive_accessed_by,
                 aggregates,
                 aggregated_by,
             )),
@@ -488,18 +490,18 @@ mod tests {
         let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
         let name_mapping = vec![("a", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
-        let transitiv_accesses = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
+        let transitive_accesses = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
         let direct_accessed_by = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
-        let transitiv_accessed_by = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
+        let transitive_accessed_by = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
         let aggregates = vec![(name_mapping["a"], vec![])].into_iter().collect();
         let aggregated_by = vec![(name_mapping["a"], vec![])].into_iter().collect();
         check_graph_for_spec(
             spec,
             Some((
                 direct_accesses,
-                transitiv_accesses,
+                transitive_accesses,
                 direct_accessed_by,
-                transitiv_accessed_by,
+                transitive_accessed_by,
                 aggregates,
                 aggregated_by,
             )),
@@ -553,7 +555,7 @@ mod tests {
             vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"]])]
                 .into_iter()
                 .collect();
-        let transitiv_accesses =
+        let transitive_accesses =
             vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"]])]
                 .into_iter()
                 .collect();
@@ -561,7 +563,7 @@ mod tests {
             vec![(name_mapping["a"], vec![]), (name_mapping["a"], vec![name_mapping["a"], name_mapping["b"]])]
                 .into_iter()
                 .collect();
-        let transitiv_accessed_by =
+        let transitive_accessed_by =
             vec![(name_mapping["a"], vec![]), (name_mapping["a"], vec![name_mapping["a"], name_mapping["b"]])]
                 .into_iter()
                 .collect();
@@ -571,9 +573,9 @@ mod tests {
             spec,
             Some((
                 direct_accesses,
-                transitiv_accesses,
+                transitive_accesses,
                 direct_accessed_by,
-                transitiv_accessed_by,
+                transitive_accessed_by,
                 aggregates,
                 aggregated_by,
             )),

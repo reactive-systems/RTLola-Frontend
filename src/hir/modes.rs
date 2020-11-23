@@ -82,9 +82,9 @@ pub(crate) type DependencyGraph = Graph<SRef, EdgeWeight>;
 #[derive(Debug, Clone)]
 pub(crate) struct Dependencies {
     direct_accesses: Streamdependencies,
-    transitiv_accesses: Streamdependencies,
+    transitive_accesses: Streamdependencies,
     direct_accessed_by: Streamdependencies,
-    transitiv_accessed_by: Streamdependencies,
+    transitive_accessed_by: Streamdependencies,
     aggregated_by: Windowdependencies,
     aggregates: Windowdependencies,
     graph: DependencyGraph,

@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::hir::{expression::StreamAccessKind, Hir};
+use crate::common_ir::StreamAccessKind;
+use crate::hir::Hir;
 use crate::{
     common_ir::Offset,
     hir::modes::{ir_expr::WithIrExpr, HirMode},

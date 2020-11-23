@@ -22,6 +22,12 @@ pub(crate) trait MemoryWrapper {
     fn inner_memory(&self) -> &Self::InnerM;
 }
 
+impl<A: MemoryWrapper<InnerM = T>, T: MemoryAnalyzed + 'static> MemoryAnalyzed for A {
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
+        self.inner_memory().memory_bound(sr)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum MemoryErr {}
 

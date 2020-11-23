@@ -1,5 +1,4 @@
-use crate::common_ir::{MemorizationBound, SRef};
-use crate::hir::modes::dependencies::{DependenciesWrapper, WithDependencies};
+use crate::hir::modes::dependencies::DependenciesWrapper;
 
 use crate::hir::modes::ir_expr::IrExprWrapper;
 use crate::hir::modes::memory_bounds::{MemoryAnalyzed, MemoryWrapper};
@@ -12,8 +11,9 @@ use crate::hir::modes::IrExpression;
 use crate::hir::modes::Memory;
 use crate::hir::modes::Typed;
 use crate::hir::StreamReference;
-use crate::{common_ir::Tracking, hir::Window};
 use crate::{hir, hir::Hir, mir, mir::Mir};
+
+use super::{dependencies::WithDependencies, ir_expr::WithIrExpr};
 
 impl Hir<Complete> {
     #[allow(unreachable_code)]
@@ -26,9 +26,8 @@ impl Hir<Complete> {
                 mir::InputStream {
                     name: i.name,
                     ty: Self::lower_type(self.stream_type(sr)),
-                    // dependent_streams: mode.accessed_by(sr).into_iter().map(|sr| Self::lower_dependency(*sr)).collect(),
-                    dependent_streams: mode.direct_accessed_by(sr).to_vec(),
-                    dependent_windows: mode.aggregated_by(sr).to_vec(),
+                    acccessed_by: mode.direct_accesses(sr),
+                    aggregates: mode.aggregates(sr),
                     layer: mode.stream_layers(sr),
                     memory_bound: mode.memory_bound(sr),
                     reference: sr,
@@ -43,10 +42,9 @@ impl Hir<Complete> {
                     name: o.name,
                     ty: Self::lower_type(self.stream_type(sr)),
                     expr: self.lower_expr(self.expr(sr)),
-                    input_dependencies: mode.direct_accesses(sr).into_iter().filter(SRef::is_input).collect(), // TODO: Is this supposed to be transitive?
-                    outgoing_dependencies: mode.direct_accesses(sr).into_iter().filter(|_sr| todo!()).collect(), // TODO: Is this supposed to be transitive?
-                    dependent_streams: mode.direct_accessed_by(sr).into_iter().map(Self::lower_dependency).collect(),
-                    dependent_windows: mode.aggregated_by(sr).into_iter().map(|(_sr, wr)| wr).collect(),
+                    acccesses: mode.direct_accesses(sr),
+                    acccessed_by: mode.direct_accessed_by(sr),
+                    aggregates: mode.aggregates(sr),
                     memory_bound: mode.memory_bound(sr),
                     layer: mode.stream_layers(sr),
                     reference: sr,
@@ -64,28 +62,50 @@ impl Hir<Complete> {
             .map(|o| mir::EventDrivenStream { reference: o.reference })
             .collect::<Vec<mir::EventDrivenStream>>();
 
-        let sliding_windows = self.windows().into_iter().map(Self::lower_window).collect::<Vec<mir::SlidingWindow>>();
+        let (sliding_windows, discrete_windows) = mode.all_windows();
+        let discrete_windows = discrete_windows
+            .into_iter()
+            .map(|win| self.lower_discrete_window(win))
+            .collect::<Vec<mir::DiscreteWindow>>();
+        let sliding_windows =
+            sliding_windows.into_iter().map(|win| self.lower_sliding_window(win)).collect::<Vec<mir::SlidingWindow>>();
         let triggers = triggers
             .into_iter()
             .map(|t| mir::Trigger { message: t.message, reference: t.sr })
             .collect::<Vec<mir::Trigger>>();
-        Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows: todo!() }
+        Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows }
     }
 
     fn lower_periodic(_sr: StreamReference) -> mir::TimeDrivenStream {
         todo!()
     }
 
-    fn lower_window(_win: Window) -> mir::SlidingWindow {
-        todo!()
+    fn lower_sliding_window(&self, win: hir::SlidingWindow) -> mir::SlidingWindow {
+        mir::SlidingWindow {
+            target: win.target,
+            caller: win.caller,
+            duration: win.duration,
+            wait: win.wait,
+            op: win.op,
+            reference: win.reference,
+            ty: Self::lower_type(self.expr_type(win.eid)),
+        }
+    }
+
+    fn lower_discrete_window(&self, win: hir::DiscreteWindow) -> mir::DiscreteWindow {
+        mir::DiscreteWindow {
+            target: win.target,
+            caller: win.caller,
+            duration: win.duration,
+            wait: win.wait,
+            op: win.op,
+            reference: win.reference,
+            ty: Self::lower_type(self.expr_type(win.eid)),
+        }
     }
 
     fn lower_type(_ty: HirType) -> mir::Type {
         todo!("Implement me, when HIRTypes are fixed")
-    }
-
-    fn lower_dependency(_dep: StreamReference) -> Tracking {
-        todo!()
     }
 
     fn lower_expr(&self, expr: &hir::expression::Expression) -> mir::Expression {
@@ -104,25 +124,11 @@ impl Hir<Complete> {
             hir::expression::ExpressionKind::ArithLog(op, args) => {
                 let op = Self::lower_arith_log_op(*op);
                 let args = args.iter().map(|arg| self.lower_expr(arg)).collect::<Vec<mir::Expression>>();
-                let ty = todo!();
-                mir::ExpressionKind::ArithLog(op, args, ty)
+                mir::ExpressionKind::ArithLog(op, args)
             }
             hir::expression::ExpressionKind::StreamAccess(sr, kind, para) => {
                 assert!(para.is_empty(), "Parametrization currently not implemented");
-                match kind {
-                    // TODO: Change StreamAccesses in MIR
-                    hir::expression::StreamAccessKind::Sync => {
-                        mir::ExpressionKind::StreamAccess(*sr, mir::StreamAccessKind::Sync)
-                    }
-                    hir::expression::StreamAccessKind::Hold => {
-                        mir::ExpressionKind::StreamAccess(*sr, mir::StreamAccessKind::Hold)
-                    }
-                    hir::expression::StreamAccessKind::Offset(off) => {
-                        mir::ExpressionKind::OffsetLookup { target: *sr, offset: *off }
-                    }
-                    hir::expression::StreamAccessKind::DiscreteWindow(wr) => mir::ExpressionKind::WindowLookup(*wr),
-                    hir::expression::StreamAccessKind::SlidingWindow(wr) => mir::ExpressionKind::WindowLookup(*wr),
-                }
+                mir::ExpressionKind::StreamAccess(*sr, *kind, para.iter().map(|p| self.lower_expr(p)).collect())
             }
             hir::expression::ExpressionKind::ParameterAccess(_sr, _para) => unimplemented!(),
             hir::expression::ExpressionKind::Ite { condition, consequence, alternative } => {
@@ -143,14 +149,11 @@ impl Hir<Complete> {
             }
             hir::expression::ExpressionKind::Function { name, args, type_param: _ } => {
                 let args = args.iter().map(|arg| self.lower_expr(arg)).collect::<Vec<mir::Expression>>();
-                let return_ty = todo!();
-                mir::ExpressionKind::Function(name.clone(), args, return_ty)
+                mir::ExpressionKind::Function(name.clone(), args)
             }
             hir::expression::ExpressionKind::Widen(expr, ty) => {
-                let from = todo!();
-                let to = todo!();
                 let expr = Box::new(self.lower_expr(expr));
-                mir::ExpressionKind::Convert { from, to, expr }
+                mir::ExpressionKind::Convert { expr }
             }
             hir::expression::ExpressionKind::Default { expr, default } => {
                 let expr = Box::new(self.lower_expr(expr));
@@ -237,11 +240,5 @@ impl OrderedWrapper for Complete {
     type InnerO = EvaluationOrder;
     fn inner_order(&self) -> &Self::InnerO {
         &self.layers
-    }
-}
-
-impl MemoryAnalyzed for Complete {
-    fn memory_bound(&self, _sr: SRef) -> MemorizationBound {
-        todo!()
     }
 }
