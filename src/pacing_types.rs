@@ -1,13 +1,12 @@
 use crate::pacing_types::PacingError::MalformedAC;
-use front::common_ir::StreamReference;
-use front::hir::expression::{
-    Constant, ConstantLiteral, Expression, ExpressionKind, StreamAccessKind,
-};
+use front::common_ir::{StreamAccessKind, StreamReference};
+use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use front::reporting::{Diagnostic, Handler, Span};
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
 use uom::lib::collections::HashMap;
+use uom::lib::fmt::Formatter;
 use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -53,6 +52,22 @@ pub(crate) enum AbstractPacingType {
     Never,
 }
 
+/// The internal representation of an expression type
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AbstractExpressionType {
+    Any,
+    Expression(Expression),
+}
+
+/// The internal representation of the overall Stream pacing
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AbstractStreamPacing {
+    exp_pacing: AbstractPacingType,
+    spawn: (AbstractPacingType, AbstractExpressionType),
+    filter: AbstractExpressionType,
+    close: AbstractExpressionType,
+}
+
 /// The general error structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PacingError {
@@ -60,6 +75,7 @@ pub(crate) enum PacingError {
     NeverEval(Span),
     MalformedAC(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
+    IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
     Other(Span, String),
 }
 
@@ -311,6 +327,25 @@ impl PacingError {
                 )
                 .emit();
             }
+            PacingError::IncompatibleExpressions(e1, e2) => {
+                let span1 = key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\nIncompatible expressions: {} and {}",
+                        e1, e2
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(span1, Some(format!("Found {} here", e1).as_str()), true)
+                .maybe_add_span_with_label(
+                    span2,
+                    Some(format!("and found {} here", e2).as_str()),
+                    false,
+                )
+                .emit();
+            }
             PacingError::Other(span, reason) => {
                 handler.error_with_span(
                     format!("In pacing type analysis:\n{}", reason).as_str(),
@@ -491,7 +526,119 @@ impl AbstractPacingType {
     }
 }
 
-// Concrete Type Definition
+impl rusttyc::types::Abstract for AbstractExpressionType {
+    type Err = PacingError;
+
+    fn unconstrained() -> Self {
+        Self::Any
+    }
+
+    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
+        match (self, other) {
+            (Self::Any, x) | (x, Self::Any) => Ok(x.clone()),
+            (Self::Expression(a), Self::Expression(b)) => {
+                if a == b {
+                    Ok(Self::Expression(a.clone()))
+                } else {
+                    Err(PacingError::IncompatibleExpressions(
+                        Self::Expression(a.clone()),
+                        Self::Expression(b.clone()),
+                    ))
+                }
+            }
+        }
+    }
+
+    fn arity(&self) -> Option<usize> {
+        None
+    }
+
+    fn nth_child(&self, _n: usize) -> &Self {
+        unreachable!()
+    }
+
+    fn with_children<I>(&self, _children: I) -> Self
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        unreachable!()
+    }
+}
+
+impl std::fmt::Display for AbstractExpressionType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Any => write!(f, "Any"),
+            Self::Expression(e) => write!(f, "Exp({})", e),
+        }
+    }
+}
+
+impl rusttyc::types::Abstract for AbstractStreamPacing {
+    type Err = PacingError;
+
+    fn unconstrained() -> Self {
+        Self::top()
+    }
+
+    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
+        match (self, other) {
+            (
+                AbstractStreamPacing {
+                    exp_pacing: exp1,
+                    spawn: s1,
+                    filter: f1,
+                    close: c1,
+                },
+                AbstractStreamPacing {
+                    exp_pacing: exp2,
+                    spawn: s2,
+                    filter: f2,
+                    close: c2,
+                },
+            ) => {
+                let exp_pacing = exp1.meet(exp2)?;
+                let spawn_1 = s1.0.meet(&s2.0)?;
+                let spawn_2 = s1.1.meet(&s2.1)?;
+                let spawn = (spawn_1, spawn_2);
+                let filter = f1.meet(f2)?;
+                let close = c1.meet(c2)?;
+                Ok(AbstractStreamPacing {
+                    exp_pacing,
+                    spawn,
+                    filter,
+                    close,
+                })
+            }
+        }
+    }
+
+    fn arity(&self) -> Option<usize> {
+        None
+    }
+
+    fn nth_child(&self, _n: usize) -> &Self {
+        unreachable!()
+    }
+
+    fn with_children<I>(&self, _children: I) -> Self
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        unreachable!()
+    }
+}
+
+impl AbstractStreamPacing {
+    fn top() -> Self {
+        AbstractStreamPacing {
+            exp_pacing: AbstractPacingType::Any,
+            spawn: (AbstractPacingType::Any, AbstractExpressionType::Any),
+            filter: AbstractExpressionType::Any,
+            close: AbstractExpressionType::Any,
+        }
+    }
+}
 
 impl ConcretePacingType {
     pub(crate) fn from_abstract(abs_t: AbstractPacingType) -> Result<Self, PacingError> {
