@@ -1,83 +1,80 @@
-// use super::*;
-// use crate::ast::print::write_delim_list;
-// use std::fmt::{Display, Formatter, Result};
+use crate::common_ir::StreamAccessKind;
+use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, Expression};
+use itertools::Itertools;
+use std::fmt::{Display, Formatter, Result};
 
-// impl Display for Expression {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-//         match &self.kind {
-//             ExpressionKind::LoadConstant(c) => write!(f, "{}", c),
-//             ExpressionKind::Function(name, args, ty) => {
-//                 write!(f, "{}(", name)?;
-//                 if let Type::Function(arg_tys, res) = ty {
-//                     let zipped: Vec<(&Type, &Expression)> = arg_tys.iter().zip(args.iter()).collect();
-//                     if let Some((last, prefix)) = zipped.split_last() {
-//                         prefix.iter().fold(Ok(()), |accu, (t, a)| accu.and_then(|()| write!(f, "{}: {}, ", a, t)))?;
-//                         write!(f, "{}: {}", last.1, last.0)?;
-//                     }
-//                     write!(f, ") -> {}", res)
-//                 } else {
-//                     unreachable!("The type of a function needs to be a function.")
-//                 }
-//             }
-//             ExpressionKind::Convert { from, to, expr } => write!(f, "cast<{},{}>({})", from, to, expr),
-//             ExpressionKind::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
-//             ExpressionKind::Ite { condition, consequence, alternative, .. } => {
-//                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
-//             }
-//             ExpressionKind::ArithLog(op, args, ty) => {
-//                 write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", ty), ",")
-//             }
-//             ExpressionKind::WindowLookup(wr) => write!(f, "{}", wr),
-//             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
-//             ExpressionKind::OffsetLookup { target, offset } => write!(f, "{}.offset({})", target, offset),
-//             ExpressionKind::StreamAccess(sr, access) => match access {
-//                 StreamAccessKind::Sync => write!(f, "{}", sr),
-//                 StreamAccessKind::Hold => write!(f, "{}.hold()", sr),
-//                 StreamAccessKind::Optional => write!(f, "{}.get()", sr),
-//             },
-//             ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
-//         }
-//     }
-// }
+impl Display for Expression {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        use crate::hir::expression::ExpressionKind::*;
+        match &self.kind {
+            LoadConstant(c) => write!(f, "{}", c),
+            Function { name, args, .. } => write!(f, "{}({})", name, args.iter().map(|e| format!("{}", e)).join(", ")),
+            Tuple(elems) => write!(f, "({})", elems.iter().map(|e| format!("{}", e)).join(", ")),
+            Ite { condition, consequence, alternative, .. } => {
+                write!(f, "if {} then {} else {}", condition, consequence, alternative)
+            }
+            ArithLog(op, args) => write!(f, "({})", args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op))),
+            Default { expr, default } => write!(f, "{}.default({})", expr, default),
+            Widen(e, ty) => write!(f, "{}({})", ty, e),
+            TupleAccess(e, idx) => write!(f, "{}.{}", e, idx),
+            ParameterAccess(sref, idx) => write!(f, "Param(ref: {}, idx: {})", sref, idx),
+            StreamAccess(sref, kind, params) => {
+                write!(f, "Stream(ref: {}, params: ({}))", sref, params.iter().map(|e| format!("{}", e)).join(", "))?;
+                match kind {
+                    StreamAccessKind::Offset(o) => write!(f, ".offset(by: {})", o),
+                    StreamAccessKind::Hold => write!(f, ".hold()"),
+                    StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
+                        write!(f, ".aggregate(ref: {})", r)
+                    }
+                    _ => Ok(()),
+                }
+            }
+        }
+    }
+}
 
-// impl Display for Constant {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-//         match self {
-//             Constant::Bool(b) => write!(f, "{}", b),
-//             Constant::UInt(u) => write!(f, "{}", u),
-//             Constant::Int(i) => write!(f, "{}", i),
-//             Constant::Float(fl) => write!(f, "{}", fl),
-//             Constant::Str(s) => write!(f, "{}", s),
-//         }
-//     }
-// }
+impl Display for Constant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let lit = match self {
+            Constant::InlinedConstant(c, _) => c,
+            Constant::BasicConstant(c) => c,
+        };
+        match lit {
+            ConstantLiteral::SInt(v) => write!(f, "{}", v),
+            ConstantLiteral::Integer(v) => write!(f, "{}", v),
+            ConstantLiteral::Float(v) => write!(f, "{}", v),
+            ConstantLiteral::Bool(v) => write!(f, "{}", v),
+            ConstantLiteral::Str(v) => write!(f, "{}", v),
+        }
+    }
+}
 
-// impl Display for ArithLogOp {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-//         use ArithLogOp::*;
-//         match self {
-//             Not => write!(f, "!"),
-//             Neg => write!(f, "~"),
-//             Add => write!(f, "+"),
-//             Sub => write!(f, "-"),
-//             Mul => write!(f, "*"),
-//             Div => write!(f, "/"),
-//             Rem => write!(f, "%"),
-//             Pow => write!(f, "^"),
-//             And => write!(f, "∧"),
-//             Or => write!(f, "∨"),
-//             Eq => write!(f, "="),
-//             Lt => write!(f, "<"),
-//             Le => write!(f, "≤"),
-//             Ne => write!(f, "≠"),
-//             Ge => write!(f, "≥"),
-//             Gt => write!(f, ">"),
-//             BitNot => write!(f, "~"),
-//             BitAnd => write!(f, "&"),
-//             BitOr => write!(f, "|"),
-//             BitXor => write!(f, "^"),
-//             Shl => write!(f, "<<"),
-//             Shr => write!(f, ">>"),
-//         }
-//     }
-// }
+impl Display for ArithLogOp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        use ArithLogOp::*;
+        match self {
+            Not => write!(f, "!"),
+            Neg => write!(f, "~"),
+            Add => write!(f, "+"),
+            Sub => write!(f, "-"),
+            Mul => write!(f, "*"),
+            Div => write!(f, "/"),
+            Rem => write!(f, "%"),
+            Pow => write!(f, "^"),
+            And => write!(f, "∧"),
+            Or => write!(f, "∨"),
+            Eq => write!(f, "="),
+            Lt => write!(f, "<"),
+            Le => write!(f, "≤"),
+            Ne => write!(f, "≠"),
+            Ge => write!(f, "≥"),
+            Gt => write!(f, ">"),
+            BitNot => write!(f, "~"),
+            BitAnd => write!(f, "&"),
+            BitOr => write!(f, "|"),
+            BitXor => write!(f, "^"),
+            Shl => write!(f, "<<"),
+            Shr => write!(f, ">>"),
+        }
+    }
+}
