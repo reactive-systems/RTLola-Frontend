@@ -30,18 +30,51 @@ pub enum NodeId {
     Param(usize, StreamReference),
 }
 
+#[derive(Debug, Clone)]
 pub struct TypeTable {
-    pub stream_types: HashMap<StreamReference, StreamType>,
-    pub expression_types: HashMap<ExprId, StreamType>,
-    pub param_types: HashMap<StreamReference, (usize, IConcreteType)>,
+    stream_types: HashMap<StreamReference, StreamType>,
+    expression_types: HashMap<ExprId, StreamType>,
+    param_types: HashMap<(StreamReference, usize), IConcreteType>,
 }
 
+impl TypeTable {
+    /// For a given StreamReference, lookup the corresponding StreamType.
+    pub fn get_type_for_stream(&self, sref: StreamReference) -> StreamType {
+        self.stream_types[&sref].clone()
+    }
+
+    /// For a given Expression Id, lookup the corresponding StreamType.
+    pub fn get_type_for_expr(&self, exprid: ExprId) -> StreamType {
+        self.expression_types[&exprid].clone()
+    }
+
+    /// Returns the Value Type of the `idx`-th Parameter for the Stream `stream`.
+    pub fn get_parameter_type(&self, stream: StreamReference, idx: usize) -> IConcreteType {
+        self.param_types[&(stream, idx)].clone()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct StreamType {
     pub value_ty: IConcreteType,
     pub pacing_ty: ConcretePacingType,
+    pub spawn: (ConcretePacingType, Expression),
     pub filter: Expression,
-    pub spawn: Expression,
     pub close: Expression,
+}
+
+impl StreamType {
+    pub fn get_value_type(&self) -> &IConcreteType {
+        &self.value_ty
+    }
+
+    pub fn get_pacing_type(&self) -> &ConcretePacingType {
+        &self.pacing_ty
+    }
+
+    pub fn get_instance_expressions(&self) -> (&Expression, &Expression, &Expression) {
+        (&self.spawn.1, &self.filter, &self.close)
+    }
 }
 
 impl<'a, M> LolaTypeChecker<'a, M>
@@ -91,7 +124,7 @@ where
                     expression_map.insert(*id, st);
                 }
                 NodeId::Param(id, sref) => {
-                    parameters.insert(*sref, (*id, st.value_ty));
+                    parameters.insert((*sref, *id), st.value_ty);
                 }
             }
         });
