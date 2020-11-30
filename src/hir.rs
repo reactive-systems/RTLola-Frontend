@@ -35,7 +35,7 @@ pub struct RTLolaHIR<M: HirMode> {
     mode: M,
 }
 
-pub(crate) type Hir<M> = RTLolaHIR<M>;
+pub type Hir<M> = RTLolaHIR<M>;
 
 impl<M: HirMode> Hir<M> {
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
