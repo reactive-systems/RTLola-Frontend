@@ -5,10 +5,8 @@ use crate::pacing_types::{ConcretePacingType, Freq};
 use crate::rtltc::NodeId;
 use crate::value_types::IAbstractType;
 use bimap::BiMap;
-use front::common_ir::Offset;
-use front::hir::expression::{
-    Constant, ConstantLiteral, Expression, ExpressionKind, StreamAccessKind,
-};
+use front::common_ir::{Offset, StreamAccessKind};
+use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
 use front::hir::{AnnotatedType, Input, Output, Trigger, Window};
@@ -37,7 +35,7 @@ where
     pub(crate) key_span: HashMap<TcKey, Span>,
     pub(crate) handler: &'a Handler,
     pub(crate) hir: &'a RTLolaHIR<M>,
-    pub(crate) pacing_tt: HashMap<NodeId, ConcretePacingType>,
+    pub(crate) pacing_tt: &'a HashMap<NodeId, ConcretePacingType>,
 }
 
 impl<'a, M> ValueContext<'a, M>
@@ -48,7 +46,7 @@ where
         hir: &'a RTLolaHIR<M>,
         //decl: DeclarationTable,
         handler: &'a Handler,
-        pacing_tt: HashMap<NodeId, ConcretePacingType>,
+        pacing_tt: &'a HashMap<NodeId, ConcretePacingType>,
     ) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = BiMap::new();

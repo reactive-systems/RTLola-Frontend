@@ -180,7 +180,7 @@ where
                 self.tyc.impose(term_key.has_exactly_type(Any))?;
             }
             ExpressionKind::StreamAccess(sref, kind, args) => {
-                use front::hir::expression::StreamAccessKind;
+                use front::common_ir::StreamAccessKind;
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
                 match kind {
                     StreamAccessKind::Sync => self.tyc.impose(term_key.equate_with(stream_key))?,

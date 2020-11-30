@@ -33,7 +33,7 @@ pub(crate) fn parse_ac(
             },
         },
         StreamAccess(sref, kind, args) => {
-            use front::hir::expression::StreamAccessKind;
+            use front::common_ir::StreamAccessKind;
             assert!(args.is_empty());
             assert!(matches!(kind, StreamAccessKind::Sync));
             let id = match sref {

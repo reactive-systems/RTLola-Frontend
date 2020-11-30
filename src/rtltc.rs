@@ -5,7 +5,7 @@ use crate::pacing_types::{emit_error, ConcretePacingType};
 use crate::value_ast_climber::ValueContext;
 use crate::value_types::IConcreteType;
 use front::common_ir::StreamReference;
-use front::hir::expression::ExprId;
+use front::hir::expression::{ExprId, Expression};
 use front::hir::modes::ir_expr::WithIrExpr;
 use front::hir::modes::HirMode;
 use front::reporting::{Handler, Span};
@@ -30,6 +30,20 @@ pub enum NodeId {
     Param(usize, StreamReference),
 }
 
+pub struct TypeTable {
+    pub stream_types: HashMap<StreamReference, StreamType>,
+    pub expression_types: HashMap<ExprId, StreamType>,
+    pub param_types: HashMap<StreamReference, (usize, IConcreteType)>,
+}
+
+pub struct StreamType {
+    pub value_ty: IConcreteType,
+    pub pacing_ty: ConcretePacingType,
+    pub filter: Expression,
+    pub spawn: Expression,
+    pub close: Expression,
+}
+
 impl<'a, M> LolaTypeChecker<'a, M>
 where
     M: WithIrExpr + HirMode + 'static,
@@ -38,17 +52,55 @@ where
         LolaTypeChecker { hir, handler }
     }
 
-    pub fn check(&mut self) {
-        let pacing_tt = if let Some(table) = self.pacing_type_infer() {
-            table
-        } else {
-            return; //TODO better error behaviour
+    pub fn check(&mut self) -> Result<TypeTable, String> {
+        let pacing_tt = match self.pacing_type_infer() {
+            Some(tt) => tt,
+            None => return Err("Invalid Pacing Types".to_string()),
         };
         //TODO imports
-        match self.value_type_infer(pacing_tt) {
-            Ok(_map) => {}
-            Err(_e) => {} //TODO,
+        let value_tt = match self.value_type_infer(&pacing_tt) {
+            Ok(tt) => tt,
+            Err(e) => return Err(e),
         };
+
+        //Spawn type:
+        //TODO
+
+        //Filter type:
+        //TODO
+
+        //Close Type:
+        //TODO
+
+        let mut expression_map = HashMap::new();
+        let mut stream_map = HashMap::new();
+        let mut parameters = HashMap::new();
+        value_tt.keys().for_each(|id| {
+            let st = StreamType {
+                value_ty: value_tt[id].clone(),
+                pacing_ty: pacing_tt[id].clone(),
+                filter: todo!(),
+                spawn: todo!(),
+                close: todo!(),
+            };
+            match id {
+                NodeId::SRef(sref) => {
+                    stream_map.insert(*sref, st);
+                }
+                NodeId::Expr(id) => {
+                    expression_map.insert(*id, st);
+                }
+                NodeId::Param(id, sref) => {
+                    parameters.insert(*sref, (*id, st.value_ty));
+                }
+            }
+        });
+
+        Ok(TypeTable {
+            stream_types: stream_map,
+            expression_types: expression_map,
+            param_types: parameters,
+        })
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
@@ -124,7 +176,7 @@ where
 
     pub(crate) fn value_type_infer(
         &self,
-        pacing_tt: HashMap<NodeId, ConcretePacingType>,
+        pacing_tt: &HashMap<NodeId, ConcretePacingType>,
     ) -> Result<HashMap<NodeId, IConcreteType>, String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
