@@ -1,4 +1,3 @@
-use crate::pacing_types::PacingError::MalformedAC;
 use front::common_ir::{StreamAccessKind, StreamReference};
 use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use front::reporting::{Diagnostic, Handler, Span};
@@ -178,14 +177,14 @@ impl ActivationCondition {
                         if *b {
                             Ok(ActivationCondition::True)
                         } else {
-                            Err(MalformedAC(
+                            Err(PacingError::MalformedAC(
                                 ast_expr.span.clone(),
                                 "Only 'True' is supported as literals in activation conditions."
                                     .into(),
                             ))
                         }
                     }
-                    _ => Err(MalformedAC(
+                    _ => Err(PacingError::MalformedAC(
                         ast_expr.span.clone(),
                         "Only 'True' is supported as literals in activation conditions.".into(),
                     )),
