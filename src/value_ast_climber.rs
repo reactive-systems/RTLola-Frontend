@@ -845,7 +845,7 @@ mod value_type_tests {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
         let pacing_tt = ltc.pacing_type_infer().unwrap();
-        assert!(ltc.value_type_infer(pacing_tt).is_ok());
+        assert!(ltc.value_type_infer(&pacing_tt).is_ok());
         test_box.handler.emitted_errors()
     }
 
@@ -853,7 +853,7 @@ mod value_type_tests {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
         let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
-        let tt_result = ltc.value_type_infer(pacing_tt);
+        let tt_result = ltc.value_type_infer(&pacing_tt);
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
         }
@@ -869,7 +869,7 @@ mod value_type_tests {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
         let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
-        let tt_result = ltc.value_type_infer(pt);
+        let tt_result = ltc.value_type_infer(&pt);
         dbg!(&tt_result);
         assert!(tt_result.is_err(), "Expected error in value type result");
         println!("{}", tt_result.err().unwrap());
