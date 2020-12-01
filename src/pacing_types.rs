@@ -62,10 +62,10 @@ pub(crate) enum AbstractExpressionType {
 /// The internal representation of the overall Stream pacing
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AbstractStreamPacing {
-    exp_pacing: AbstractPacingType,
-    spawn: (AbstractPacingType, AbstractExpressionType),
-    filter: AbstractExpressionType,
-    close: AbstractExpressionType,
+    pub exp_pacing: AbstractPacingType,
+    pub spawn: (AbstractPacingType, AbstractExpressionType),
+    pub filter: AbstractExpressionType,
+    pub close: AbstractExpressionType,
 }
 
 /// The general error structure
@@ -76,6 +76,7 @@ pub(crate) enum PacingError {
     MalformedAC(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
+    ParameterizedExpr(Span),
     Other(Span, String),
 }
 
@@ -213,7 +214,7 @@ impl ActivationCondition {
                         "An activation condition can only refer to input streams".into(),
                     ));
                 }
-                Ok(ActivationCondition::Stream(sref.clone()))
+                Ok(ActivationCondition::Stream(*sref))
             }
             ArithLog(op, v) => {
                 if v.len() != 2 {
@@ -252,14 +253,14 @@ impl ActivationCondition {
                     .iter()
                     .map(|ac| ac.to_string(stream_names))
                     .join(" ∧ ");
-                format!("({})", child_string).into()
+                format!("({})", child_string)
             }
             Disjunction(childs) => {
                 let child_string: String = childs
                     .iter()
                     .map(|ac| ac.to_string(stream_names))
                     .join(" ∨ ");
-                format!("({})", child_string).into()
+                format!("({})", child_string)
             }
         }
     }
@@ -288,7 +289,7 @@ impl PacingError {
                     "In pacing type analysis:\nThe following stream is never evaluated.",
                 )
                 .add_span_with_label(span.clone(), Some("here"), true)
-                .add_note("Consider annotating a pacing type explicitly.")
+                .add_note("Help: Consider annotating a pacing type explicitly.")
                 .emit();
             }
             PacingError::MalformedAC(span, reason) => {
@@ -310,8 +311,7 @@ impl PacingError {
                     handler,
                     format!(
                         "In pacing type analysis:\nMixed an event and a periodic type: {} and {}",
-                        ty1.clone(),
-                        ty2.clone()
+                        ty1, ty2
                     )
                     .as_str(),
                 )
@@ -353,6 +353,15 @@ impl PacingError {
                     Some("here"),
                 );
             }
+            PacingError::ParameterizedExpr(span) => {
+                Diagnostic::error(
+                    handler,
+                    "In pacing type analysis:\nExpression of stream 'a' accesses a parameterized stream 'b', but stream 'a' is not parameterized."
+                )
+                    .add_span_with_label(span.clone(), Some("here"), true)
+                    .add_note("Help: Consider using a hold access")
+                    .emit();
+            }
         }
     }
 }
@@ -365,10 +374,10 @@ pub(crate) fn emit_error(
 ) {
     match tce {
         TcErr::KeyEquation(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(k1.clone()), Some(k2.clone()));
+            err.emit(handler, spans, names, Some(*k1), Some(*k2));
         }
         TcErr::Bound(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(k1.clone()), k2.clone());
+            err.emit(handler, spans, names, Some(*k1), *k2);
         }
         TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
             let msg = &format!(
@@ -582,35 +591,24 @@ impl rusttyc::types::Abstract for AbstractStreamPacing {
     }
 
     fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
-        match (self, other) {
-            (
-                AbstractStreamPacing {
-                    exp_pacing: exp1,
-                    spawn: s1,
-                    filter: f1,
-                    close: c1,
-                },
-                AbstractStreamPacing {
-                    exp_pacing: exp2,
-                    spawn: s2,
-                    filter: f2,
-                    close: c2,
-                },
-            ) => {
-                let exp_pacing = exp1.meet(exp2)?;
-                let spawn_1 = s1.0.meet(&s2.0)?;
-                let spawn_2 = s1.1.meet(&s2.1)?;
-                let spawn = (spawn_1, spawn_2);
-                let filter = f1.meet(f2)?;
-                let close = c1.meet(c2)?;
-                Ok(AbstractStreamPacing {
-                    exp_pacing,
-                    spawn,
-                    filter,
-                    close,
-                })
-            }
-        }
+        let AbstractStreamPacing {
+            exp_pacing: exp1,
+            spawn: s1,
+            filter: f1,
+            close: c1,
+        } = self;
+        let AbstractStreamPacing {
+            exp_pacing: exp2,
+            spawn: s2,
+            filter: f2,
+            close: c2,
+        } = other;
+        Ok(AbstractStreamPacing {
+            exp_pacing: exp1.meet(exp2)?,
+            spawn: (s1.0.meet(&s2.0)?, s1.1.meet(&s2.1)?),
+            filter: f1.meet(f2)?,
+            close: c1.meet(c2)?,
+        })
     }
 
     fn arity(&self) -> Option<usize> {
@@ -630,13 +628,30 @@ impl rusttyc::types::Abstract for AbstractStreamPacing {
 }
 
 impl AbstractStreamPacing {
-    fn top() -> Self {
+    pub fn top() -> Self {
         AbstractStreamPacing {
             exp_pacing: AbstractPacingType::Any,
             spawn: (AbstractPacingType::Any, AbstractExpressionType::Any),
             filter: AbstractExpressionType::Any,
             close: AbstractExpressionType::Any,
         }
+    }
+
+    pub fn top_with_pacing(pacing: AbstractPacingType) -> Self {
+        let mut res = Self::top();
+        res.exp_pacing = pacing;
+        res
+    }
+
+    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+        format!(
+            "(exp pacing: {}, spawn: ({}, {}), filter: {}, close: {})",
+            self.exp_pacing.to_string(names),
+            self.spawn.0.to_string(names),
+            self.spawn.1,
+            self.filter,
+            self.close
+        )
     }
 }
 

@@ -71,7 +71,7 @@ where
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         let trigger_key = self.tyc.new_term_key();
         self.node_key.insert(NodeId::SRef(trigger.sr), trigger_key);
-        //self.key_span.insert(trigger_key, trigger.span);
+        self.key_span.insert(trigger_key, trigger.span.clone());
         self.tyc.impose(trigger_key.equate_with(ex_key))
     }
 
@@ -296,6 +296,16 @@ where
                 _ => {}
             }
         }
+        //Check that trigger expression does not access parameterized stream
+        //for trigger in hir.triggers() {
+        //    let at = &tt[nid_key[&NodeId::SRef(trigger.sr)]];
+        //    if at.spawn != (AbstractPacingType::Any, AbstractExpressionType::Any)
+        //        || at.filter != AbstractExpressionType::Any
+        //        || at.close != AbstractExpressionType::Any
+        //    {
+        //        res.push(PacingError::ParameterizedExpr(trigger.span.clone()));
+        //    }
+        //}
         res
     }
 }
