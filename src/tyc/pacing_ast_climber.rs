@@ -1,16 +1,16 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{AbstractPacingType, ActivationCondition, Freq, PacingError};
+use crate::tyc::pacing_types::{AbstractPacingType, ActivationCondition, Freq, PacingError};
 
-use crate::rtltc::NodeId;
-use front::common_ir::Offset;
-use front::hir::expression::{Expression, ExpressionKind};
-use front::hir::modes::ir_expr::WithIrExpr;
-use front::hir::modes::HirMode;
-use front::hir::{Input, Output, Trigger, AC};
-use front::reporting::Span;
-use front::RTLolaHIR;
+use crate::tyc::rtltc::NodeId;
+use crate::common_ir::Offset;
+use crate::hir::expression::{Expression, ExpressionKind};
+use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::HirMode;
+use crate::hir::{Input, Output, Trigger, AC};
+use crate::reporting::Span;
+use crate::RTLolaHIR;
 use rusttyc::types::AbstractTypeTable;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
@@ -165,7 +165,7 @@ where
                 self.tyc.impose(term_key.has_exactly_type(Any))?;
             }
             ExpressionKind::StreamAccess(sref, kind, args) => {
-                use front::common_ir::StreamAccessKind;
+                use crate::common_ir::StreamAccessKind;
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
                 match kind {
                     StreamAccessKind::Sync => self.tyc.impose(term_key.equate_with(stream_key))?,

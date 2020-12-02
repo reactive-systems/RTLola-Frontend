@@ -1,15 +1,15 @@
 use super::*;
 
-use crate::pacing_ast_climber::Context as PacingContext;
-use crate::pacing_types::{emit_error, ConcretePacingType};
-use crate::value_ast_climber::ValueContext;
-use crate::value_types::IConcreteType;
-use front::common_ir::StreamReference;
-use front::hir::expression::{ExprId, Expression};
-use front::hir::modes::ir_expr::WithIrExpr;
-use front::hir::modes::HirMode;
-use front::reporting::Handler;
-use front::RTLolaHIR;
+use crate::tyc::{pacing_ast_climber::Context as PacingContext
+,pacing_types::{emit_error, ConcretePacingType}
+,value_ast_climber::ValueContext
+,value_types::IConcreteType};
+use crate::common_ir::StreamReference;
+use crate::hir::expression::{ExprId, Expression};
+use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::HirMode;
+use crate::reporting::Handler;
+use crate::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
 use std::cmp::Ordering;
 use std::collections::HashMap;

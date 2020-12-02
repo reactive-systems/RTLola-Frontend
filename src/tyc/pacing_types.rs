@@ -1,6 +1,6 @@
-use front::common_ir::{StreamAccessKind, StreamReference};
-use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use front::reporting::{Diagnostic, Handler, Span};
+use crate::common_ir::{StreamAccessKind, StreamReference};
+use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use crate::reporting::{Diagnostic, Handler, Span};
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
@@ -225,7 +225,7 @@ impl ActivationCondition {
                 }
                 let ac_l = Self::parse(&v[0])?;
                 let ac_r = Self::parse(&v[1])?;
-                use front::hir::expression::ArithLogOp;
+                use crate::hir::expression::ArithLogOp;
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l.and(ac_r)),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l.or(ac_r)),

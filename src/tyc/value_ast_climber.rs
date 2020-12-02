@@ -1,17 +1,17 @@
 use super::*;
 extern crate regex;
 
-use crate::pacing_types::{ConcretePacingType, Freq};
-use crate::rtltc::NodeId;
-use crate::value_types::IAbstractType;
+use crate::tyc::{pacing_types::{ConcretePacingType, Freq},
+rtltc::NodeId,
+value_types::IAbstractType};
 use bimap::BiMap;
-use front::common_ir::{Offset, StreamAccessKind};
-use front::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use front::hir::modes::ir_expr::WithIrExpr;
-use front::hir::modes::HirMode;
-use front::hir::{AnnotatedType, Input, Output, Trigger, Window};
-use front::reporting::{Handler, Span};
-use front::RTLolaHIR;
+use crate::common_ir::{Offset, StreamAccessKind};
+use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::HirMode;
+use crate::hir::{AnnotatedType, Input, Output, Trigger, Window};
+use crate::reporting::{Handler, Span};
+use crate::RTLolaHIR;
 use itertools::Either;
 use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
@@ -280,7 +280,7 @@ where
                         //let duration_key = self.expression_infer(&*duration, None)?;
                         //self.tyc.impose(duration_key.concretizes_explicit(IAbstractType::Numeric))?;
 
-                        use front::ast::WindowOperation;
+                        use crate::ast::WindowOperation;
                         match op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
                             WindowOperation::Min
@@ -368,7 +368,7 @@ where
                             use uom::si::frequency::hertz;
                             use uom::si::rational64::Frequency as UOM_Frequency;
 
-                            use crate::pacing_types::AbstractPacingType::*;
+                            use crate::tyc::pacing_types::AbstractPacingType::*;
                             //let n = UOM_Time::new::<second>(d);
                             let mut duration_as_f = d.as_secs_f64();
                             let mut c = 0;
@@ -432,7 +432,7 @@ where
             ///// implicit widening requieres join operand
             // a + b -> c c = meet(a,b) then equate a and b with join(a,b) //FIXME
             ExpressionKind::ArithLog(op, expr_v) => {
-                use front::hir::expression::ArithLogOp;
+                use crate::hir::expression::ArithLogOp;
                 let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> = expr_v
                     .iter()
                     .map(|expr| self.expression_infer(expr, None))

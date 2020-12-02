@@ -144,7 +144,6 @@ pub enum IConcreteType {
     Byte,
     Option(Box<IConcreteType>),
 }
-use IConcreteType::*;
 
 impl rusttyc::types::TryReifiable for IAbstractType {
     type Reified = IConcreteType;
@@ -194,7 +193,7 @@ impl rusttyc::types::TryReifiable for IAbstractType {
                         ReificationErr::TooGeneral(s) => ReificationErr::TooGeneral(s.clone()),
                     })
                 } else {
-                    Ok(Tuple(
+                    Ok(IConcreteType::Tuple(
                         recursive_result.into_iter().map(Result::unwrap).collect(),
                     ))
                 }

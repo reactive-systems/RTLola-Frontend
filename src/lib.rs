@@ -24,6 +24,7 @@ pub mod parse;
 pub mod reporting;
 mod stdlib;
 mod transformations;
+mod tyc;
 pub mod ty;
 
 //#[cfg(test)]
