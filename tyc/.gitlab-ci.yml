@@ -1,0 +1,73 @@
+stages:
+  - check
+  - test
+  - tests
+
+# Use cargo to check the source code formatting
+cargo:check-format:
+  stage: check
+  image: rust:latest
+  before_script:
+    - rustup component add rustfmt-preview
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo fmt --all --verbose -- --check
+
+# Use cargo to run clippy (Rust linter)
+cargo:clippy:
+  stage: check
+  image: rust:latest
+  before_script:
+    - rustup component add clippy-preview
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo clippy
+
+# Use cargo to test the project on stable toolchain
+cargo:test:
+  stage: test
+  image: rust:latest
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo test --all --verbose
+
+# Use cargo to test the project on stable toolchain on windows
+cargo:test:windows:
+  stage: tests
+  tags:
+    - windows
+    - rust
+  script:
+    - rustup update
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo test --all --verbose
+  allow_failure: true
+
+# Use cargo to test the project on nightly toolchain
+cargo:test-nightly:
+  stage: test
+  image: rustlang/rust:nightly
+  variables:
+    CARGO_INCREMENTAL: 0
+    RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+    RUSTDOCFLAGS: "-Cpanic=abort"
+  before_script:
+    - pip3 install junit-xml
+    - cargo install grcov
+    - cargo install cargo2junit
+  script:
+    - rustc --version && cargo --version      # Print version info for debugging
+    - cargo build
+    - (cargo test -- -Z unstable-options --format json | cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
+    - grcov ./target/debug/ -s . -t html --llvm --branch --ignore-not-existing -o ./target/debug/coverage/
+    - cat ./target/debug/coverage/index.html
+    - cargo test --all --verbose
+  allow_failure: true
+  coverage: '/linesPercentage \w+">\d+\.\d+ /'
+  artifacts:
+    when: always
+    paths:
+      - target/debug/coverage/
+    reports:
+      junit: results.xml
+

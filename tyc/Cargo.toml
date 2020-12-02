@@ -1,0 +1,17 @@
+[package]
+name = "rtltc"
+version = "0.1.0"
+authors = ["Nekronod <s8stoswa@stud.uni-saarland.de>", "Florian Kohn <florian.kohn@cispa.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.9.0"
+#rtlola-frontend = { path = "../rtlola-frontend" }
+rtlola-frontend = { git = 'https://projects.cispa.saarland/group-finkbeiner/tools/RTLola/RTLola-Frontend', branch = 'typestate-hir' }
+rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" }
+regex = "*"
+uom = { version = "0.25.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+num = "0.2"     # infinite precision rationals
+bimap = "0.5.2"

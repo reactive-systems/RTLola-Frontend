@@ -1,0 +1,3 @@
+- Check declared AC only over inputs
+- Check declared AC only logical operators
+- Value Ast Climber uses explicit widening -> needs refactoring
