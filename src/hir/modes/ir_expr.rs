@@ -49,7 +49,7 @@ impl WithIrExpr for IrExpression {
     }
 }
 
-pub(crate) type SpawnDef<'a> = (&'a Expression, Option<&'a Expression>);
+pub(crate) type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 impl<M> Hir<M>
 where
@@ -104,10 +104,9 @@ where
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| {
-                        o.instance_template
-                            .spawn
-                            .as_ref()
-                            .map(|st| (self.mode.expression(st.target), st.condition.map(|e| self.mode.expression(e))))
+                        o.instance_template.spawn.as_ref().map(|st| {
+                            (st.target.map(|e| self.mode.expression(e)), st.condition.map(|e| self.mode.expression(e)))
+                        })
                     })
                 } else {
                     None
@@ -515,36 +514,28 @@ fn insert_return(exprid_to_expr: &mut HashMap<ExprId, Expression>, expr: Express
 
 fn transform_template_spec(
     transformer: &mut ExpressionTransformer,
-    ts: Option<ast::TemplateSpec>,
+    spawn_spec: Option<ast::SpawnSpec>,
+    filter_spec: Option<ast::FilterSpec>,
+    close_spec: Option<ast::CloseSpec>,
     exprid_to_expr: &mut HashMap<ExprId, Expression>,
     current_output: SRef,
 ) -> InstanceTemplate {
-    if let Some(ts) = ts {
-        let invoke_spec = if let Some(inv_spec) = ts.inv {
-            let is = SpawnTemplate {
-                target: {
-                    insert_return(exprid_to_expr, transformer.transform_expression(inv_spec.target, current_output))
-                },
-                condition: inv_spec.condition.map(|cond_expr| {
-                    insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
-                }),
-                is_if: inv_spec.is_if,
-            };
-            Some(is)
-        } else {
-            None
-        };
-        InstanceTemplate {
-            spawn: invoke_spec,
-            filter: ts.ext.map(|ext_spec| {
-                insert_return(exprid_to_expr, transformer.transform_expression(ext_spec.target, current_output))
+    InstanceTemplate {
+        spawn: spawn_spec.map(|spawn_spec| SpawnTemplate {
+            target: spawn_spec
+                .target
+                .map(|target| insert_return(exprid_to_expr, transformer.transform_expression(target, current_output))),
+            condition: spawn_spec.condition.map(|cond_expr| {
+                insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
             }),
-            close: ts.ter.map(|ter_spec| {
-                insert_return(exprid_to_expr, transformer.transform_expression(ter_spec.target, current_output))
-            }),
-        }
-    } else {
-        InstanceTemplate { spawn: None, filter: None, close: None }
+            is_if: spawn_spec.is_if,
+        }),
+        filter: filter_spec.map(|filter_spec| {
+            insert_return(exprid_to_expr, transformer.transform_expression(filter_spec.target, current_output))
+        }),
+        close: close_spec.map(|close_spec| {
+            insert_return(exprid_to_expr, transformer.transform_expression(close_spec.target, current_output))
+        }),
     }
 }
 
@@ -589,7 +580,7 @@ impl Hir<IrExpression> {
 
         for (ix, o) in outputs.into_iter().enumerate() {
             let sr = SRef::OutRef(ix);
-            let ast::Output { expression, name, params, template_spec, ty, extend, .. } = (*o).clone();
+            let ast::Output { expression, name, params, spawn, filter, close, ty, extend, .. } = (*o).clone();
             let params: Vec<Parameter> = params
                 .iter()
                 .enumerate()
@@ -609,7 +600,7 @@ impl Hir<IrExpression> {
             exprid_to_expr.insert(expr_id, expression);
             let ac = extend.expr.map(|ex| expr_transformer.transform_ac(&mut exprid_to_expr, ex, sr));
             let instance_template =
-                transform_template_spec(&mut expr_transformer, template_spec, &mut exprid_to_expr, sr);
+                transform_template_spec(&mut expr_transformer, spawn, filter, close, &mut exprid_to_expr, sr);
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
@@ -971,7 +962,7 @@ mod tests {
     #[test]
     fn test_instance() {
         use crate::hir::{Output, AC};
-        let spec = "input i: Bool output c(a: Int8): Bool @1Hz { invoke i if i extend i close i}:= i";
+        let spec = "input i: Bool output c(a: Int8): Bool @1Hz spawn with i if i filter i close i:= i";
         let ir = obtain_expressions(spec);
         let output: Output = ir.outputs[0].clone();
         assert!(output.annotated_type.is_some());
@@ -982,7 +973,7 @@ mod tests {
         let close = ir.close(output.sr).unwrap();
         assert!(matches!(close.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
         let (invoke, op_cond) = ir.spawn(output.sr).unwrap();
-        assert!(matches!(invoke.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
+        assert!(matches!(invoke.unwrap().kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
         assert!(matches!(op_cond.unwrap().kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
     }
 

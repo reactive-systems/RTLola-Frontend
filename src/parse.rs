@@ -221,36 +221,22 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
         };
 
-        let mut tspec = None;
-        if let Rule::TemplateSpec = pair.as_rule() {
-            tspec = Some(self.parse_template_spec(pair));
+        let mut spawn = None;
+        if let Rule::SpawnDecl = pair.as_rule() {
+            spawn = Some(self.parse_spawn_spec(pair));
             pair = pairs.next().expect("mismatch between grammar and AST");
         };
 
-        // Parse termination condition `close EXPRESSION`
-        let termination = if let Rule::TerminateDecl = pair.as_rule() {
-            let expr = pair.into_inner().next().expect("mismatch between grammar and AST");
-            let expr = self.build_expression_ast(expr.into_inner());
+        let mut filter = None;
+        if let Rule::FilterDecl = pair.as_rule() {
+            filter = Some(self.parse_filter_spec(pair));
             pair = pairs.next().expect("mismatch between grammar and AST");
+        };
 
-            if !self.config.allow_parameters {
-                self.handler.error_with_span(
-                    "Parameterization is disabled",
-                    expr.span.clone(),
-                    Some("found termination condition"),
-                )
-            }
-            if params.is_empty() {
-                self.handler.error_with_span(
-                    "Termination condition is only allowed for parameterized streams",
-                    expr.span.clone(),
-                    Some("found termination condition"),
-                )
-            }
-
-            Some(expr)
-        } else {
-            None
+        let mut close = None;
+        if let Rule::CloseDecl = pair.as_rule() {
+            close = Some(self.parse_close_spec(pair));
+            pair = pairs.next().expect("mismatch between grammar and AST");
         };
 
         // Parse expression
@@ -261,8 +247,9 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             ty,
             extend,
             params: params.into_iter().map(Rc::new).collect(),
-            template_spec: tspec,
-            termination,
+            spawn,
+            filter,
+            close,
             expression,
             span,
         }
@@ -286,37 +273,63 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
         params
     }
 
-    fn parse_template_spec(&self, pair: Pair<'_, Rule>) -> TemplateSpec {
-        let span = pair.as_span().into();
-        let mut decls = pair.into_inner();
-        let mut pair = decls.next();
-        let mut rule = pair.as_ref().map(Pair::as_rule);
+    fn parse_spawn_spec(&self, spawn_pair: Pair<'_, Rule>) -> SpawnSpec {
+        let span_inv: Span = spawn_pair.as_span().into();
 
-        let mut inv_spec = None;
-        if let Some(Rule::InvokeDecl) = rule {
-            inv_spec = Some(self.parse_inv_spec(pair.unwrap()));
-            pair = decls.next();
-            rule = pair.as_ref().map(Pair::as_rule);
+        if !self.config.allow_parameters {
+            self.handler.error_with_span(
+                "Parameterization is disabled",
+                span_inv.clone(),
+                Some("found spawn condition"),
+            )
         }
-        let mut ext_spec = None;
-        if let Some(Rule::ExtendDecl) = rule {
-            ext_spec = Some(self.parse_ext_spec(pair.unwrap()));
-            pair = decls.next();
-            rule = pair.as_ref().map(Pair::as_rule);
+
+        let mut spawn_children = spawn_pair.into_inner();
+        let mut next_pair = spawn_children.next();
+
+        let mut target = None;
+        let mut condition = None;
+        let mut is_if = false;
+
+        if let Some(pair) = next_pair.clone() {
+            if let Rule::SpawnWith = pair.as_rule() {
+                let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                target = Some(self.build_expression_ast(target_pair.into_inner()));
+                next_pair = spawn_children.next();
+            }
         }
-        let mut ter_spec = None;
-        if let Some(Rule::TerminateDecl) = rule {
-            let exp = pair.unwrap();
-            let span_ter = exp.as_span().into();
-            let expr = exp.into_inner().next().expect("mismatch between grammar and AST");
-            let expr = self.build_expression_ast(expr.into_inner());
-            ter_spec = Some(TerminateSpec { target: expr, id: self.next_id(), span: span_ter });
+
+        if let Some(pair) = next_pair {
+            is_if = match pair.as_rule() {
+                Rule::SpawnIf => true,
+                Rule::SpawnUnless => false,
+                _ => unreachable!(),
+            };
+            let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+            condition = Some(self.build_expression_ast(condition_pair.into_inner()))
         }
-        TemplateSpec { inv: inv_spec, ext: ext_spec, ter: ter_spec, id: self.next_id(), span }
+
+        if target.is_none() && condition.is_none() {
+            self.handler.error_with_span(
+                "Spawn condition needs either expression or condition",
+                span_inv.clone(),
+                Some("found spawn condition here"),
+            );
+        }
+        SpawnSpec { target, condition, is_if, id: self.next_id(), span: span_inv }
     }
 
-    fn parse_ext_spec(&self, ext_pair: Pair<'_, Rule>) -> ExtendSpec {
-        let span_ext = ext_pair.as_span().into();
+    fn parse_filter_spec(&self, ext_pair: Pair<'_, Rule>) -> FilterSpec {
+        let span_ext: Span = ext_pair.as_span().into();
+
+        if !self.config.allow_parameters {
+            self.handler.error_with_span(
+                "Parameterization is disabled",
+                span_ext.clone(),
+                Some("found filter condition"),
+            )
+        }
+
         let mut children = ext_pair.into_inner();
 
         let first_child = children.next().expect("mismatch between grammar and ast");
@@ -324,27 +337,28 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             Rule::Expr => self.build_expression_ast(first_child.into_inner()),
             _ => unreachable!(),
         };
-        ExtendSpec { target, id: self.next_id(), span: span_ext }
+        FilterSpec { target, id: self.next_id(), span: span_ext }
     }
 
-    fn parse_inv_spec(&self, inv_pair: Pair<'_, Rule>) -> InvokeSpec {
-        let span_inv = inv_pair.as_span().into();
-        let mut inv_children = inv_pair.into_inner();
-        let expr_pair = inv_children.next().expect("mismatch between grammar and AST");
-        let inv_target = self.build_expression_ast(expr_pair.into_inner());
-        // Compute invocation condition:
-        let mut is_if = false;
-        let mut cond_expr = None;
-        if let Some(inv_cond_pair) = inv_children.next() {
-            is_if = match inv_cond_pair.as_rule() {
-                Rule::InvokeIf => true,
-                Rule::InvokeUnless => false,
-                _ => unreachable!(),
-            };
-            let condition = inv_cond_pair.into_inner().next().expect("mismatch between grammar and AST");
-            cond_expr = Some(self.build_expression_ast(condition.into_inner()))
+    fn parse_close_spec(&self, close_pair: Pair<'_, Rule>) -> CloseSpec {
+        let span_close: Span = close_pair.as_span().into();
+
+        if !self.config.allow_parameters {
+            self.handler.error_with_span(
+                "Parameterization is disabled",
+                span_close.clone(),
+                Some("found close condition"),
+            )
         }
-        InvokeSpec { condition: cond_expr, is_if, target: inv_target, id: self.next_id(), span: span_inv }
+
+        let mut children = close_pair.into_inner();
+
+        let first_child = children.next().expect("mismatch between grammar and ast");
+        let target = match first_child.as_rule() {
+            Rule::Expr => self.build_expression_ast(first_child.into_inner()),
+            _ => unreachable!(),
+        };
+        CloseSpec { target, id: self.next_id(), span: span_close }
     }
 
     /**
@@ -1335,6 +1349,24 @@ mod tests {
     #[test]
     fn parse_bitwise() {
         let spec = "output x := 1 ^ 0 & 23123 | 111\n";
+        let throw = |e| panic!("{}", e);
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn spawn_no_target() {
+        let spec = "output x spawn if true := 5\n";
+        let throw = |e| panic!("{}", e);
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_template_spec() {
+        let spec = "output x (y: Int8) @ 1Hz spawn with (42) if true filter y = 1337 close false := 5\n";
         let throw = |e| panic!("{}", e);
         let handler = Handler::new(PathBuf::new(), spec.into());
         let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);

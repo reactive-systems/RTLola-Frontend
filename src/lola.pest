@@ -17,22 +17,16 @@ BOM = _{"\u{FEFF}"}
 ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
-TemplateSpec = { 
-      "{" ~
-        InvokeDecl? ~
-        ExtendDecl? ~
-        TerminateDecl? ~
-      "}"}
+SpawnDecl = { "spawn" ~SpawnWith? ~(SpawnIf | SpawnUnless)? }
+SpawnIf = { "if" ~Expr }
+SpawnUnless = { "unless" ~Expr }
+SpawnWith = {"with " ~Expr }
 
-InvokeDecl = { "invoke" ~Expr ~(InvokeIf | InvokeUnless)? }
-InvokeIf = { "if" ~Expr }
-InvokeUnless = { "unless" ~Expr }
-
-ExtendDecl = { "extend" ~ Expr }
+FilterDecl = { "filter" ~ Expr }
 
 ActivationCondition = { "@" ~ Expr }
 
-TerminateDecl = { "close" ~Expr }
+CloseDecl = { "close" ~Expr }
 
 IncludeStatement = { "include"~ StringLiteral}
 
@@ -42,7 +36,7 @@ ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
 InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
-OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ ActivationCondition? ~ TemplateSpec? ~ TerminateDecl? ~":="~ Expr}
+OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ ActivationCondition? ~ SpawnDecl? ~ FilterDecl? ~CloseDecl? ~":="~ Expr}
 
 Trigger = { "trigger " ~ Expr ~ StringLiteral?}
 

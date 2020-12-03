@@ -71,26 +71,16 @@ impl Display for Output {
                 write!(f, " @ {}", expr)?;
             }
         }
-        if let Some(terminate) = &self.termination {
-            write!(f, " close {}", terminate)?;
+        if let Some(spawn) = &self.spawn {
+            write!(f, " {}", spawn)?;
         }
-        write!(f, "{} := {}", format_opt(&self.template_spec, " ", ""), self.expression)
-    }
-}
-
-impl Display for TemplateSpec {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let mut vec = Vec::new();
-        if let Some(ref i) = self.inv {
-            vec.push(format!("{}", i));
+        if let Some(filter) = &self.filter {
+            write!(f, " {}", filter)?;
         }
-        if let Some(ref e) = self.ext {
-            vec.push(format!("{}", e));
+        if let Some(close) = &self.close {
+            write!(f, " {}", close)?;
         }
-        if let Some(ref t) = self.ter {
-            vec.push(format!("{}", t));
-        }
-        write_delim_list(f, &vec, "{ ", " }", " ")
+        write!(f, " := {}", self.expression)
     }
 }
 
@@ -103,24 +93,30 @@ impl Display for Parameter {
     }
 }
 
-impl Display for InvokeSpec {
+impl Display for SpawnSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self.condition {
-            Some(ref c) => write!(f, "invoke {} {} {}", self.target, if self.is_if { "if" } else { "unless" }, c,),
-            None => write!(f, "invoke {}", self.target),
+        if self.target.is_some() || self.condition.is_some() {
+            write!(f, "spawn")?;
         }
+        if let Some(target) = &self.target {
+            write!(f, " with {}", target)?;
+        }
+        if let Some(condition) = &self.condition {
+            write!(f, " {} {}", if self.is_if { "if" } else { "unless" }, condition)?;
+        }
+        Ok(())
     }
 }
 
-impl Display for ExtendSpec {
+impl Display for FilterSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "extend {}", &self.target)
+        write!(f, "filter {}", &self.target)
     }
 }
 
-impl Display for TerminateSpec {
+impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "terminate {}", self.target)
+        write!(f, "close {}", self.target)
     }
 }
 

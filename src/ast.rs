@@ -106,10 +106,12 @@ pub struct Output {
     pub extend: ActivationCondition,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Rc<Parameter>>,
-    /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
-    pub template_spec: Option<TemplateSpec>,
-    ///  The termination condition of parametrized streams
-    pub termination: Option<Expression>,
+    /// The spawn declaration of a parameterized stream
+    pub spawn: Option<SpawnSpec>,
+    /// The filter declaration of a parameterized stream
+    pub filter: Option<FilterSpec>,
+    ///  The close declaration of parametrized stream
+    pub close: Option<CloseSpec>,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
     pub expression: Expression,
     /// The ID of the node in the AST
@@ -149,29 +151,12 @@ pub struct ActivationCondition {
 }
 
 /**
-An AST node representing the declaration of a template of a parametrized stream.
-*/
-#[derive(Debug, Clone)]
-pub struct TemplateSpec {
-    /// The invoke condition of the parametrized stream.
-    pub inv: Option<InvokeSpec>,
-    /// The extend condition of the parametrized stream.
-    pub ext: Option<ExtendSpec>,
-    /// The termination condition of the parametrized stream.
-    pub ter: Option<TerminateSpec>,
-    /// The ID of the node in the AST
-    pub id: NodeId,
-    /// The span in the specification declaring the template
-    pub span: Span,
-}
-
-/**
 An AST node representing the declaration of an invoke condition of a parametrized stream
 */
 #[derive(Debug, Clone)]
-pub struct InvokeSpec {
+pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: Expression,
+    pub target: Option<Expression>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
     pub condition: Option<Expression>,
     /// A flag to describe if the invoke declaration contains an additional condition
@@ -186,7 +171,7 @@ pub struct InvokeSpec {
 An AST node representing the declaration of an extend condition of a parametrized stream
 */
 #[derive(Debug, Clone)]
-pub struct ExtendSpec {
+pub struct FilterSpec {
     /// The boolean expression defining the condition, if a parameterized instance is evaluated.
     pub target: Expression,
     /// The ID of the node in the AST
@@ -199,7 +184,7 @@ pub struct ExtendSpec {
 An AST node representing the declaration of a termination condition of a parametrized stream
 */
 #[derive(Debug, Clone)]
-pub struct TerminateSpec {
+pub struct CloseSpec {
     /// The boolean expression defining the condition, if a parameterized instance is terminated.
     pub target: Expression,
     /// The ID of the node in the AST

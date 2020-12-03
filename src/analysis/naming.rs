@@ -271,24 +271,21 @@ impl<'b> NamingAnalysis<'b> {
         for output in &spec.outputs {
             self.declarations.push();
             output.params.iter().for_each(|param| self.check_param(&param));
-            if let Some(ref template_spec) = output.template_spec {
-                if let Some(ref invoke) = template_spec.inv {
-                    self.check_expression(&invoke.target);
-                    if let Some(ref cond) = invoke.condition {
-                        self.check_expression(&cond);
-                    }
+            if let Some(spawn) = &output.spawn {
+                if let Some(target) = &spawn.target {
+                    self.check_expression(target);
                 }
-                if let Some(ref extend) = template_spec.ext {
-                    self.check_expression(&extend.target);
+                if let Some(cond) = &spawn.condition {
+                    self.check_expression(&cond);
                 }
-                if let Some(ref terminate) = template_spec.ter {
-                    self.check_expression(&terminate.target);
-                }
+            }
+            if let Some(filter) = &output.filter {
+                self.check_expression(&filter.target);
+            }
+            if let Some(close) = &output.close {
+                self.check_expression(&close.target);
             }
             if let Some(expr) = output.extend.expr.as_ref() {
-                self.check_expression(expr);
-            }
-            if let Some(expr) = output.termination.as_ref() {
                 self.check_expression(expr);
             }
             self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
@@ -541,7 +538,7 @@ mod tests {
 
     #[test]
     fn template_spec_is_also_tested() {
-        assert_eq!(1, number_of_naming_errors("output a {invoke b} := 3"))
+        assert_eq!(1, number_of_naming_errors("output a spawn with b := 3"))
     }
 
     #[test]
