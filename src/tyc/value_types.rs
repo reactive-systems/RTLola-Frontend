@@ -44,62 +44,41 @@ impl Abstract for IAbstractType {
             (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(*i)),
             (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok(SInteger(*x)),
             (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok(UInteger(*x)),
-            (Integer, other) | (other, Integer) => {
-                Err(format!("Integer and non-Integer {:?}", other))
-            }
-            (SInteger(_), other) | (other, SInteger(_)) => {
-                Err(format!("Int not unifiable with {:?}", other))
-            }
-            (UInteger(_), other) | (other, UInteger(_)) => {
-                Err(format!("UInt not unifiable with {:?}", other))
-            }
+            (Integer, other) | (other, Integer) => Err(format!("Integer and non-Integer {:?}", other)),
+            (SInteger(_), other) | (other, SInteger(_)) => Err(format!("Int not unifiable with {:?}", other)),
+            (UInteger(_), other) | (other, UInteger(_)) => Err(format!("UInt not unifiable with {:?}", other)),
             (Tuple(lv), Tuple(rv)) => {
                 if lv.len() != rv.len() {
-                    return Err(String::from(
-                        "Tuple unification demands equal number of arguments",
-                    ));
+                    return Err(String::from("Tuple unification demands equal number of arguments"));
                 }
-                let (recursive_result, errors): (Vec<Result<Self, Self::Err>>, Vec<_>) = lv
-                    .iter()
-                    .zip(rv.iter())
-                    .map(|(l, r)| Self::meet(l, r))
-                    .partition(Result::is_ok);
+                let (recursive_result, errors): (Vec<Result<Self, Self::Err>>, Vec<_>) =
+                    lv.iter().zip(rv.iter()).map(|(l, r)| Self::meet(l, r)).partition(Result::is_ok);
                 if !errors.is_empty() {
-                    let error_unwraped: Vec<String> =
-                        errors.into_iter().map(Result::unwrap_err).collect();
+                    let error_unwraped: Vec<String> = errors.into_iter().map(Result::unwrap_err).collect();
                     Err(error_unwraped.join(", "))
                 } else {
-                    Ok(Tuple(
-                        recursive_result.into_iter().map(Result::unwrap).collect(),
-                    ))
+                    Ok(Tuple(recursive_result.into_iter().map(Result::unwrap).collect()))
                 }
             }
-            (Tuple(_), _) | (_, Tuple(_)) => {
-                Err(String::from("Tuple unification only with other Tuples"))
-            }
+            (Tuple(_), _) | (_, Tuple(_)) => Err(String::from("Tuple unification only with other Tuples")),
             (TString, TString) => Ok(TString),
-            (TString, _) | (_, TString) => {
-                Err(String::from("String unification only with other Strings"))
-            }
+            (TString, _) | (_, TString) => Err(String::from("String unification only with other Strings")),
             (Bytes, Bytes) => Ok(Bytes),
             (Bytes, _) | (_, Bytes) => Err(String::from("Bytes unification only with other Bytes")),
             (Option(l), Option(r)) => match Self::meet(l, r) {
                 Ok(t) => Ok(Option(Box::new(t))),
                 Err(e) => Err(e),
             },
-            (Option(_), _) | (_, Option(_)) => {
-                Err(String::from("Option unification only with other Options"))
-            } //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
+            (Option(_), _) | (_, Option(_)) => Err(String::from("Option unification only with other Options")), //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
         }
     }
 
-    fn arity(&self) -> std::option::Option<usize> {
+    fn arity(&self) -> Option<usize> {
         use IAbstractType::*;
         match self {
             Option(_) => Some(1),
             Tuple(t) => Some(t.len()),
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString
-            | Bytes => Some(0),
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => Some(0),
         }
     }
 
@@ -108,8 +87,7 @@ impl Abstract for IAbstractType {
         match self {
             Option(op) => &*op,
             Tuple(vec) => &vec[n],
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString
-            | Bytes => unreachable!(),
+            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => unreachable!(),
         }
     }
 
@@ -158,7 +136,7 @@ impl rusttyc::types::TryReifiable for IAbstractType {
             IAbstractType::SInteger(w) => {
                 Err(ReificationErr::Conflicting(format!("Integer too wide, {}-bit not supported.", w)))
             }
-            IAbstractType::UInteger(w) if *w <= 8  => Ok(IConcreteType::UInteger8),
+            IAbstractType::UInteger(w) if *w <= 8 => Ok(IConcreteType::UInteger8),
             IAbstractType::UInteger(w) if *w <= 16 => Ok(IConcreteType::UInteger16),
             IAbstractType::UInteger(w) if *w <= 32 => Ok(IConcreteType::UInteger32),
             IAbstractType::UInteger(w) if *w <= 64 => Ok(IConcreteType::UInteger64),
@@ -181,21 +159,16 @@ impl rusttyc::types::TryReifiable for IAbstractType {
             IAbstractType::Integer => Ok(IConcreteType::Integer32), //TODO REVIEW default case
             IAbstractType::Bool => Ok(IConcreteType::Bool),
             IAbstractType::Tuple(sub_types) => {
-                let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationErr>>, Vec<_>) = sub_types
-                    .iter()
-                    .map(|v| rusttyc::types::TryReifiable::try_reify(v))
-                    .partition(Result::is_ok);
+                let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationErr>>, Vec<_>) =
+                    sub_types.iter().map(|v| rusttyc::types::TryReifiable::try_reify(v)).partition(Result::is_ok);
                 if !errors.is_empty() {
-                    let error_unwraped: Vec<ReificationErr> =
-                        errors.into_iter().map(Result::unwrap_err).collect();
+                    let error_unwraped: Vec<ReificationErr> = errors.into_iter().map(Result::unwrap_err).collect();
                     Err(match &error_unwraped[0] {
                         ReificationErr::Conflicting(s) => ReificationErr::Conflicting(s.clone()),
                         ReificationErr::TooGeneral(s) => ReificationErr::TooGeneral(s.clone()),
                     })
                 } else {
-                    Ok(IConcreteType::Tuple(
-                        recursive_result.into_iter().map(Result::unwrap).collect(),
-                    ))
+                    Ok(IConcreteType::Tuple(recursive_result.into_iter().map(Result::unwrap).collect()))
                 }
             }
             IAbstractType::TString => Ok(IConcreteType::TString),
@@ -228,8 +201,7 @@ impl rusttyc::types::Generalizable for IConcreteType {
             IConcreteType::UInteger64 => IAbstractType::UInteger(64),
             IConcreteType::Bool => IAbstractType::Bool,
             IConcreteType::Tuple(type_list) => {
-                let result_vec: Vec<IAbstractType> =
-                    type_list.iter().map(|t| Self::generalize(t)).collect();
+                let result_vec: Vec<IAbstractType> = type_list.iter().map(|t| Self::generalize(t)).collect();
                 IAbstractType::Tuple(result_vec)
             }
             IConcreteType::TString => IAbstractType::TString,

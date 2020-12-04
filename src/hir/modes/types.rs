@@ -1,4 +1,4 @@
-use crate::{common_ir::SRef, hir::expression::ExprId};
+use crate::{common_ir::SRef, hir::expression::ExprId, hir::modes::TypeTables};
 
 use super::Typed;
 
@@ -9,7 +9,7 @@ pub(crate) trait TypeChecked {
     fn expr_type(&self, _eid: ExprId) -> HirType;
 }
 
-impl TypeChecked for Typed {
+impl TypeChecked for TypeTables {
     fn stream_type(&self, _sr: SRef) -> HirType {
         unimplemented!()
     }
@@ -27,6 +27,13 @@ impl TypeChecked for Typed {
 pub(crate) trait TypedWrapper {
     type InnerT: TypeChecked;
     fn inner_typed(&self) -> &Self::InnerT;
+}
+
+impl TypedWrapper for Typed {
+    type InnerT = TypeTables;
+    fn inner_typed(&self) -> &Self::InnerT {
+        &self.tts
+    }
 }
 
 impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {

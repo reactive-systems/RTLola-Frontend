@@ -10,7 +10,7 @@ use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::Hir;
 use crate::{
     common_ir::{Offset, StreamAccessKind},
-    hir::modes::{ir_expr::WithIrExpr, HirMode},
+    hir::modes::{ir_expr::WithIrExpr, DependencyAnalyzed, HirMode},
 };
 use petgraph::Outgoing;
 use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, Graph};
@@ -78,6 +78,13 @@ impl WithDependencies for Dependencies {
 pub(crate) trait DependenciesWrapper {
     type InnerD: WithDependencies;
     fn inner_dep(&self) -> &Self::InnerD;
+}
+
+impl DependenciesWrapper for DependencyAnalyzed {
+    type InnerD = Dependencies;
+    fn inner_dep(&self) -> &Self::InnerD {
+        &self.dependencies
+    }
 }
 
 impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDependencies for A {

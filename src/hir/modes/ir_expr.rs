@@ -3,7 +3,7 @@ use crate::{
     hir::expression::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
     },
-    hir::modes::HirMode,
+    hir::modes::{HirMode, IrExprRes},
     hir::AC,
     hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
 };
@@ -31,7 +31,7 @@ pub trait WithIrExpr {
     fn expression(&self, id: ExprId) -> &Expression;
     fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
-impl WithIrExpr for IrExpression {
+impl WithIrExpr for IrExprRes {
     fn window_refs(&self) -> Vec<Window> {
         self.windows.values().map(|w| Window { expr: w.eid }).collect()
     }
@@ -142,32 +142,17 @@ where
         }
     }
 }
-/*
-impl WithIrExpr for IrExpression {
-    fn windows(&self) -> Vec<Window> {
-        todo!()
-    }
-    fn expr(&self, sr: SRef) -> &Expression {
-        match sr {
-            SRef::InRef(_) => todo!(),
-            SRef::OutRef(_) => todo!(),
-        }
-    }
-    fn spawn(&self, _sr: SRef) -> (&Expression, &Expression) {
-        todo!()
-    }
-    fn filter(&self, _sr: SRef) -> &Expression {
-        todo!()
-    }
-    fn close(&self, _sr: SRef) -> &Expression {
-        todo!()
-    }
-}
-*/
 
 pub trait IrExprWrapper {
     type InnerE: WithIrExpr;
     fn inner_expr(&self) -> &Self::InnerE;
+}
+
+impl IrExprWrapper for IrExpression {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr_res
+    }
 }
 
 impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
@@ -647,7 +632,7 @@ impl Hir<IrExpression> {
 
         let windows: HashMap<ExprId, SlidingWindow> = sliding_windows.into_iter().map(|w| (w.eid, w)).collect();
 
-        let new_mode = IrExpression { exprid_to_expr, windows, func_table };
+        let new_mode = IrExpression { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
 
         Hir {
             next_input_ref: hir_inputs.len(),

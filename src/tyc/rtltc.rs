@@ -1,14 +1,16 @@
 use super::*;
 
-use crate::tyc::{pacing_ast_climber::Context as PacingContext
-,pacing_types::{emit_error, ConcretePacingType}
-,value_ast_climber::ValueContext
-,value_types::IConcreteType};
 use crate::common_ir::StreamReference;
 use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::reporting::Handler;
+use crate::tyc::{
+    pacing_ast_climber::Context as PacingContext,
+    pacing_types::{emit_error, ConcretePacingType},
+    value_ast_climber::ValueContext,
+    value_types::IConcreteType,
+};
 use crate::RTLolaHIR;
 use rusttyc::types::ReifiedTypeTable;
 use std::cmp::Ordering;
@@ -129,11 +131,7 @@ where
             }
         });
 
-        Ok(TypeTable {
-            stream_types: stream_map,
-            expression_types: expression_map,
-            param_types: parameters,
-        })
+        Ok(TypeTable { stream_types: stream_map, expression_types: expression_map, param_types: parameters })
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
@@ -187,15 +185,13 @@ where
         let ctt: HashMap<NodeId, ConcretePacingType> = ctx
             .node_key
             .iter()
-            .filter_map(
-                |(id, key)| match ConcretePacingType::from_abstract(tt[*key].clone()) {
-                    Ok(ct) => Some((*id, ct)),
-                    Err(e) => {
-                        e.emit(self.handler, &key_span, &stream_names, None, None);
-                        None
-                    }
-                },
-            )
+            .filter_map(|(id, key)| match ConcretePacingType::from_abstract(tt[*key].clone()) {
+                Ok(ct) => Some((*id, ct)),
+                Err(e) => {
+                    e.emit(self.handler, &key_span, &stream_names, None, None);
+                    None
+                }
+            })
             .collect();
 
         if self.handler.contains_error() {

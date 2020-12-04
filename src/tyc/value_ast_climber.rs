@@ -1,17 +1,19 @@
 use super::*;
 extern crate regex;
 
-use crate::tyc::{pacing_types::{ConcretePacingType, Freq},
-rtltc::NodeId,
-value_types::IAbstractType};
-use bimap::BiMap;
 use crate::common_ir::{Offset, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::hir::{AnnotatedType, Input, Output, Trigger, Window};
 use crate::reporting::{Handler, Span};
+use crate::tyc::{
+    pacing_types::{ConcretePacingType, Freq},
+    rtltc::NodeId,
+    value_types::IAbstractType,
+};
 use crate::RTLolaHIR;
+use bimap::BiMap;
 use itertools::Either;
 use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
@@ -53,17 +55,13 @@ where
         let key_span = HashMap::new();
 
         for input in hir.inputs() {
-            let key = tyc.get_var_key(&Variable {
-                name: input.name.clone(),
-            });
+            let key = tyc.get_var_key(&Variable { name: input.name.clone() });
             node_key.insert(NodeId::SRef(input.sr), key);
             //key_span.insert(key, input.span);
         }
 
         for out in hir.outputs() {
-            let key = tyc.get_var_key(&Variable {
-                name: out.name.clone(),
-            });
+            let key = tyc.get_var_key(&Variable { name: out.name.clone() });
             node_key.insert(NodeId::SRef(out.sr), key);
             //key_span.insert(key, out.span);
         }
@@ -87,16 +85,12 @@ where
     }
 
     pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
-        let term_key: TcKey = *self
-            .node_key
-            .get_by_left(&NodeId::SRef(input.sr))
-            .expect("Added in constructor");
+        let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
         //Annotated Type
 
         let annotated_type_replaced = self.match_annotated_type(&input.annotated_type);
         //can skip any case as type must be provided
-        self.tyc
-            .impose(term_key.has_exactly_type(annotated_type_replaced))?;
+        self.tyc.impose(term_key.has_exactly_type(annotated_type_replaced))?;
 
         /*
         let mut param_types = Vec::new();
@@ -119,39 +113,25 @@ where
     }
 
     pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
-        let out_key = *self
-            .node_key
-            .get_by_left(&NodeId::SRef(out.sr))
-            .expect("Added in constructor");
+        let out_key = *self.node_key.get_by_left(&NodeId::SRef(out.sr)).expect("Added in constructor");
 
-        let annotated_type_replaced = out
-            .annotated_type
-            .as_ref()
-            .map(|ty| self.match_annotated_type(ty))
-            .unwrap_or(IAbstractType::Any);
+        let annotated_type_replaced =
+            out.annotated_type.as_ref().map(|ty| self.match_annotated_type(ty)).unwrap_or(IAbstractType::Any);
         dbg!(&annotated_type_replaced);
         if let IAbstractType::Any = annotated_type_replaced {
         } else {
             //self.tyc.impose(out_key.concretizes_explicit(annotated_type_replaced.clone()))?;
-            self.tyc
-                .impose(out_key.has_exactly_type(annotated_type_replaced))?;
+            self.tyc.impose(out_key.has_exactly_type(annotated_type_replaced))?;
         }
 
         //let mut param_types = Vec::new();
         for param in &out.params {
-            let param_key = self.tyc.get_var_key(&Variable {
-                name: out.name.clone() + "_" + &param.name.clone(),
-            });
+            let param_key = self.tyc.get_var_key(&Variable { name: out.name.clone() + "_" + &param.name.clone() });
             dbg!(param_key);
-            self.node_key
-                .insert(NodeId::Param(param.idx, out.sr), param_key);
+            self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
             //self.key_span.insert(param_key, param.span);
 
-            let t = param
-                .annotated_type
-                .as_ref()
-                .map(|t| self.match_annotated_type(t))
-                .unwrap_or(IAbstractType::Any);
+            let t = param.annotated_type.as_ref().map(|t| self.match_annotated_type(t)).unwrap_or(IAbstractType::Any);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
             //param_types.push(param_key);
         }
@@ -177,12 +157,8 @@ where
     }
 
     pub fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TcErr<IAbstractType>> {
-        let tr_key = *self
-            .node_key
-            .get_by_left(&NodeId::SRef(tr.sr))
-            .expect("Added in constructor");
-        let expression_key =
-            self.expression_infer(&self.hir.expr(tr.sr), Some(IAbstractType::Bool))?;
+        let tr_key = *self.node_key.get_by_left(&NodeId::SRef(tr.sr)).expect("Added in constructor");
+        let expression_key = self.expression_infer(&self.hir.expr(tr.sr), Some(IAbstractType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
@@ -203,14 +179,11 @@ where
             ExpressionKind::LoadConstant(c) => {
                 let (cons_lit, anno_ty) = match c {
                     Constant::BasicConstant(lit) => (lit, IAbstractType::Any),
-                    Constant::InlinedConstant(lit, anno_ty) => {
-                        (lit, self.match_annotated_type(anno_ty))
-                    }
+                    Constant::InlinedConstant(lit, anno_ty) => (lit, self.match_annotated_type(anno_ty)),
                 };
                 let literal_type = self.match_const_literal(cons_lit);
                 dbg!(&literal_type);
-                self.tyc
-                    .impose(term_key.concretizes_explicit(literal_type))?;
+                self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
                 if !matches!(anno_ty, IAbstractType::Any) {
                     self.tyc.impose(term_key.has_exactly_type(anno_ty))?;
                 }
@@ -222,18 +195,13 @@ where
                 }
 
                 if !args.is_empty() {
-                    let target_stream: &Output = self
-                        .hir
-                        .outputs()
-                        .find(|o| o.sr == *sr)
-                        .expect("Unable to find referenced stream");
+                    let target_stream: &Output =
+                        self.hir.outputs().find(|o| o.sr == *sr).expect("Unable to find referenced stream");
                     let param_keys: Vec<_> = target_stream
                         .params
                         .iter()
                         .map(|p| {
-                            let v = Variable {
-                                name: target_stream.name.clone() + "_" + &p.name,
-                            };
+                            let v = Variable { name: target_stream.name.clone() + "_" + &p.name };
                             self.tyc.get_var_key(&v)
                         })
                         .collect();
@@ -251,30 +219,18 @@ where
                     res?;
                 }
 
-                let target_key = self
-                    .node_key
-                    .get_by_left(&NodeId::SRef(*sr))
-                    .expect("Entered in constructor");
+                let target_key = self.node_key.get_by_left(&NodeId::SRef(*sr)).expect("Entered in constructor");
 
                 match kind {
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
-                    StreamAccessKind::DiscreteWindow(_wref)
-                    | StreamAccessKind::SlidingWindow(_wref) => {
+                    StreamAccessKind::DiscreteWindow(_wref) | StreamAccessKind::SlidingWindow(_wref) => {
                         //TODO use acutall wref as access methdd
                         let window = self.hir.single_window(Window { expr: exp.eid });
                         let (target_key, op, wait) = match window {
-                            Either::Left(sw) => (
-                                self.node_key.get_by_left(&NodeId::SRef(sw.target)),
-                                sw.op,
-                                sw.wait,
-                            ),
-                            Either::Right(dw) => (
-                                self.node_key.get_by_left(&NodeId::SRef(dw.target)),
-                                dw.op,
-                                dw.wait,
-                            ),
+                            Either::Left(sw) => (self.node_key.get_by_left(&NodeId::SRef(sw.target)), sw.op, sw.wait),
+                            Either::Right(dw) => (self.node_key.get_by_left(&NodeId::SRef(dw.target)), dw.op, dw.wait),
                         };
                         let target_key = *target_key.expect("Entered in Constructor");
                         //let duration_key = self.expression_infer(&*duration, None)?;
@@ -283,54 +239,41 @@ where
                         use crate::ast::WindowOperation;
                         match op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
-                            WindowOperation::Min
-                            | WindowOperation::Max
-                            | WindowOperation::Average => {
-                                self.tyc.impose(term_key.concretizes_explicit(
-                                    IAbstractType::Option(IAbstractType::Any.into()),
-                                ))?;
+                            WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                                )?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
                             }
                             //Count: Any -> uint
                             WindowOperation::Count => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(IAbstractType::Any))?;
-                                self.tyc.impose(
-                                    term_key.concretizes_explicit(IAbstractType::UInteger(1)),
-                                )?;
+                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Any))?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::UInteger(1)))?;
                             }
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
                             WindowOperation::Integral => {
-                                self.tyc.impose(
-                                    target_key.concretizes_explicit(IAbstractType::Numeric),
-                                )?; //TODO maybe numeric
+                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?; //TODO maybe numeric
                                 if wait {
-                                    self.tyc.impose(term_key.concretizes_explicit(
-                                        IAbstractType::Option(IAbstractType::Any.into()),
-                                    ))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                                    self.tyc.impose(
-                                        inner_key.concretizes_explicit(IAbstractType::Float(1)),
-                                    )?;
+                                    self.tyc.impose(inner_key.concretizes_explicit(IAbstractType::Float(1)))?;
                                 } else {
                                     //self.tyc.impose(term_key.concretizes(ex_key))?;
-                                    self.tyc.impose(
-                                        term_key.concretizes_explicit(IAbstractType::Float(1)),
-                                    )?;
+                                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Float(1)))?;
                                 }
                             }
                             //Σ and Π :T <T:Num> -> T
                             WindowOperation::Sum | WindowOperation::Product => {
-                                self.tyc.impose(
-                                    target_key.concretizes_explicit(IAbstractType::Numeric),
-                                )?;
+                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?;
                                 if wait {
-                                    self.tyc.impose(term_key.concretizes_explicit(
-                                        IAbstractType::Option(IAbstractType::Any.into()),
-                                    ))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(inner_key.equate_with(target_key))?;
                                 } else {
@@ -339,26 +282,22 @@ where
                             }
                             //bool -> bool
                             WindowOperation::Conjunction | WindowOperation::Disjunction => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(IAbstractType::Bool))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
                             }
                         }
                     }
                     StreamAccessKind::Hold => {
                         self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Option(
-                                IAbstractType::Any.into(),
-                            )))?;
+                            .impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(target_key.equate_with(inner_key))?;
                     }
                     StreamAccessKind::Offset(off) => match off {
                         Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
-                            self.tyc.impose(term_key.concretizes_explicit(
-                                IAbstractType::Option(IAbstractType::Any.into()),
-                            ))?;
+                            self.tyc.impose(
+                                term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                            )?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
@@ -379,8 +318,7 @@ where
                             dbg!(duration_as_f);
                             let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
                             let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-                            let target_ratio =
-                                self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
+                            let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
                             //TODO special case: period of current output > offset
                             // && offset is multiple of target stream (no optional needed)
                             if let Ok(Periodic(target_freq)) = target_ratio {
@@ -388,9 +326,9 @@ where
                                 dbg!(&freq, &target_freq);
                                 if let Ok(true) = target_freq.is_multiple_of(&freq) {
                                     dbg!("frequencies compatible");
-                                    self.tyc.impose(term_key.concretizes_explicit(
-                                        IAbstractType::Option(IAbstractType::Any.into()),
-                                    ))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(target_key.equate_with(inner_key))?;
                                 } else {
@@ -399,8 +337,7 @@ where
                                     return Err(TcErr::Bound(
                                         *target_key,
                                         None,
-                                        "Can't use realtime offset with non-matching frequencies"
-                                            .to_string(),
+                                        "Can't use realtime offset with non-matching frequencies".to_string(),
                                     ));
                                 }
                             } else {
@@ -419,24 +356,19 @@ where
                 let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
                 dbg!(ex_key, def_key);
-                self.tyc.impose(
-                    ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                )?;
+                self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
                 //self.tyc.impose(def_key.equate_with(inner_key))?;
                 //selftyc.impose(term_key.equate_with(def_key))?;
-                self.tyc
-                    .impose(term_key.is_sym_meet_of(def_key, inner_key))?;
+                self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
             //TODO
             ///// implicit widening requieres join operand
             // a + b -> c c = meet(a,b) then equate a and b with join(a,b) //FIXME
             ExpressionKind::ArithLog(op, expr_v) => {
                 use crate::hir::expression::ArithLogOp;
-                let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> = expr_v
-                    .iter()
-                    .map(|expr| self.expression_infer(expr, None))
-                    .collect();
+                let arg_keys: Result<Vec<TcKey>, TcErr<IAbstractType>> =
+                    expr_v.iter().map(|expr| self.expression_infer(expr, None)).collect();
                 let arg_keys = arg_keys?;
                 match arg_keys.len() {
                     2 => {
@@ -455,12 +387,8 @@ where
                             | ArithLogOp::BitAnd
                             | ArithLogOp::BitOr
                             | ArithLogOp::BitXor => {
-                                self.tyc.impose(
-                                    left_key.concretizes_explicit(IAbstractType::Numeric),
-                                )?;
-                                self.tyc.impose(
-                                    right_key.concretizes_explicit(IAbstractType::Numeric),
-                                )?;
+                                self.tyc.impose(left_key.concretizes_explicit(IAbstractType::Numeric))?;
+                                self.tyc.impose(right_key.concretizes_explicit(IAbstractType::Numeric))?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
@@ -468,13 +396,10 @@ where
                             }
                             // Bool x Bool -> Bool
                             ArithLogOp::And | ArithLogOp::Or => {
-                                self.tyc
-                                    .impose(left_key.concretizes_explicit(IAbstractType::Bool))?;
-                                self.tyc
-                                    .impose(right_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(left_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(right_key.concretizes_explicit(IAbstractType::Bool))?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
                             }
                             // Any x Any -> Bool COMPARATORS
                             ArithLogOp::Eq
@@ -485,8 +410,7 @@ where
                             | ArithLogOp::Gt => {
                                 self.tyc.impose(left_key.equate_with(right_key))?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
                             }
                             ArithLogOp::Not | ArithLogOp::Neg | ArithLogOp::BitNot => {
                                 unreachable!("unary operator cannot have 2 arguments")
@@ -498,16 +422,13 @@ where
                         match op {
                             // Bool -> Bool
                             ArithLogOp::Not => {
-                                self.tyc
-                                    .impose(arg_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(arg_key.concretizes_explicit(IAbstractType::Bool))?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Bool))?;
                             }
                             //Num -> Num
                             ArithLogOp::Neg | ArithLogOp::BitNot => {
-                                self.tyc
-                                    .impose(arg_key.concretizes_explicit(IAbstractType::Numeric))?;
+                                self.tyc.impose(arg_key.concretizes_explicit(IAbstractType::Numeric))?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
                             }
@@ -517,32 +438,24 @@ where
                     _ => unreachable!(),
                 }
             }
-            ExpressionKind::Ite {
-                condition,
-                consequence,
-                alternative,
-            } => {
+            ExpressionKind::Ite { condition, consequence, alternative } => {
                 // Bool for condition - check given in the second argument
                 self.expression_infer(&*condition, Some(IAbstractType::Bool))?;
                 let cons_key = self.expression_infer(&*consequence, None)?; // X
                 let alt_key = self.expression_infer(&*alternative, None)?; // X
                                                                            //Bool x T x T -> T
-                self.tyc
-                    .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
+                self.tyc.impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
             }
 
             ExpressionKind::Tuple(vec) => {
-                let key_vec: Result<Vec<TcKey>, TcErr<IAbstractType>> = vec
-                    .iter()
-                    .map(|ex| self.expression_infer(ex, None))
-                    .collect();
+                let key_vec: Result<Vec<TcKey>, TcErr<IAbstractType>> =
+                    vec.iter().map(|ex| self.expression_infer(ex, None)).collect();
                 let key_vec = key_vec?;
                 let base_type = IAbstractType::Tuple(vec![IAbstractType::Any; vec.len()]);
                 self.tyc.impose(term_key.concretizes_explicit(base_type))?;
                 for (n, child_key_inferred) in key_vec.iter().enumerate() {
                     let n_key_given = self.tyc.get_child_key(term_key, n)?;
-                    self.tyc
-                        .impose(n_key_given.equate_with(*child_key_inferred))?;
+                    self.tyc.impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
             }
 
@@ -557,34 +470,21 @@ where
             ExpressionKind::Widen(inner, ty) => {
                 let inner_expr_key = self.expression_infer(inner, None)?;
                 let (upper_bound, type_bound) = match ty {
-                    AnnotatedType::UInt(x) => {
-                        (IAbstractType::UInteger(1), IAbstractType::UInteger(*x))
-                    }
-                    AnnotatedType::Int(x) => {
-                        (IAbstractType::SInteger(1), IAbstractType::SInteger(*x))
-                    }
+                    AnnotatedType::UInt(x) => (IAbstractType::UInteger(1), IAbstractType::UInteger(*x)),
+                    AnnotatedType::Int(x) => (IAbstractType::SInteger(1), IAbstractType::SInteger(*x)),
                     AnnotatedType::Float(x) => (IAbstractType::Float(1), IAbstractType::Float(*x)),
                     _ => unimplemented!("Unsupported widen Type"),
                 };
                 let internal_key = self.tyc.new_term_key();
                 self.key_span.insert(internal_key, exp.span.clone());
-                self.tyc
-                    .impose(internal_key.concretizes_explicit(type_bound))?;
-                self.tyc
-                    .impose(inner_expr_key.concretizes_explicit(upper_bound))?;
+                self.tyc.impose(internal_key.concretizes_explicit(type_bound))?;
+                self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
                 self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
                 self.tyc.impose(term_key.equate_with(internal_key))?;
             }
-            ExpressionKind::Function {
-                name,
-                type_param,
-                args,
-            } => {
+            ExpressionKind::Function { name, type_param, args } => {
                 //transform Type into new internal types.
-                let types_vec: Vec<IAbstractType> = type_param
-                    .iter()
-                    .map(|t| self.match_annotated_type(t))
-                    .collect();
+                let types_vec: Vec<IAbstractType> = type_param.iter().map(|t| self.match_annotated_type(t)).collect();
                 // check for name in context
                 let fun_decl = self.hir.func_declaration(name);
                 //Generics
@@ -594,9 +494,7 @@ where
                     .map(|gen| {
                         let gen_key: TcKey = self.tyc.new_term_key();
                         let ty = self.match_annotated_type(gen);
-                        self.tyc
-                            .impose(gen_key.concretizes_explicit(ty))
-                            .map(|_| gen_key)
+                        self.tyc.impose(gen_key.concretizes_explicit(ty)).map(|_| gen_key)
                     })
                     .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
@@ -619,14 +517,9 @@ where
                 self.tyc.impose(term_key.concretizes(return_type))?;
             }
             ExpressionKind::ParameterAccess(current_stream, ix) => {
-                let output: &Output = self
-                    .hir
-                    .outputs()
-                    .find(|o| o.sr == *current_stream)
-                    .expect("Expect valid stream reference");
-                let v = Variable {
-                    name: output.name.clone() + "_" + &output.params[*ix].name,
-                };
+                let output: &Output =
+                    self.hir.outputs().find(|o| o.sr == *current_stream).expect("Expect valid stream reference");
+                let v = Variable { name: output.name.clone() + "_" + &output.params[*ix].name };
                 let par_key = self.tyc.get_var_key(&v);
                 dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
@@ -636,11 +529,7 @@ where
         Ok(term_key)
     }
 
-    fn replace_type(
-        &mut self,
-        at: &AnnotatedType,
-        to: &[TcKey],
-    ) -> Result<TcKey, TcErr<IAbstractType>> {
+    fn replace_type(&mut self, at: &AnnotatedType, to: &[TcKey]) -> Result<TcKey, TcErr<IAbstractType>> {
         match at {
             AnnotatedType::Param(idx, _) => Ok(to[*idx]),
             AnnotatedType::Numeric
@@ -653,8 +542,7 @@ where
             | AnnotatedType::Option(_)
             | AnnotatedType::Tuple(_) => {
                 let replace_key = self.tyc.new_term_key();
-                self.tyc
-                    .impose(replace_key.concretizes_explicit(self.match_annotated_type(at)))?;
+                self.tyc.impose(replace_key.concretizes_explicit(self.match_annotated_type(at)))?;
                 Ok(replace_key)
             }
         }
@@ -668,14 +556,10 @@ where
             AnnotatedType::UInt(u) => IAbstractType::UInteger(*u),
             AnnotatedType::Bool => IAbstractType::Bool,
             AnnotatedType::Bytes => IAbstractType::Bytes,
-            AnnotatedType::Option(op) => {
-                IAbstractType::Option(self.match_annotated_type(&(**op)).into())
+            AnnotatedType::Option(op) => IAbstractType::Option(self.match_annotated_type(&(**op)).into()),
+            AnnotatedType::Tuple(v) => {
+                IAbstractType::Tuple(v.iter().map(|inner| self.match_annotated_type(inner)).collect())
             }
-            AnnotatedType::Tuple(v) => IAbstractType::Tuple(
-                v.iter()
-                    .map(|inner| self.match_annotated_type(inner))
-                    .collect(),
-            ),
             AnnotatedType::Numeric => IAbstractType::Numeric,
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
@@ -694,10 +578,7 @@ where
         }
     }
 
-    pub(crate) fn handle_error(
-        &self,
-        err: TcErr<IAbstractType>,
-    ) -> <IAbstractType as Abstract>::Err {
+    pub(crate) fn handle_error(&self, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err {
         dbg!(&err);
         let primal_key;
         let msg = match err {
@@ -722,11 +603,7 @@ where
             TcErr::Bound(key, key2, msg) => {
                 primal_key = key;
                 match key2 {
-                    None => format!(
-                        "Invalid type bound enforced on {:?}: {}",
-                        self.node_key.get_by_right(&key),
-                        msg
-                    ),
+                    None => format!("Invalid type bound enforced on {:?}: {}", self.node_key.get_by_right(&key), msg),
                     Some(k2) => format!(
                         "Invalid type bound enforced on {:?} by {:?}: {}",
                         self.node_key.get_by_right(&key).unwrap(),
@@ -737,11 +614,7 @@ where
             }
             TcErr::ExactTypeViolation(key, bound) => {
                 primal_key = key;
-                format!(
-                    "Type Bound: {:?} incompatible with {:?}",
-                    bound,
-                    self.node_key.get_by_right(&key).unwrap()
-                )
+                format!("Type Bound: {:?} incompatible with {:?}", bound, self.node_key.get_by_right(&key).unwrap())
             }
             TcErr::ConflictingExactBounds(key, bound1, bound2) => {
                 primal_key = key;
@@ -754,11 +627,7 @@ where
             }
         };
         if let Some(error_key_span) = self.key_span.get(&primal_key) {
-            self.handler.error_with_span(
-                "Stream inference error",
-                error_key_span.clone(),
-                Some(&msg),
-            );
+            self.handler.error_with_span("Stream inference error", error_key_span.clone(), Some(&msg));
         } else {
             self.handler.error(&msg);
         }
@@ -823,21 +692,17 @@ mod value_type_tests {
 
     fn setup_hir(spec: &str) -> TestBox {
         let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst =
-            match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
-                Ok(s) => s,
-                Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
-            };
+        let ast: RTLolaAst = match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
+            Ok(s) => s,
+            Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
+        };
         let hir = front::hir::RTLolaHIR::<IrExpression>::transform_expressions(
             ast,
             &handler,
             &front::FrontendConfig::default(),
         );
         //let mut dec = na.check(&spec);
-        assert!(
-            !handler.contains_error(),
-            "Spec produces errors in naming analysis."
-        );
+        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
         TestBox { hir, handler }
     }
 
@@ -857,10 +722,7 @@ mod value_type_tests {
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
         }
-        assert!(
-            tt_result.is_ok(),
-            "Expect Valid Input - Value Type check failed"
-        );
+        assert!(tt_result.is_ok(), "Expect Valid Input - Value Type check failed");
         let tt = tt_result.expect("ensured by assertion");
         (test_box, tt)
     }
@@ -889,10 +751,7 @@ mod value_type_tests {
         let input_sr = tb.hir.get_input_with_name("i").unwrap().sr;
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(input_sr)], IConcreteType::Integer8);
-        assert_eq!(
-            result_map[&NodeId::SRef(output_sr)],
-            IConcreteType::Integer8
-        );
+        assert_eq!(result_map[&NodeId::SRef(output_sr)], IConcreteType::Integer8);
         assert_eq!(0, complete_check(spec));
     }
 
@@ -903,10 +762,7 @@ mod value_type_tests {
         let input_sr = tb.hir.get_input_with_name("i").unwrap().sr;
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(input_sr)], IConcreteType::Integer8);
-        assert_eq!(
-            result_map[&NodeId::SRef(output_sr)],
-            IConcreteType::Integer32
-        );
+        assert_eq!(result_map[&NodeId::SRef(output_sr)], IConcreteType::Integer32);
         assert_eq!(0, complete_check(spec));
     }
 
@@ -918,18 +774,9 @@ mod value_type_tests {
         let input_i_id = input_iter.next().unwrap().sr;
         let input_i1_id = input_iter.next().unwrap().sr;
         let output_id = tb.hir.outputs().next().unwrap().sr;
-        assert_eq!(
-            result_map[&NodeId::SRef(input_i_id)],
-            IConcreteType::Integer8
-        );
-        assert_eq!(
-            result_map[&NodeId::SRef(input_i1_id)],
-            IConcreteType::Integer16
-        );
-        assert_eq!(
-            result_map[&NodeId::SRef(output_id)],
-            IConcreteType::Integer16
-        );
+        assert_eq!(result_map[&NodeId::SRef(input_i_id)], IConcreteType::Integer8);
+        assert_eq!(result_map[&NodeId::SRef(input_i1_id)], IConcreteType::Integer16);
+        assert_eq!(result_map[&NodeId::SRef(output_id)], IConcreteType::Integer16);
         assert_eq!(0, complete_check(spec));
     }
 
@@ -950,10 +797,7 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
         assert_eq!(0, complete_check(spec));
-        assert_eq!(
-            result_map[&NodeId::SRef(output_sr)],
-            IConcreteType::Integer8
-        );
+        assert_eq!(result_map[&NodeId::SRef(output_sr)], IConcreteType::Integer8);
     }
 
     #[test]
@@ -963,10 +807,7 @@ mod value_type_tests {
         let output_sr = tb.output("x");
         assert_eq!(0, complete_check(spec));
         assert_eq!(0, tb.handler.emitted_errors());
-        assert_eq!(
-            result_map[&NodeId::SRef(output_sr)],
-            IConcreteType::UInteger8
-        );
+        assert_eq!(result_map[&NodeId::SRef(output_sr)], IConcreteType::UInteger8);
     }
 
     #[test]
@@ -976,14 +817,8 @@ mod value_type_tests {
         let output_id = tb.output("x");
         let output_2_id = tb.output("y");
         assert_eq!(0, complete_check(spec));
-        assert_eq!(
-            result_map[&NodeId::SRef(output_id)],
-            IConcreteType::Integer8
-        );
-        assert_eq!(
-            result_map[&NodeId::SRef(output_2_id)],
-            IConcreteType::Integer8
-        );
+        assert_eq!(result_map[&NodeId::SRef(output_id)], IConcreteType::Integer8);
+        assert_eq!(result_map[&NodeId::SRef(output_2_id)], IConcreteType::Integer8);
     }
 
     #[test]
@@ -1063,8 +898,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_explicit_widening() {
-        let spec =
-            "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen<Int32>(d)";
+        let spec = "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen<Int32>(d)";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
         assert_eq!(0, complete_check(spec));
@@ -1413,10 +1247,7 @@ mod value_type_tests {
         let out_id = tb.output("out");
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], IConcreteType::Integer8);
-        assert_eq!(
-            result_map[&NodeId::SRef(out_id)],
-            IConcreteType::Option(IConcreteType::Integer8.into())
-        );
+        assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Option(IConcreteType::Integer8.into()));
     }
 
     #[test]
@@ -1534,7 +1365,7 @@ mod value_type_tests {
     #[ignore] //int to float cast currently not allowed
     fn test_aggregation_implicit_cast2() {
         let spec =
-                            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
+            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: avg).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
@@ -1563,11 +1394,11 @@ mod value_type_tests {
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
         let spec =
-                            "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
+            "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
         let spec =
-                            "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+            "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
@@ -1575,7 +1406,7 @@ mod value_type_tests {
         assert_eq!(result_map[&NodeId::SRef(in_id)], IConcreteType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Float32);
         let spec =
-                            "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+            "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");

@@ -3,13 +3,13 @@ extern crate regex;
 
 use crate::tyc::pacing_types::{AbstractPacingType, ActivationCondition, Freq, PacingError};
 
-use crate::tyc::rtltc::NodeId;
 use crate::common_ir::Offset;
 use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::hir::{Input, Output, Trigger, AC};
 use crate::reporting::Span;
+use crate::tyc::rtltc::NodeId;
 use crate::RTLolaHIR;
 use rusttyc::types::AbstractTypeTable;
 use rusttyc::{TcErr, TcKey, TypeChecker};
@@ -50,12 +50,7 @@ where
             key_span.insert(key, output.span.clone());
         }
 
-        Context {
-            hir,
-            tyc,
-            node_key,
-            key_span,
-        }
+        Context { hir, tyc, node_key, key_span }
     }
 
     pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
@@ -64,10 +59,7 @@ where
         self.tyc.impose(input_key.concretizes_explicit(ac))
     }
 
-    pub(crate) fn trigger_infer(
-        &mut self,
-        trigger: &Trigger,
-    ) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TcErr<AbstractPacingType>> {
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         let trigger_key = self.tyc.new_term_key();
         self.node_key.insert(NodeId::SRef(trigger.sr), trigger_key);
@@ -75,16 +67,12 @@ where
         self.tyc.impose(trigger_key.equate_with(ex_key))
     }
 
-    pub(crate) fn output_infer(
-        &mut self,
-        output: &Output,
-    ) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
         // Type Expression
         let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
         let output_key = self.node_key[&NodeId::SRef(output.sr)];
 
-        self.tyc
-            .impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
+        self.tyc.impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
         if let Some(ac) = &output.activation_condition {
@@ -96,18 +84,15 @@ where
                 }
                 AC::Expr(eid) => {
                     let expr = self.hir.expression(*eid);
-                    self.node_key
-                        .insert(NodeId::Expr(expr.eid), annotated_ty_key);
+                    self.node_key.insert(NodeId::Expr(expr.eid), annotated_ty_key);
                     self.key_span.insert(annotated_ty_key, expr.span.clone());
                     AbstractPacingType::Event(
-                        ActivationCondition::parse(expr)
-                            .map_err(|pe| TcErr::Bound(annotated_ty_key, None, pe))?,
+                        ActivationCondition::parse(expr).map_err(|pe| TcErr::Bound(annotated_ty_key, None, pe))?,
                     )
                 }
             };
             // Bind key to parsed type
-            self.tyc
-                .impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
+            self.tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
 
             // Annotated type should be more concrete than inferred type
             self.tyc.impose(annotated_ty_key.concretizes(exp_key))?;
@@ -153,10 +138,7 @@ where
         */
     }
 
-    pub(crate) fn expression_infer(
-        &mut self,
-        exp: &Expression,
-    ) -> Result<TcKey, TcErr<AbstractPacingType>> {
+    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<TcKey, TcErr<AbstractPacingType>> {
         let term_key: TcKey = self.tyc.new_term_key();
         use AbstractPacingType::*;
         match &exp.kind {
@@ -173,9 +155,7 @@ where
                         match off {
                             Offset::PastRealTimeOffset(_) | Offset::FutureRealTimeOffset(_) => {
                                 // Real time offset are only allowed on timed streams.
-                                self.tyc.impose(term_key.concretizes_explicit(
-                                    AbstractPacingType::Periodic(Freq::Any),
-                                ))?;
+                                self.tyc.impose(term_key.concretizes_explicit(Periodic(Freq::Any)))?;
                                 self.tyc.impose(term_key.concretizes(stream_key))?;
                             }
                             Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
@@ -183,13 +163,9 @@ where
                             }
                         }
                     }
-                    StreamAccessKind::Hold => {
-                        self.tyc.impose(term_key.concretizes_explicit(Any))?
-                    }
+                    StreamAccessKind::Hold => self.tyc.impose(term_key.concretizes_explicit(Any))?,
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
-                        self.tyc.impose(
-                            term_key.concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)),
-                        )?;
+                        self.tyc.impose(term_key.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
                     }
                 };
@@ -219,24 +195,18 @@ where
                 }
                 _ => unreachable!(),
             },
-            ExpressionKind::Ite {
-                condition,
-                consequence,
-                alternative,
-            } => {
+            ExpressionKind::Ite { condition, consequence, alternative } => {
                 let cond_key = self.expression_infer(&*condition)?;
                 let cons_key = self.expression_infer(&*consequence)?;
                 let alt_key = self.expression_infer(&*alternative)?;
 
-                self.tyc
-                    .impose(term_key.is_meet_of_all(&[cond_key, cons_key, alt_key]))?;
+                self.tyc.impose(term_key.is_meet_of_all(&[cond_key, cons_key, alt_key]))?;
             }
             ExpressionKind::Tuple(elements) => {
                 let ele_keys: Vec<TcKey> = elements
                     .iter()
                     .map(|e| self.expression_infer(&*e))
-                    .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>(
-                )?;
+                    .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
             /*
@@ -328,16 +298,11 @@ mod tests {
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
         let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst =
-            match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
-                Ok(s) => s,
-                Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
-            };
-        let hir = front::hir::RTLolaHIR::<IrExpression>::from_ast(
-            ast,
-            &handler,
-            &front::FrontendConfig::default(),
-        );
+        let ast: RTLolaAst = match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
+            Ok(s) => s,
+            Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
+        };
+        let hir = front::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &front::FrontendConfig::default());
         (hir, handler)
     }
 
@@ -395,10 +360,7 @@ mod tests {
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
-        assert_eq!(
-            tt[&NodeId::SRef(hir.triggers().nth(0).unwrap().sr)],
-            ConcretePacingType::Event(ac_a)
-        );
+        assert_eq!(tt[&NodeId::SRef(hir.triggers().nth(0).unwrap().sr)], ConcretePacingType::Event(ac_a));
     }
 
     #[test]
@@ -425,9 +387,7 @@ mod tests {
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
             tt[&get_node_for_name(&hir, "a")],
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
-                Rational::from_u8(10).unwrap()
-            ))
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(10).unwrap()))
         );
     }
 
@@ -441,9 +401,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "x")],
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
-                Rational::from_u8(5).unwrap()
-            ))
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
         );
     }
 
@@ -513,16 +471,14 @@ mod tests {
 
     #[test]
     fn test_realtime_stream_integer_offset_faster() {
-        let spec =
-            "output a @4Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
+        let spec = "output a @4Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
         // equivalent to b[-500ms].defaults(to: 0) + a[-250ms].defaults(to: 0)
         assert_eq!(0, num_errors(spec));
     }
 
     #[test]
     fn test_realtime_stream_integer_offset_incompatible() {
-        let spec =
-            "output a @3Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
+        let spec = "output a @3Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
         // does not work, a[-1] is not guaranteed to exist
         assert_eq!(1, num_errors(spec));
     }
@@ -546,8 +502,7 @@ mod tests {
 
     #[test]
     fn test_1hz_meet() {
-        let spec =
-            "input i: Int64\noutput a @ 5Hz := 42\noutput b @ 2Hz := 1337\noutput c := a + b";
+        let spec = "input i: Int64\noutput a @ 5Hz := 42\noutput b @ 2Hz := 1337\noutput c := a + b";
         let (hir, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -555,16 +510,13 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "c")],
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
-                Rational::from_u8(1).unwrap()
-            ))
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
     }
 
     #[test]
     fn test_0_1hz_meet() {
-        let spec =
-            "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 0.3Hz := 1337\noutput c := a + b";
+        let spec = "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 0.3Hz := 1337\noutput c := a + b";
         let (hir, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -572,28 +524,23 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "c")],
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
-                Rational::from_f32(0.1).unwrap()
-            ))
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_f32(0.1).unwrap()))
         );
     }
 
     #[test]
     fn test_annotated_freq() {
-        let spec =
-            "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 3Hz := 1337\noutput c @2Hz := a + b";
+        let spec = "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 3Hz := 1337\noutput c @2Hz := a + b";
         assert_eq!(num_errors(spec), 1);
     }
 
     #[test]
     fn test_parametric_output() {
-        let spec =
-            "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
+        let spec = "input i: UInt8\noutput x(a: UInt8, b: Bool): Int8 := i\noutput y := x(1, false)";
         let (hir, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir, &handler);
         let tt = ltc.pacing_type_infer().unwrap();
-        let i_type =
-            ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")));
+        let i_type = ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "i")));
         assert_eq!(0, num_errors(spec));
         assert_eq!(tt[&get_node_for_name(&hir, "x")], i_type);
         assert_eq!(tt[&get_node_for_name(&hir, "y")], i_type);
@@ -674,9 +621,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "out")],
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(
-                Rational::from_u8(5).unwrap()
-            ))
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
         );
     }
 

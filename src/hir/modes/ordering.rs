@@ -5,7 +5,7 @@ use super::{EdgeWeight, EvaluationOrder};
 use super::dg_functionality::*;
 use std::collections::HashMap;
 
-use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, HirMode};
+use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, HirMode, Ordered};
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Graph, Outgoing};
 
@@ -26,6 +26,13 @@ impl EvaluationOrderBuilt for EvaluationOrder {
 pub(crate) trait OrderedWrapper {
     type InnerO: EvaluationOrderBuilt;
     fn inner_order(&self) -> &Self::InnerO;
+}
+
+impl OrderedWrapper for Ordered {
+    type InnerO = EvaluationOrder;
+    fn inner_order(&self) -> &Self::InnerO {
+        &self.layers
+    }
 }
 
 impl<A: OrderedWrapper<InnerO = T>, T: EvaluationOrderBuilt + 'static> EvaluationOrderBuilt for A {

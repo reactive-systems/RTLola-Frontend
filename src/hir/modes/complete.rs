@@ -1,15 +1,7 @@
-use crate::hir::modes::dependencies::DependenciesWrapper;
-
-use crate::hir::modes::ir_expr::IrExprWrapper;
-use crate::hir::modes::memory_bounds::{MemoryAnalyzed, MemoryWrapper};
-use crate::hir::modes::ordering::{EvaluationOrderBuilt, OrderedWrapper};
-use crate::hir::modes::types::{HirType, TypeChecked, TypedWrapper};
+use crate::hir::modes::memory_bounds::MemoryAnalyzed;
+use crate::hir::modes::ordering::EvaluationOrderBuilt;
+use crate::hir::modes::types::{HirType, TypeChecked};
 use crate::hir::modes::Complete;
-use crate::hir::modes::Dependencies;
-use crate::hir::modes::EvaluationOrder;
-use crate::hir::modes::IrExpression;
-use crate::hir::modes::Memory;
-use crate::hir::modes::Typed;
 use crate::hir::StreamReference;
 use crate::{hir, hir::Hir, mir, mir::Mir};
 
@@ -205,40 +197,5 @@ impl Hir<Complete> {
             hir::expression::ArithLogOp::Ge => mir::ArithLogOp::Ge,
             hir::expression::ArithLogOp::Gt => mir::ArithLogOp::Gt,
         }
-    }
-}
-
-impl IrExprWrapper for Complete {
-    type InnerE = IrExpression;
-    fn inner_expr(&self) -> &Self::InnerE {
-        &self.ir_expr
-    }
-}
-
-impl DependenciesWrapper for Complete {
-    type InnerD = Dependencies;
-    fn inner_dep(&self) -> &Self::InnerD {
-        &self.dependencies
-    }
-}
-
-impl MemoryWrapper for Complete {
-    type InnerM = Memory;
-    fn inner_memory(&self) -> &Self::InnerM {
-        &self.memory
-    }
-}
-
-impl TypedWrapper for Complete {
-    type InnerT = Typed;
-    fn inner_typed(&self) -> &Self::InnerT {
-        &self.types
-    }
-}
-
-impl OrderedWrapper for Complete {
-    type InnerO = EvaluationOrder;
-    fn inner_order(&self) -> &Self::InnerO {
-        &self.layers
     }
 }

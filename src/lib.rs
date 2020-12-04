@@ -24,8 +24,8 @@ pub mod parse;
 pub mod reporting;
 mod stdlib;
 mod transformations;
-mod tyc;
 pub mod ty;
+mod tyc;
 
 //#[cfg(test)]
 //mod tests;
@@ -109,7 +109,7 @@ pub(crate) fn parse_to_hir(
     Ok(Hir::<IrExpression>::transform_expressions(spec, &handler, &config)
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
-        .type_check()
+        .type_check(&handler)
         .build_evaluation_order()
         .compute_memory_bounds()
         .finalize())
