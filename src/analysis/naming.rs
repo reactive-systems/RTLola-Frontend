@@ -12,33 +12,9 @@ use std::{collections::HashMap, rc::Rc};
 
 // These MUST all be lowercase
 // TODO add an static assertion for this
-pub(crate) const KEYWORDS: [&str; 26] = [
-    "input",
-    "output",
-    "trigger",
-    "import",
-    "type",
-    "self",
-    "include",
-    "invoke",
-    "inv",
-    "extend",
-    "ext",
-    "terminate",
-    "ter",
-    "unless",
-    "if",
-    "then",
-    "else",
-    "and",
-    "or",
-    "not",
-    "forall",
-    "exists",
-    "any",
-    "true",
-    "false",
-    "error",
+pub(crate) const KEYWORDS: [&str; 24] = [
+    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "filter", "close", "with", "unless",
+    "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
 ];
 
 pub type DeclarationTable = HashMap<NodeId, Declaration>;
