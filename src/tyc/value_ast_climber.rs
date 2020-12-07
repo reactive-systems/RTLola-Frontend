@@ -664,14 +664,14 @@ fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, S
 
 #[cfg(test)]
 mod value_type_tests {
-    use crate::rtltc::NodeId;
-    use crate::value_types::IConcreteType;
-    use crate::LolaTypeChecker;
-    use front::common_ir::StreamReference;
-    use front::hir::modes::IrExpression;
-    use front::reporting::Handler;
-    use front::RTLolaAst;
-    use front::RTLolaHIR;
+    use crate::tyc::rtltc::NodeId;
+    use crate::tyc::value_types::IConcreteType;
+    use crate::tyc::LolaTypeChecker;
+    use crate::common_ir::StreamReference;
+    use crate::hir::modes::IrExpression;
+    use crate::reporting::Handler;
+    use crate::RTLolaAst;
+    use crate::RTLolaHIR;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -691,15 +691,15 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst = match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
+        let handler = crate::reporting::Handler::new(PathBuf::from("test"), spec.into());
+        let ast: RTLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
-        let hir = front::hir::RTLolaHIR::<IrExpression>::transform_expressions(
+        let hir = crate::hir::RTLolaHIR::<IrExpression>::transform_expressions(
             ast,
             &handler,
-            &front::FrontendConfig::default(),
+            &crate::FrontendConfig::default(),
         );
         //let mut dec = na.check(&spec);
         assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");

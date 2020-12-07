@@ -282,14 +282,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::pacing_types::{ActivationCondition, ConcretePacingType};
-    use crate::rtltc::NodeId;
-    use crate::LolaTypeChecker;
-    use front::common_ir::StreamReference;
-    use front::hir::modes::IrExpression;
-    use front::hir::RTLolaHIR;
-    use front::reporting::Handler;
-    use front::RTLolaAst;
+    use crate::tyc::pacing_types::{ActivationCondition, ConcretePacingType};
+    use crate::tyc::rtltc::NodeId;
+    use crate::tyc::LolaTypeChecker;
+    use crate::common_ir::StreamReference;
+    use crate::hir::modes::IrExpression;
+    use crate::hir::RTLolaHIR;
+    use crate::reporting::Handler;
+    use crate::RTLolaAst;
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use std::path::PathBuf;
@@ -297,12 +297,12 @@ mod tests {
     use uom::si::rational64::Frequency as UOM_Frequency;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
-        let handler = front::reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst = match front::parse::parse(spec, &handler, front::FrontendConfig::default()) {
+        let handler = crate::reporting::Handler::new(PathBuf::from("test"), spec.into());
+        let ast: RTLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
-        let hir = front::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &front::FrontendConfig::default());
+        let hir = crate::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &crate::FrontendConfig::default());
         (hir, handler)
     }
 
