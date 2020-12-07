@@ -23,7 +23,7 @@ pub(crate) mod new_analysis;
 pub mod parse;
 pub mod reporting;
 mod stdlib;
-mod transformations;
+// mod transformations;
 pub mod ty;
 
 //#[cfg(test)]

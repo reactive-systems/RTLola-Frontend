@@ -177,8 +177,9 @@ impl Dependencies {
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
-        let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> = HashMap::new();
+        let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
+            spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();
             if !cur_accesses.contains(tar) {
@@ -189,12 +190,12 @@ impl Dependencies {
                 cur_accessed_by.push(*src);
             }
             if let EdgeWeight::Aggr(wref) = w {
-                let cur_aggregates = &mut (*aggregates.entry(*src).or_insert_with(Vec::new));
-                if cur_aggregates.contains(&(*tar, *wref)) {
+                let cur_aggregates = aggregates.get_mut(src).unwrap();
+                if !cur_aggregates.contains(&(*tar, *wref)) {
                     cur_aggregates.push((*tar, *wref));
                 }
-                let cur_aggregates_by = &mut (*aggregated_by.entry(*tar).or_insert_with(Vec::new));
-                if cur_aggregates_by.contains(&(*src, *wref)) {
+                let cur_aggregates_by = aggregated_by.get_mut(tar).unwrap();
+                if !cur_aggregates_by.contains(&(*src, *wref)) {
                     cur_aggregates_by.push((*src, *wref));
                 }
             }
@@ -334,12 +335,9 @@ mod tests {
 
     use super::*;
     use crate::hir::modes::IrExpression;
-    use crate::hir::SRef;
-    use crate::hir::WRef;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
-    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn check_graph_for_spec(
@@ -407,18 +405,25 @@ mod tests {
     }
 
     #[test]
-    fn self_ref() {
+    fn self_loop_simple() {
         let spec = "input a: Int8\noutput b: Int8 := a+b";
         check_graph_for_spec(spec, None);
     }
+
     #[test]
-    fn simple_cycle() {
+    fn self_loop_complex() {
+        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
+        check_graph_for_spec(spec, None)
+    }
+
+    #[test]
+    fn simple_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a+d\noutput c: Int8 := b\noutput d: Int8 := c";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
-    fn linear_should_be_no_problem() {
+    fn linear_dependencies() {
         let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c";
         let name_mapping =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
@@ -486,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn negative_cycle_should_be_no_problem() {
+    fn negative_loop() {
         let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
         let name_mapping = vec![("a", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![(name_mapping["a"], vec![name_mapping["a"]])].into_iter().collect();
@@ -509,45 +514,254 @@ mod tests {
     }
 
     #[test]
+    fn negative_loop_different_offsets() {
+        let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["b"]]),
+            (name_mapping["d"], vec![name_mapping["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"]]),
+            (name_mapping["b"], vec![name_mapping["c"]]),
+            (name_mapping["c"], vec![name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["b"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn negative_and_postive_loop() {
+        let spec = "input a: Int8\noutput b: Int8 := a + d.offset(by:-1).defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["b"]]),
+            (name_mapping["d"], vec![name_mapping["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"]]),
+            (name_mapping["b"], vec![name_mapping["c"]]),
+            (name_mapping["c"], vec![name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["b"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
     fn self_sliding_window() {
-        let spec = "output a: Int8 := a.aggregate(over: 1s, using: sum)";
+        let spec = "output a := a.aggregate(over: 1s, using: sum)";
         check_graph_for_spec(spec, None);
+    }
+
+    #[test]
+    fn sliding_window_loop() {
+        let spec = "input a: Int8\noutput b@10Hz := a.aggergate(over: 1s, using: sum) + d.aggregate(over: 1s, using: sum)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c.aggregate(over: 1s, using: sum)";
+        check_graph_for_spec(spec, None);
+    }
+
+    #[test]
+    fn sliding_window_and_positive_lookups_loop() {
+        let spec = "input a: Int8\noutput b@10Hz := a.aggergate(over: 1s, using: sum) + d.hold().defaults(to: 0)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c";
+        check_graph_for_spec(spec, None);
+    }
+
+    #[test]
+    fn sliding_windows_no_loop() {
+        let spec = "input a: Int8\noutput b@1Hz := a.aggregate(over: 1s, using: sum) + d.offset(by: -1).defaults(to: 0)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@2Hz := b.hold().defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["b"]]),
+            (name_mapping["d"], vec![name_mapping["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"], name_mapping["b"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"], name_mapping["d"]]),
+            (name_mapping["d"], vec![name_mapping["a"], name_mapping["b"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"]]),
+            (name_mapping["b"], vec![name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![name_mapping["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["b"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![(name_mapping["a"], WRef::SlidingRef(0))]),
+            (name_mapping["c"], vec![(name_mapping["b"], WRef::SlidingRef(1))]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (name_mapping["a"], vec![(name_mapping["b"], WRef::SlidingRef(0))]),
+            (name_mapping["b"], vec![(name_mapping["c"], WRef::SlidingRef(1))]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
     }
 
     // #[test]
     // #[ignore] // Graph Analysis cannot handle positive edges; not required for this branch.
-    // fn positive_cycle_should_cause_a_warning() {
+    // fn positive_loop_should_cause_a_warning() {
     //     chek_graph_for_spec("output a: Int8 := a[1]", false);
     // }
 
     #[test]
-    fn self_loop() {
-        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
-        check_graph_for_spec(spec, None)
-    }
-
-    #[test]
-    fn parallel_edges_in_a_cycle() {
+    fn parallel_edges_in_a_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     #[ignore]
-    fn spawn_self_ref() {
+    fn spawn_self_loop() {
         let spec = "input a: Int8\noutput b(para) {spawn a if b(para) > 6} := a + para";
         check_graph_for_spec(spec, None);
     }
     #[test]
     #[ignore]
-    fn filter_self_ref() {
+    fn filter_self_loop() {
         let spec = "input a: Int8\noutput b {filter b > 6} := a + 5";
         check_graph_for_spec(spec, None);
     }
-
     #[test]
     #[ignore]
-    fn close_self_ref() {
+    fn close_self_loop() {
         let spec = "input a: Int8\noutput b {close b > 6} := a + 5";
         let name_mapping =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
@@ -569,6 +783,82 @@ mod tests {
                 .collect();
         let aggregates = vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![])].into_iter().collect();
         let aggregated_by = vec![(name_mapping["a"], vec![]), (name_mapping["b"], vec![])].into_iter().collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn parameter_loop() {
+        let spec = "input a: Int8\noutput b(para) {spawn a if d(para) > 6} := a + para\noutput c(para) {spawn a if a > 6} := a + b(para)\noutput d {spawn a if a > 6} := a + c(para)";
+        check_graph_for_spec(spec, None);
+    }
+
+    #[test]
+    #[ignore]
+    fn parameter_no_loop() {
+        let spec = "input a: Int8\noutput b(para) {spawn a if a > 6} := a + para\noutput c(para) {spawn a if a > 6} := a + b(para)\noutput d {spawn a if a > 6} := a + c(para)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"]]),
+            (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"]]),
+            (name_mapping["d"], vec![name_mapping["a"], name_mapping["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![name_mapping["a"]]),
+            (name_mapping["c"], vec![name_mapping["a"], name_mapping["b"]]),
+            (name_mapping["d"], vec![name_mapping["a"], name_mapping["b"], name_mapping["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["b"], vec![name_mapping["c"]]),
+            (name_mapping["c"], vec![name_mapping["d"]]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (name_mapping["a"], vec![name_mapping["b"], name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["b"], vec![name_mapping["c"], name_mapping["d"]]),
+            (name_mapping["c"], vec![name_mapping["d"]]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (name_mapping["a"], vec![]),
+            (name_mapping["b"], vec![]),
+            (name_mapping["c"], vec![]),
+            (name_mapping["d"], vec![]),
+        ]
+        .into_iter()
+        .collect();
         check_graph_for_spec(
             spec,
             Some((

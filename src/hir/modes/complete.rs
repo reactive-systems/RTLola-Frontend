@@ -16,7 +16,6 @@ use crate::{hir, hir::Hir, mir, mir::Mir};
 use super::{dependencies::WithDependencies, ir_expr::WithIrExpr};
 
 impl Hir<Complete> {
-    #[allow(unreachable_code)]
     pub(crate) fn lower(self) -> Mir {
         let Hir { inputs, outputs, triggers, mode, .. } = self.clone();
         let inputs = inputs
@@ -115,7 +114,6 @@ impl Hir<Complete> {
         }
     }
 
-    #[allow(unreachable_code, unused_variables)]
     fn lower_expression_kind(&self, expr: &hir::expression::ExpressionKind) -> mir::ExpressionKind {
         match expr {
             hir::expression::ExpressionKind::LoadConstant(constant) => {
@@ -151,7 +149,7 @@ impl Hir<Complete> {
                 let args = args.iter().map(|arg| self.lower_expr(arg)).collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::Function(name.clone(), args)
             }
-            hir::expression::ExpressionKind::Widen(expr, ty) => {
+            hir::expression::ExpressionKind::Widen(expr, _ty) => {
                 let expr = Box::new(self.lower_expr(expr));
                 mir::ExpressionKind::Convert { expr }
             }
