@@ -1,4 +1,7 @@
-use crate::{common_ir::SRef, hir::expression::ExprId, hir::modes::TypeTables};
+use crate::{
+    common_ir::SRef, hir::expression::ExprId, hir::modes::ir_expr::WithIrExpr, hir::modes::HirMode,
+    hir::modes::TypeTables, hir::Hir, reporting::Handler,
+};
 
 use super::Typed;
 
@@ -52,3 +55,13 @@ impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
 }
 #[derive(Debug, Clone)]
 pub(crate) struct HirType {} // TBD
+
+impl TypeTables {
+    pub(crate) fn analyze<M>(spec: &Hir<M>, handler: &Handler) -> Result<TypeTables, String>
+    where
+        M: WithIrExpr + HirMode + 'static,
+    {
+        let _tt = crate::tyc::type_check(spec, handler);
+        Err("todo".to_string())
+    }
+}

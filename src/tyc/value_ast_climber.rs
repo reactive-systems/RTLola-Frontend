@@ -664,12 +664,12 @@ fn get_abstract_type_of_string_value(value_str: &str) -> Result<IAbstractType, S
 
 #[cfg(test)]
 mod value_type_tests {
-    use crate::tyc::rtltc::NodeId;
-    use crate::tyc::value_types::IConcreteType;
-    use crate::tyc::LolaTypeChecker;
     use crate::common_ir::StreamReference;
     use crate::hir::modes::IrExpression;
     use crate::reporting::Handler;
+    use crate::tyc::rtltc::NodeId;
+    use crate::tyc::value_types::IConcreteType;
+    use crate::tyc::LolaTypeChecker;
     use crate::RTLolaAst;
     use crate::RTLolaHIR;
     use std::collections::HashMap;

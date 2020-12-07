@@ -282,13 +282,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::tyc::pacing_types::{ActivationCondition, ConcretePacingType};
-    use crate::tyc::rtltc::NodeId;
-    use crate::tyc::LolaTypeChecker;
     use crate::common_ir::StreamReference;
     use crate::hir::modes::IrExpression;
     use crate::hir::RTLolaHIR;
     use crate::reporting::Handler;
+    use crate::tyc::pacing_types::{ActivationCondition, ConcretePacingType};
+    use crate::tyc::rtltc::NodeId;
+    use crate::tyc::LolaTypeChecker;
     use crate::RTLolaAst;
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;

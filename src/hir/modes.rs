@@ -102,13 +102,18 @@ pub(crate) struct DependencyAnalyzed {
 impl HirMode for DependencyAnalyzed {}
 
 impl Hir<DependencyAnalyzed> {
-    pub(crate) fn type_check(self, handler: &Handler) -> Hir<Typed> {
-        let result = crate::tyc::type_check(&self, handler);
+    pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<Typed>, String> {
+        let tts = TypeTables::analyze(&self, handler)?;
 
-        match result {
-            Ok(_tt) => todo!(),
-            Err(str) => panic!(format!("Type Checker failed with: {}", str)),
-        }
+        let mode = Typed { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, tts };
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        })
     }
 }
 
@@ -124,7 +129,7 @@ pub(crate) struct TypeTables {
 #[derive(Debug, Clone)]
 pub(crate) struct Typed {
     ir_expr: IrExprRes,
-    dg: Dependencies,
+    dependencies: Dependencies,
     tts: TypeTables,
 }
 impl HirMode for Typed {}

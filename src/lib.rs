@@ -109,7 +109,7 @@ pub(crate) fn parse_to_hir(
     Ok(Hir::<IrExpression>::transform_expressions(spec, &handler, &config)
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
-        .type_check(&handler)
+        .type_check(&handler)?
         .build_evaluation_order()
         .compute_memory_bounds()
         .finalize())

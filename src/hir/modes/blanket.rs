@@ -82,7 +82,7 @@ impl IrExprWrapper for Typed {
 impl DependenciesWrapper for Typed {
     type InnerD = Dependencies;
     fn inner_dep(&self) -> &Self::InnerD {
-        &self.dg
+        &self.dependencies
     }
 }
 

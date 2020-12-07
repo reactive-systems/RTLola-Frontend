@@ -114,9 +114,9 @@ where
             let st = StreamType {
                 value_ty: value_tt[id].clone(),
                 pacing_ty: pacing_tt[id].clone(),
-                filter: todo!(),
-                spawn: todo!(),
-                close: todo!(),
+                filter: unimplemented!("Todo new dimensions"),
+                spawn: unimplemented!("Todo new dimensions"),
+                close: unimplemented!("Todo new dimensions"),
             };
             match id {
                 NodeId::SRef(sref) => {
