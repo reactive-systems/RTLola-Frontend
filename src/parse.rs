@@ -221,22 +221,28 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
         };
 
-        let mut spawn = None;
-        if let Rule::SpawnDecl = pair.as_rule() {
-            spawn = Some(self.parse_spawn_spec(pair));
+        let spawn = if let Rule::SpawnDecl = pair.as_rule() {
+            let spawn_spec = self.parse_spawn_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
+            Some(spawn_spec)
+        } else {
+            None
         };
 
-        let mut filter = None;
-        if let Rule::FilterDecl = pair.as_rule() {
-            filter = Some(self.parse_filter_spec(pair));
+        let filter = if let Rule::FilterDecl = pair.as_rule() {
+            let filter_spec = self.parse_filter_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
+            Some(filter_spec)
+        } else {
+            None
         };
 
-        let mut close = None;
-        if let Rule::CloseDecl = pair.as_rule() {
-            close = Some(self.parse_close_spec(pair));
+        let close = if let Rule::CloseDecl = pair.as_rule() {
+            let close_spec = self.parse_close_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
+            Some(close_spec)
+        } else {
+            None
         };
 
         // Parse expression
@@ -287,27 +293,31 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
         let mut spawn_children = spawn_pair.into_inner();
         let mut next_pair = spawn_children.next();
 
-        let mut target = None;
-        let mut condition = None;
-        let mut is_if = false;
-
-        if let Some(pair) = next_pair.clone() {
+        let target = if let Some(pair) = next_pair.clone() {
             if let Rule::SpawnWith = pair.as_rule() {
                 let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
-                target = Some(self.build_expression_ast(target_pair.into_inner()));
+                let target_exp = self.build_expression_ast(target_pair.into_inner());
                 next_pair = spawn_children.next();
+                Some(target_exp)
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
-        if let Some(pair) = next_pair {
-            is_if = match pair.as_rule() {
+        let (condition, is_if) = if let Some(pair) = next_pair {
+            let is_if = match pair.as_rule() {
                 Rule::SpawnIf => true,
                 Rule::SpawnUnless => false,
                 _ => unreachable!(),
             };
             let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
-            condition = Some(self.build_expression_ast(condition_pair.into_inner()))
-        }
+            let condition_exp = self.build_expression_ast(condition_pair.into_inner());
+            (Some(condition_exp), is_if)
+        } else {
+            (None, false)
+        };
 
         if target.is_none() && condition.is_none() {
             self.handler.error_with_span(
@@ -1371,5 +1381,14 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn spawn_no_target_no_condition() {
+        let spec = "output x spawn := 5\n";
+        let throw = |e| panic!("{}", e);
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        assert_eq!(handler.emitted_errors(), 1);
     }
 }
