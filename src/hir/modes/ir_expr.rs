@@ -522,9 +522,14 @@ fn transform_template_spec(
 ) -> InstanceTemplate {
     InstanceTemplate {
         spawn: spawn_spec.map(|spawn_spec| SpawnTemplate {
-            target: spawn_spec
-                .target
-                .map(|target| insert_return(exprid_to_expr, transformer.transform_expression(target, current_output))),
+            target: spawn_spec.target.and_then(|target| {
+                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
+                    if let ast::ExpressionKind::MissingExpression = exp.kind {
+                        return None;
+                    }
+                }
+                Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
+            }),
             condition: spawn_spec.condition.map(|cond_expr| {
                 insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
             }),
@@ -986,5 +991,14 @@ mod tests {
         assert!(matches!(a.activation_condition, Some(AC::Frequency { .. })));
         let b: &Output = &ir.outputs[1];
         assert!(matches!(b.activation_condition, Some(AC::Expr(_))));
+    }
+
+    #[test]
+    fn test_spawn_missing_exp() {
+        use crate::hir::{Output, SpawnTemplate};
+        let spec = "output a: Bool @2.5Hz spawn with () if true := true";
+        let ir = obtain_expressions(spec);
+        let a: Output = ir.outputs[0].clone();
+        assert!(matches!(a.instance_template.spawn, Some(SpawnTemplate { target: None, .. })));
     }
 }
