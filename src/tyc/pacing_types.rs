@@ -75,6 +75,7 @@ pub(crate) enum PacingError {
     MalformedAC(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
+    #[allow(dead_code)] // Todo: Used for higher dimension type check
     ParameterizedExpr(Span),
     Other(Span, String),
 }
@@ -552,12 +553,14 @@ impl AbstractStreamPacing {
         }
     }
 
+    #[allow(dead_code)] // Todo: Used for higher dimension type check
     pub fn top_with_pacing(pacing: AbstractPacingType) -> Self {
         let mut res = Self::top();
         res.exp_pacing = pacing;
         res
     }
 
+    #[allow(dead_code)] // Todo: Used for higher dimension type check
     pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         format!(
             "(exp pacing: {}, spawn: ({}, {}), filter: {}, close: {})",

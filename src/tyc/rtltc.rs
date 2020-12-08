@@ -40,16 +40,19 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
+    #[allow(dead_code)] // Todo: Actually use Typetable
     /// For a given StreamReference, lookup the corresponding StreamType.
     pub fn get_type_for_stream(&self, sref: StreamReference) -> StreamType {
         self.stream_types[&sref].clone()
     }
 
+    #[allow(dead_code)] // Todo: Actually use Typetable
     /// For a given Expression Id, lookup the corresponding StreamType.
     pub fn get_type_for_expr(&self, exprid: ExprId) -> StreamType {
         self.expression_types[&exprid].clone()
     }
 
+    #[allow(dead_code)] // Todo: Actually use Typetable
     /// Returns the Value Type of the `idx`-th Parameter for the Stream `stream`.
     pub fn get_parameter_type(&self, stream: StreamReference, idx: usize) -> IConcreteType {
         self.param_types[&(stream, idx)].clone()
@@ -66,14 +69,17 @@ pub struct StreamType {
 }
 
 impl StreamType {
+    #[allow(dead_code)] // Todo: Actually use Typechecker
     pub fn get_value_type(&self) -> &IConcreteType {
         &self.value_ty
     }
 
+    #[allow(dead_code)] // Todo: Actually use Typechecker
     pub fn get_pacing_type(&self) -> &ConcretePacingType {
         &self.pacing_ty
     }
 
+    #[allow(dead_code)] // Todo: Actually use Typechecker
     pub fn get_instance_expressions(&self) -> (&Expression, &Expression, &Expression) {
         (&self.spawn.1, &self.filter, &self.close)
     }
@@ -111,13 +117,22 @@ where
         let mut stream_map = HashMap::new();
         let mut parameters = HashMap::new();
         value_tt.keys().for_each(|id| {
+            // Todo: Fix this when higher dimensions are available
+            use crate::hir::expression::{Constant, ConstantLiteral, ExpressionKind};
+            use crate::reporting::Span;
+            let top_exp = Expression {
+                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
+                eid: ExprId(u32::max_value()),
+                span: Span::Unknown,
+            };
             let st = StreamType {
                 value_ty: value_tt[id].clone(),
                 pacing_ty: pacing_tt[id].clone(),
-                filter: unimplemented!("Todo new dimensions"),
-                spawn: unimplemented!("Todo new dimensions"),
-                close: unimplemented!("Todo new dimensions"),
+                filter: top_exp.clone(),
+                spawn: (ConcretePacingType::Constant, top_exp.clone()),
+                close: top_exp,
             };
+            // Todo: Upto here
             match id {
                 NodeId::SRef(sref) => {
                     stream_map.insert(*sref, st);

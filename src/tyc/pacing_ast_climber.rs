@@ -209,24 +209,6 @@ where
                     .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
                 self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
             }
-            /*
-            ExpressionKind::Field(exp, _ident) => {
-                //TODO unused var
-                let exp_key = self.expression_infer(&*exp)?;
-                self.tyc.impose(term_key.equate_with(exp_key))?;
-            }
-            */
-            /*
-            ExpressionKind::Method(body, _, _, args) => {
-                let body_key = self.expression_infer(&*body)?;
-                let mut arg_keys: Vec<TcKey> =
-                    args.iter()
-                        .map(|e| self.expression_infer(&*e))
-                        .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
-                arg_keys.push(body_key);
-                self.tyc.impose(term_key.is_meet_of_all(&arg_keys))?;
-            }
-            */
             ExpressionKind::Function { args, .. } => {
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
