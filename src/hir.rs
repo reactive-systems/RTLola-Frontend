@@ -148,7 +148,7 @@ pub struct InstanceTemplate {
 #[derive(Debug, Clone, Copy)]
 pub struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: ExprId,
+    pub target: Option<ExprId>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
     pub condition: Option<ExprId>,
     /// A flag to describe if the invoke declaration contains an additional condition

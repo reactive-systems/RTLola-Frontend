@@ -138,7 +138,8 @@ impl Dependencies {
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.spawn(sr).map(|(spawn_expr, spawn_cond)| {
-                    Self::collect_edges(spec, sr, spawn_expr)
+                    spawn_expr
+                        .map_or(Vec::new(), |spawn_expr| Self::collect_edges(spec, sr, spawn_expr))
                         .into_iter()
                         .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
                 })
