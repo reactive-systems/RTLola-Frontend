@@ -4,7 +4,8 @@ use crate::hir::modes::memory_bounds::MemoryAnalyzed;
 use crate::hir::modes::types::TypeChecked;
 use crate::hir::modes::types::TypedWrapper;
 use crate::hir::{
-    modes::dependencies::DependenciesWrapper, modes::memory_bounds::MemoryWrapper, modes::ordering::OrderedWrapper, Hir,
+    modes::dependencies::DependenciesWrapper, modes::memory_bounds::MemoryWrapper, modes::ordering::OrderedWrapper,
+    modes::DependencyAnalyzed, modes::*, Hir,
 };
 use crate::{hir::modes::dependencies::WithDependencies, hir::modes::ordering::EvaluationOrderBuilt};
 
@@ -55,5 +56,122 @@ where
     type InnerM = M;
     fn inner_memory(&self) -> &Self::InnerM {
         &self.mode
+    }
+}
+
+// All Below IrExpression - impl IrExprWrapper
+
+// All Below Dep
+
+impl IrExprWrapper for DependencyAnalyzed {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr
+    }
+}
+
+// All Below Typed
+
+impl IrExprWrapper for Typed {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr
+    }
+}
+
+impl DependenciesWrapper for Typed {
+    type InnerD = Dependencies;
+    fn inner_dep(&self) -> &Self::InnerD {
+        &self.dependencies
+    }
+}
+
+// All Below Ordered
+
+impl IrExprWrapper for Ordered {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr
+    }
+}
+
+impl DependenciesWrapper for Ordered {
+    type InnerD = Dependencies;
+    fn inner_dep(&self) -> &Self::InnerD {
+        &self.dependencies
+    }
+}
+
+impl TypedWrapper for Ordered {
+    type InnerT = TypeTables;
+    fn inner_typed(&self) -> &Self::InnerT {
+        &self.types
+    }
+}
+
+// All below Membound
+
+impl IrExprWrapper for MemBound {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr
+    }
+}
+
+impl DependenciesWrapper for MemBound {
+    type InnerD = Dependencies;
+    fn inner_dep(&self) -> &Self::InnerD {
+        &self.dependencies
+    }
+}
+
+impl TypedWrapper for MemBound {
+    type InnerT = TypeTables;
+    fn inner_typed(&self) -> &Self::InnerT {
+        &self.types
+    }
+}
+
+impl OrderedWrapper for MemBound {
+    type InnerO = EvaluationOrder;
+    fn inner_order(&self) -> &Self::InnerO {
+        &self.layers
+    }
+}
+
+// All below Complete
+
+impl IrExprWrapper for Complete {
+    type InnerE = IrExprRes;
+    fn inner_expr(&self) -> &Self::InnerE {
+        &self.ir_expr
+    }
+}
+
+impl DependenciesWrapper for Complete {
+    type InnerD = Dependencies;
+    fn inner_dep(&self) -> &Self::InnerD {
+        &self.dependencies
+    }
+}
+
+impl TypedWrapper for Complete {
+    type InnerT = TypeTables;
+    fn inner_typed(&self) -> &Self::InnerT {
+        &self.types
+    }
+}
+
+impl OrderedWrapper for Complete {
+    type InnerO = EvaluationOrder;
+    fn inner_order(&self) -> &Self::InnerO {
+        &self.layers
+    }
+}
+
+impl MemoryWrapper for Complete {
+    type InnerM = Memory;
+    fn inner_memory(&self) -> &Self::InnerM {
+        &self.memory
     }
 }

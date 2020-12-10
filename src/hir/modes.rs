@@ -39,10 +39,15 @@ pub type WindowLookUps = HashMap<ExprId, SlidingWindow>;
 pub type FunctionLookUps = HashMap<String, FuncDecl>;
 
 #[derive(Clone, Debug)]
-pub struct IrExpression {
+pub struct IrExprRes {
     exprid_to_expr: ExpressionLookUps,
     windows: WindowLookUps,
     func_table: FunctionLookUps,
+}
+
+#[derive(Clone, Debug)]
+pub struct IrExpression {
+    ir_expr_res: IrExprRes,
 }
 impl HirMode for IrExpression {}
 
@@ -51,9 +56,9 @@ impl Hir<IrExpression> {
         Hir::<IrExpression>::transform_expressions(ast, handler, config)
     }
 
-    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DependencyAnalysed>, DependencyErr> {
+    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DependencyAnalyzed>, DependencyErr> {
         let dependencies = Dependencies::analyze(&self)?;
-        let mode = DependencyAnalysed { ir_expr: self.mode, dependencies };
+        let mode = DependencyAnalyzed { ir_expr: self.mode.ir_expr_res, dependencies };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
@@ -90,15 +95,25 @@ pub(crate) struct Dependencies {
     graph: DependencyGraph,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct DependencyAnalysed {
-    ir_expr: IrExpression,
+pub(crate) struct DependencyAnalyzed {
+    ir_expr: IrExprRes,
     dependencies: Dependencies,
 }
-impl HirMode for DependencyAnalysed {}
+impl HirMode for DependencyAnalyzed {}
 
-impl Hir<DependencyAnalysed> {
-    pub(crate) fn type_check(self) -> Hir<Typed> {
-        unimplemented!()
+impl Hir<DependencyAnalyzed> {
+    pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<Typed>, String> {
+        let tts = TypeTables::analyze(&self, handler)?;
+
+        let mode = Typed { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, tts };
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        })
     }
 }
 
@@ -113,8 +128,8 @@ pub(crate) struct TypeTables {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Typed {
-    ir_expr: IrExpression,
-    dg: Dependencies,
+    ir_expr: IrExprRes,
+    dependencies: Dependencies,
     tts: TypeTables,
 }
 impl HirMode for Typed {}
@@ -134,9 +149,9 @@ pub(crate) struct EvaluationOrder {
 }
 #[derive(Debug, Clone)]
 pub(crate) struct Ordered {
-    ir_expr: IrExpression,
+    ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: Typed,
+    types: TypeTables,
     layers: EvaluationOrder,
 }
 impl HirMode for Ordered {}
@@ -149,14 +164,14 @@ impl Hir<Ordered> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Memory {
-    memory_bound_per_stram: HashMap<SRef, MemorizationBound>,
+    memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct MemBound {
-    ir_expr: IrExpression,
+    ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: Typed,
+    types: TypeTables,
     layers: EvaluationOrder,
     memory: Memory,
 }
@@ -170,9 +185,9 @@ impl Hir<MemBound> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Complete {
-    ir_expr: IrExpression,
+    ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: Typed,
+    types: TypeTables,
     layers: EvaluationOrder,
     memory: Memory,
 }

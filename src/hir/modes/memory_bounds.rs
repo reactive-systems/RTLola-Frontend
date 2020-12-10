@@ -1,6 +1,6 @@
 use crate::common_ir::SRef;
 
-use super::{EdgeWeight, MemorizationBound, Memory};
+use super::{EdgeWeight, MemBound, MemorizationBound, Memory};
 
 use crate::hir::modes::{dependencies::WithDependencies, HirMode};
 use crate::hir::Hir;
@@ -13,13 +13,21 @@ pub(crate) trait MemoryAnalyzed {
 
 impl MemoryAnalyzed for Memory {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
-        self.memory_bound_per_stram[&sr]
+        self.memory_bound_per_stream[&sr]
     }
 }
 
 pub(crate) trait MemoryWrapper {
     type InnerM: MemoryAnalyzed;
     fn inner_memory(&self) -> &Self::InnerM;
+}
+
+impl MemoryWrapper for MemBound {
+    type InnerM = Memory;
+
+    fn inner_memory(&self) -> &Self::InnerM {
+        &self.memory
+    }
 }
 
 impl<A: MemoryWrapper<InnerM = T>, T: MemoryAnalyzed + 'static> MemoryAnalyzed for A {
@@ -52,7 +60,7 @@ impl Memory {
             let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
             *cur_mem_bound = if *cur_mem_bound < cur_edge_bound { *cur_mem_bound } else { cur_edge_bound };
         });
-        Ok(Memory { memory_bound_per_stram: memory_bounds })
+        Ok(Memory { memory_bound_per_stream: memory_bounds })
     }
 
     fn edge_weight_to_memory_bound(w: &EdgeWeight) -> MemorizationBound {
