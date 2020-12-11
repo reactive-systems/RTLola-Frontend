@@ -140,8 +140,11 @@ where
         let opt_spawn = &self.hir.spawn(out.sr);
         if let Some((spawn, opt_cond)) = opt_spawn {
             //chek target exression type matches parameter type
-            let _target_expr_key = self.expression_infer(spawn, Some(IAbstractType::Bool))?;
-            let _cond_key = opt_cond.map(|e| self.expression_infer(e, Some(IAbstractType::Bool)));
+            let _target_expr_key =
+                spawn.map(|e| self.expression_infer(e, Some(IAbstractType::Bool))).map_or(Ok(None), |v| v.map(Some))?;
+            let _cond_key = opt_cond
+                .map(|e| self.expression_infer(e, Some(IAbstractType::Bool)))
+                .map_or(Ok(None), |v| v.map(Some))?;
         }
         if let Some(close) = &self.hir.close(out.sr) {
             self.expression_infer(close, Some(IAbstractType::Bool))?;
