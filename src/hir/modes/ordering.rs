@@ -124,26 +124,47 @@ impl EvaluationOrder {
 
 #[cfg(test)]
 mod tests {
-    use crate::common_ir::{Layer, SRef};
-    use crate::hir::StreamLayers;
-    use std::collections::HashMap;
+    use super::*;
+    use crate::hir::modes::IrExpression;
+    use crate::parse::parse;
+    use crate::reporting::Handler;
+    use crate::FrontendConfig;
+    use std::path::PathBuf;
+    #[allow(dead_code, unreachable_code, unused_variables)]
     fn check_eval_order_for_spec(
-        _spec: &str,
-        _event_layers: HashMap<SRef, StreamLayers>,
-        _periodic_layers: HashMap<SRef, StreamLayers>,
+        spec: &str,
+        ref_event_layers: HashMap<SRef, StreamLayers>,
+        ref_periodic_layers: HashMap<SRef, StreamLayers>,
     ) {
-        todo!()
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        let config = FrontendConfig::default();
+        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        let _hir = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
+        let order: EvaluationOrder = todo!();
+        let EvaluationOrder { event_layers, periodic_layers } = order;
+        assert_eq!(event_layers.len(), ref_event_layers.len());
+        event_layers.iter().for_each(|(sr, layers)| {
+            let ref_layers = &ref_event_layers[sr];
+            assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
+            assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
+        });
+        assert_eq!(periodic_layers.len(), ref_periodic_layers.len());
+        periodic_layers.iter().for_each(|(sr, layers)| {
+            let ref_layers = &ref_periodic_layers[sr];
+            assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
+            assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
+        });
     }
 
     #[test]
     #[ignore]
-    fn basic_spec() {
+    fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
         let name_mapping =
-            vec![("a", SRef::InRef(1)), ("b", SRef::OutRef(1))].into_iter().collect::<HashMap<&str, SRef>>();
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
         ]
         .into_iter()
         .collect();
@@ -153,9 +174,165 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn simple_spec() {
+    fn hold_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a.hold().defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn offset_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn sliding_window_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let event_layers =
+            vec![(name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0)))].into_iter().collect();
+        let periodic_layers =
+            vec![(name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1)))].into_iter().collect();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn discrete_window_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a.aggregate(over: 5, using: sum)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn offset_lookups() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by:-1).defaults(to: 0)\noutput c: UInt8 := a.offset(by:-2).defaults(to: 0)\noutput d: UInt8 := a.offset(by:-3).defaults(to: 0)\noutput e: UInt8 := a.offset(by:-4).defaults(to: 0)";
+        let name_mapping = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::OutRef(0)),
+            ("c", SRef::OutRef(1)),
+            ("d", SRef::OutRef(2)),
+            ("e", SRef::OutRef(3)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["e"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+    #[test]
+    #[ignore]
+    fn negative_loop_different_offsets() {
+        let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn lookup_chain() {
+        let spec = "input a: Int8\noutput b: Int8 := a + d.hold().defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
+        let name_mapping =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    fn multiple_input_stream() {
+        let spec = "input a: Int8\ninput b: Int8\noutput c: Int8 := a + b.hold().defaults(to:0)\noutput d: Int8 := a + c.offset(by: -1).defaults(to: 0)\noutput e: Int8 = c + 3\noutput f: Int8 = c + 6\noutput g: Int8 := b + 3\noutput h: Int8 = g + f";
+        let name_mapping = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(0)),
+            ("d", SRef::OutRef(1)),
+            ("e", SRef::OutRef(2)),
+            ("f", SRef::OutRef(3)),
+            ("g", SRef::OutRef(4)),
+            ("h", SRef::OutRef(5)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["f"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["g"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (name_mapping["g"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = HashMap::new();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
+
+    #[test]
+    #[ignore]
+    fn event_and_periodic_stream_mix() {
         let spec =
-            "input a : Int8 input b :Int8\noutput c @2Hz := a.hold().defaults(to: 0) + 3\noutput d @1Hz := a.hold().defaults(to: 0) + c\noutput e := a + b";
+            "input a : Int8 \ninput b :Int8\noutput c @2Hz := a.hold().defaults(to: 0) + 3\noutput d @1Hz := a.hold().defaults(to: 0) + c\noutput e := a + b";
         let name_mapping = vec![
             ("a", SRef::InRef(1)),
             ("b", SRef::InRef(1)),
@@ -166,15 +343,15 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (name_mapping["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["e"], StreamLayers::new(Layer::new(0), Layer::new(1))),
         ]
         .into_iter()
         .collect();
         let periodic_layers = vec![
-            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (name_mapping["c"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (name_mapping["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
         ]
         .into_iter()
         .collect();
