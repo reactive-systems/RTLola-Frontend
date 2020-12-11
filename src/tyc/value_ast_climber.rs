@@ -138,13 +138,14 @@ where
 
         dbg!(&out.instance_template);
         let opt_spawn = &self.hir.spawn(out.sr);
-        if let Some((spawn, opt_cond)) = opt_spawn {
+        if let Some((opt_spawn, opt_cond)) = opt_spawn {
             //chek target exression type matches parameter type
-            let _target_expr_key =
-                spawn.map(|e| self.expression_infer(e, Some(IAbstractType::Bool))).map_or(Ok(None), |v| v.map(Some))?;
-            let _cond_key = opt_cond
-                .map(|e| self.expression_infer(e, Some(IAbstractType::Bool)))
-                .map_or(Ok(None), |v| v.map(Some))?;
+            if let Some(spawn) = opt_spawn {
+                self.expression_infer(spawn, Some(IAbstractType::Bool))?;
+            }
+            if let Some(cond) = opt_cond {
+                self.expression_infer(cond, Some(IAbstractType::Bool))?;
+            }
         }
         if let Some(close) = &self.hir.close(out.sr) {
             self.expression_infer(close, Some(IAbstractType::Bool))?;

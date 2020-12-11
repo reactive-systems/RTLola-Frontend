@@ -350,7 +350,27 @@ impl ExpressionTransformer {
                 let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
                 ExpressionKind::StreamAccess(expr_ref, kind, args)
             }
-            ast::ExpressionKind::DiscreteWindowAggregation { .. } => todo!(),
+            ast::ExpressionKind::DiscreteWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
+                if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
+                    let idx = self.sliding_windows.len();
+                    let wref = WRef::SlidingRef(idx);
+                    let duration = (*duration).parse_discrete_duration().expect("Todo Error case");
+                    self.windows.push(Window { expr: new_id });
+                    let window = DiscreteWindow {
+                        target: sref,
+                        caller: current_output,
+                        duration: duration as u32,
+                        wait,
+                        op: win_op,
+                        reference: wref,
+                        eid: new_id,
+                    };
+                    self.discrete_windows.push(window);
+                    ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::DiscreteRef(idx)), Vec::new())
+                } else {
+                    todo!("error case")
+                }
+            }
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
                     let idx = self.sliding_windows.len();
@@ -625,7 +645,7 @@ impl Hir<IrExpression> {
             .collect();
 
         let ExpressionTransformer { sliding_windows, discrete_windows: _, .. } = expr_transformer;
-
+        //TODO use discrete windows
         let windows: HashMap<ExprId, SlidingWindow> = sliding_windows.into_iter().map(|w| (w.eid, w)).collect();
 
         let new_mode = IrExpression { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
@@ -641,7 +661,6 @@ impl Hir<IrExpression> {
     }
 }
 
-#[allow(unused_variables)]
 pub fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
     use crate::ast::TypeKind;
     match &ast_ty.kind {
