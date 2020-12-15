@@ -100,11 +100,11 @@ mod tests {
     #[ignore]
     fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(0)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -115,11 +115,11 @@ mod tests {
     #[ignore]
     fn hold_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.hold().defaults(to: 0)";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(1)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -130,11 +130,11 @@ mod tests {
     #[ignore]
     fn offset_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(0)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -145,11 +145,11 @@ mod tests {
     #[ignore]
     fn sliding_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(0)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -160,11 +160,11 @@ mod tests {
     #[ignore]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.aggregate(over: 5, using: sum)";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(5)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(5)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -175,7 +175,7 @@ mod tests {
     #[ignore]
     fn offset_lookups() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by:-1).defaults(to: 0)\noutput c: UInt8 := a.offset(by:-2).defaults(to: 0)\noutput d: UInt8 := a.offset(by:-3).defaults(to: 0)\noutput e: UInt8 := a.offset(by:-4).defaults(to: 0)";
-        let name_mapping = vec![
+        let sname_to_sref = vec![
             ("a", SRef::InRef(0)),
             ("b", SRef::OutRef(0)),
             ("c", SRef::OutRef(1)),
@@ -185,11 +185,11 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(4)),
-            (name_mapping["b"], MemorizationBound::Bounded(0)),
-            (name_mapping["c"], MemorizationBound::Bounded(0)),
-            (name_mapping["d"], MemorizationBound::Bounded(0)),
-            (name_mapping["e"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["e"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
         .collect();
@@ -199,15 +199,15 @@ mod tests {
     #[ignore]
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
-        let name_mapping =
+        let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
                 .into_iter()
                 .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (name_mapping["a"], MemorizationBound::Bounded(1)),
-            (name_mapping["b"], MemorizationBound::Bounded(3)),
-            (name_mapping["c"], MemorizationBound::Bounded(4)),
-            (name_mapping["d"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(3)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(2)),
         ]
         .into_iter()
         .collect();

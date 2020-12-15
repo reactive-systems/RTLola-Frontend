@@ -19,9 +19,7 @@ pub(crate) fn graph_without_negative_offset_edges(graph: &Graph<SRef, EdgeWeight
 pub(crate) fn graph_without_close_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
     let mut working_graph = graph.clone();
     graph.edge_indices().for_each(|edge_index| {
-        let edge_weight = graph.edge_weight(edge_index).unwrap();
-        let (edge_src, edge_tar) = graph.edge_endpoints(edge_index).unwrap();
-        if let (EdgeWeight::Close(_), true) = (edge_weight, edge_src == edge_tar) {
+        if let EdgeWeight::Close(_) = graph.edge_weight(edge_index).unwrap() {
             working_graph.remove_edge(edge_index);
         }
     });
