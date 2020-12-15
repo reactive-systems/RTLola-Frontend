@@ -213,4 +213,76 @@ mod tests {
         .collect();
         check_memory_bound_for_spec(spec, memory_bounds)
     }
+
+    #[test]
+    #[ignore]
+    fn parameter_loop_with_lookup_in_close() {
+        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(0)),
+            ("d", SRef::OutRef(1)),
+            ("e", SRef::OutRef(2)),
+            ("f", SRef::OutRef(3)),
+            ("g", SRef::OutRef(4)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let memory_bounds = vec![
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["e"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["f"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["g"], MemorizationBound::Bounded(1)),
+        ]
+        .into_iter()
+        .collect();
+        check_memory_bound_for_spec(spec, memory_bounds)
+    }
+
+    #[test]
+    #[ignore]
+    fn parameter_nested_lookup_implicit() {
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
+        let sname_to_sref =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+                .into_iter()
+                .collect::<HashMap<&str, SRef>>();
+        let memory_bounds = vec![
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(0)),
+        ]
+        .into_iter()
+        .collect();
+        check_memory_bound_for_spec(spec, memory_bounds)
+    }
+    #[test]
+    #[ignore]
+    fn parameter_nested_lookup_explicit() {
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(0)),
+            ("d", SRef::OutRef(1)),
+            ("e", SRef::OutRef(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let memory_bounds = vec![
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(0)),
+            (sname_to_sref["e"], MemorizationBound::Bounded(0)),
+        ]
+        .into_iter()
+        .collect();
+        check_memory_bound_for_spec(spec, memory_bounds)
+    }
 }

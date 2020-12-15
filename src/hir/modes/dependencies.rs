@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn negative_and_postive_loop() {
+    fn negative_and_postive_lookups_as_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a + d.offset(by:-1).defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c";
         let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
@@ -672,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn sliding_windows_no_loop() {
+    fn sliding_windows_chain_and_hold_lookup() {
         let spec = "input a: Int8\noutput b@1Hz := a.aggregate(over: 1s, using: sum) + d.offset(by: -1).defaults(to: 0)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@2Hz := b.hold().defaults(to: 0)";
         let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn parameter_no_loop() {
+    fn lookup_chain_with_parametrization() {
         let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
         let name_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
