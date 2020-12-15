@@ -16,8 +16,8 @@ use std::collections::HashMap;
 
 use crate::{
     ast, ast::Ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
-    common_ir::WindowReference as WRef, hir::expression::Expression, hir::modes::types::HirType, hir::ExprId, hir::Hir,
-    reporting::Handler, FrontendConfig,
+    common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir, reporting::Handler,
+    tyc::rtltc::TypeTable, FrontendConfig,
 };
 
 use self::dependencies::DependencyErr;
@@ -103,7 +103,7 @@ impl HirMode for DependencyAnalyzed {}
 
 impl Hir<DependencyAnalyzed> {
     pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<Typed>, String> {
-        let tts = TypeTables::analyze(&self, handler)?;
+        let tts = crate::tyc::type_check(&self, handler)?;
 
         let mode = Typed { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, tts };
         Ok(Hir {
@@ -116,7 +116,7 @@ impl Hir<DependencyAnalyzed> {
         })
     }
 }
-
+/*
 pub(crate) type StreamTypeTable = HashMap<SRef, HirType>;
 pub(crate) type ExpressionTypeTable = HashMap<SRef, HirType>; // -> why is expressionid not the key for this map
 
@@ -125,12 +125,12 @@ pub(crate) struct TypeTables {
     stream_tt: StreamTypeTable,
     expr_tt: ExpressionTypeTable, // consider merging the tts.
 }
-
+*/
 #[derive(Debug, Clone)]
 pub(crate) struct Typed {
     ir_expr: IrExprRes,
     dependencies: Dependencies,
-    tts: TypeTables,
+    tts: TypeTable,
 }
 impl HirMode for Typed {}
 
@@ -151,7 +151,7 @@ pub(crate) struct EvaluationOrder {
 pub(crate) struct Ordered {
     ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: TypeTables,
+    types: TypeTable,
     layers: EvaluationOrder,
 }
 impl HirMode for Ordered {}
@@ -171,7 +171,7 @@ pub(crate) struct Memory {
 pub(crate) struct MemBound {
     ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: TypeTables,
+    types: TypeTable,
     layers: EvaluationOrder,
     memory: Memory,
 }
@@ -187,7 +187,7 @@ impl Hir<MemBound> {
 pub(crate) struct Complete {
     ir_expr: IrExprRes,
     dependencies: Dependencies,
-    types: TypeTables,
+    types: TypeTable,
     layers: EvaluationOrder,
     memory: Memory,
 }

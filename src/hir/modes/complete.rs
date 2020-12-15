@@ -1,6 +1,7 @@
 use crate::hir::modes::memory_bounds::MemoryAnalyzed;
 use crate::hir::modes::ordering::EvaluationOrderBuilt;
-use crate::hir::modes::types::{HirType, TypeChecked};
+use crate::hir::modes::types::HirType;
+use crate::hir::modes::types::TypeChecked;
 use crate::hir::modes::Complete;
 use crate::hir::StreamReference;
 use crate::{hir, hir::Hir, mir, mir::Mir};

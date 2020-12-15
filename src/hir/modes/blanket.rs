@@ -103,7 +103,7 @@ impl DependenciesWrapper for Ordered {
 }
 
 impl TypedWrapper for Ordered {
-    type InnerT = TypeTables;
+    type InnerT = TypeTable;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }
@@ -126,7 +126,7 @@ impl DependenciesWrapper for MemBound {
 }
 
 impl TypedWrapper for MemBound {
-    type InnerT = TypeTables;
+    type InnerT = TypeTable;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }
@@ -156,7 +156,7 @@ impl DependenciesWrapper for Complete {
 }
 
 impl TypedWrapper for Complete {
-    type InnerT = TypeTables;
+    type InnerT = TypeTable;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }

@@ -1,7 +1,4 @@
-use crate::{
-    common_ir::SRef, hir::expression::ExprId, hir::modes::ir_expr::WithIrExpr, hir::modes::HirMode,
-    hir::modes::TypeTables, hir::Hir, reporting::Handler,
-};
+use crate::{common_ir::SRef, hir::expression::ExprId, tyc::pacing_types::ConcretePacingType, tyc::rtltc::TypeTable};
 
 use super::Typed;
 
@@ -12,18 +9,18 @@ pub(crate) trait TypeChecked {
     fn expr_type(&self, _eid: ExprId) -> HirType;
 }
 
-impl TypeChecked for TypeTables {
-    fn stream_type(&self, _sr: SRef) -> HirType {
-        unimplemented!()
+impl TypeChecked for TypeTable {
+    fn stream_type(&self, sr: SRef) -> HirType {
+        self.get_type_for_stream(sr)
     }
-    fn is_periodic(&self, _sr: SRef) -> bool {
-        todo!()
+    fn is_periodic(&self, sr: SRef) -> bool {
+        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
     }
-    fn is_event(&self, _sr: SRef) -> bool {
-        todo!()
+    fn is_event(&self, sr: SRef) -> bool {
+        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
     }
-    fn expr_type(&self, _eid: ExprId) -> HirType {
-        unimplemented!()
+    fn expr_type(&self, eid: ExprId) -> HirType {
+        self.get_type_for_expr(eid)
     }
 }
 
@@ -33,35 +30,29 @@ pub(crate) trait TypedWrapper {
 }
 
 impl TypedWrapper for Typed {
-    type InnerT = TypeTables;
+    type InnerT = TypeTable;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.tts
     }
 }
 
 impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
-    fn stream_type(&self, _sr: SRef) -> HirType {
-        unimplemented!()
+    fn stream_type(&self, sr: SRef) -> HirType {
+        self.inner_typed().stream_type(sr)
     }
-    fn is_periodic(&self, _sr: SRef) -> bool {
-        todo!()
+    fn is_periodic(&self, sr: SRef) -> bool {
+        self.inner_typed().is_periodic(sr)
     }
-    fn is_event(&self, _sr: SRef) -> bool {
-        todo!()
+    fn is_event(&self, sr: SRef) -> bool {
+        self.inner_typed().is_event(sr)
     }
-    fn expr_type(&self, _eid: ExprId) -> HirType {
-        unimplemented!()
+    fn expr_type(&self, eid: ExprId) -> HirType {
+        self.inner_typed().expr_type(eid)
     }
 }
+
+pub(crate) type HirType = crate::tyc::rtltc::StreamType;
+/*
 #[derive(Debug, Clone)]
 pub(crate) struct HirType {} // TBD
-
-impl TypeTables {
-    pub(crate) fn analyze<M>(spec: &Hir<M>, handler: &Handler) -> Result<TypeTables, String>
-    where
-        M: WithIrExpr + HirMode + 'static,
-    {
-        let _tt = crate::tyc::type_check(spec, handler);
-        Err("todo".to_string())
-    }
-}
+*/
