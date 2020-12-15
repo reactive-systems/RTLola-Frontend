@@ -89,8 +89,8 @@ mod tests {
     #[allow(dead_code, unreachable_code, unused_variables)]
     fn check_memory_bound_for_spec(_spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let bounds: Memory = todo!();
-        assert_eq!(bounds.memory_bound_per_stram.len(), ref_memory_bounds.len());
-        bounds.memory_bound_per_stram.iter().for_each(|(sr, b)| {
+        assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
+        bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
             assert_eq!(b, ref_b);
         });

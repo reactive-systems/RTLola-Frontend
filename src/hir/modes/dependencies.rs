@@ -665,13 +665,13 @@ mod tests {
 
     #[test]
     fn sliding_window_loop() {
-        let spec = "input a: Int8\noutput b@10Hz := a.aggergate(over: 1s, using: sum) + d.aggregate(over: 1s, using: sum)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c.aggregate(over: 1s, using: sum)";
+        let spec = "input a: Int8\noutput b@10Hz := a.aggregate(over: 1s, using: sum) + d.aggregate(over: 1s, using: sum)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c.aggregate(over: 1s, using: sum)";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     fn sliding_window_and_positive_lookups_loop() {
-        let spec = "input a: Int8\noutput b@10Hz := a.aggergate(over: 1s, using: sum) + d.hold().defaults(to: 0)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c";
+        let spec = "input a: Int8\noutput b@10Hz := a.aggregate(over: 1s, using: sum) + d.hold().defaults(to: 0)\noutput c@2Hz := b.aggregate(over: 1s, using: sum)\noutput d@1Hz := c";
         check_graph_for_spec(spec, None);
     }
 

@@ -1111,8 +1111,8 @@ mod value_type_tests {
     }
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
-    fn test_extend_type() {
-        let spec = "input in: Bool\n output a: Int8 @1Hz { extend in } := 3";
+    fn test_filter_type() {
+        let spec = "input in: Bool\n output a: Int8 @1Hz filter in := 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1123,15 +1123,15 @@ mod value_type_tests {
 
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
-    fn test_extend_type_faulty() {
-        let spec = "input in: Int8\n output a: Int8 @1Hz { extend in } := 3";
+    fn test_filter_type_faulty() {
+        let spec = "input in: Int8\n output a: Int8 @1Hz filter in := 3";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
-    fn test_terminate_type() {
-        let spec = "input in: Bool\n output a(b: Bool): Int8 @1Hz {close in} := 3";
+    fn test_close_type() {
+        let spec = "input in: Bool\n output a(b: Bool): Int8 @1Hz close in := 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1141,9 +1141,9 @@ mod value_type_tests {
     }
 
     #[test]
-    fn test_terminate_type_faulty() {
+    fn test_close_type_faulty() {
         //Close condition non boolean type
-        let spec = "input in: Int8\n output a(b: Bool): Int8 @1Hz {close in} := 3";
+        let spec = "input in: Int8\n output a(b: Bool): Int8 @1Hz close in := 3";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
@@ -1341,8 +1341,9 @@ mod value_type_tests {
         assert_eq!(1, tb.handler.emitted_errors());
     }
 
+    /*
+    //currently rejected in new hir
     #[test]
-    #[ignore] //currently rejected in new hir
     fn test_window_invalid_duration() {
         let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 0s, using: Σ)";
         let tb = check_expect_error(spec);
@@ -1351,6 +1352,7 @@ mod value_type_tests {
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
+    */
 
     #[test]
     #[ignore] // uint to int cast currently not allowed
