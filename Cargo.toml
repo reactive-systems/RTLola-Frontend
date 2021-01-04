@@ -29,9 +29,9 @@ clap = "2.33.0"  # command line parsing
 petgraph = "0.5"
 codespan-reporting = "0.9.5" # Error Reporting
 ena = "0.13.0" # union-find implementation
-num = "0.2"     # infinite precision rationals
+num = "0.3.1"     # infinite precision rationals
 color-backtrace = "0.3"
-uom = { version = "0.25.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
 bimap = "0.5.2"
 regex = "*"
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" }
