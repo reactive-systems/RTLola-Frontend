@@ -21,7 +21,7 @@ use crate::{
 };
 
 use self::dependencies::DependencyErr;
-use petgraph::Graph;
+use petgraph::stable_graph::StableGraph;
 
 pub(crate) struct Raw {}
 impl HirMode for Raw {}
@@ -82,7 +82,7 @@ pub(crate) enum EdgeWeight {
 
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
-pub(crate) type DependencyGraph = Graph<SRef, EdgeWeight>;
+pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dependencies {
@@ -136,7 +136,23 @@ impl HirMode for Typed {}
 
 impl Hir<Typed> {
     pub(crate) fn build_evaluation_order(self) -> Hir<Ordered> {
-        unimplemented!()
+        let order = EvaluationOrder::analyze(&self);
+
+        let mode = Ordered {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: self.mode.tts,
+            layers: order,
+        };
+
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
     }
 }
 
@@ -158,7 +174,24 @@ impl HirMode for Ordered {}
 
 impl Hir<Ordered> {
     pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
-        unimplemented!()
+        let memory = Memory::analyze(&self);
+
+        let mode = MemBound {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: self.mode.types,
+            layers: self.mode.layers,
+            memory,
+        };
+
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
     }
 }
 
@@ -179,7 +212,22 @@ impl HirMode for MemBound {}
 
 impl Hir<MemBound> {
     pub(crate) fn finalize(self) -> Hir<Complete> {
-        unimplemented!()
+        let mode = Complete {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: self.mode.types,
+            layers: self.mode.layers,
+            memory: self.mode.memory,
+        };
+
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
     }
 }
 

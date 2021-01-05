@@ -1,6 +1,6 @@
 use crate::common_ir::{SRef, WRef};
 
-use super::{Dependencies, EdgeWeight};
+use super::{Dependencies, DependencyGraph, EdgeWeight};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -13,7 +13,7 @@ use crate::{
     hir::modes::{ir_expr::WithIrExpr, DependencyAnalyzed, HirMode},
 };
 use petgraph::Outgoing;
-use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, Graph};
+use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, stable_graph::StableGraph};
 
 pub(crate) trait WithDependencies {
     // https://github.com/rust-lang/rust/issues/63063
@@ -32,7 +32,7 @@ pub(crate) trait WithDependencies {
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
 
-    fn graph(&self) -> &Graph<SRef, EdgeWeight>;
+    fn graph(&self) -> &DependencyGraph;
 }
 
 impl WithDependencies for Dependencies {
@@ -70,7 +70,7 @@ impl WithDependencies for Dependencies {
         })
     }
 
-    fn graph(&self) -> &Graph<SRef, EdgeWeight> {
+    fn graph(&self) -> &DependencyGraph {
         &self.graph
     }
 }
@@ -112,7 +112,7 @@ impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDepe
         self.inner_dep().aggregates(who)
     }
 
-    fn graph(&self) -> &Graph<SRef, EdgeWeight> {
+    fn graph(&self) -> &DependencyGraph {
         self.inner_dep().graph()
     }
 }
@@ -132,7 +132,7 @@ impl Dependencies {
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
-        let mut graph: Graph<SRef, EdgeWeight> = Graph::with_capacity(num_nodes, num_edges);
+        let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
@@ -181,7 +181,6 @@ impl Dependencies {
 
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph)?;
-
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
@@ -243,7 +242,7 @@ impl Dependencies {
         })
     }
 
-    fn has_transitive_connection(graph: &Graph<SRef, EdgeWeight>, from: NodeIndex, to: NodeIndex) -> bool {
+    fn has_transitive_connection(graph: &DependencyGraph, from: NodeIndex, to: NodeIndex) -> bool {
         if from != to {
             has_path_connecting(&graph, from, to, None)
         } else {
@@ -267,7 +266,7 @@ impl Dependencies {
         }
     }
 
-    fn check_well_formedness(graph: &Graph<SRef, EdgeWeight>) -> Result<()> {
+    fn check_well_formedness(graph: &DependencyGraph) -> Result<()> {
         let graph = graph_without_negative_offset_edges(graph);
         let graph = graph_without_close_edges(&graph);
         // check if cyclic
@@ -340,7 +339,6 @@ impl Dependencies {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::hir::modes::IrExpression;
     use crate::parse::parse;
@@ -755,6 +753,42 @@ mod tests {
     fn spawn_self_loop() {
         let spec = "input a: Int8\noutput b spawn if b > 6 := a + 5";
         check_graph_for_spec(spec, None);
+    }
+
+    #[test]
+    fn spawn_self_negative_loop() {
+        let spec = "input a: Int8\noutput b spawn if b.offset(by: -1).defaults(to: 0) > 6 := a + 5";
+        let sname_to_sref =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let direct_accesses =
+            vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]])]
+                .into_iter()
+                .collect();
+        let transitive_accesses =
+            vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]])]
+                .into_iter()
+                .collect();
+        let direct_accessed_by =
+            vec![(sname_to_sref["a"], vec![sname_to_sref["b"]]), (sname_to_sref["b"], vec![sname_to_sref["b"]])]
+                .into_iter()
+                .collect();
+        let transitive_accessed_by =
+            vec![(sname_to_sref["a"], vec![sname_to_sref["b"]]), (sname_to_sref["b"], vec![sname_to_sref["b"]])]
+                .into_iter()
+                .collect();
+        let aggregates = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])].into_iter().collect();
+        let aggregated_by = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])].into_iter().collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
     }
     #[test]
     fn filter_self_loop() {

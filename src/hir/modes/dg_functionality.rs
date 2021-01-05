@@ -1,22 +1,29 @@
-use super::EdgeWeight;
-use super::SRef;
+use super::{DependencyGraph, EdgeWeight};
 use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked};
 use crate::hir::HirMode;
 use crate::Hir;
-use petgraph::Graph;
 
-pub(crate) fn graph_without_negative_offset_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
+pub(crate) fn graph_without_negative_offset_edges(graph: &DependencyGraph) -> DependencyGraph {
     let mut working_graph = graph.clone();
-    graph.edge_indices().for_each(|edge_index| match graph.edge_weight(edge_index).unwrap() {
-        EdgeWeight::Offset(o) if *o < 0 => {
+    graph.edge_indices().for_each(|edge_index| {
+        if has_negative_offset(graph.edge_weight(edge_index).unwrap()) {
             working_graph.remove_edge(edge_index);
         }
-        _ => {}
     });
     working_graph
 }
 
-pub(crate) fn graph_without_close_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
+fn has_negative_offset(e: &EdgeWeight) -> bool {
+    match e {
+        EdgeWeight::Offset(o) if *o < 0 => true,
+        EdgeWeight::Spawn(s) => has_negative_offset(s),
+        EdgeWeight::Filter(f) => has_negative_offset(f),
+        EdgeWeight::Close(c) => has_negative_offset(c),
+        _ => false,
+    }
+}
+
+pub(crate) fn graph_without_close_edges(graph: &DependencyGraph) -> DependencyGraph {
     let mut working_graph = graph.clone();
     graph.edge_indices().for_each(|edge_index| {
         if let EdgeWeight::Close(_) = graph.edge_weight(edge_index).unwrap() {
@@ -26,29 +33,25 @@ pub(crate) fn graph_without_close_edges(graph: &Graph<SRef, EdgeWeight>) -> Grap
     working_graph
 }
 
-pub(crate) fn only_spawn_edges(graph: &Graph<SRef, EdgeWeight>) -> Graph<SRef, EdgeWeight> {
+pub(crate) fn only_spawn_edges(graph: &DependencyGraph) -> DependencyGraph {
     let mut working_graph = graph.clone();
-    working_graph.edge_indices().for_each(|edge_index| {
-        let test = graph.edge_weight(edge_index).unwrap();
-        if let EdgeWeight::Spawn(_) = test {
+    graph.edge_indices().for_each(|edge_index| {
+        if let EdgeWeight::Spawn(_) = graph.edge_weight(edge_index).unwrap() {
         } else {
-            working_graph.remove_edge(edge_index);
+            let res = working_graph.remove_edge(edge_index);
+            assert!(res.is_some());
         }
     });
     working_graph
 }
 
-pub(crate) fn split_graph<M>(
-    spec: &Hir<M>,
-    graph: Graph<SRef, EdgeWeight>,
-) -> (Graph<SRef, EdgeWeight>, Graph<SRef, EdgeWeight>)
+pub(crate) fn split_graph<M>(spec: &Hir<M>, graph: DependencyGraph) -> (DependencyGraph, DependencyGraph)
 where
     M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
 {
     // remove edges and nodes, so mapping does not change
     let mut event_graph = graph.clone();
     let mut periodic_graph = graph.clone();
-    // delete edges -> TODO I am not sure if this is a good idea to delete edges while iterating over them
     graph.edge_indices().for_each(|edge_index| {
         let (src, tar) = graph.edge_endpoints(edge_index).unwrap();
         let src = graph.node_weight(src).unwrap();

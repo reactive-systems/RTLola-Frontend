@@ -1,10 +1,9 @@
-use crate::hir::modes::memory_bounds::MemoryAnalyzed;
 use crate::hir::modes::ordering::EvaluationOrderBuilt;
-use crate::hir::modes::types::HirType;
 use crate::hir::modes::types::TypeChecked;
 use crate::hir::modes::Complete;
 use crate::hir::StreamReference;
 use crate::{hir, hir::Hir, mir, mir::Mir};
+use crate::{hir::modes::memory_bounds::MemoryAnalyzed, tyc::value_types::IConcreteType as ValueTy};
 
 use super::{dependencies::WithDependencies, ir_expr::WithIrExpr};
 
@@ -17,7 +16,7 @@ impl Hir<Complete> {
                 let sr = i.sr;
                 mir::InputStream {
                     name: i.name,
-                    ty: Self::lower_type(self.stream_type(sr)),
+                    ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     acccessed_by: mode.direct_accesses(sr),
                     aggregates: mode.aggregates(sr),
                     layer: mode.stream_layers(sr),
@@ -32,7 +31,7 @@ impl Hir<Complete> {
                 let sr = o.sr;
                 mir::OutputStream {
                     name: o.name,
-                    ty: Self::lower_type(self.stream_type(sr)),
+                    ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     expr: self.lower_expr(self.expr(sr)),
                     acccesses: mode.direct_accesses(sr),
                     acccessed_by: mode.direct_accessed_by(sr),
@@ -80,7 +79,7 @@ impl Hir<Complete> {
             wait: win.wait,
             op: win.op,
             reference: win.reference,
-            ty: Self::lower_type(self.expr_type(win.eid)),
+            ty: Self::lower_value_type(self.expr_type(win.eid).get_value_type()),
         }
     }
 
@@ -92,18 +91,37 @@ impl Hir<Complete> {
             wait: win.wait,
             op: win.op,
             reference: win.reference,
-            ty: Self::lower_type(self.expr_type(win.eid)),
+            ty: Self::lower_value_type(self.expr_type(win.eid).get_value_type()),
         }
     }
 
-    fn lower_type(_ty: HirType) -> mir::Type {
-        todo!("Implement me, when HIRTypes are fixed")
+    fn lower_value_type(ty: &ValueTy) -> mir::Type {
+        match ty {
+            ValueTy::Bool => mir::Type::Bool,
+            ValueTy::Integer8 => mir::Type::Int(mir::IntTy::I8),
+            ValueTy::Integer16 => mir::Type::Int(mir::IntTy::I16),
+            ValueTy::Integer32 => mir::Type::Int(mir::IntTy::I32),
+            ValueTy::Integer64 => mir::Type::Int(mir::IntTy::I64),
+            ValueTy::UInteger8 => mir::Type::UInt(mir::UIntTy::U8),
+            ValueTy::UInteger16 => mir::Type::UInt(mir::UIntTy::U16),
+            ValueTy::UInteger32 => mir::Type::UInt(mir::UIntTy::U32),
+            ValueTy::UInteger64 => mir::Type::UInt(mir::UIntTy::U64),
+            ValueTy::Float32 => mir::Type::Float(mir::FloatTy::F32),
+            ValueTy::Float64 => mir::Type::Float(mir::FloatTy::F64),
+            ValueTy::Tuple(elements) => {
+                let elements = elements.iter().map(Self::lower_value_type).collect::<Vec<_>>();
+                mir::Type::Tuple(elements)
+            }
+            ValueTy::TString => mir::Type::String,
+            ValueTy::Byte => mir::Type::Bytes,
+            ValueTy::Option(v) => mir::Type::Option(Box::new(Self::lower_value_type(v))),
+        }
     }
 
     fn lower_expr(&self, expr: &hir::expression::Expression) -> mir::Expression {
         mir::Expression {
             kind: self.lower_expression_kind(&expr.kind),
-            ty: Self::lower_type(self.mode.expr_type(expr.eid)),
+            ty: Self::lower_value_type(self.mode.expr_type(expr.eid).get_value_type()),
         }
     }
 
