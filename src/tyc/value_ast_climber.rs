@@ -117,7 +117,7 @@ where
 
         let annotated_type_replaced =
             out.annotated_type.as_ref().map(|ty| self.match_annotated_type(ty)).unwrap_or(IAbstractType::Any);
-        dbg!(&annotated_type_replaced);
+        //dbg!(&annotated_type_replaced);
         if let IAbstractType::Any = annotated_type_replaced {
         } else {
             //self.tyc.impose(out_key.concretizes_explicit(annotated_type_replaced.clone()))?;
@@ -127,7 +127,7 @@ where
         //let mut param_types = Vec::new();
         for param in &out.params {
             let param_key = self.tyc.get_var_key(&Variable { name: out.name.clone() + "_" + &param.name.clone() });
-            dbg!(param_key);
+            //dbg!(param_key);
             self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
             //self.key_span.insert(param_key, param.span);
 
@@ -136,7 +136,7 @@ where
             //param_types.push(param_key);
         }
 
-        dbg!(&out.instance_template);
+        //dbg!(&out.instance_template);
         let opt_spawn = &self.hir.spawn(out.sr);
         if let Some((opt_spawn, opt_cond)) = opt_spawn {
             //chek target exression type matches parameter type
@@ -155,7 +155,7 @@ where
         }
 
         let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
-        dbg!(&out_key, &expression_key);
+        //dbg!(&out_key, &expression_key);
         self.tyc.impose(out_key.equate_with(expression_key))?;
         Ok(out_key)
     }
@@ -178,7 +178,7 @@ where
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
-        dbg!(&exp.kind, term_key);
+        //dbg!(&exp.kind, term_key);
         match &exp.kind {
             ExpressionKind::LoadConstant(c) => {
                 let (cons_lit, anno_ty) = match c {
@@ -186,7 +186,7 @@ where
                     Constant::InlinedConstant(lit, anno_ty) => (lit, self.match_annotated_type(anno_ty)),
                 };
                 let literal_type = self.match_const_literal(cons_lit);
-                dbg!(&literal_type);
+                //dbg!(&literal_type);
                 self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
                 if !matches!(anno_ty, IAbstractType::Any) {
                     self.tyc.impose(term_key.has_exactly_type(anno_ty))?;
@@ -209,7 +209,7 @@ where
                             self.tyc.get_var_key(&v)
                         })
                         .collect();
-                    dbg!(&param_keys);
+                    //dbg!(&param_keys);
                     let arg_keys: Vec<TcKey> = args
                         .iter()
                         .map(|arg| self.expression_infer(arg, None))
@@ -306,7 +306,7 @@ where
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
                         Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
-                            dbg!("RealTimeOffset");
+                            //dbg!("RealTimeOffset");
                             use num::rational::Rational64 as Rational;
                             use uom::si::frequency::hertz;
                             use uom::si::rational64::Frequency as UOM_Frequency;
@@ -319,7 +319,7 @@ where
                                 c += 1;
                                 duration_as_f *= 10f64;
                             }
-                            dbg!(duration_as_f);
+                            //dbg!(duration_as_f);
                             let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
                             let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
                             let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
@@ -327,16 +327,16 @@ where
                             // && offset is multiple of target stream (no optional needed)
                             if let Ok(Periodic(target_freq)) = target_ratio {
                                 //fif the frequencies match the access is possible
-                                dbg!(&freq, &target_freq);
+                                //dbg!(&freq, &target_freq);
                                 if let Ok(true) = target_freq.is_multiple_of(&freq) {
-                                    dbg!("frequencies compatible");
+                                    //dbg!("frequencies compatible");
                                     self.tyc.impose(
                                         term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
                                     )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(target_key.equate_with(inner_key))?;
                                 } else {
-                                    dbg!("frequencies NOT compatible");
+                                    //dbg!("frequencies NOT compatible");
                                     //if the ey dont match return error
                                     return Err(TcErr::Bound(
                                         *target_key,
@@ -359,7 +359,7 @@ where
             ExpressionKind::Default { expr, default } => {
                 let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
-                dbg!(ex_key, def_key);
+                                                                       //dbg!(ex_key, def_key);
                 self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
                 //self.tyc.impose(def_key.equate_with(inner_key))?;
@@ -525,7 +525,7 @@ where
                     self.hir.outputs().find(|o| o.sr == *current_stream).expect("Expect valid stream reference");
                 let v = Variable { name: output.name.clone() + "_" + &output.params[*ix].name };
                 let par_key = self.tyc.get_var_key(&v);
-                dbg!(par_key);
+                //dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
             }
         };
@@ -572,7 +572,6 @@ where
     }
 
     fn match_const_literal(&self, lit: &ConstantLiteral) -> IAbstractType {
-        dbg!(&lit);
         match lit {
             ConstantLiteral::Str(_) => IAbstractType::TString,
             ConstantLiteral::Bool(_) => IAbstractType::Bool,
@@ -583,7 +582,6 @@ where
     }
 
     pub(crate) fn handle_error(&self, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err {
-        dbg!(&err);
         let primal_key;
         let msg = match err {
             TcErr::ChildAccessOutOfBound(key, ty, n) => {
@@ -736,7 +734,6 @@ mod value_type_tests {
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
         let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
         let tt_result = ltc.value_type_infer(&pt);
-        dbg!(&tt_result);
         assert!(tt_result.is_err(), "Expected error in value type result");
         println!("{}", tt_result.err().unwrap());
         test_box
