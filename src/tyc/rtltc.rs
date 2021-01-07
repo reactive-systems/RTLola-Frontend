@@ -176,7 +176,6 @@ where
         }
 
         let nid_key = ctx.node_key.clone();
-        print!("{:?}", &ctx.tyc);
         let tt = match ctx.tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
