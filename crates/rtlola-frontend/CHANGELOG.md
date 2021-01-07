@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.4] - 2020-09-18
 
 ### Added 
+- Updated num and uom dependency.
+
+## [0.3.4] - 2020-09-18
+
+### Added 
 - Frontend can now process discrete sliding windows.
 
 ## [0.3.3] - 2020-07-22
