@@ -1,7 +1,9 @@
 use super::*;
 extern crate regex;
 
-use crate::tyc::pacing_types::{AbstractPacingType, ActivationCondition, Freq, PacingError};
+use crate::tyc::pacing_types::{
+    AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, PacingError, StreamTypeKeys,
+};
 
 use crate::common_ir::Offset;
 use crate::hir::expression::{Expression, ExpressionKind};
@@ -25,9 +27,11 @@ where
     M: HirMode + WithIrExpr + 'static,
 {
     pub(crate) hir: &'a RTLolaHIR<M>,
-    pub(crate) tyc: TypeChecker<AbstractPacingType, Variable>,
-    pub(crate) node_key: HashMap<NodeId, TcKey>,
-    pub(crate) key_span: HashMap<TcKey, Span>,
+    pub(crate) pacing_tyc: TypeChecker<AbstractPacingType, Variable>,
+    pub(crate) expression_tyc: TypeChecker<AbstractExpressionType, Variable>,
+    pub(crate) node_key: HashMap<NodeId, StreamTypeKeys>,
+    pub(crate) pacing_key_span: HashMap<TcKey, Span>,
+    pub(crate) expression_key_span: HashMap<TcKey, Span>,
 }
 
 impl<'a, M> Context<'a, M>
@@ -35,163 +39,194 @@ where
     M: HirMode + WithIrExpr + 'static,
 {
     pub(crate) fn new(hir: &'a RTLolaHIR<M>) -> Self {
-        let mut node_key = HashMap::new();
-        let mut tyc = TypeChecker::new();
-        let mut key_span = HashMap::new();
+        let node_key = HashMap::new();
+        let pacing_tyc = TypeChecker::new();
+        let expression_tyc = TypeChecker::new();
+        let pacing_key_span = HashMap::new();
+        let expression_key_span = HashMap::new();
 
-        for input in hir.inputs() {
-            let key = tyc.get_var_key(&Variable(input.name.clone()));
-            node_key.insert(NodeId::SRef(input.sr), key);
-            key_span.insert(key, input.span.clone());
+        let mut res = Context { hir, pacing_tyc, expression_tyc, node_key, pacing_key_span, expression_key_span };
+        res.init();
+        res
+    }
+
+    pub(crate) fn new_stream_key(&mut self) -> StreamTypeKeys {
+        StreamTypeKeys {
+            exp_pacing: self.pacing_tyc.new_term_key(),
+            spawn: (self.pacing_tyc.new_term_key(), self.expression_tyc.new_term_key()),
+            filter: self.expression_tyc.new_term_key(),
+            close: self.expression_tyc.new_term_key(),
         }
-        for output in hir.outputs() {
-            let key = tyc.get_var_key(&Variable(output.name.clone()));
-            node_key.insert(NodeId::SRef(output.sr), key);
-            key_span.insert(key, output.span.clone());
+    }
+
+    pub(crate) fn add_stream_key_span(&mut self, keys: StreamTypeKeys, span: Span) {
+        self.pacing_key_span.insert(keys.exp_pacing, span.clone());
+        self.pacing_key_span.insert(keys.spawn.0, span.clone());
+        self.expression_key_span.insert(keys.spawn.1, span.clone());
+        self.expression_key_span.insert(keys.filter, span.clone());
+        self.expression_key_span.insert(keys.close, span);
+    }
+
+    pub(crate) fn init(&mut self) {
+        for input in self.hir.inputs() {
+            let key = self.new_stream_key();
+            self.node_key.insert(NodeId::SRef(input.sr), key);
+            self.pacing_key_span.insert(key.exp_pacing, input.span.clone());
+            self.pacing_key_span.insert(key.spawn.0, Span::Unknown);
+            self.expression_key_span.insert(key.spawn.1, Span::Unknown);
+            self.expression_key_span.insert(key.filter, Span::Unknown);
+            self.expression_key_span.insert(key.close, Span::Unknown);
+        }
+        for output in self.hir.outputs() {
+            let key = self.new_stream_key();
+            self.node_key.insert(NodeId::SRef(output.sr), key);
+            self.pacing_key_span.insert(key.exp_pacing, output.span.clone());
+            self.pacing_key_span.insert(
+                key.spawn.0,
+                output
+                    .instance_template
+                    .spawn
+                    .and_then(|spawn| spawn.condition)
+                    .map(|id| self.hir.expression(id).span.clone())
+                    .unwrap_or(Span::Unknown),
+            );
+            self.pacing_key_span.insert(
+                key.spawn.1,
+                output
+                    .instance_template
+                    .spawn
+                    .and_then(|spawn| spawn.target)
+                    .map(|id| self.hir.expression(id).span.clone())
+                    .unwrap_or(Span::Unknown),
+            );
+            self.pacing_key_span.insert(
+                key.filter,
+                output.instance_template.filter.map(|id| self.hir.expression(id).span.clone()).unwrap_or(Span::Unknown),
+            );
+            self.pacing_key_span.insert(
+                key.close,
+                output.instance_template.filter.map(|id| self.hir.expression(id).span.clone()).unwrap_or(Span::Unknown),
+            );
         }
 
-        Context { hir, tyc, node_key, key_span }
+        for trigger in self.hir.triggers() {
+            let key = self.new_stream_key();
+            self.node_key.insert(NodeId::SRef(trigger.sr), key);
+            self.pacing_key_span.insert(key.exp_pacing, trigger.span.clone());
+            self.pacing_key_span.insert(key.spawn.0, Span::Unknown);
+            self.expression_key_span.insert(key.spawn.1, Span::Unknown);
+            self.expression_key_span.insert(key.filter, Span::Unknown);
+            self.expression_key_span.insert(key.close, Span::Unknown);
+        }
     }
 
     pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
         let ac = AbstractPacingType::Event(ActivationCondition::Stream(input.sr));
-        let input_key = self.node_key[&NodeId::SRef(input.sr)];
-        self.tyc.impose(input_key.concretizes_explicit(ac))
+        let input_key = self.node_key[&NodeId::SRef(input.sr)].exp_pacing;
+        self.pacing_tyc.impose(input_key.concretizes_explicit(ac))
     }
 
     pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TcErr<AbstractPacingType>> {
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
-        let trigger_key = self.tyc.new_term_key();
-        self.node_key.insert(NodeId::SRef(trigger.sr), trigger_key);
-        self.key_span.insert(trigger_key, trigger.span.clone());
-        self.tyc.impose(trigger_key.equate_with(ex_key))
+        let trigger_key = self.node_key[&NodeId::SRef(trigger.sr)].exp_pacing;
+        self.pacing_tyc.impose(trigger_key.equate_with(ex_key.exp_pacing))
     }
 
     pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
-        // Type Expression
-        let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
-        let output_key = self.node_key[&NodeId::SRef(output.sr)];
+        let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
-        self.tyc.impose(output_key.concretizes_explicit(AbstractPacingType::Never))?;
+        // Type Expression Pacing
+        let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
+        self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes_explicit(AbstractPacingType::Never))?;
 
         // Check if there is a type is annotated
         if let Some(ac) = &output.activation_condition {
-            let annotated_ty_key = self.tyc.new_term_key();
+            let annotated_ty_key = self.pacing_tyc.new_term_key();
             let annotated_ty = match ac {
                 AC::Frequency { span, value } => {
-                    self.key_span.insert(annotated_ty_key, span.clone());
+                    self.pacing_key_span.insert(annotated_ty_key, span.clone());
                     AbstractPacingType::Periodic(Freq::Fixed(*value))
                 }
                 AC::Expr(eid) => {
                     let expr = self.hir.expression(*eid);
-                    self.node_key.insert(NodeId::Expr(expr.eid), annotated_ty_key);
-                    self.key_span.insert(annotated_ty_key, expr.span.clone());
+                    self.pacing_key_span.insert(annotated_ty_key, expr.span.clone());
                     AbstractPacingType::Event(
                         ActivationCondition::parse(expr).map_err(|pe| TcErr::Bound(annotated_ty_key, None, pe))?,
                     )
                 }
             };
             // Bind key to parsed type
-            self.tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
+            self.pacing_tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
 
             // Annotated type should be more concrete than inferred type
-            self.tyc.impose(annotated_ty_key.concretizes(exp_key))?;
+            self.pacing_tyc.impose(annotated_ty_key.concretizes(exp_key.exp_pacing))?;
 
             // Output type is equal to declared type
-            self.tyc.impose(output_key.equate_with(annotated_ty_key))
+            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))
         } else {
             // Output type is equal to inferred type
-            self.tyc.impose(output_key.concretizes(exp_key))
+            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))
         }
-        /*
-        if let Some(expr) = self.hir.act_cond(output.sr) {
-            let annotated_ac_key = self.tyc.new_term_key();
-            self.node_key
-                .insert(NodeId::Expr(expr.eid), annotated_ac_key);
-            //self.key_span.insert(annotated_ac_key, output.extend.span);
-
-            let annotated_ac =
-                match parse_abstract_type(expr, &self.bdd_vars, self.hir.num_inputs()) {
-                    Ok(b) => b,
-                    Err(reason) => {
-                        return Err(TcErr::Bound(
-                            annotated_ac_key,
-                            None,
-                            UnificationError::Other(reason),
-                        ));
-                    }
-                };
-
-            // Bind key to parsed type
-            self.tyc
-                .impose(annotated_ac_key.has_exactly_type(annotated_ac))?;
-
-            // Annotated type should be more concrete than inferred type
-            self.tyc.impose(annotated_ac_key.concretizes(exp_key))?;
-
-            // Output type is equal to declared type
-            self.tyc.impose(output_key.concretizes(annotated_ac_key))
-        } else {
-            // Output type is equal to inferred type
-            self.tyc.impose(output_key.concretizes(exp_key))
-        }
-        */
     }
 
-    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<TcKey, TcErr<AbstractPacingType>> {
-        let term_key: TcKey = self.tyc.new_term_key();
+    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TcErr<AbstractPacingType>> {
+        let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
         match &exp.kind {
             ExpressionKind::LoadConstant(_) | ExpressionKind::ParameterAccess(_, _) => {
                 //constants have arbitrary pacing type
-                self.tyc.impose(term_key.has_exactly_type(Any))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.has_exactly_type(Any))?;
             }
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 use crate::common_ir::StreamAccessKind;
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
                 match kind {
-                    StreamAccessKind::Sync => self.tyc.impose(term_key.equate_with(stream_key))?,
+                    StreamAccessKind::Sync => {
+                        self.pacing_tyc.impose(term_keys.exp_pacing.equate_with(stream_key.exp_pacing))?
+                    }
                     StreamAccessKind::Offset(off) => {
                         match off {
                             Offset::PastRealTimeOffset(_) | Offset::FutureRealTimeOffset(_) => {
                                 // Real time offset are only allowed on timed streams.
-                                self.tyc.impose(term_key.concretizes_explicit(Periodic(Freq::Any)))?;
-                                self.tyc.impose(term_key.concretizes(stream_key))?;
+                                self.pacing_tyc
+                                    .impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
+                                self.pacing_tyc.impose(term_keys.exp_pacing.concretizes(stream_key.exp_pacing))?;
                             }
                             Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
-                                self.tyc.impose(term_key.concretizes(stream_key))?;
+                                self.pacing_tyc.impose(term_keys.exp_pacing.concretizes(stream_key.exp_pacing))?;
                             }
                         }
                     }
-                    StreamAccessKind::Hold => self.tyc.impose(term_key.concretizes_explicit(Any))?,
+                    StreamAccessKind::Hold => self.pacing_tyc.impose(term_keys.exp_pacing.concretizes_explicit(Any))?,
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
-                        self.tyc.impose(term_key.concretizes_explicit(Periodic(Freq::Any)))?;
+                        self.pacing_tyc.impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
                     }
                 };
 
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
-                    self.tyc.impose(term_key.concretizes(arg_key))?;
+                    self.pacing_tyc.impose(term_keys.exp_pacing.concretizes(arg_key.exp_pacing))?;
                 }
             }
             ExpressionKind::Default { expr, default } => {
                 let ex_key = self.expression_infer(&*expr)?;
                 let def_key = self.expression_infer(&*default)?;
 
-                self.tyc.impose(term_key.is_meet_of(ex_key, def_key))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.is_meet_of(ex_key.exp_pacing, def_key.exp_pacing))?;
             }
             ExpressionKind::ArithLog(_, args) => match args.len() {
                 2 => {
                     let left_key = self.expression_infer(&args[0])?;
                     let right_key = self.expression_infer(&args[1])?;
 
-                    self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
+                    self.pacing_tyc
+                        .impose(term_keys.exp_pacing.is_meet_of(left_key.exp_pacing, right_key.exp_pacing))?;
                 }
                 1 => {
                     let ex_key = self.expression_infer(&args[0])?;
 
-                    self.tyc.impose(term_key.equate_with(ex_key))?;
+                    self.pacing_tyc.impose(term_keys.exp_pacing.equate_with(ex_key.exp_pacing))?;
                 }
                 _ => unreachable!(),
             },
@@ -200,44 +235,48 @@ where
                 let cons_key = self.expression_infer(&*consequence)?;
                 let alt_key = self.expression_infer(&*alternative)?;
 
-                self.tyc.impose(term_key.is_meet_of_all(&[cond_key, cons_key, alt_key]))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.is_meet_of_all(&[
+                    cond_key.exp_pacing,
+                    cons_key.exp_pacing,
+                    alt_key.exp_pacing,
+                ]))?;
             }
             ExpressionKind::Tuple(elements) => {
                 let ele_keys: Vec<TcKey> = elements
                     .iter()
-                    .map(|e| self.expression_infer(&*e))
+                    .map(|e| self.expression_infer(&*e).map(|keys| keys.exp_pacing))
                     .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
-                self.tyc.impose(term_key.is_meet_of_all(&ele_keys))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.is_meet_of_all(&ele_keys))?;
             }
             ExpressionKind::Function { args, .. } => {
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
-                    self.tyc.impose(term_key.concretizes(arg_key))?;
+                    self.pacing_tyc.impose(term_keys.exp_pacing.concretizes(arg_key.exp_pacing))?;
                 }
             }
             ExpressionKind::TupleAccess(t, _) => {
                 let exp_key = self.expression_infer(&*t)?;
-                self.tyc.impose(term_key.equate_with(exp_key))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
             }
             ExpressionKind::Widen(inner, _) => {
                 let exp_key = self.expression_infer(&*inner)?;
-                self.tyc.impose(term_key.equate_with(exp_key))?;
+                self.pacing_tyc.impose(term_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
             }
         };
-        self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        self.key_span.insert(term_key, exp.span.clone());
-        Ok(term_key)
+        self.node_key.insert(NodeId::Expr(exp.eid), term_keys);
+        self.add_stream_key_span(term_keys, exp.span.clone());
+        Ok(term_keys)
     }
 
     pub(crate) fn post_process(
         hir: &RTLolaHIR<M>,
-        nid_key: HashMap<NodeId, TcKey>,
+        nid_key: HashMap<NodeId, StreamTypeKeys>,
         tt: &AbstractTypeTable<AbstractPacingType>,
     ) -> Vec<PacingError> {
         let mut res = vec![];
         // That every periodic stream has a frequency
         for output in hir.outputs() {
-            let at = &tt[nid_key[&NodeId::SRef(output.sr)]];
+            let at = &tt[nid_key[&NodeId::SRef(output.sr)].exp_pacing];
             match at {
                 AbstractPacingType::Periodic(Freq::Any) => {
                     res.push(PacingError::FreqAnnotationNeeded(output.span.clone()));

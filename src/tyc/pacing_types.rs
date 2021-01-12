@@ -1,9 +1,11 @@
+use super::rusttyc::types::Abstract;
 use crate::common_ir::{StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::reporting::{Diagnostic, Handler, Span};
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
+use std::fmt::Debug;
 use uom::lib::collections::HashMap;
 use uom::lib::fmt::Formatter;
 use uom::num_rational::Ratio;
@@ -59,12 +61,18 @@ pub(crate) enum AbstractExpressionType {
 }
 
 /// The internal representation of the overall Stream pacing
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AbstractStreamPacing {
-    pub exp_pacing: AbstractPacingType,
-    pub spawn: (AbstractPacingType, AbstractExpressionType),
-    pub filter: AbstractExpressionType,
-    pub close: AbstractExpressionType,
+/// Types are given by keys in the respective rustic instances
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StreamTypeKeys {
+    /// Key to the AbstractPacingType of the streams expression
+    pub exp_pacing: TcKey,
+    /// First element is the key to the AbstractPacingType of the spawn expression
+    /// Second element is the key to the AbstractExpressionType of the spawn condition
+    pub spawn: (TcKey, TcKey),
+    /// The key to the AbstractExpressionType of the filter expression
+    pub filter: TcKey,
+    /// The key to the AbstractExpressionType of the close expression
+    pub close: TcKey,
 }
 
 /// The general error structure
@@ -250,7 +258,7 @@ impl ActivationCondition {
 }
 
 impl PacingError {
-    pub fn emit(
+    pub(crate) fn emit(
         &self,
         handler: &Handler,
         spans: &HashMap<TcKey, Span>,
@@ -324,7 +332,7 @@ impl PacingError {
     }
 }
 
-pub(crate) fn emit_error(
+pub(crate) fn emit_pacing_error(
     tce: &TcErr<AbstractPacingType>,
     handler: &Handler,
     spans: &HashMap<TcKey, Span>,
@@ -350,6 +358,38 @@ pub(crate) fn emit_error(
                 "In pacing type analysis:\n Conflicting type bounds: {} and {}",
                 ty1.to_string(names),
                 ty2.to_string(names)
+            );
+            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
+        }
+    }
+}
+
+pub(crate) fn emit_expression_error(
+    tce: &TcErr<AbstractExpressionType>,
+    handler: &Handler,
+    spans: &HashMap<TcKey, Span>,
+    names: &HashMap<StreamReference, &str>,
+) {
+    match tce {
+        TcErr::KeyEquation(k1, k2, err) => {
+            err.emit(handler, spans, names, Some(*k1), Some(*k2));
+        }
+        TcErr::Bound(k1, k2, err) => {
+            err.emit(handler, spans, names, Some(*k1), *k2);
+        }
+        TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
+            let msg = &format!("In pacing type analysis:\n Child type out of bounds for type: {}", ty.to_string());
+            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
+        }
+        TcErr::ExactTypeViolation(key, ty) => {
+            let msg = &format!("In pacing type analysis:\n Expected type: {}", ty.to_string());
+            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
+        }
+        TcErr::ConflictingExactBounds(key, ty1, ty2) => {
+            let msg = &format!(
+                "In pacing type analysis:\n Conflicting type bounds: {} and {}",
+                ty1.to_string(),
+                ty2.to_string()
             );
             handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
         }
@@ -410,7 +450,7 @@ impl Freq {
     }
 }
 
-impl rusttyc::types::Abstract for AbstractPacingType {
+impl Abstract for AbstractPacingType {
     type Err = PacingError;
 
     fn unconstrained() -> Self {
@@ -464,7 +504,7 @@ impl AbstractPacingType {
     }
 }
 
-impl rusttyc::types::Abstract for AbstractExpressionType {
+impl Abstract for AbstractExpressionType {
     type Err = PacingError;
 
     fn unconstrained() -> Self {
@@ -506,70 +546,6 @@ impl std::fmt::Display for AbstractExpressionType {
             Self::Any => write!(f, "Any"),
             Self::Expression(e) => write!(f, "Exp({})", e),
         }
-    }
-}
-
-impl rusttyc::types::Abstract for AbstractStreamPacing {
-    type Err = PacingError;
-
-    fn unconstrained() -> Self {
-        Self::top()
-    }
-
-    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
-        let AbstractStreamPacing { exp_pacing: exp1, spawn: s1, filter: f1, close: c1 } = self;
-        let AbstractStreamPacing { exp_pacing: exp2, spawn: s2, filter: f2, close: c2 } = other;
-        Ok(AbstractStreamPacing {
-            exp_pacing: exp1.meet(exp2)?,
-            spawn: (s1.0.meet(&s2.0)?, s1.1.meet(&s2.1)?),
-            filter: f1.meet(f2)?,
-            close: c1.meet(c2)?,
-        })
-    }
-
-    fn arity(&self) -> Option<usize> {
-        None
-    }
-
-    fn nth_child(&self, _n: usize) -> &Self {
-        unreachable!()
-    }
-
-    fn with_children<I>(&self, _children: I) -> Self
-    where
-        I: IntoIterator<Item = Self>,
-    {
-        unreachable!()
-    }
-}
-
-impl AbstractStreamPacing {
-    pub fn top() -> Self {
-        AbstractStreamPacing {
-            exp_pacing: AbstractPacingType::Any,
-            spawn: (AbstractPacingType::Any, AbstractExpressionType::Any),
-            filter: AbstractExpressionType::Any,
-            close: AbstractExpressionType::Any,
-        }
-    }
-
-    #[allow(dead_code)] // Todo: Used for higher dimension type check
-    pub fn top_with_pacing(pacing: AbstractPacingType) -> Self {
-        let mut res = Self::top();
-        res.exp_pacing = pacing;
-        res
-    }
-
-    #[allow(dead_code)] // Todo: Used for higher dimension type check
-    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
-        format!(
-            "(exp pacing: {}, spawn: ({}, {}), filter: {}, close: {})",
-            self.exp_pacing.to_string(names),
-            self.spawn.0.to_string(names),
-            self.spawn.1,
-            self.filter,
-            self.close
-        )
     }
 }
 
