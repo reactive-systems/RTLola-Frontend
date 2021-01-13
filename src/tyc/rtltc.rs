@@ -5,10 +5,9 @@ use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::reporting::Handler;
+use crate::tyc::pacing_types::PacingError;
 use crate::tyc::{
-    pacing_ast_climber::Context as PacingContext,
-    pacing_types::{emit_pacing_error, ConcretePacingType},
-    value_ast_climber::ValueContext,
+    pacing_ast_climber::Context as PacingContext, pacing_types::ConcretePacingType, value_ast_climber::ValueContext,
     value_types::IConcreteType,
 };
 use crate::RTLolaHIR;
@@ -159,19 +158,19 @@ where
             .collect();
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
-                emit_pacing_error(&e, self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
             }
         }
 
         for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
-                emit_pacing_error(&e, self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
             }
         }
 
         for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
-                emit_pacing_error(&e, self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
             }
         }
 
@@ -179,7 +178,7 @@ where
         let tt = match ctx.pacing_tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                emit_pacing_error(&e, self.handler, &ctx.pacing_key_span, &stream_names);
+                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &stream_names);
                 return None;
             }
         };
@@ -189,7 +188,7 @@ where
         }
 
         for pe in PacingContext::post_process(&self.hir, nid_key, &tt) {
-            pe.emit(self.handler, &ctx.pacing_key_span, &stream_names, None, None);
+            pe.emit(self.handler, &ctx.pacing_key_span, &stream_names);
         }
         if self.handler.contains_error() {
             return None;
@@ -202,7 +201,7 @@ where
             .filter_map(|(id, key)| match ConcretePacingType::from_abstract(tt[key.exp_pacing].clone()) {
                 Ok(ct) => Some((*id, ct)),
                 Err(e) => {
-                    e.emit(self.handler, &key_span, &stream_names, None, None);
+                    e.emit(self.handler, &key_span, &stream_names);
                     None
                 }
             })

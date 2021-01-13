@@ -75,9 +75,8 @@ pub(crate) struct StreamTypeKeys {
     pub close: TcKey,
 }
 
-/// The general error structure
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PacingError {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
     MalformedAC(Span, String),
@@ -86,6 +85,15 @@ pub(crate) enum PacingError {
     #[allow(dead_code)] // Todo: Used for higher dimension type check
     ParameterizedExpr(Span),
     Other(Span, String),
+    OtherPacingError(Option<Span>, String, Vec<AbstractPacingType>),
+    OtherExpressionError(Option<Span>, String, Vec<AbstractExpressionType>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PacingError {
+    pub(crate) kind: PacingErrorKind,
+    pub(crate) key1: Option<TcKey>,
+    pub(crate) key2: Option<TcKey>,
 }
 
 /// The external definition of a pacing type
@@ -178,48 +186,54 @@ impl ActivationCondition {
                         if *b {
                             Ok(ActivationCondition::True)
                         } else {
-                            Err(PacingError::MalformedAC(
+                            Err(PacingErrorKind::MalformedAC(
                                 ast_expr.span.clone(),
                                 "Only 'True' is supported as literals in activation conditions.".into(),
-                            ))
+                            )
+                            .into())
                         }
                     }
-                    _ => Err(PacingError::MalformedAC(
+                    _ => Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "Only 'True' is supported as literals in activation conditions.".into(),
-                    )),
+                    )
+                    .into()),
                 },
             },
             StreamAccess(sref, kind, args) => {
                 if !args.is_empty() {
-                    return Err(PacingError::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
-                    ));
+                    )
+                    .into());
                 }
                 match kind {
                     StreamAccessKind::Sync => {}
                     _ => {
-                        return Err(PacingError::MalformedAC(
+                        return Err(PacingErrorKind::MalformedAC(
                             ast_expr.span.clone(),
                             "An activation condition can only contain literals and binary operators.".into(),
-                        ));
+                        )
+                        .into());
                     }
                 }
                 if sref.is_output() {
-                    return Err(PacingError::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only refer to input streams".into(),
-                    ));
+                    )
+                    .into());
                 }
                 Ok(ActivationCondition::Stream(*sref))
             }
             ArithLog(op, v) => {
                 if v.len() != 2 {
-                    return Err(PacingError::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
-                    ));
+                    )
+                    .into());
                 }
                 let ac_l = Self::parse(&v[0])?;
                 let ac_r = Self::parse(&v[1])?;
@@ -227,16 +241,18 @@ impl ActivationCondition {
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l.and(ac_r)),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l.or(ac_r)),
-                    _ => Err(PacingError::MalformedAC(
+                    _ => Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                    )),
+                    )
+                    .into()),
                 }
             }
-            _ => Err(PacingError::MalformedAC(
+            _ => Err(PacingErrorKind::MalformedAC(
                 ast_expr.span.clone(),
                 "An activation condition can only contain literals and binary operators.".into(),
-            )),
+            )
+            .into()),
         }
     }
 
@@ -258,38 +274,32 @@ impl ActivationCondition {
 }
 
 impl PacingError {
-    pub(crate) fn emit(
-        &self,
-        handler: &Handler,
-        spans: &HashMap<TcKey, Span>,
-        names: &HashMap<StreamReference, &str>,
-        key1: Option<TcKey>,
-        key2: Option<TcKey>,
-    ) {
-        match self {
-            PacingError::FreqAnnotationNeeded(span) => {
+    pub(crate) fn emit(&self, handler: &Handler, spans: &HashMap<TcKey, Span>, names: &HashMap<StreamReference, &str>) {
+        use PacingErrorKind::*;
+        match self.kind.clone() {
+            FreqAnnotationNeeded(span) => {
                 handler.error_with_span(
                     "In pacing type analysis:\nFrequency annotation needed.",
                     span.clone(),
                     Some("here"),
                 );
             }
-            PacingError::NeverEval(span) => {
+            NeverEval(span) => {
                 Diagnostic::error(handler, "In pacing type analysis:\nThe following stream is never evaluated.")
                     .add_span_with_label(span.clone(), Some("here"), true)
                     .add_note("Help: Consider annotating a pacing type explicitly.")
                     .emit();
             }
-            PacingError::MalformedAC(span, reason) => {
+            MalformedAC(span, reason) => {
                 handler.error_with_span(
                     &format!("In pacing type analysis:\nMalformed activation condition: {}", reason),
                     span.clone(),
                     Some("here"),
                 );
             }
-            PacingError::MixedEventPeriodic(absty1, absty2) => {
-                let span1 = key1.and_then(|k| spans.get(&k).cloned());
-                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+            MixedEventPeriodic(absty1, absty2) => {
+                let span1 = self.key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = self.key2.and_then(|k| spans.get(&k).cloned());
                 let ty1 = absty1.to_string(names);
                 let ty2 = absty2.to_string(names);
                 Diagnostic::error(
@@ -301,9 +311,9 @@ impl PacingError {
                 .maybe_add_span_with_label(span2, Some(format!("and found {} here", ty2).as_str()), false)
                 .emit();
             }
-            PacingError::IncompatibleExpressions(e1, e2) => {
-                let span1 = key1.and_then(|k| spans.get(&k).cloned());
-                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+            IncompatibleExpressions(e1, e2) => {
+                let span1 = self.key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = self.key2.and_then(|k| spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
                     format!("In pacing type analysis:\nIncompatible expressions: {} and {}", e1, e2).as_str(),
@@ -312,14 +322,14 @@ impl PacingError {
                 .maybe_add_span_with_label(span2, Some(format!("and found {} here", e2).as_str()), false)
                 .emit();
             }
-            PacingError::Other(span, reason) => {
+            Other(span, reason) => {
                 handler.error_with_span(
                     format!("In pacing type analysis:\n{}", reason).as_str(),
                     span.clone(),
                     Some("here"),
                 );
             }
-            PacingError::ParameterizedExpr(span) => {
+            ParameterizedExpr(span) => {
                 Diagnostic::error(
                     handler,
                     "In pacing type analysis:\nExpression of stream 'a' accesses a parameterized stream 'b', but stream 'a' is not parameterized."
@@ -328,70 +338,108 @@ impl PacingError {
                     .add_note("Help: Consider using a hold access")
                     .emit();
             }
+            OtherPacingError(span, reason, causes) => {
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\n{} {}",
+                        reason,
+                        causes.iter().map(|ty| ty.to_string(names)).join(" and ")
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(span, Some("here"), true)
+                .maybe_add_span_with_label(self.key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key2.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit();
+            }
+            OtherExpressionError(span, reason, causes) => {
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\n{} {}",
+                        reason,
+                        causes.iter().map(|ty| ty.to_string()).join(" and ")
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(span, Some("here"), true)
+                .maybe_add_span_with_label(self.key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key2.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit();
+            }
         }
     }
 }
 
-pub(crate) fn emit_pacing_error(
-    tce: &TcErr<AbstractPacingType>,
-    handler: &Handler,
-    spans: &HashMap<TcKey, Span>,
-    names: &HashMap<StreamReference, &str>,
-) {
-    match tce {
-        TcErr::KeyEquation(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(*k1), Some(*k2));
-        }
-        TcErr::Bound(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(*k1), *k2);
-        }
-        TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-            let msg = &format!("In pacing type analysis:\n Child type out of bounds for type: {}", ty.to_string(names));
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
-        }
-        TcErr::ExactTypeViolation(key, ty) => {
-            let msg = &format!("In pacing type analysis:\n Expected type: {}", ty.to_string(names));
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
-        }
-        TcErr::ConflictingExactBounds(key, ty1, ty2) => {
-            let msg = &format!(
-                "In pacing type analysis:\n Conflicting type bounds: {} and {}",
-                ty1.to_string(names),
-                ty2.to_string(names)
-            );
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
+impl From<TcErr<AbstractPacingType>> for PacingError {
+    fn from(error: TcErr<AbstractPacingType>) -> Self {
+        match error {
+            TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
+            TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
+            TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
+                let msg = format!("Child type out of bounds for type: ");
+                PacingError {
+                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
+            TcErr::ExactTypeViolation(key, ty) => {
+                let msg = format!("Expected type: ");
+                PacingError {
+                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
+            TcErr::ConflictingExactBounds(key, ty1, ty2) => {
+                let msg = format!("Conflicting type bounds: ",);
+                PacingError {
+                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty1, ty2]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
         }
     }
 }
 
-pub(crate) fn emit_expression_error(
-    tce: &TcErr<AbstractExpressionType>,
-    handler: &Handler,
-    spans: &HashMap<TcKey, Span>,
-    names: &HashMap<StreamReference, &str>,
-) {
-    match tce {
-        TcErr::KeyEquation(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(*k1), Some(*k2));
-        }
-        TcErr::Bound(k1, k2, err) => {
-            err.emit(handler, spans, names, Some(*k1), *k2);
-        }
-        TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-            let msg = &format!("In pacing type analysis:\n Child type out of bounds for type: {}", ty.to_string());
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
-        }
-        TcErr::ExactTypeViolation(key, ty) => {
-            let msg = &format!("In pacing type analysis:\n Expected type: {}", ty.to_string());
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
-        }
-        TcErr::ConflictingExactBounds(key, ty1, ty2) => {
-            let msg = &format!(
-                "In pacing type analysis:\n Conflicting type bounds: {} and {}",
-                ty1.to_string(),
-                ty2.to_string()
-            );
-            handler.error_with_span(msg, spans.get(key).unwrap_or(&Span::Unknown).clone(), Some("here"));
+impl Into<PacingError> for PacingErrorKind {
+    fn into(self) -> PacingError {
+        PacingError { kind: self, key1: None, key2: None }
+    }
+}
+
+impl From<TcErr<AbstractExpressionType>> for PacingError {
+    fn from(error: TcErr<AbstractExpressionType>) -> Self {
+        match error {
+            TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
+            TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
+            TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
+                let msg = format!("Child type out of bounds for type: ");
+                PacingError {
+                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
+            TcErr::ExactTypeViolation(key, ty) => {
+                let msg = format!("Expected type: ");
+                PacingError {
+                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
+            TcErr::ConflictingExactBounds(key, ty1, ty2) => {
+                let msg = format!("Conflicting type bounds: {} and {}", ty1.to_string(), ty2.to_string());
+                PacingError {
+                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty1, ty2]),
+                    key1: Some(key),
+                    key2: None,
+                }
+            }
         }
     }
 }
@@ -425,10 +473,11 @@ impl Freq {
         }
         match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
             Some(q) => Ok(q.is_integer()),
-            None => Err(PacingError::Other(
+            None => Err(PacingErrorKind::Other(
                 Span::Unknown,
                 format!("division of frequencies `{:?}`/`{:?}` failed", &lhs, &rhs),
-            )),
+            )
+            .into()),
         }
     }
 
@@ -451,7 +500,7 @@ impl Freq {
 }
 
 impl Abstract for AbstractPacingType {
-    type Err = PacingError;
+    type Err = PacingErrorKind;
 
     fn unconstrained() -> Self {
         AbstractPacingType::Any
@@ -462,8 +511,8 @@ impl Abstract for AbstractPacingType {
         match (self, other) {
             (Any, x) | (x, Any) => Ok(x.clone()),
             (Never, x) | (x, Never) => Ok(x.clone()),
-            (Event(ac), Periodic(f)) => Err(PacingError::MixedEventPeriodic(Event(ac.clone()), Periodic(*f))),
-            (Periodic(f), Event(ac)) => Err(PacingError::MixedEventPeriodic(Periodic(*f), Event(ac.clone()))),
+            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac.clone()), Periodic(*f))),
+            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(*f), Event(ac.clone()))),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.clone().and(ac2.clone()))),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
@@ -505,7 +554,7 @@ impl AbstractPacingType {
 }
 
 impl Abstract for AbstractExpressionType {
-    type Err = PacingError;
+    type Err = PacingErrorKind;
 
     fn unconstrained() -> Self {
         Self::Any
@@ -518,7 +567,10 @@ impl Abstract for AbstractExpressionType {
                 if a == b {
                     Ok(Self::Expression(a.clone()))
                 } else {
-                    Err(PacingError::IncompatibleExpressions(Self::Expression(a.clone()), Self::Expression(b.clone())))
+                    Err(PacingErrorKind::IncompatibleExpressions(
+                        Self::Expression(a.clone()),
+                        Self::Expression(b.clone()),
+                    ))
                 }
             }
         }
@@ -559,7 +611,7 @@ impl ConcretePacingType {
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
             AbstractPacingType::Never => {
-                Err(PacingError::Other(Span::Unknown, "Tried to concretize abstract type never!".into()))
+                Err(PacingErrorKind::Other(Span::Unknown, "Tried to concretize abstract type never!".into()).into())
             }
         }
     }

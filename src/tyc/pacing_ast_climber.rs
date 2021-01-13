@@ -2,7 +2,7 @@ use super::*;
 extern crate regex;
 
 use crate::tyc::pacing_types::{
-    AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, PacingError, StreamTypeKeys,
+    AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, PacingError, PacingErrorKind, StreamTypeKeys,
 };
 
 use crate::common_ir::Offset;
@@ -14,7 +14,7 @@ use crate::reporting::Span;
 use crate::tyc::rtltc::NodeId;
 use crate::RTLolaHIR;
 use rusttyc::types::AbstractTypeTable;
-use rusttyc::{TcErr, TcKey, TypeChecker};
+use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -120,19 +120,19 @@ where
         }
     }
 
-    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), PacingError> {
         let ac = AbstractPacingType::Event(ActivationCondition::Stream(input.sr));
         let input_key = self.node_key[&NodeId::SRef(input.sr)].exp_pacing;
-        self.pacing_tyc.impose(input_key.concretizes_explicit(ac))
+        self.pacing_tyc.impose(input_key.concretizes_explicit(ac)).map_err(PacingError::from)
     }
 
-    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), PacingError> {
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         let trigger_key = self.node_key[&NodeId::SRef(trigger.sr)].exp_pacing;
-        self.pacing_tyc.impose(trigger_key.equate_with(ex_key.exp_pacing))
+        self.pacing_tyc.impose(trigger_key.equate_with(ex_key.exp_pacing)).map_err(PacingError::from)
     }
 
-    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), TcErr<AbstractPacingType>> {
+    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), PacingError> {
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
         // Type Expression Pacing
@@ -150,9 +150,11 @@ where
                 AC::Expr(eid) => {
                     let expr = self.hir.expression(*eid);
                     self.pacing_key_span.insert(annotated_ty_key, expr.span.clone());
-                    AbstractPacingType::Event(
-                        ActivationCondition::parse(expr).map_err(|pe| TcErr::Bound(annotated_ty_key, None, pe))?,
-                    )
+                    AbstractPacingType::Event(ActivationCondition::parse(expr).map_err(|e| PacingError {
+                        kind: e.kind,
+                        key1: Some(annotated_ty_key),
+                        key2: None,
+                    })?)
                 }
             };
             // Bind key to parsed type
@@ -162,14 +164,14 @@ where
             self.pacing_tyc.impose(annotated_ty_key.concretizes(exp_key.exp_pacing))?;
 
             // Output type is equal to declared type
-            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))
+            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key)).map_err(PacingError::from)
         } else {
             // Output type is equal to inferred type
-            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))
+            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing)).map_err(PacingError::from)
         }
     }
 
-    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TcErr<AbstractPacingType>> {
+    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, PacingError> {
         let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
         match &exp.kind {
@@ -245,7 +247,7 @@ where
                 let ele_keys: Vec<TcKey> = elements
                     .iter()
                     .map(|e| self.expression_infer(&*e).map(|keys| keys.exp_pacing))
-                    .collect::<Result<Vec<TcKey>, TcErr<AbstractPacingType>>>()?;
+                    .collect::<Result<Vec<TcKey>, PacingError>>()?;
                 self.pacing_tyc.impose(term_keys.exp_pacing.is_meet_of_all(&ele_keys))?;
             }
             ExpressionKind::Function { args, .. } => {
@@ -279,10 +281,10 @@ where
             let at = &tt[nid_key[&NodeId::SRef(output.sr)].exp_pacing];
             match at {
                 AbstractPacingType::Periodic(Freq::Any) => {
-                    res.push(PacingError::FreqAnnotationNeeded(output.span.clone()));
+                    res.push(PacingErrorKind::FreqAnnotationNeeded(output.span.clone()).into());
                 }
                 AbstractPacingType::Never => {
-                    res.push(PacingError::NeverEval(output.span.clone()));
+                    res.push(PacingErrorKind::NeverEval(output.span.clone()).into());
                 }
                 _ => {}
             }
@@ -502,6 +504,13 @@ mod tests {
         let spec = "output a @3Hz := 0\noutput b @2Hz := b[-1].defaults(to: 0) + a[-1].defaults(to: 0)";
         // does not work, a[-1] is not guaranteed to exist
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_simple_loop() {
+        let spec = "output a @1Hz := a";
+        // does not work, a[-1] is not guaranteed to exist
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
