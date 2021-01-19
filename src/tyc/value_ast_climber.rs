@@ -18,6 +18,7 @@ use itertools::Either;
 use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
+use crate::tyc::pacing_types::ConcreteStreamPacing;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -37,7 +38,7 @@ where
     pub(crate) key_span: HashMap<TcKey, Span>,
     pub(crate) handler: &'a Handler,
     pub(crate) hir: &'a RTLolaHIR<M>,
-    pub(crate) pacing_tt: &'a HashMap<NodeId, ConcretePacingType>,
+    pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
 }
 
 impl<'a, M> ValueContext<'a, M>
@@ -48,7 +49,7 @@ where
         hir: &'a RTLolaHIR<M>,
         //decl: DeclarationTable,
         handler: &'a Handler,
-        pacing_tt: &'a HashMap<NodeId, ConcretePacingType>,
+        pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = BiMap::new();
@@ -322,7 +323,7 @@ where
                             //dbg!(duration_as_f);
                             let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
                             let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-                            let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].to_abstract_freq();
+                            let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].expression_pacing.to_abstract_freq();
                             //TODO special case: period of current output > offset
                             // && offset is multiple of target stream (no optional needed)
                             if let Ok(Periodic(target_freq)) = target_ratio {

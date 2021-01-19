@@ -17,7 +17,7 @@ BOM = _{"\u{FEFF}"}
 ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
-SpawnDecl = { "spawn" ~SpawnWith? ~(SpawnIf | SpawnUnless)? }
+SpawnDecl = { "spawn"~ ActivationCondition? ~SpawnWith? ~(SpawnIf | SpawnUnless)? }
 SpawnIf = { "if" ~Expr }
 SpawnUnless = { "unless" ~Expr }
 SpawnWith = {"with " ~Expr }

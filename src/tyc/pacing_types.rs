@@ -109,6 +109,20 @@ pub enum ConcretePacingType {
     Constant,
 }
 
+/// The external definition of the stream pacing
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ConcreteStreamPacing {
+    /// The pacing of the stream expression
+    pub expression_pacing: ConcretePacingType,
+    /// First element is the pacing of the spawn expression
+    /// Second element is the spawn condition expression
+    pub spawn: (ConcretePacingType, Expression),
+    /// The filter expression
+    pub filter: Expression,
+    /// The close expression
+    pub close: Expression,
+}
+
 impl ActivationCondition {
     pub(crate) fn and(self, other: Self) -> Self {
         let ac = match (self, other) {
@@ -274,7 +288,7 @@ impl ActivationCondition {
 }
 
 impl PacingError {
-    pub(crate) fn emit(&self, handler: &Handler, spans: &HashMap<TcKey, Span>, names: &HashMap<StreamReference, &str>) {
+    pub(crate) fn emit(&self, handler: &Handler, pacing_spans: &HashMap<TcKey, Span>, exp_spans: &HashMap<TcKey, Span>, names: &HashMap<StreamReference, &str>) {
         use PacingErrorKind::*;
         match self.kind.clone() {
             FreqAnnotationNeeded(span) => {
@@ -298,8 +312,8 @@ impl PacingError {
                 );
             }
             MixedEventPeriodic(absty1, absty2) => {
-                let span1 = self.key1.and_then(|k| spans.get(&k).cloned());
-                let span2 = self.key2.and_then(|k| spans.get(&k).cloned());
+                let span1 = self.key1.and_then(|k| pacing_spans.get(&k).cloned());
+                let span2 = self.key2.and_then(|k| pacing_spans.get(&k).cloned());
                 let ty1 = absty1.to_string(names);
                 let ty2 = absty2.to_string(names);
                 Diagnostic::error(
@@ -312,8 +326,8 @@ impl PacingError {
                 .emit();
             }
             IncompatibleExpressions(e1, e2) => {
-                let span1 = self.key1.and_then(|k| spans.get(&k).cloned());
-                let span2 = self.key2.and_then(|k| spans.get(&k).cloned());
+                let span1 = self.key1.and_then(|k| exp_spans.get(&k).cloned());
+                let span2 = self.key2.and_then(|k| exp_spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
                     format!("In pacing type analysis:\nIncompatible expressions: {} and {}", e1, e2).as_str(),
@@ -349,8 +363,8 @@ impl PacingError {
                     .as_str(),
                 )
                 .maybe_add_span_with_label(span, Some("here"), true)
-                .maybe_add_span_with_label(self.key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(self.key2.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key2.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
                 .emit();
             }
             OtherExpressionError(span, reason, causes) => {
@@ -364,8 +378,8 @@ impl PacingError {
                     .as_str(),
                 )
                 .maybe_add_span_with_label(span, Some("here"), true)
-                .maybe_add_span_with_label(self.key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(self.key2.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key1.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(self.key2.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
                 .emit();
             }
         }

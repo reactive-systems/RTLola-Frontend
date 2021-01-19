@@ -98,6 +98,9 @@ impl Display for SpawnSpec {
         if self.target.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
+        if let Some(expr) = &self.pacing.expr {
+            write!(f, " @{}", expr)?;
+        }
         if let Some(target) = &self.target {
             write!(f, " with {}", target)?;
         }

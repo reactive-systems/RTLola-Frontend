@@ -21,6 +21,7 @@ use itertools::{Either, Itertools};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
+use crate::hir::expression::ArithLogOp;
 
 pub trait WithIrExpr {
     fn window_refs(&self) -> Vec<Window>;
@@ -526,19 +527,34 @@ fn transform_template_spec(
     current_output: SRef,
 ) -> InstanceTemplate {
     InstanceTemplate {
-        spawn: spawn_spec.map(|spawn_spec| SpawnTemplate {
-            target: spawn_spec.target.and_then(|target| {
-                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
-                    if let ast::ExpressionKind::MissingExpression = exp.kind {
-                        return None;
+        spawn: spawn_spec.map(|spawn_spec| {
+            let is_if = spawn_spec.is_if;
+            SpawnTemplate {
+                target: spawn_spec.target.and_then(|target| {
+                    if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
+                        if let ast::ExpressionKind::MissingExpression = exp.kind {
+                            return None;
+                        }
                     }
-                }
-                Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
-            }),
-            condition: spawn_spec.condition.map(|cond_expr| {
-                insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
-            }),
-            is_if: spawn_spec.is_if,
+                    Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
+                }),
+                pacing: spawn_spec.pacing.expr.map(|ac| {
+                    transformer.transform_ac(exprid_to_expr, ac, current_output)
+                }),
+                condition: spawn_spec.condition.map(|cond_expr| {
+                    let mut e = transformer.transform_expression(cond_expr, current_output);
+                    if !is_if {
+                        e = Expression{
+                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![
+                                e.clone()
+                            ]),
+                            eid: transformer.next_exp_id(),
+                            span: e.span
+                        }
+                    }
+                    insert_return(exprid_to_expr, e)
+                }),
+            }
         }),
         filter: filter_spec.map(|filter_spec| {
             insert_return(exprid_to_expr, transformer.transform_expression(filter_spec.target, current_output))
@@ -1001,5 +1017,16 @@ mod tests {
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
         assert!(matches!(a.instance_template.spawn, Some(SpawnTemplate { target: None, .. })));
+    }
+
+    #[test]
+    fn test_spawn_pacing() {
+        use crate::hir::{Output, SpawnTemplate};
+        let spec = "output a: Bool @2.5Hz spawn @1Hz with () if true := true";
+        let ir = obtain_expressions(spec);
+        let a: Output = ir.outputs[0].clone();
+        assert!(a.instance_template.spawn.is_some());
+        let template = a.instance_template.spawn;
+        assert!(matches!(template.unwrap().pacing, Some(AC::Frequency { .. })));
     }
 }

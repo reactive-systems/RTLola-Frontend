@@ -1,11 +1,11 @@
 use super::*;
 
 use crate::common_ir::StreamReference;
-use crate::hir::expression::{ExprId, Expression};
+use crate::hir::expression::{ExprId, Expression, ExpressionKind, Constant, ConstantLiteral};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
-use crate::reporting::Handler;
-use crate::tyc::pacing_types::PacingError;
+use crate::reporting::{Handler, Span};
+use crate::tyc::pacing_types::{PacingError, ConcreteStreamPacing, AbstractExpressionType};
 use crate::tyc::{
     pacing_ast_climber::Context as PacingContext, pacing_types::ConcretePacingType, value_ast_climber::ValueContext,
     value_types::IConcreteType,
@@ -97,39 +97,23 @@ where
             Some(tt) => tt,
             None => return Err("Invalid Pacing Types".to_string()),
         };
-        //TODO imports
+
         let value_tt = match self.value_type_infer(&pacing_tt) {
             Ok(tt) => tt,
             Err(e) => return Err(e),
         };
 
-        //Spawn type:
-        //TODO
-
-        //Filter type:
-        //TODO
-
-        //Close Type:
-        //TODO
-
         let mut expression_map = HashMap::new();
         let mut stream_map = HashMap::new();
         let mut parameters = HashMap::new();
         value_tt.keys().for_each(|id| {
-            // Todo: Fix this when higher dimensions are available
-            use crate::hir::expression::{Constant, ConstantLiteral, ExpressionKind};
-            use crate::reporting::Span;
-            let top_exp = Expression {
-                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
-                eid: ExprId(u32::max_value()),
-                span: Span::Unknown,
-            };
+            let concrete_pacing = pacing_tt[id].clone();
             let st = StreamType {
                 value_ty: value_tt[id].clone(),
-                pacing_ty: pacing_tt[id].clone(),
-                filter: top_exp.clone(),
-                spawn: (ConcretePacingType::Constant, top_exp.clone()),
-                close: top_exp,
+                pacing_ty: concrete_pacing.expression_pacing,
+                filter: concrete_pacing.filter,
+                spawn: (concrete_pacing.spawn.0, concrete_pacing.spawn.1),
+                close: concrete_pacing.close,
             };
             // Todo: Upto here
             match id {
@@ -148,7 +132,7 @@ where
         Ok(TypeTable { stream_types: stream_map, expression_types: expression_map, param_types: parameters })
     }
 
-    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcretePacingType>> {
+    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
         let mut ctx = PacingContext::new(&self.hir);
         let stream_names: HashMap<StreamReference, &str> = self
             .hir
@@ -158,27 +142,34 @@ where
             .collect();
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
-                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
             }
         }
 
         for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
-                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
             }
         }
 
         for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
-                e.emit(self.handler, &ctx.pacing_key_span, &stream_names);
+                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
             }
         }
 
         let nid_key = ctx.node_key.clone();
-        let tt = match ctx.pacing_tyc.type_check() {
+        let pacing_tt = match ctx.pacing_tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &stream_names);
+                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                return None;
+            }
+        };
+        let exp_tt = match ctx.expression_tyc.type_check() {
+            Ok(t) => t,
+            Err(e) => {
+                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
                 return None;
             }
         };
@@ -187,24 +178,69 @@ where
             return None;
         }
 
-        for pe in PacingContext::post_process(&self.hir, nid_key, &tt) {
-            pe.emit(self.handler, &ctx.pacing_key_span, &stream_names);
+        for pe in PacingContext::post_process(&self.hir, nid_key, &pacing_tt, &exp_tt) {
+            pe.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
         }
         if self.handler.contains_error() {
             return None;
         }
 
-        let key_span = ctx.pacing_key_span.clone();
-        let ctt: HashMap<NodeId, ConcretePacingType> = ctx
+        let pacing_key_span = ctx.pacing_key_span.clone();
+        let exp_key_span = ctx.expression_key_span.clone();
+
+        let exp_top = Expression {
+            kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
+            eid: ExprId(u32::max_value()),
+            span: Span::Unknown,
+        };
+
+        let exp_bot = Expression {
+            kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false))),
+            eid: ExprId(u32::max_value()),
+            span: Span::Unknown,
+        };
+
+        let ctt: HashMap<NodeId, ConcreteStreamPacing> = ctx
             .node_key
             .iter()
-            .filter_map(|(id, key)| match ConcretePacingType::from_abstract(tt[key.exp_pacing].clone()) {
-                Ok(ct) => Some((*id, ct)),
-                Err(e) => {
-                    e.emit(self.handler, &key_span, &stream_names);
-                    None
-                }
-            })
+            .filter_map(|(id, key)|
+                            {
+                                let exp_pacing = match ConcretePacingType::from_abstract(pacing_tt[key.exp_pacing].clone()) {
+                                    Ok(ct) => ct,
+                                    Err(e) => {
+                                        e.emit(self.handler, &pacing_key_span, &exp_key_span, &stream_names);
+                                        return None;
+                                    }
+                                };
+                                let spawn_pacing = match ConcretePacingType::from_abstract(pacing_tt[key.spawn.0].clone()) {
+                                    Ok(ct) => ct,
+                                    Err(e) => {
+                                        e.emit(self.handler, &pacing_key_span, &exp_key_span, &stream_names);
+                                        return None;
+                                    }
+                                };
+                                let spawn_condition_expression = match &exp_tt[key.spawn.1]{
+                                    AbstractExpressionType::Any => exp_top.clone(),
+                                    AbstractExpressionType::Expression(e) => e.clone(),
+                                };
+
+                                let filter = match &exp_tt[key.filter]{
+                                    AbstractExpressionType::Any => exp_top.clone(),
+                                    AbstractExpressionType::Expression(e) => e.clone(),
+                                };
+
+                                let close = match &exp_tt[key.filter]{
+                                    AbstractExpressionType::Any => exp_bot.clone(),
+                                    AbstractExpressionType::Expression(e) => e.clone(),
+                                };
+
+                                Some((*id, ConcreteStreamPacing{
+                                    expression_pacing: exp_pacing,
+                                    spawn: (spawn_pacing, spawn_condition_expression),
+                                    filter,
+                                    close,
+                                }))
+                            })
             .collect();
 
         if self.handler.contains_error() {
@@ -215,7 +251,7 @@ where
 
     pub(crate) fn value_type_infer(
         &self,
-        pacing_tt: &HashMap<NodeId, ConcretePacingType>,
+        pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Result<HashMap<NodeId, IConcreteType>, String> {
         //let value_tyc = rusttyc::TypeChecker::new();
 
