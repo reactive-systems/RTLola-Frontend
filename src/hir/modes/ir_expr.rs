@@ -13,6 +13,7 @@ use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
+use crate::hir::expression::ArithLogOp;
 use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
 use crate::reporting::Handler;
@@ -21,7 +22,6 @@ use itertools::{Either, Itertools};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
-use crate::hir::expression::ArithLogOp;
 
 pub trait WithIrExpr {
     fn window_refs(&self) -> Vec<Window>;
@@ -538,18 +538,14 @@ fn transform_template_spec(
                     }
                     Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
                 }),
-                pacing: spawn_spec.pacing.expr.map(|ac| {
-                    transformer.transform_ac(exprid_to_expr, ac, current_output)
-                }),
+                pacing: spawn_spec.pacing.expr.map(|ac| transformer.transform_ac(exprid_to_expr, ac, current_output)),
                 condition: spawn_spec.condition.map(|cond_expr| {
                     let mut e = transformer.transform_expression(cond_expr, current_output);
                     if !is_if {
-                        e = Expression{
-                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![
-                                e.clone()
-                            ]),
+                        e = Expression {
+                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
                             eid: transformer.next_exp_id(),
-                            span: e.span
+                            span: e.span,
                         }
                     }
                     insert_return(exprid_to_expr, e)
@@ -1021,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_spawn_pacing() {
-        use crate::hir::{Output, SpawnTemplate};
+        use crate::hir::Output;
         let spec = "output a: Bool @2.5Hz spawn @1Hz with () if true := true";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();

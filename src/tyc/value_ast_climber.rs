@@ -7,18 +7,14 @@ use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::hir::{AnnotatedType, Input, Output, Trigger, Window};
 use crate::reporting::{Handler, Span};
-use crate::tyc::{
-    pacing_types::{ConcretePacingType, Freq},
-    rtltc::NodeId,
-    value_types::IAbstractType,
-};
+use crate::tyc::pacing_types::ConcreteStreamPacing;
+use crate::tyc::{pacing_types::Freq, rtltc::NodeId, value_types::IAbstractType};
 use crate::RTLolaHIR;
 use bimap::BiMap;
 use itertools::Either;
 use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
-use crate::tyc::pacing_types::ConcreteStreamPacing;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Variable {
@@ -1134,7 +1130,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
     fn test_filter_type() {
-        let spec = "input in: Bool\n output a: Int8 @1Hz filter in := 3";
+        let spec = "input in: Bool\n output a: Int8 filter in := 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1146,7 +1142,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
     fn test_filter_type_faulty() {
-        let spec = "input in: Int8\n output a: Int8 @1Hz filter in := 3";
+        let spec = "input in: Int8\n output a: Int8 filter in := 3";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }

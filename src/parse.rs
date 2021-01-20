@@ -300,18 +300,10 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
                 next_pair = spawn_children.next();
                 ActivationCondition { expr: Some(expr), id: self.next_id(), span }
             } else {
-                ActivationCondition{
-                    expr: None,
-                    id: self.next_id(),
-                    span: Span::Unknown,
-                }
+                ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
             }
         } else {
-            ActivationCondition{
-                expr: None,
-                id: self.next_id(),
-                span: Span::Unknown,
-            }
+            ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
         };
 
         let target = if let Some(pair) = next_pair.clone() {
@@ -340,7 +332,7 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             (None, false)
         };
 
-        if target.is_none() && condition.is_none() && pacing.expr.is_none(){
+        if target.is_none() && condition.is_none() && pacing.expr.is_none() {
             self.handler.error_with_span(
                 "Spawn condition needs either expression or condition",
                 span_inv.clone(),

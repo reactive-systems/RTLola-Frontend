@@ -13,7 +13,13 @@ impl Display for Expression {
             Ite { condition, consequence, alternative, .. } => {
                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
             }
-            ArithLog(op, args) => write!(f, "({})", args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op))),
+            ArithLog(op, args) => {
+                if args.len() == 1 {
+                    write!(f, "{}{}", op, args.get(0).unwrap())
+                } else {
+                    write!(f, "({})", args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op)))
+                }
+            }
             Default { expr, default } => write!(f, "{}.default({})", expr, default),
             Widen(e, ty) => write!(f, "{}({})", ty, e),
             TupleAccess(e, idx) => write!(f, "{}.{}", e, idx),

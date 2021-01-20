@@ -288,26 +288,28 @@ impl ActivationCondition {
 }
 
 impl PacingError {
-    pub(crate) fn emit(&self, handler: &Handler, pacing_spans: &HashMap<TcKey, Span>, exp_spans: &HashMap<TcKey, Span>, names: &HashMap<StreamReference, &str>) {
+    pub(crate) fn emit(
+        &self,
+        handler: &Handler,
+        pacing_spans: &HashMap<TcKey, Span>,
+        exp_spans: &HashMap<TcKey, Span>,
+        names: &HashMap<StreamReference, &str>,
+    ) {
         use PacingErrorKind::*;
         match self.kind.clone() {
             FreqAnnotationNeeded(span) => {
-                handler.error_with_span(
-                    "In pacing type analysis:\nFrequency annotation needed.",
-                    span.clone(),
-                    Some("here"),
-                );
+                handler.error_with_span("In pacing type analysis:\nFrequency annotation needed.", span, Some("here"));
             }
             NeverEval(span) => {
                 Diagnostic::error(handler, "In pacing type analysis:\nThe following stream is never evaluated.")
-                    .add_span_with_label(span.clone(), Some("here"), true)
+                    .add_span_with_label(span, Some("here"), true)
                     .add_note("Help: Consider annotating a pacing type explicitly.")
                     .emit();
             }
             MalformedAC(span, reason) => {
                 handler.error_with_span(
                     &format!("In pacing type analysis:\nMalformed activation condition: {}", reason),
-                    span.clone(),
+                    span,
                     Some("here"),
                 );
             }
@@ -337,18 +339,14 @@ impl PacingError {
                 .emit();
             }
             Other(span, reason) => {
-                handler.error_with_span(
-                    format!("In pacing type analysis:\n{}", reason).as_str(),
-                    span.clone(),
-                    Some("here"),
-                );
+                handler.error_with_span(format!("In pacing type analysis:\n{}", reason).as_str(), span, Some("here"));
             }
             ParameterizedExpr(span) => {
                 Diagnostic::error(
                     handler,
                     "In pacing type analysis:\nExpression of stream 'a' accesses a parameterized stream 'b', but stream 'a' is not parameterized."
                 )
-                    .add_span_with_label(span.clone(), Some("here"), true)
+                    .add_span_with_label(span, Some("here"), true)
                     .add_note("Help: Consider using a hold access")
                     .emit();
             }
@@ -392,25 +390,25 @@ impl From<TcErr<AbstractPacingType>> for PacingError {
             TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
             TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-                let msg = format!("Child type out of bounds for type: ");
+                let msg = "Child type out of bounds for type: ";
                 PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty]),
+                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty]),
                     key1: Some(key),
                     key2: None,
                 }
             }
             TcErr::ExactTypeViolation(key, ty) => {
-                let msg = format!("Expected type: ");
+                let msg = "Expected type: ";
                 PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty]),
+                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty]),
                     key1: Some(key),
                     key2: None,
                 }
             }
             TcErr::ConflictingExactBounds(key, ty1, ty2) => {
-                let msg = format!("Conflicting type bounds: ",);
+                let msg = "Conflicting type bounds: ";
                 PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![ty1, ty2]),
+                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty1, ty2]),
                     key1: Some(key),
                     key2: None,
                 }
@@ -431,17 +429,17 @@ impl From<TcErr<AbstractExpressionType>> for PacingError {
             TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
             TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-                let msg = format!("Child type out of bounds for type: ");
+                let msg = "Child type out of bounds for type: ";
                 PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty]),
+                    kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
                     key1: Some(key),
                     key2: None,
                 }
             }
             TcErr::ExactTypeViolation(key, ty) => {
-                let msg = format!("Expected type: ");
+                let msg = "Expected type: ";
                 PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty]),
+                    kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
                     key1: Some(key),
                     key2: None,
                 }
