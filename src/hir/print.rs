@@ -1,7 +1,62 @@
-use crate::common_ir::StreamAccessKind;
+use crate::common_ir::{StreamAccessKind, StreamReference};
 use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, Expression};
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result};
+
+impl Expression {
+    /// Produces a prettified string representation of the expression given the names of the streams
+    pub(crate) fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+        use crate::hir::expression::ExpressionKind::*;
+        match &self.kind {
+            StreamAccess(sref, kind, params) => {
+                format!(
+                    "{}{}{}",
+                    names[&sref],
+                    if !params.is_empty() {
+                        format!("({})", params.iter().map(|e| e.pretty_string(names)).join(", "))
+                    } else {
+                        "".into()
+                    },
+                    match kind {
+                        StreamAccessKind::Offset(o) => format!(".offset(by: {})", o),
+                        StreamAccessKind::Hold => ".hold()".into(),
+                        StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
+                            format!(".aggregate(ref: {})", r)
+                        }
+                        _ => "".into(),
+                    }
+                )
+            }
+            LoadConstant(c) => format!("{}", c),
+            Function { name, args, .. } => {
+                format!("{}({})", name, args.iter().map(|e| e.pretty_string(names)).join(", "))
+            }
+            Tuple(elems) => format!("({})", elems.iter().map(|e| e.pretty_string(names)).join(", ")),
+            Ite { condition, consequence, alternative, .. } => {
+                format!(
+                    "if {} then {} else {}",
+                    condition.pretty_string(names),
+                    consequence.pretty_string(names),
+                    alternative.pretty_string(names)
+                )
+            }
+            ArithLog(op, args) => {
+                if args.len() == 1 {
+                    format!("{}{}", op, args.get(0).unwrap().pretty_string(names))
+                } else {
+                    format!("({})", args.iter().map(|e| e.pretty_string(names)).join(&format!(" {} ", op)))
+                }
+            }
+            Default { expr, default } => {
+                format!("{}.default({})", expr.pretty_string(names), default.pretty_string(names))
+            }
+            Widen(e, ty) => format!("{}({})", ty, e.pretty_string(names)),
+            TupleAccess(e, idx) => format!("{}.{}", e.pretty_string(names), idx),
+            ParameterAccess(sref, idx) => format!("Param({}, {})", names[&sref], idx),
+        }
+    }
+}
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {

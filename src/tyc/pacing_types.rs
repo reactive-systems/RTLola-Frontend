@@ -82,8 +82,15 @@ pub(crate) enum PacingErrorKind {
     MalformedAC(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
-    #[allow(dead_code)] // Todo: Used for higher dimension type check
-    ParameterizedExpr(Span),
+    ParameterizationNeeded {
+        who: Span,
+        why: Span,
+        spawn: Option<(AbstractPacingType, AbstractExpressionType)>,
+        filter: Option<AbstractExpressionType>,
+        close: Option<AbstractExpressionType>,
+    },
+    ParameterizationNotAllowed(Span),
+    UnintuitivePacingWarning(Span, AbstractPacingType),
     Other(Span, String),
     OtherPacingError(Option<Span>, String, Vec<AbstractPacingType>),
     OtherExpressionError(Option<Span>, String, Vec<AbstractExpressionType>),
@@ -332,22 +339,73 @@ impl PacingError {
                 let span2 = self.key2.and_then(|k| exp_spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
-                    format!("In pacing type analysis:\nIncompatible expressions: {} and {}", e1, e2).as_str(),
+                    format!(
+                        "In pacing type analysis:\nIncompatible expressions: {} and {}",
+                        e1.pretty_string(names),
+                        e2.pretty_string(names)
+                    )
+                    .as_str(),
                 )
-                .maybe_add_span_with_label(span1, Some(format!("Found {} here", e1).as_str()), true)
-                .maybe_add_span_with_label(span2, Some(format!("and found {} here", e2).as_str()), false)
+                .maybe_add_span_with_label(
+                    span1,
+                    Some(format!("Found {} here", e1.pretty_string(names)).as_str()),
+                    true,
+                )
+                .maybe_add_span_with_label(
+                    span2,
+                    Some(format!("and found {} here", e2.pretty_string(names)).as_str()),
+                    false,
+                )
                 .emit();
             }
+            UnintuitivePacingWarning(span, inferred) => Diagnostic::warning(
+                handler,
+                format!("In pacing type analysis:\nInferred complex pacing type: {}", inferred.to_string(names))
+                    .as_str(),
+            )
+            .add_span_with_label(span, Some("here"), true)
+            .add_note(
+                format!(
+                    "Help: Consider annotating the type explicitly for better readability using: @{}",
+                    inferred.to_string(names)
+                )
+                .as_str(),
+            )
+            .emit(),
             Other(span, reason) => {
                 handler.error_with_span(format!("In pacing type analysis:\n{}", reason).as_str(), span, Some("here"));
             }
-            ParameterizedExpr(span) => {
+            ParameterizationNotAllowed(span) => {
                 Diagnostic::error(
                     handler,
-                    "In pacing type analysis:\nExpression of stream 'a' accesses a parameterized stream 'b', but stream 'a' is not parameterized."
+                    "In pacing type analysis:\nSynchronous access to a parameterized stream is not allowed here.",
                 )
-                    .add_span_with_label(span, Some("here"), true)
-                    .add_note("Help: Consider using a hold access")
+                .add_span_with_label(span, Some("here"), true)
+                .add_note("Help: Consider using a hold access")
+                .emit();
+            }
+            ParameterizationNeeded { who, why, spawn, filter, close } => {
+                let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
+                    format!(
+                        "\nspawn @{} with <...>{}",
+                        pacing.to_string(names),
+                        match cond {
+                            AbstractExpressionType::Any => "".into(),
+                            AbstractExpressionType::Expression(e) => format!(" if {}", e.pretty_string(names)),
+                        }
+                    )
+                });
+                let filter_str: String =
+                    filter.map_or("".into(), |filter| format!("\nfilter {}", filter.pretty_string(names)));
+                let close_str: String =
+                    close.map_or("".into(), |close| format!("\nclose {}", close.pretty_string(names)));
+                Diagnostic::error(handler, "In pacing type analysis:\nParameterization needed")
+                    .add_span_with_label(who, Some("here"), true)
+                    .add_span_with_label(why, Some("As of synchronous access occurring here"), false)
+                    .add_note(&format!(
+                        "Help: Consider adding the following template annotations:{}{}{}",
+                        spawn_str, filter_str, close_str,
+                    ))
                     .emit();
             }
             OtherPacingError(span, reason, causes) => {
@@ -371,7 +429,7 @@ impl PacingError {
                     format!(
                         "In pacing type analysis:\n{} {}",
                         reason,
-                        causes.iter().map(|ty| ty.to_string()).join(" and ")
+                        causes.iter().map(|ty| ty.pretty_string(names)).join(" and ")
                     )
                     .as_str(),
                 )
@@ -557,8 +615,8 @@ impl Abstract for AbstractPacingType {
 impl AbstractPacingType {
     pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
-            AbstractPacingType::Event(ac) => format!("Event({})", ac.to_string(names)),
-            AbstractPacingType::Periodic(freq) => format!("Periodic({})", freq),
+            AbstractPacingType::Event(ac) => ac.to_string(names),
+            AbstractPacingType::Periodic(freq) => freq.to_string(),
             AbstractPacingType::Any => "Any".to_string(),
             AbstractPacingType::Never => "Never".to_string(),
         }
@@ -609,6 +667,15 @@ impl std::fmt::Display for AbstractExpressionType {
         match self {
             Self::Any => write!(f, "Any"),
             Self::Expression(e) => write!(f, "Exp({})", e),
+        }
+    }
+}
+
+impl AbstractExpressionType {
+    fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+        match self {
+            Self::Any => "Any".into(),
+            Self::Expression(e) => e.pretty_string(names),
         }
     }
 }

@@ -133,13 +133,13 @@ where
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
-        let mut ctx = PacingContext::new(&self.hir);
         let stream_names: HashMap<StreamReference, &str> = self
             .hir
             .inputs()
             .map(|i| (i.sr, i.name.as_str()))
             .chain(self.hir.outputs().map(|o| (o.sr, o.name.as_str())))
             .collect();
+        let mut ctx = PacingContext::new(&self.hir);
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
                 e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
