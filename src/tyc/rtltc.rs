@@ -286,6 +286,7 @@ where
             return Err(msg);
         }
         let tt = tt_r.expect("Ensured by previous cases");
+        dbg!(&tt);
         /*
         let bm = ctx.node_key;
         for (nid, k) in bm.iter() {
@@ -295,7 +296,7 @@ where
         */
         let rtt_r = tt.try_reified();
         if rtt_r.is_err() {
-            return Err("TypeTable not reifiable: ValueType not constrained enough".to_string());
+            return Err(format!("Typetable not reifiable: {:?}", rtt_r.unwrap_err()));
         }
         let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.unwrap();
         let mut result_map = HashMap::new();

@@ -455,7 +455,7 @@ impl From<TcErr<AbstractPacingType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::ExactTypeViolation(key, ty) => {
+            TcErr::ExactTypeViolation(key, ty, _) => {
                 let msg = "Expected type: ";
                 PacingError {
                     kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty]),
@@ -494,7 +494,7 @@ impl From<TcErr<AbstractExpressionType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::ExactTypeViolation(key, ty) => {
+            TcErr::ExactTypeViolation(key, ty, _) => {
                 let msg = "Expected type: ";
                 PacingError {
                     kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),

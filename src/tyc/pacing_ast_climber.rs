@@ -73,15 +73,6 @@ where
         self.expression_key_span.insert(keys.close, span);
     }
 
-    pub(crate) fn impose_top(&mut self, keys: StreamTypeKeys) -> Result<(), PacingError> {
-        self.pacing_tyc.impose(keys.exp_pacing.concretizes_explicit(AbstractPacingType::Any))?;
-        self.pacing_tyc.impose(keys.spawn.0.concretizes_explicit(AbstractPacingType::Any))?;
-        self.expression_tyc.impose(keys.spawn.1.concretizes_explicit(AbstractExpressionType::Any))?;
-        self.expression_tyc.impose(keys.filter.concretizes_explicit(AbstractExpressionType::Any))?;
-        self.expression_tyc.impose(keys.close.concretizes_explicit(AbstractExpressionType::Any))?;
-        Ok(())
-    }
-
     pub(crate) fn impose_more_concrete(
         &mut self,
         keys_l: StreamTypeKeys,
@@ -193,18 +184,22 @@ where
                 }
             };
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
-
+            //
             // Bind key to parsed type
-            self.pacing_tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
-
-            // Annotated type should be more concrete than inferred type
-            self.pacing_tyc.impose(annotated_ty_key.concretizes(exp_key.exp_pacing))?;
-
-            // Output type is equal to declared type
-            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))?;
+            //self.pacing_tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty.clone()))?;
+            //self.pacing_tyc.impose(annotated_ty_key.concretizes_explicit(annotated_ty))?;
+            //
+            // // Annotated type should be more concrete than inferred type
+            // self.pacing_tyc.impose(annotated_ty_key.concretizes(exp_key.exp_pacing))?;
+            //
+            // // Output type is equal to declared type
+            // self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))?;
+            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes_explicit(annotated_ty.clone()))?;
+            self.pacing_tyc.impose(stream_keys.exp_pacing.has_exactly_type(annotated_ty))?;
+            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
         } else {
             // Output type is equal to inferred type
-            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))?;
+            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
         }
 
         // Type spawn condition
@@ -336,7 +331,6 @@ where
         match &exp.kind {
             ExpressionKind::LoadConstant(_) | ExpressionKind::ParameterAccess(_, _) => {
                 //constants have arbitrary pacing type
-                self.impose_top(term_keys)?;
             }
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 use crate::common_ir::StreamAccessKind;
@@ -385,9 +379,8 @@ where
                         }
                         self.impose_more_concrete(term_keys, stream_key)?;
                     }
-                    StreamAccessKind::Hold => self.impose_top(term_keys)?,
+                    StreamAccessKind::Hold => {}
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
-                        self.impose_top(term_keys)?;
                         self.pacing_tyc.impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
                     }

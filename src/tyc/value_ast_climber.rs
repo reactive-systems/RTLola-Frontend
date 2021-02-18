@@ -85,7 +85,7 @@ where
         let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
         //Annotated Type
 
-        let annotated_type_replaced = self.match_annotated_type(&input.annotated_type);
+        let annotated_type_replaced = dbg!(self.match_annotated_type(&input.annotated_type));
         //can skip any case as type must be provided
         self.tyc.impose(term_key.has_exactly_type(annotated_type_replaced))?;
 
@@ -111,26 +111,18 @@ where
 
     pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
         let out_key = *self.node_key.get_by_left(&NodeId::SRef(out.sr)).expect("Added in constructor");
+        dbg!(out_key);
 
-        let annotated_type_replaced =
-            out.annotated_type.as_ref().map(|ty| self.match_annotated_type(ty)).unwrap_or(IAbstractType::Any);
-        //dbg!(&annotated_type_replaced);
-        if let IAbstractType::Any = annotated_type_replaced {
-        } else {
-            //self.tyc.impose(out_key.concretizes_explicit(annotated_type_replaced.clone()))?;
-            self.tyc.impose(out_key.has_exactly_type(annotated_type_replaced))?;
-        }
-
-        //let mut param_types = Vec::new();
+        let mut param_types = Vec::new();
         for param in &out.params {
             let param_key = self.tyc.get_var_key(&Variable { name: out.name.clone() + "_" + &param.name.clone() });
-            //dbg!(param_key);
+
             self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
-            //self.key_span.insert(param_key, param.span);
+            self.key_span.insert(param_key, param.span.clone());
 
             let t = param.annotated_type.as_ref().map(|t| self.match_annotated_type(t)).unwrap_or(IAbstractType::Any);
             self.tyc.impose(param_key.concretizes_explicit(t))?;
-            //param_types.push(param_key);
+            param_types.push(param_key);
         }
 
         //dbg!(&out.instance_template);
@@ -138,8 +130,20 @@ where
         if let Some((opt_spawn, opt_cond)) = opt_spawn {
             //chek target exression type matches parameter type
             if let Some(spawn) = opt_spawn {
-                //Todo: Tuple type check
-                self.expression_infer(spawn, None)?;
+                let spawn_target_key = self.expression_infer(spawn, None)?;
+                if param_types.len() > 1 {
+                    self.tyc.impose(spawn_target_key.concretizes_explicit(IAbstractType::AnyTuple))?;
+                    let parameter_tuple = self.tyc.new_term_key();
+                    for (ix, p) in param_types.iter().enumerate() {
+                        let child = self.tyc.get_child_key(parameter_tuple, ix)?;
+                        self.tyc.impose(child.equate_with(*p))?;
+                    }
+                    self.tyc.impose(parameter_tuple.equate_with(spawn_target_key))?;
+                } else if param_types.len() == 1 {
+                    self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
+                } else {
+                    return Err(TcErr::Bound(spawn_target_key, None, format!("Spawn condition without parameters")));
+                }
             }
             if let Some(cond) = opt_cond {
                 self.expression_infer(cond, Some(IAbstractType::Bool))?;
@@ -152,9 +156,18 @@ where
             self.expression_infer(filter, Some(IAbstractType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
-        //dbg!(&out_key, &expression_key);
+        let expression_key = dbg!(self.expression_infer(self.hir.expr(out.sr), None)?);
+        let annotated_type_replaced = out.annotated_type.as_ref().map(|ty| self.match_annotated_type(ty));
+        //dbg!(&annotated_type_replaced);
+        if let Some(annotated_type) = annotated_type_replaced {
+            dbg!(&annotated_type);
+            self.tyc.impose(out_key.concretizes_explicit(annotated_type.clone()))?;
+            self.tyc.impose(out_key.has_exactly_type(annotated_type))?;
+        }
+
         self.tyc.impose(out_key.equate_with(expression_key))?;
+        //dbg!(&out_key, &expression_key);
+
         Ok(out_key)
     }
 
@@ -170,7 +183,8 @@ where
         exp: &Expression,
         target_type: Option<IAbstractType>,
     ) -> Result<TcKey, TcErr<IAbstractType>> {
-        let term_key: TcKey = self.tyc.new_term_key();
+        let term_key: TcKey = dbg!(self.tyc.new_term_key());
+        dbg!(&exp);
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
         self.key_span.insert(term_key, exp.span.clone());
         if let Some(t) = target_type {
@@ -225,6 +239,7 @@ where
 
                 match kind {
                     StreamAccessKind::Sync => {
+                        dbg!(&term_key, &target_key);
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
                     StreamAccessKind::DiscreteWindow(_wref) | StreamAccessKind::SlidingWindow(_wref) => {
@@ -297,10 +312,13 @@ where
                     }
                     StreamAccessKind::Offset(off) => match off {
                         Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
+                            dbg!(term_key);
+                            dbg!(target_key);
                             self.tyc.impose(
                                 term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
                             )?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            dbg!(inner_key);
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
                         Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
@@ -450,9 +468,10 @@ where
             }
 
             ExpressionKind::Tuple(vec) => {
-                let key_vec: Result<Vec<TcKey>, TcErr<IAbstractType>> =
-                    vec.iter().map(|ex| self.expression_infer(ex, None)).collect();
-                let key_vec = key_vec?;
+                let key_vec = vec
+                    .iter()
+                    .map(|ex| self.expression_infer(ex, None))
+                    .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
                 let base_type = IAbstractType::Tuple(vec![IAbstractType::Any; vec.len()]);
                 self.tyc.impose(term_key.concretizes_explicit(base_type))?;
                 for (n, child_key_inferred) in key_vec.iter().enumerate() {
@@ -462,10 +481,12 @@ where
             }
 
             ExpressionKind::TupleAccess(expr, idx) => {
-                let ex_key = self.expression_infer(expr, None)?;
+                let ex_key = dbg!(self.expression_infer(expr, None)?);
                 //Only Tuple case allowed for Field expression FIXME TODO
                 //TODO enforce Vector type -> child access on any fails
-                let accessed_child = self.tyc.get_child_key(ex_key, *idx)?;
+                self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::AnyTuple))?;
+
+                let accessed_child = dbg!(self.tyc.get_child_key(ex_key, *idx)?);
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
             }
 
@@ -612,9 +633,10 @@ where
                     ),
                 }
             }
-            TcErr::ExactTypeViolation(key, bound) => {
+            TcErr::ExactTypeViolation(key, resolved, bound2) => {
                 primal_key = key;
-                format!("Type Bound: {:?} incompatible with {:?}", bound, self.node_key.get_by_right(&key).unwrap())
+                format!("Type Bound: Resolved type {:?} for key {:?} does not match bound {:?}", resolved, key, bound2)
+                //Todo: fix me
             }
             TcErr::ConflictingExactBounds(key, bound1, bound2) => {
                 primal_key = key;
@@ -709,7 +731,8 @@ mod value_type_tests {
     fn complete_check(spec: &str) -> usize {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
-        let pacing_tt = ltc.pacing_type_infer().unwrap();
+        //let pacing_tt = ltc.pacing_type_infer().unwrap(); //Todo: Remove me
+        let pacing_tt = HashMap::new();
         assert!(ltc.value_type_infer(&pacing_tt).is_ok());
         test_box.handler.emitted_errors()
     }
@@ -717,7 +740,8 @@ mod value_type_tests {
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
-        let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
+        //let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");//Todo: Remove me
+        let pacing_tt = HashMap::new();
         let tt_result = ltc.value_type_infer(&pacing_tt);
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());
@@ -1310,7 +1334,7 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("in");
         assert_eq!(0, complete_check(spec));
         let input_type = IConcreteType::Tuple(vec![
-            IConcreteType::Integer8, //Changed to 16 FIXME
+            IConcreteType::Integer8,
             IConcreteType::Tuple(vec![IConcreteType::UInteger8, IConcreteType::Bool]),
         ]);
         assert_eq!(result_map[&NodeId::SRef(in_id)], input_type);
@@ -1331,6 +1355,36 @@ output o_9: Bool @i_0 := true  && true";
         ]);
         assert_eq!(result_map[&NodeId::SRef(in_id)], input_type);
         assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn test_tuple_of_tuples3() {
+        let spec = "output out: Bool @1Hz := (5, (7.0, true)).1.1";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn test_tuple_of_tuples4() {
+        let spec = "output out1 := out2.1.1\noutput out2 @1Hz := (5, (7.0, true))";
+        let (tb, result_map) = check_value_type(spec);
+        let out2 = tb.output("out2");
+        let out1 = tb.output("out1");
+        let tuple_type = IConcreteType::Tuple(vec![
+            IConcreteType::Integer32,
+            IConcreteType::Tuple(vec![IConcreteType::Float32, IConcreteType::Bool]),
+        ]);
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(out2)], tuple_type);
+        assert_eq!(result_map[&NodeId::SRef(out1)], IConcreteType::Bool);
+    }
+
+    #[test]
+    fn test_faulty_option_access() {
+        let spec = "input x:Int32\noutput out @1Hz := x.hold().0";
+        check_expect_error(spec);
     }
 
     #[test]
@@ -1568,6 +1622,19 @@ output o_9: Bool @i_0 := true  && true";
         // this should fail in type checking as the value type of `c` cannot be determined.
         // it currently fails because default expects a optional value
         let spec = "output c @1Hz := c.defaults(to:0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_simple_annotated() {
+        let spec = "output c: Int8 @1Hz := 42";
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn test_simple_annotated2() {
+        let spec = "output c: Int8 @1Hz := widen<Int32>(42)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }

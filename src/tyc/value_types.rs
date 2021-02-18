@@ -11,6 +11,7 @@ pub enum IAbstractType {
     UInteger(u32),
     Float(u32),
     Bool,
+    AnyTuple,
     Tuple(Vec<IAbstractType>),
     TString,
     Bytes,
@@ -47,6 +48,9 @@ impl Abstract for IAbstractType {
             (Integer, other) | (other, Integer) => Err(format!("Integer and non-Integer {:?}", other)),
             (SInteger(_), other) | (other, SInteger(_)) => Err(format!("Int not unifiable with {:?}", other)),
             (UInteger(_), other) | (other, UInteger(_)) => Err(format!("UInt not unifiable with {:?}", other)),
+            (AnyTuple, Tuple(rv)) | (Tuple(rv), AnyTuple) => Ok(Tuple(rv.clone())),
+            (AnyTuple, AnyTuple) => Ok(AnyTuple),
+            (AnyTuple, other) | (other, AnyTuple) => Err(format!("AnyTuple not unifiable with {:?}", other)),
             (Tuple(lv), Tuple(rv)) => {
                 if lv.len() != rv.len() {
                     return Err(String::from("Tuple unification demands equal number of arguments"));
@@ -78,7 +82,9 @@ impl Abstract for IAbstractType {
         match self {
             Option(_) => Some(1),
             Tuple(t) => Some(t.len()),
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => Some(0),
+            Any => None,
+            AnyTuple => None,
+            Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => Some(0),
         }
     }
 
@@ -87,7 +93,9 @@ impl Abstract for IAbstractType {
         match self {
             Option(op) => &*op,
             Tuple(vec) => &vec[n],
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => unreachable!(),
+            Any | AnyTuple | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => {
+                unreachable!()
+            }
         }
     }
 
@@ -129,6 +137,7 @@ impl rusttyc::types::TryReifiable for IAbstractType {
     fn try_reify(&self) -> Result<Self::Reified, ReificationErr> {
         match self {
             IAbstractType::Any => Err(ReificationErr::TooGeneral("Cannot reify `Any`.".to_string())),
+            IAbstractType::AnyTuple => Err(ReificationErr::TooGeneral("Cannot reify `AnyTuple`.".to_string())),
             IAbstractType::SInteger(w) if *w <= 8 => Ok(IConcreteType::Integer8),
             IAbstractType::SInteger(w) if *w <= 16 => Ok(IConcreteType::Integer16),
             IAbstractType::SInteger(w) if *w <= 32 => Ok(IConcreteType::Integer32),
