@@ -1,7 +1,12 @@
-use super::rusttyc::types::Abstract;
+use super::rusttyc::Partial;
+use super::rusttyc::{Constructable, Variant};
 use crate::common_ir::{StreamAccessKind, StreamReference};
-use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind};
+use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::HirMode;
+use crate::hir::AC;
 use crate::reporting::{Diagnostic, Handler, Span};
+use crate::RTLolaHIR;
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
@@ -49,14 +54,13 @@ pub(crate) enum AbstractPacingType {
     Periodic(Freq),
     /// An undetermined type that can be unified into either of the other options.
     Any,
-    /// An event stream with this type is never evaluated.
-    Never,
 }
 
 /// The internal representation of an expression type
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AbstractExpressionType {
     Any,
+    AnyClose,
     Expression(Expression),
 }
 
@@ -455,21 +459,17 @@ impl From<TcErr<AbstractPacingType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::ExactTypeViolation(key, ty, _) => {
-                let msg = "Expected type: ";
+            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
+                let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
                 PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty]),
+                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![variant]),
                     key1: Some(key),
                     key2: None,
                 }
             }
-            TcErr::ConflictingExactBounds(key, ty1, ty2) => {
-                let msg = "Conflicting type bounds: ";
-                PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty1, ty2]),
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::Construction(key, preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+            TcErr::ChildConstruction(key, idx, preliminary, kind) => {
+                PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
             }
         }
     }
@@ -494,21 +494,17 @@ impl From<TcErr<AbstractExpressionType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::ExactTypeViolation(key, ty, _) => {
-                let msg = "Expected type: ";
+            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
+                let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
                 PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
+                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![variant]),
                     key1: Some(key),
                     key2: None,
                 }
             }
-            TcErr::ConflictingExactBounds(key, ty1, ty2) => {
-                let msg = format!("Conflicting type bounds: {} and {}", ty1.to_string(), ty2.to_string());
-                PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![ty1, ty2]),
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::Construction(key, preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+            TcErr::ChildConstruction(key, idx, preliminary, kind) => {
+                PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
             }
         }
     }
@@ -569,18 +565,15 @@ impl Freq {
     }
 }
 
-impl Abstract for AbstractPacingType {
+impl Variant for AbstractPacingType {
     type Err = PacingErrorKind;
 
-    fn unconstrained() -> Self {
-        AbstractPacingType::Any
-    }
-
-    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
+    fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         use AbstractPacingType::*;
-        match (self, other) {
+        assert_eq!(lhs.least_arity, 0, "Suspicious child");
+        assert_eq!(rhs.least_arity, 0, "Suspicious child");
+        let new_var = match (lhs.variant, rhs.variant) {
             (Any, x) | (x, Any) => Ok(x.clone()),
-            (Never, x) | (x, Never) => Ok(x.clone()),
             (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac.clone()), Periodic(*f))),
             (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(*f), Event(ac.clone()))),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.clone().and(ac2.clone()))),
@@ -593,46 +586,67 @@ impl Abstract for AbstractPacingType {
                     Ok(Periodic(f1.conjunction(&f2)))
                 }
             }
-        }
+        }?;
+        Ok(Partial { variant: new_var, least_arity: 0 })
     }
 
-    fn arity(&self) -> Option<usize> {
-        None
+    fn fixed_arity(&self) -> bool {
+        true
     }
 
-    fn nth_child(&self, _n: usize) -> &Self {
-        unreachable!()
-    }
-
-    fn with_children<I>(&self, _children: I) -> Self
-    where
-        I: IntoIterator<Item = Self>,
-    {
-        unreachable!()
+    fn top() -> Self {
+        AbstractPacingType::Any
     }
 }
 
-impl AbstractPacingType {
+impl Constructable for AbstractPacingType {
+    type Type = ConcretePacingType;
+
+    fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
+        assert!(children.is_empty(), "Suspicious children");
+        match self {
+            AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
+            AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
+            AbstractPacingType::Periodic(freq) => match freq {
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f)),
+                Freq::Any => Ok(ConcretePacingType::Periodic),
+            },
+        }
+    }
+}
+
+impl<M> AbstractPacingType
+where
+    M: HirMode + WithIrExpr + 'static,
+{
     pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             AbstractPacingType::Event(ac) => ac.to_string(names),
             AbstractPacingType::Periodic(freq) => freq.to_string(),
             AbstractPacingType::Any => "Any".to_string(),
-            AbstractPacingType::Never => "Never".to_string(),
         }
+    }
+
+    pub(crate) fn from_ac(ac: &AC, hir: &RTLolaHIR<M>) -> Result<(Self, Span), PacingErrorKind> {
+        Ok(match ac {
+            AC::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
+            AC::Expr(eid) => {
+                let expr = hir.expression(*eid);
+                (AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span.clone())
+            }
+        })
     }
 }
 
-impl Abstract for AbstractExpressionType {
+impl Variant for AbstractExpressionType {
     type Err = PacingErrorKind;
 
-    fn unconstrained() -> Self {
-        Self::Any
-    }
-
-    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
-        match (self, other) {
+    fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
+        assert_eq!(lhs.least_arity, 0, "Suspicious child");
+        assert_eq!(rhs.least_arity, 0, "Suspicious child");
+        let new_var = match (lhs.variant, rhs.variant) {
             (Self::Any, x) | (x, Self::Any) => Ok(x.clone()),
+            (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x.clone()),
             (Self::Expression(a), Self::Expression(b)) => {
                 if a == b {
                     Ok(Self::Expression(a.clone()))
@@ -643,22 +657,39 @@ impl Abstract for AbstractExpressionType {
                     ))
                 }
             }
+        }?;
+        Ok(Partial { variant: new_var, least_arity: 0 })
+    }
+
+    fn fixed_arity(&self) -> bool {
+        true
+    }
+
+    fn top() -> Self {
+        AbstractExpressionType::Any
+    }
+}
+
+impl Constructable for AbstractExpressionType {
+    type Type = AbstractExpressionType;
+
+    fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
+        assert!(children.is_empty(), "Suspicious children");
+
+        match self {
+            Self::Any => Ok(Expression {
+                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
+                eid: ExprId(u32::max_value()),
+                span: Span::Unknown,
+            }),
+            Self::AnyClose => Ok(Expression {
+                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false))),
+                eid: ExprId(u32::max_value()),
+                span: Span::Unknown,
+            }),
+            Self::Expression(e) => Ok(e.clone()),
         }
-    }
-
-    fn arity(&self) -> Option<usize> {
-        None
-    }
-
-    fn nth_child(&self, _n: usize) -> &Self {
-        unreachable!()
-    }
-
-    fn with_children<I>(&self, _children: I) -> Self
-    where
-        I: IntoIterator<Item = Self>,
-    {
-        unreachable!()
+        Ok(self.clone())
     }
 }
 
@@ -666,6 +697,7 @@ impl std::fmt::Display for AbstractExpressionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Any => write!(f, "Any"),
+            Self::AnyClose => write!(f, "AnyClose"),
             Self::Expression(e) => write!(f, "Exp({})", e),
         }
     }
@@ -675,31 +707,31 @@ impl AbstractExpressionType {
     fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             Self::Any => "Any".into(),
+            Self::AnyClose => "AnyClose".into(),
             Self::Expression(e) => e.pretty_string(names),
         }
     }
 }
 
-impl ConcretePacingType {
-    pub(crate) fn from_abstract(abs_t: AbstractPacingType) -> Result<Self, PacingError> {
-        match abs_t {
-            AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
-            AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac)),
-            AbstractPacingType::Periodic(freq) => match freq {
-                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f)),
-                Freq::Any => Ok(ConcretePacingType::Periodic),
-            },
-            AbstractPacingType::Never => {
-                Err(PacingErrorKind::Other(Span::Unknown, "Tried to concretize abstract type never!".into()).into())
-            }
-        }
-    }
-
+impl<M> ConcretePacingType
+where
+    M: HirMode + WithIrExpr + 'static,
+{
     pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
         match self {
             ConcretePacingType::FixedPeriodic(f) => Ok(AbstractPacingType::Periodic(Freq::Fixed(*f))),
             ConcretePacingType::Periodic => Ok(AbstractPacingType::Periodic(Freq::Any)),
             _ => Err("Supplied invalid concrete pacing type.".to_string()),
         }
+    }
+
+    pub(crate) fn from_ac(ac: &AC, hir: &RTLolaHIR<M>) -> Result<Self, PacingErrorKind> {
+        Ok(match ac {
+            AC::Frequency { span, value } => ConcretePacingType::FixedPeriodic(*value),
+            AC::Expr(eid) => {
+                let expr = hir.expression(*eid);
+                ActivationCondition::parse(expr).map(|pac| ConcretePacingType::Event(pac))
+            }
+        })
     }
 }

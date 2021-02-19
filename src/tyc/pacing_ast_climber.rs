@@ -1,19 +1,19 @@
 use super::*;
 extern crate regex;
 
-use crate::tyc::pacing_types::{
-    AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, PacingError, PacingErrorKind, StreamTypeKeys,
-};
-
 use crate::common_ir::{Offset, StreamReference};
 use crate::hir::expression::{ExprId, Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::hir::{Input, Output, SpawnTemplate, Trigger, AC};
 use crate::reporting::Span;
+use crate::tyc::pacing_types::{
+    AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq, PacingError,
+    PacingErrorKind, StreamTypeKeys,
+};
 use crate::tyc::rtltc::NodeId;
 use crate::RTLolaHIR;
-use rusttyc::types::AbstractTypeTable;
+use rusttyc::TypeTable;
 use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
 
@@ -164,25 +164,7 @@ where
 
         // Check if there is a type is annotated
         if let Some(ac) = &output.activation_condition {
-            let annotated_ty_key = self.pacing_tyc.new_term_key();
-            let (annotated_ty, span) = match ac {
-                AC::Frequency { span, value } => {
-                    self.pacing_key_span.insert(annotated_ty_key, span.clone());
-                    (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone())
-                }
-                AC::Expr(eid) => {
-                    let expr = self.hir.expression(*eid);
-                    self.pacing_key_span.insert(annotated_ty_key, expr.span.clone());
-                    (
-                        AbstractPacingType::Event(ActivationCondition::parse(expr).map_err(|e| PacingError {
-                            kind: e.kind,
-                            key1: Some(annotated_ty_key),
-                            key2: None,
-                        })?),
-                        expr.span.clone(),
-                    )
-                }
-            };
+            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
             //
             // Bind key to parsed type
@@ -195,8 +177,7 @@ where
             // // Output type is equal to declared type
             // self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))?;
             self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes_explicit(annotated_ty.clone()))?;
-            self.pacing_tyc.impose(stream_keys.exp_pacing.has_exactly_type(annotated_ty))?;
-            self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
+            self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))?;
         } else {
             // Output type is equal to inferred type
             self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
@@ -213,6 +194,7 @@ where
         }
 
         //Type close
+        self.expression_tyc.impose(stream_keys.close.concretizes_explicit(AbstractExpressionType::AnyClose))?;
         if let Some(exp_id) = output.instance_template.close {
             self.close_infer(exp_id, stream_keys, exp_key)?;
         }
@@ -230,28 +212,9 @@ where
 
         // Check if there is a pacing annotated
         if let Some(ac) = spawn.pacing.as_ref() {
-            let annotated_ty_key = self.pacing_tyc.new_term_key();
-            let (annotated_ty, span) = match ac {
-                AC::Frequency { span, value } => {
-                    self.pacing_key_span.insert(annotated_ty_key, span.clone());
-                    (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone())
-                }
-                AC::Expr(eid) => {
-                    let expr = self.hir.expression(*eid);
-                    self.pacing_key_span.insert(annotated_ty_key, expr.span.clone());
-                    (
-                        AbstractPacingType::Event(ActivationCondition::parse(expr).map_err(|e| PacingError {
-                            kind: e.kind,
-                            key1: Some(annotated_ty_key),
-                            key2: None,
-                        })?),
-                        expr.span.clone(),
-                    )
-                }
-            };
+            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.spawn.0, span);
-            self.pacing_tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty))?;
-            self.pacing_tyc.impose(stream_keys.spawn.0.equate_with(annotated_ty_key))?;
+            self.pacing_tyc.impose(stream_keys.spawn.0.concretizes_explicit(annotated_ty))?;
         }
 
         // Type spawn target
@@ -273,8 +236,9 @@ where
 
             //Streams spawn condition is equal to annotated condition
             self.expression_key_span.insert(stream_keys.spawn.1, spawn_condition.span.clone());
-            self.expression_tyc
-                .impose(stream_keys.spawn.1.has_exactly_type(AbstractExpressionType::Expression(spawn_condition)))?;
+            self.expression_tyc.impose(
+                stream_keys.spawn.1.concretizes_explicit(AbstractExpressionType::Expression(spawn_condition)),
+            )?;
         }
 
         // Pacing of spawn target is more concrete than pacing of condition
@@ -302,7 +266,7 @@ where
         self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(filter_keys.exp_pacing))?;
         //Filter is equal to the expression
         self.expression_tyc
-            .impose(stream_keys.filter.has_exactly_type(AbstractExpressionType::Expression(filter.clone())))?;
+            .impose(stream_keys.filter.concretizes_explicit(AbstractExpressionType::Expression(filter.clone())))?;
         //Filter of the stream is more concrete than the filter of the streams expression
         self.expression_tyc.impose(stream_keys.filter.concretizes(exp_keys.filter))?;
         Ok(())
@@ -319,7 +283,7 @@ where
 
         //Close is equal to the expression
         self.expression_tyc
-            .impose(stream_keys.close.has_exactly_type(AbstractExpressionType::Expression(close.clone())))?;
+            .impose(stream_keys.close.concretizes_explicit(AbstractExpressionType::Expression(close.clone())))?;
         //Close of the streams expression is more concrete than the close of the stream
         self.expression_tyc.impose(exp_keys.close.concretizes(stream_keys.close))?;
         Ok(())
@@ -449,15 +413,15 @@ where
 
     pub(crate) fn is_parameterized(
         keys: StreamTypeKeys,
-        pacing_tt: &AbstractTypeTable<AbstractPacingType>,
-        exp_tt: &AbstractTypeTable<AbstractExpressionType>,
+        pacing_tt: &TypeTable<ConcretePacingType>,
+        exp_tt: &TypeTable<AbstractExpressionType>,
     ) -> bool {
         let spawn_pacing = pacing_tt[keys.spawn.0].clone();
         let spawn_cond = exp_tt[keys.spawn.1].clone();
         let filter = exp_tt[keys.filter].clone();
         let close = exp_tt[keys.close].clone();
 
-        spawn_pacing != AbstractPacingType::Any
+        spawn_pacing != ConcretePacingType::Constant
             || spawn_cond != AbstractExpressionType::Any
             || filter != AbstractExpressionType::Any
             || close != AbstractExpressionType::Any
@@ -466,22 +430,37 @@ where
     pub(crate) fn post_process(
         hir: &RTLolaHIR<M>,
         nid_key: HashMap<NodeId, StreamTypeKeys>,
-        pacing_tt: &AbstractTypeTable<AbstractPacingType>,
-        exp_tt: &AbstractTypeTable<AbstractExpressionType>,
+        pacing_tt: &TypeTable<ConcretePacingType>,
+        exp_tt: &TypeTable<AbstractExpressionType>,
     ) -> Vec<PacingError> {
         let mut res = vec![];
 
         // Check that every periodic stream has a frequency
+        // Check that annotated ty matches inferred one
         for output in hir.outputs() {
-            let at = &pacing_tt[nid_key[&NodeId::SRef(output.sr)].exp_pacing];
-            match at {
-                AbstractPacingType::Periodic(Freq::Any) => {
+            let ct = &pacing_tt[nid_key[&NodeId::SRef(output.sr)].exp_pacing];
+            match ct {
+                ConcretePacingType::Periodic => {
                     res.push(PacingErrorKind::FreqAnnotationNeeded(output.span.clone()).into());
                 }
-                AbstractPacingType::Never => {
+                ConcretePacingType::Constant => {
                     res.push(PacingErrorKind::NeverEval(output.span.clone()).into());
                 }
                 _ => {}
+            }
+            if let Some(annotated_ty) =
+                output.activation_condition.as_ref().and_then(|ac| ConcretePacingType::from_ac(ac, hir).ok())
+            {
+                if annotated_ty != ct {
+                    res.push(
+                        PacingErrorKind::OtherPacingError(
+                            Some(output.span.clone()),
+                            format!("Mismatch between annotated and inferred expression pacing: "),
+                            vec![annotated_ty, ct.clone()],
+                        )
+                        .into(),
+                    );
+                }
             }
         }
 
@@ -533,12 +512,28 @@ where
             }
         }
 
-        //Check that spawn pacing is not any
+        //Check that spawn pacing is not constant and equal to annotated type
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[keys.spawn.0].clone();
             if let Some(template) = output.instance_template.spawn.as_ref() {
-                if spawn_pacing == AbstractPacingType::Any {
+                if let Some(annotated_ty) =
+                    template.pacing.as_ref().and_then(|ac| ConcretePacingType::from_ac(ac, hir).ok())
+                {
+                    if annotated_ty != spawn_pacing {
+                        let span =
+                            template.target.map(|id| hir.expression(id).span.clone()).unwrap_or(output.span.clone());
+                        res.push(
+                            PacingErrorKind::OtherPacingError(
+                                Some(span),
+                                format!("Mismatch between annotated and inferred spawn target pacing: "),
+                                vec![annotated_ty, spawn_pacing.clone()],
+                            )
+                            .into(),
+                        );
+                    }
+                }
+                if spawn_pacing == ConcretePacingType::Constant {
                     let span = template
                         .pacing
                         .as_ref()
@@ -550,7 +545,8 @@ where
                         .or_else(|| template.condition.map(|id| hir.expression(id).span.clone()))
                         .unwrap_or_else(|| output.span.clone());
                     res.push(
-                        PacingErrorKind::Other(span, "No instance is created as spawn pacing is 'Any'".into()).into(),
+                        PacingErrorKind::Other(span, "No instance is created as spawn pacing is 'Constant'".into())
+                            .into(),
                     )
                 }
             }
@@ -594,16 +590,28 @@ where
             }
         }
 
-        //Check that every output that has parameters has a spawn condition with a target
+        //Check that every output that has parameters has a spawn condition with a target and the other way around
         for output in hir.outputs() {
             if !output.params.is_empty() && output.instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
                 res.push(
                     PacingErrorKind::Other(
                         output.span.clone(),
-                        "A spawn declaration is needed to initialize the parameters.".into(),
+                        "A spawn declaration is needed to initialize the parameters of the stream.".into(),
                     )
                     .into(),
                 );
+            }
+            if let Some(target) = output.instance_template.spawn.as_ref().and_then(|s| s.target) {
+                if output.params.is_empty() {
+                    let span = hir.expression(target).span.clone();
+                    res.push(
+                        PacingErrorKind::Other(
+                            span,
+                            "Found a spawn target declaration in a stream without parameter.".into(),
+                        )
+                        .into(),
+                    );
+                }
             }
         }
 

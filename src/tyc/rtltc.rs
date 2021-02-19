@@ -5,7 +5,7 @@ use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, Expr
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::reporting::{Handler, Span};
-use crate::tyc::pacing_types::{AbstractExpressionType, ConcreteStreamPacing, PacingError};
+use crate::tyc::pacing_types::{ConcreteStreamPacing, PacingError};
 use crate::tyc::{
     pacing_ast_climber::Context as PacingContext, pacing_types::ConcretePacingType, value_ast_climber::ValueContext,
     value_types::IConcreteType,
@@ -188,50 +188,15 @@ where
         let pacing_key_span = ctx.pacing_key_span.clone();
         let exp_key_span = ctx.expression_key_span.clone();
 
-        let exp_top = Expression {
-            kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
-            eid: ExprId(u32::max_value()),
-            span: Span::Unknown,
-        };
-
-        let exp_bot = Expression {
-            kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false))),
-            eid: ExprId(u32::max_value()),
-            span: Span::Unknown,
-        };
-
         let ctt: HashMap<NodeId, ConcreteStreamPacing> = ctx
             .node_key
             .iter()
-            .filter_map(|(id, key)| {
-                let exp_pacing = match ConcretePacingType::from_abstract(pacing_tt[key.exp_pacing].clone()) {
-                    Ok(ct) => ct,
-                    Err(e) => {
-                        e.emit(self.handler, &pacing_key_span, &exp_key_span, &stream_names);
-                        return None;
-                    }
-                };
-                let spawn_pacing = match ConcretePacingType::from_abstract(pacing_tt[key.spawn.0].clone()) {
-                    Ok(ct) => ct,
-                    Err(e) => {
-                        e.emit(self.handler, &pacing_key_span, &exp_key_span, &stream_names);
-                        return None;
-                    }
-                };
-                let spawn_condition_expression = match &exp_tt[key.spawn.1] {
-                    AbstractExpressionType::Any => exp_top.clone(),
-                    AbstractExpressionType::Expression(e) => e.clone(),
-                };
-
-                let filter = match &exp_tt[key.filter] {
-                    AbstractExpressionType::Any => exp_top.clone(),
-                    AbstractExpressionType::Expression(e) => e.clone(),
-                };
-
-                let close = match &exp_tt[key.close] {
-                    AbstractExpressionType::Any => exp_bot.clone(),
-                    AbstractExpressionType::Expression(e) => e.clone(),
-                };
+            .map(|(id, key)| {
+                let exp_pacing = pacing_tt[key.exp_pacing].clone();
+                let spawn_pacing = pacing_tt[key.spawn.0].clone();
+                let spawn_condition_expression = exp_tt[key.spawn.1].clone();
+                let filter = exp_tt[key.filter].clone();
+                let close = exp_tt[key.close].clone();
 
                 Some((
                     *id,
@@ -245,9 +210,6 @@ where
             })
             .collect();
 
-        if self.handler.contains_error() {
-            return None;
-        }
         Some(ctt)
     }
 
