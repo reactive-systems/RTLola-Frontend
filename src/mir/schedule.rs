@@ -59,7 +59,7 @@ pub struct Schedule {
 
 impl Schedule {
     pub(crate) fn from(ir: &RTLolaMIR) -> Result<Schedule, String> {
-        let periods: Vec<UOM_Time> = ir.time_driven.iter().map(|s| s.period).collect();
+        let periods: Vec<UOM_Time> = ir.time_driven.iter().map(|s| s.period()).collect();
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
 
@@ -132,7 +132,7 @@ impl Schedule {
         }
         let mut extend_steps = vec![Vec::new(); num_steps];
         for s in ir.time_driven.iter() {
-            let ix = s.period.get::<second>() / gcd.get::<second>();
+            let ix = s.period().get::<second>() / gcd.get::<second>();
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
@@ -269,7 +269,7 @@ mod tests {
 
         let cases = [case1, case2, case3, case4, case5];
         for (spec, expected) in cases.iter() {
-            let periods: Vec<_> = to_ir(spec).time_driven.iter().map(|s| s.period).collect();
+            let periods: Vec<_> = to_ir(spec).time_driven.iter().map(|s| s.period()).collect();
             let was = Schedule::find_extend_period(&periods);
             let was = was.get::<nanosecond>().to_integer().to_u64().expect("");
             assert_eq!(*expected, was);

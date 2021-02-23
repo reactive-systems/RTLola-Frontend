@@ -2,19 +2,8 @@
 This module describes intermediate representations that are use in the high level intermediate representation and in the mid level intermediate representation.
 */
 use std::time::Duration;
-use uom::si::rational64::Frequency as UOM_Frequency;
-use uom::si::rational64::Time as UOM_Time;
 
 pub mod print;
-
-/// Wrapper for output streams that are actually triggers.  Provides additional information specific to triggers.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Trigger {
-    /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
-    pub message: String,
-    /// A reference to the output stream representing the trigger.
-    pub reference: StreamReference,
-}
 
 /// This enum indicates how much memory is required to store a stream.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -38,41 +27,21 @@ impl PartialOrd for MemorizationBound {
     }
 }
 
-/// This data type provides information regarding how much data a stream needs to have access to from another stream.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Tracking {
-    /// Need to store every single value of a stream
-    All(StreamReference),
-    /// Need to store `num` values of `trackee`, evicting/add a value every `rate` time units.
-    Bounded {
-        /// The stream that will be tracked.
-        trackee: StreamReference,
-        /// The number of values that will be accessed.
-        num: u128,
-        /// The duration in which values might be accessed.
-        rate: Duration,
-    },
-}
-
-/// Wrapper for output streams providing additional information specific to timedriven streams.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct TimeDrivenStream {
-    /// A reference to the stream that is specified.
-    pub reference: StreamReference,
-    /// The evaluation frequency of the stream.
-    pub frequency: UOM_Frequency,
-    /// The duration between two evaluation cycles.
-    pub extend_rate: Duration,
-    /// The period of the stream.
-    pub period: UOM_Time,
-}
-
-/// Wrapper for output streams providing additional information specific to event-based streams.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct EventDrivenStream {
-    /// A reference to the stream that is specified.
-    pub reference: StreamReference,
-}
+// /// This data type provides information regarding how much data a stream needs to have access to from another stream.
+// #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+// pub enum Tracking {
+//     /// Need to store every single value of a stream
+//     All(StreamReference),
+//     /// Need to store `num` values of `trackee`, evicting/add a value every `rate` time units.
+//     Bounded {
+//         /// The stream that will be tracked.
+//         trackee: StreamReference,
+//         /// The number of values that will be accessed.
+//         num: u128,
+//         /// The duration in which values might be accessed.
+//         rate: Duration,
+//     },
+// }
 
 /// Contains information regarding the dependency between two streams which occurs due to a lookup expression.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -105,10 +74,10 @@ pub enum Offset {
     PastRealTimeOffset(Duration),
 }
 
-/// TODO
+/// Representation of an evaluation layer
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Layer(usize);
-/// TODO
+/// Representation of the position when a stream is computed. For this, each stream has a spawn and an evaluation layer
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct StreamLayers {
     spawn: Layer,
@@ -244,13 +213,12 @@ impl Ord for StreamReference {
 
 /// A trait for any kind of stream.
 pub trait Stream {
-    // TODO: probably not needed anymore
+    // Returns the spawn laying in which the stream is created.
     fn spawn_layer(&self) -> Layer;
     /// Returns the evaluation laying in which the stream resides.
     fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
-    // TODO: probably not needed anymore
     /// Indicates how many values need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.

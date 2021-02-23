@@ -9,11 +9,14 @@ mod print;
 mod schedule;
 
 pub use crate::ast::WindowOperation;
-pub use crate::common_ir::{EventDrivenStream, Layer, StreamReference, TimeDrivenStream, Trigger, WindowReference};
+pub use crate::common_ir::{Layer, StreamReference, WindowReference};
 pub use crate::mir::schedule::{Deadline, Schedule};
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for IR
 
+use num::traits::Inv;
 use std::time::Duration;
+use uom::si::rational64::Frequency as UOM_Frequency;
+use uom::si::rational64::Time as UOM_Time;
 
 pub(crate) type Mir = RTLolaMIR;
 
@@ -115,6 +118,63 @@ pub struct OutputStream {
     pub layer: StreamLayers,
     /// The reference pointing to this stream.
     pub reference: StreamReference,
+}
+
+/// Wrapper for output streams that are actually triggers.  Provides additional information specific to triggers.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Trigger {
+    /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
+    pub message: String,
+    /// A reference to the output stream representing the trigger.
+    pub reference: StreamReference,
+}
+
+/// Wrapper for output streams providing additional information specific to timedriven streams.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TimeDrivenStream {
+    /// A reference to the stream that is specified.
+    pub reference: StreamReference,
+    /// The evaluation frequency of the stream.
+    pub frequency: UOM_Frequency,
+}
+
+impl TimeDrivenStream {
+    pub fn period(&self) -> UOM_Time {
+        UOM_Time::new::<uom::si::time::second>(self.frequency.get::<uom::si::frequency::hertz>().inv())
+    }
+    pub fn frequency(&self) -> UOM_Frequency {
+        self.frequency
+    }
+}
+
+/// Wrapper for output streams providing additional information specific to event-based streams.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct EventDrivenStream {
+    /// A reference to the stream that is specified.
+    pub reference: StreamReference,
+    // The activation contaion of an event-based stream.
+    pub ac: ActivationCondition,
+}
+
+/// Representation of the activation condition of an event-based stream
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ActivationCondition {
+    /**
+    When all of the activation conditions is true.
+    */
+    Conjunction(Vec<Self>),
+    /**
+    When one of the activation conditions is true.
+    */
+    Disjunction(Vec<Self>),
+    /**
+    Whenever the specified stream produces a new value.
+    */
+    Stream(StreamReference),
+    /**
+    Whenever an event-based stream produces a new value.
+    */
+    True,
 }
 
 /// Represents an expression.

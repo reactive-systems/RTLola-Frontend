@@ -1,11 +1,13 @@
-use crate::hir::modes::ordering::EvaluationOrderBuilt;
-use crate::hir::modes::types::TypeChecked;
-use crate::hir::modes::Complete;
-use crate::hir::StreamReference;
+use crate::common_ir::StreamReference;
+use crate::hir::modes::{
+    dependencies::WithDependencies, ir_expr::WithIrExpr, memory_bounds::MemoryAnalyzed, ordering::EvaluationOrderBuilt,
+    types::TypeChecked, Complete,
+};
+use crate::tyc::{
+    pacing_types::ActivationCondition, pacing_types::ConcretePacingType as PacingTy,
+    value_types::IConcreteType as ValueTy,
+};
 use crate::{hir, hir::Hir, mir, mir::Mir};
-use crate::{hir::modes::memory_bounds::MemoryAnalyzed, tyc::value_types::IConcreteType as ValueTy};
-
-use super::{dependencies::WithDependencies, ir_expr::WithIrExpr};
 
 impl Hir<Complete> {
     pub(crate) fn lower(self) -> Mir {
@@ -45,12 +47,12 @@ impl Hir<Complete> {
         let time_driven = outputs
             .iter()
             .filter(|o| mode.is_periodic(o.reference))
-            .map(|o| Self::lower_periodic(o.reference))
+            .map(|o| self.lower_periodic(o.reference))
             .collect::<Vec<mir::TimeDrivenStream>>();
         let event_driven = outputs
             .iter()
             .filter(|o| mode.is_event(o.reference))
-            .map(|o| mir::EventDrivenStream { reference: o.reference })
+            .map(|o| self.lower_event_based(o.reference))
             .collect::<Vec<mir::EventDrivenStream>>();
 
         let (sliding_windows, discrete_windows) = mode.all_windows();
@@ -67,8 +69,33 @@ impl Hir<Complete> {
         Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows }
     }
 
-    fn lower_periodic(_sr: StreamReference) -> mir::TimeDrivenStream {
-        todo!()
+    fn lower_event_based(&self, sr: StreamReference) -> mir::EventDrivenStream {
+        if let PacingTy::Event(ac) = self.stream_type(sr).get_pacing_type() {
+            mir::EventDrivenStream { reference: sr, ac: Self::lower_activation_condition(ac) }
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn lower_activation_condition(ac: &ActivationCondition) -> mir::ActivationCondition {
+        match ac {
+            ActivationCondition::Conjunction(con) => {
+                mir::ActivationCondition::Conjunction(con.iter().map(Self::lower_activation_condition).collect())
+            }
+            ActivationCondition::Disjunction(dis) => {
+                mir::ActivationCondition::Disjunction(dis.iter().map(Self::lower_activation_condition).collect())
+            }
+            ActivationCondition::Stream(sr) => mir::ActivationCondition::Stream(*sr),
+            ActivationCondition::True => mir::ActivationCondition::True,
+        }
+    }
+
+    fn lower_periodic(&self, sr: StreamReference) -> mir::TimeDrivenStream {
+        if let PacingTy::FixedPeriodic(freq) = self.stream_type(sr).get_pacing_type() {
+            mir::TimeDrivenStream { reference: sr, frequency: *freq }
+        } else {
+            unreachable!()
+        }
     }
 
     fn lower_sliding_window(&self, win: hir::SlidingWindow) -> mir::SlidingWindow {
@@ -136,7 +163,6 @@ impl Hir<Complete> {
                 mir::ExpressionKind::ArithLog(op, args)
             }
             hir::expression::ExpressionKind::StreamAccess(sr, kind, para) => {
-                assert!(para.is_empty(), "Parametrization currently not implemented");
                 mir::ExpressionKind::StreamAccess(*sr, *kind, para.iter().map(|p| self.lower_expr(p)).collect())
             }
             hir::expression::ExpressionKind::ParameterAccess(_sr, _para) => unimplemented!(),
@@ -183,7 +209,7 @@ impl Hir<Complete> {
         match constant {
             hir::expression::ConstantLiteral::Str(s) => mir::Constant::Str(s.clone()),
             hir::expression::ConstantLiteral::Bool(b) => mir::Constant::Bool(*b),
-            hir::expression::ConstantLiteral::Integer(_i) => todo!("type information needed"),
+            hir::expression::ConstantLiteral::Integer(i) => mir::Constant::Int(*i),
             hir::expression::ConstantLiteral::SInt(_i) => todo!("review needed"),
             hir::expression::ConstantLiteral::Float(f) => mir::Constant::Float(*f),
         }
@@ -214,5 +240,90 @@ impl Hir<Complete> {
             hir::expression::ArithLogOp::Ge => mir::ArithLogOp::Ge,
             hir::expression::ArithLogOp::Gt => mir::ArithLogOp::Gt,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hir::modes::IrExpression;
+    use crate::parse::parse;
+    use crate::reporting::Handler;
+    use crate::FrontendConfig;
+    use std::path::PathBuf;
+    fn lower_spec(spec: &str) -> (hir::RTLolaHIR<Complete>, mir::RTLolaMIR) {
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        let config = FrontendConfig::default();
+        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<IrExpression>::from_ast(ast, &handler, &config)
+            .build_dependency_graph()
+            .unwrap()
+            .type_check(&handler)
+            .unwrap()
+            .build_evaluation_order()
+            .compute_memory_bounds()
+            .finalize();
+        (hir.clone(), hir.lower())
+    }
+
+    #[test]
+    fn check_event_based_streams() {
+        let spec = "input a: Float32\ninput b:Float32\noutput c := a + b\noutput d := a.hold().defaults(to:0.0) + b\noutput e := a + 9.0\ntrigger d < e\ntrigger a < 5.0";
+        let (hir, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 2);
+        assert_eq!(mir.outputs.len(), 3);
+        assert_eq!(mir.event_driven.len(), 3);
+        assert_eq!(mir.time_driven.len(), 0);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 0);
+        assert_eq!(mir.triggers.len(), 2);
+        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        assert_eq!(hir_a.sr, mir_a.reference);
+        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        assert_eq!(hir_d.sr, mir_d.reference);
+    }
+
+    #[test]
+    fn check_time_driven_streams() {
+        let spec = "input a: Int8\ninput b:Int8\noutput c @1Hz:= a.aggregate(over: 2s, using: sum)+ b.aggregate(over: 4s, using:sum)\noutput d @4Hz:= a.hold().defaults(to:0) + b.hold().defaults(to: 0)\noutput e @0.5Hz := a.aggregate(over: 4s, using: sum) + 9\ntrigger d < e";
+        let (hir, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 2);
+        assert_eq!(mir.outputs.len(), 3);
+        assert_eq!(mir.event_driven.len(), 0);
+        assert_eq!(mir.time_driven.len(), 3);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 3);
+        assert_eq!(mir.triggers.len(), 1);
+        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        assert_eq!(hir_a.sr, mir_a.reference);
+        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        assert_eq!(hir_d.sr, mir_d.reference);
+    }
+
+    #[test]
+    #[ignore = "type checker bug"]
+    fn check_stream_with_parameter() {
+        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let (hir, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 1);
+        assert_eq!(mir.outputs.len(), 3);
+        assert_eq!(mir.event_driven.len(), 3);
+        assert_eq!(mir.time_driven.len(), 0);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 0);
+        assert_eq!(mir.triggers.len(), 0);
+        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        assert_eq!(hir_a.sr, mir_a.reference);
+        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        assert_eq!(hir_d.sr, mir_d.reference);
     }
 }
