@@ -413,13 +413,13 @@ where
 
     pub(crate) fn is_parameterized(
         keys: StreamTypeKeys,
-        pacing_tt: &TypeTable<ConcretePacingType>,
+        pacing_tt: &TypeTable<AbstractPacingType>,
         exp_tt: &TypeTable<AbstractExpressionType>,
     ) -> bool {
-        let spawn_pacing = pacing_tt[keys.spawn.0].clone();
-        let spawn_cond = exp_tt[keys.spawn.1].clone();
-        let filter = exp_tt[keys.filter].clone();
-        let close = exp_tt[keys.close].clone();
+        let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
+        let spawn_cond = exp_tt[&keys.spawn.1].clone();
+        let filter = exp_tt[&keys.filter].clone();
+        let close = exp_tt[&keys.close].clone();
 
         spawn_pacing != ConcretePacingType::Constant
             || spawn_cond != AbstractExpressionType::Any
@@ -430,7 +430,7 @@ where
     pub(crate) fn post_process(
         hir: &RTLolaHIR<M>,
         nid_key: HashMap<NodeId, StreamTypeKeys>,
-        pacing_tt: &TypeTable<ConcretePacingType>,
+        pacing_tt: &TypeTable<AbstractPacingType>,
         exp_tt: &TypeTable<AbstractExpressionType>,
     ) -> Vec<PacingError> {
         let mut res = vec![];

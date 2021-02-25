@@ -615,10 +615,7 @@ impl Constructable for AbstractPacingType {
     }
 }
 
-impl<M> AbstractPacingType
-where
-    M: HirMode + WithIrExpr + 'static,
-{
+impl AbstractPacingType {
     pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             AbstractPacingType::Event(ac) => ac.to_string(names),
@@ -627,7 +624,10 @@ where
         }
     }
 
-    pub(crate) fn from_ac(ac: &AC, hir: &RTLolaHIR<M>) -> Result<(Self, Span), PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
+        ac: &AC,
+        hir: &RTLolaHIR<M>,
+    ) -> Result<(Self, Span), PacingErrorKind> {
         Ok(match ac {
             AC::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
             AC::Expr(eid) => {
@@ -713,10 +713,7 @@ impl AbstractExpressionType {
     }
 }
 
-impl<M> ConcretePacingType
-where
-    M: HirMode + WithIrExpr + 'static,
-{
+impl ConcretePacingType {
     pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
         match self {
             ConcretePacingType::FixedPeriodic(f) => Ok(AbstractPacingType::Periodic(Freq::Fixed(*f))),
@@ -725,7 +722,10 @@ where
         }
     }
 
-    pub(crate) fn from_ac(ac: &AC, hir: &RTLolaHIR<M>) -> Result<Self, PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
+        ac: &AC,
+        hir: &RTLolaHIR<M>,
+    ) -> Result<Self, PacingErrorKind> {
         Ok(match ac {
             AC::Frequency { span, value } => ConcretePacingType::FixedPeriodic(*value),
             AC::Expr(eid) => {

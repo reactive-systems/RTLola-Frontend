@@ -12,7 +12,6 @@ use crate::tyc::{pacing_types::Freq, rtltc::NodeId, value_types::IAbstractType};
 use crate::RTLolaHIR;
 use bimap::BiMap;
 use itertools::Either;
-use rusttyc::types::Abstract;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 
