@@ -31,7 +31,6 @@ impl Variant for IAbstractType {
             }
         }
         use IAbstractType::*;
-        dbg!(&rhs, &lhs);
         let (new_var, min_arity) = match (lhs.variant, rhs.variant) {
             (Any, other) => Ok((other.clone(), rhs.least_arity)),
             (other, Any) => Ok((other.clone(), lhs.least_arity)),

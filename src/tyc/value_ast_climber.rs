@@ -124,6 +124,7 @@ where
 
     pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
+        dbg!(term_key);
         //Annotated Type
 
         self.bind_to_annotated_type(term_key, &input.annotated_type)?;
@@ -510,8 +511,6 @@ where
 
             ExpressionKind::TupleAccess(expr, idx) => {
                 let ex_key = dbg!(self.expression_infer(expr, None)?);
-                //Only Tuple case allowed for Field expression FIXME TODO
-                //TODO enforce Vector type -> child access on any fails
                 self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::AnyTuple))?;
 
                 let accessed_child = dbg!(self.tyc.get_child_key(ex_key, *idx)?);
