@@ -221,12 +221,8 @@ impl Hir<MemBound> {
         };
 
         Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
+            
+            mode, ...self
         }
     }
 }
