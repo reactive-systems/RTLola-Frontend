@@ -80,13 +80,53 @@ where
         }
     }
 
+    fn match_const_literal(&self, lit: &ConstantLiteral) -> IAbstractType {
+        match lit {
+            ConstantLiteral::Str(_) => IAbstractType::TString,
+            ConstantLiteral::Bool(_) => IAbstractType::Bool,
+            ConstantLiteral::Integer(_) => IAbstractType::Integer,
+            ConstantLiteral::SInt(_) => IAbstractType::SInteger(1),
+            ConstantLiteral::Float(_) => IAbstractType::Float(1),
+        }
+    }
+
+    pub fn bind_to_annotated_type(
+        &mut self,
+        target: TcKey,
+        annotated_type: &AnnotatedType,
+    ) -> Result<(), TcErr<IAbstractType>> {
+        match annotated_type {
+            AnnotatedType::String => self.tyc.impose(target.concretizes_explicit(IAbstractType::TString)),
+            AnnotatedType::Int(x) => self.tyc.impose(target.concretizes_explicit(IAbstractType::SInteger(*x))),
+            AnnotatedType::Float(f) => self.tyc.impose(target.concretizes_explicit(IAbstractType::Float(*f))),
+            AnnotatedType::UInt(u) => self.tyc.impose(target.concretizes_explicit(IAbstractType::UInteger(*u))),
+            AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(IAbstractType::Bool)),
+            AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(IAbstractType::Bytes)),
+            AnnotatedType::Option(op) => {
+                self.tyc.impose(target.concretizes_explicit(IAbstractType::Option))?;
+                let child_key = self.tyc.get_child_key(target, 0)?;
+                self.bind_to_annotated_type(child_key, op.as_ref())
+            }
+            AnnotatedType::Tuple(children) => {
+                self.tyc.impose(target.concretizes_explicit(IAbstractType::Tuple(children.len())))?;
+                for (ix, child) in children.iter().enumerate() {
+                    let child_key = self.tyc.get_child_key(target, ix)?;
+                    self.bind_to_annotated_type(child_key, child)?;
+                }
+                Ok(())
+            }
+            AnnotatedType::Numeric => self.tyc.impose(target.concretizes_explicit(IAbstractType::Numeric)),
+            AnnotatedType::Param(_, _) => {
+                unreachable!("Param-Type only reachable in function calls and Param-Output calls")
+            }
+        }
+    }
+
     pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
         //Annotated Type
 
-        let annotated_type_replaced = dbg!(self.match_annotated_type(&input.annotated_type));
-        //can skip any case as type must be provided
-        self.tyc.impose(term_key.has_exactly_type(annotated_type_replaced))?;
+        self.bind_to_annotated_type(term_key, &input.annotated_type)?;
 
         /*
         let mut param_types = Vec::new();
@@ -119,8 +159,9 @@ where
             self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
             self.key_span.insert(param_key, param.span.clone());
 
-            let t = param.annotated_type.as_ref().map(|t| self.match_annotated_type(t)).unwrap_or(IAbstractType::Any);
-            self.tyc.impose(param_key.concretizes_explicit(t))?;
+            if let Some(a_ty) = param.annotated_type.as_ref() {
+                self.bind_to_annotated_type(param_key, a_ty)?;
+            }
             param_types.push(param_key);
         }
 
@@ -131,7 +172,7 @@ where
             if let Some(spawn) = opt_spawn {
                 let spawn_target_key = self.expression_infer(spawn, None)?;
                 if param_types.len() > 1 {
-                    self.tyc.impose(spawn_target_key.concretizes_explicit(IAbstractType::AnyTuple))?;
+                    self.tyc.impose(spawn_target_key.concretizes_explicit(IAbstractType::Tuple(param_types.len())))?;
                     let parameter_tuple = self.tyc.new_term_key();
                     for (ix, p) in param_types.iter().enumerate() {
                         let child = self.tyc.get_child_key(parameter_tuple, ix)?;
@@ -156,12 +197,8 @@ where
         }
 
         let expression_key = dbg!(self.expression_infer(self.hir.expr(out.sr), None)?);
-        let annotated_type_replaced = out.annotated_type.as_ref().map(|ty| self.match_annotated_type(ty));
-        //dbg!(&annotated_type_replaced);
-        if let Some(annotated_type) = annotated_type_replaced {
-            dbg!(&annotated_type);
-            self.tyc.impose(out_key.concretizes_explicit(annotated_type.clone()))?;
-            self.tyc.impose(out_key.has_exactly_type(annotated_type))?;
+        if let Some(a_ty) = out.annotated_type.as_ref() {
+            self.bind_to_annotated_type(out_key, a_ty)?;
         }
 
         self.tyc.impose(out_key.equate_with(expression_key))?;
@@ -192,16 +229,20 @@ where
         //dbg!(&exp.kind, term_key);
         match &exp.kind {
             ExpressionKind::LoadConstant(c) => {
-                let (cons_lit, anno_ty) = match c {
-                    Constant::BasicConstant(lit) => (lit, IAbstractType::Any),
-                    Constant::InlinedConstant(lit, anno_ty) => (lit, self.match_annotated_type(anno_ty)),
+                let cons_lit = match c {
+                    Constant::BasicConstant(lit) => lit,
+                    Constant::InlinedConstant(lit, anno_ty) => {
+                        self.bind_to_annotated_type(term_key, anno_ty)?;
+                        lit
+                    }
                 };
                 let literal_type = self.match_const_literal(cons_lit);
-                //dbg!(&literal_type);
                 self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
-                if !matches!(anno_ty, IAbstractType::Any) {
+                //dbg!(&literal_type);
+                // Todo: How to check this now?
+                /*if !matches!(anno_ty, IAbstractType::Any) {
                     self.tyc.impose(term_key.has_exactly_type(anno_ty))?;
-                }
+                }*/
             }
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
@@ -256,9 +297,7 @@ where
                         match op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
                             WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
-                                self.tyc.impose(
-                                    term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                                )?;
+                                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
                             }
@@ -272,9 +311,7 @@ where
                             WindowOperation::Integral => {
                                 self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?; //TODO maybe numeric
                                 if wait {
-                                    self.tyc.impose(
-                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                                    )?;
+                                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
                                     self.tyc.impose(inner_key.concretizes_explicit(IAbstractType::Float(1)))?;
@@ -287,9 +324,7 @@ where
                             WindowOperation::Sum | WindowOperation::Product => {
                                 self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?;
                                 if wait {
-                                    self.tyc.impose(
-                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                                    )?;
+                                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(inner_key.equate_with(target_key))?;
                                 } else {
@@ -304,8 +339,7 @@ where
                         }
                     }
                     StreamAccessKind::Hold => {
-                        self.tyc
-                            .impose(term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
+                        self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(target_key.equate_with(inner_key))?;
                     }
@@ -313,9 +347,7 @@ where
                         Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
                             dbg!(term_key);
                             dbg!(target_key);
-                            self.tyc.impose(
-                                term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                            )?;
+                            self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
                             dbg!(inner_key);
                             self.tyc.impose(target_key.equate_with(inner_key))?;
@@ -345,9 +377,7 @@ where
                                 //dbg!(&freq, &target_freq);
                                 if let Ok(true) = target_freq.is_multiple_of(&freq) {
                                     //dbg!("frequencies compatible");
-                                    self.tyc.impose(
-                                        term_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())),
-                                    )?;
+                                    self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(target_key.equate_with(inner_key))?;
                                 } else {
@@ -375,7 +405,7 @@ where
                 let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
                                                                        //dbg!(ex_key, def_key);
-                self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::Option(IAbstractType::Any.into())))?;
+                self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::Option))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
                 //self.tyc.impose(def_key.equate_with(inner_key))?;
                 //selftyc.impose(term_key.equate_with(def_key))?;
@@ -471,8 +501,7 @@ where
                     .iter()
                     .map(|ex| self.expression_infer(ex, None))
                     .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
-                let base_type = IAbstractType::Tuple(vec![IAbstractType::Any; vec.len()]);
-                self.tyc.impose(term_key.concretizes_explicit(base_type))?;
+                self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Tuple(vec.len())))?;
                 for (n, child_key_inferred) in key_vec.iter().enumerate() {
                     let n_key_given = self.tyc.get_child_key(term_key, n)?;
                     self.tyc.impose(n_key_given.equate_with(*child_key_inferred))?;
@@ -505,8 +534,6 @@ where
                 self.tyc.impose(term_key.equate_with(internal_key))?;
             }
             ExpressionKind::Function { name, type_param, args } => {
-                //transform Type into new internal types.
-                let types_vec: Vec<IAbstractType> = type_param.iter().map(|t| self.match_annotated_type(t)).collect();
                 // check for name in context
                 let fun_decl = self.hir.func_declaration(name);
                 //Generics
@@ -515,13 +542,12 @@ where
                     .iter()
                     .map(|gen| {
                         let gen_key: TcKey = self.tyc.new_term_key();
-                        let ty = self.match_annotated_type(gen);
-                        self.tyc.impose(gen_key.concretizes_explicit(ty)).map(|_| gen_key)
+                        self.bind_to_annotated_type(gen_key, gen).map(|_| gen_key)
                     })
                     .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
-                for (t, gen) in types_vec.iter().zip(generics.iter()) {
-                    self.tyc.impose(gen.concretizes_explicit(t.clone()))?;
+                for (t, gen) in type_param.iter().zip(generics.iter()) {
+                    self.bind_to_annotated_type(*gen, t)?;
                 }
                 //FOR: type.captures(generic)
                 args.iter()
@@ -564,42 +590,13 @@ where
             | AnnotatedType::Option(_)
             | AnnotatedType::Tuple(_) => {
                 let replace_key = self.tyc.new_term_key();
-                self.tyc.impose(replace_key.concretizes_explicit(self.match_annotated_type(at)))?;
+                self.bind_to_annotated_type(replace_key, at)?;
                 Ok(replace_key)
             }
         }
     }
 
-    fn match_annotated_type(&self, t: &AnnotatedType) -> IAbstractType {
-        match t {
-            AnnotatedType::String => IAbstractType::TString,
-            AnnotatedType::Int(x) => IAbstractType::SInteger(*x),
-            AnnotatedType::Float(f) => IAbstractType::Float(*f),
-            AnnotatedType::UInt(u) => IAbstractType::UInteger(*u),
-            AnnotatedType::Bool => IAbstractType::Bool,
-            AnnotatedType::Bytes => IAbstractType::Bytes,
-            AnnotatedType::Option(op) => IAbstractType::Option(self.match_annotated_type(&(**op)).into()),
-            AnnotatedType::Tuple(v) => {
-                IAbstractType::Tuple(v.iter().map(|inner| self.match_annotated_type(inner)).collect())
-            }
-            AnnotatedType::Numeric => IAbstractType::Numeric,
-            AnnotatedType::Param(_, _) => {
-                unreachable!("Param-Type only reachable in function calls and Param-Output calls")
-            }
-        }
-    }
-
-    fn match_const_literal(&self, lit: &ConstantLiteral) -> IAbstractType {
-        match lit {
-            ConstantLiteral::Str(_) => IAbstractType::TString,
-            ConstantLiteral::Bool(_) => IAbstractType::Bool,
-            ConstantLiteral::Integer(_) => IAbstractType::Integer,
-            ConstantLiteral::SInt(_) => IAbstractType::SInteger(1),
-            ConstantLiteral::Float(_) => IAbstractType::Float(1),
-        }
-    }
-
-    pub(crate) fn handle_error(&self, err: TcErr<IAbstractType>) -> <IAbstractType as Abstract>::Err {
+    pub(crate) fn handle_error(&self, err: TcErr<IAbstractType>) -> String {
         let primal_key;
         let msg = match err {
             TcErr::ChildAccessOutOfBound(key, ty, n) => {
@@ -632,18 +629,22 @@ where
                     ),
                 }
             }
-            TcErr::ExactTypeViolation(key, resolved, bound2) => {
-                primal_key = key;
-                format!("Type Bound: Resolved type {:?} for key {:?} does not match bound {:?}", resolved, key, bound2)
-                //Todo: fix me
-            }
-            TcErr::ConflictingExactBounds(key, bound1, bound2) => {
+            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
                 primal_key = key;
                 format!(
-                    "Incompatible bounds {:?} and {:?} applied on {:?}",
-                    bound1,
-                    bound2,
-                    self.node_key.get_by_right(&key).unwrap()
+                    "Arity Clash: Found type {:?} for key {:?} inferred arity: {}  but got: {}",
+                    variant, key, inferred_arity, reported_arity
+                )
+            }
+            TcErr::Construction(key, bound1, err) => {
+                primal_key = key;
+                format!("Could not construct concrete type for: {:?} of key: {:?}\nreason: {}", bound1, key, err)
+            }
+            TcErr::ChildConstruction(parent_key, index, child, reason) => {
+                primal_key = parent_key;
+                format!(
+                    "Could not construct concrete type for: {:?} of parent: {:?} at index {}\nreason: {}",
+                    child, parent_key, index, reason
                 )
             }
         };
@@ -652,7 +653,7 @@ where
         } else {
             self.handler.error(&msg);
         }
-        msg
+        msg.to_string()
     }
 }
 
@@ -730,8 +731,7 @@ mod value_type_tests {
     fn complete_check(spec: &str) -> usize {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
-        //let pacing_tt = ltc.pacing_type_infer().unwrap(); //Todo: Remove me
-        let pacing_tt = HashMap::new();
+        let pacing_tt = ltc.pacing_type_infer().unwrap();
         assert!(ltc.value_type_infer(&pacing_tt).is_ok());
         test_box.handler.emitted_errors()
     }
@@ -739,8 +739,7 @@ mod value_type_tests {
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, IConcreteType>) {
         let test_box = setup_hir(spec);
         let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
-        //let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");//Todo: Remove me
-        let pacing_tt = HashMap::new();
+        let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
         let tt_result = ltc.value_type_infer(&pacing_tt);
         if let Err(ref e) = tt_result {
             eprintln!("{}", e.clone());

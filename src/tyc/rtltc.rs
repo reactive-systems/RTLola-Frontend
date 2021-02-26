@@ -1,17 +1,14 @@
-use super::*;
-
 use crate::common_ir::StreamReference;
-use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind};
+use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
-use crate::reporting::{Handler, Span};
+use crate::reporting::Handler;
 use crate::tyc::pacing_types::{ConcreteStreamPacing, PacingError};
 use crate::tyc::{
     pacing_ast_climber::Context as PacingContext, pacing_types::ConcretePacingType, value_ast_climber::ValueContext,
     value_types::IConcreteType,
 };
 use crate::RTLolaHIR;
-use rusttyc::types::ReifiedTypeTable;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -185,20 +182,17 @@ where
             return None;
         }
 
-        let pacing_key_span = ctx.pacing_key_span.clone();
-        let exp_key_span = ctx.expression_key_span.clone();
-
         let ctt: HashMap<NodeId, ConcreteStreamPacing> = ctx
             .node_key
             .iter()
             .map(|(id, key)| {
-                let exp_pacing = pacing_tt[key.exp_pacing].clone();
-                let spawn_pacing = pacing_tt[key.spawn.0].clone();
-                let spawn_condition_expression = exp_tt[key.spawn.1].clone();
-                let filter = exp_tt[key.filter].clone();
-                let close = exp_tt[key.close].clone();
+                let exp_pacing = pacing_tt[&key.exp_pacing].clone();
+                let spawn_pacing = pacing_tt[&key.spawn.0].clone();
+                let spawn_condition_expression = exp_tt[&key.spawn.1].clone();
+                let filter = exp_tt[&key.filter].clone();
+                let close = exp_tt[&key.close].clone();
 
-                Some((
+                (
                     *id,
                     ConcreteStreamPacing {
                         expression_pacing: exp_pacing,
@@ -206,7 +200,7 @@ where
                         filter,
                         close,
                     },
-                ))
+                )
             })
             .collect();
 
@@ -256,14 +250,9 @@ where
             println!("{:?}", (*nid, tt[*k].clone()));
         }
         */
-        let rtt_r = tt.try_reified();
-        if rtt_r.is_err() {
-            return Err(format!("Typetable not reifiable: {:?}", rtt_r.unwrap_err()));
-        }
-        let rtt: ReifiedTypeTable<IConcreteType> = rtt_r.unwrap();
         let mut result_map = HashMap::new();
         for (nid, k) in ctx.node_key.iter() {
-            result_map.insert(*nid, rtt[*k].clone());
+            result_map.insert(*nid, tt[k].clone());
         }
         Ok(result_map)
     }

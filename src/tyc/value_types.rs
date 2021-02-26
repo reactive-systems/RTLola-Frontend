@@ -1,4 +1,4 @@
-use super::rusttyc::Partial;
+use super::rusttyc::{Arity, Partial};
 use super::*;
 use rusttyc::{Constructable, Variant};
 use std::cmp::max;
@@ -12,7 +12,8 @@ pub enum IAbstractType {
     UInteger(u32),
     Float(u32),
     Bool,
-    Tuple,
+    AnyTuple,
+    Tuple(usize),
     TString,
     Bytes,
     Option,
@@ -22,27 +23,46 @@ impl Variant for IAbstractType {
     type Err = String;
 
     fn meet(lhs: Partial<IAbstractType>, rhs: Partial<IAbstractType>) -> Result<Partial<IAbstractType>, Self::Err> {
+        fn tuple_meet(least_arity: usize, size: usize) -> Result<(IAbstractType, usize), String> {
+            if least_arity <= size {
+                Ok((Tuple(size), size))
+            } else {
+                Err(format!("AnyTuple of length {} cannot be unified with tuple of length {}", least_arity, size))
+            }
+        }
         use IAbstractType::*;
+        dbg!(&rhs, &lhs);
         let (new_var, min_arity) = match (lhs.variant, rhs.variant) {
-            (Any, other) | (other, Any) => Ok((other.clone(), 0)),
+            (Any, other) => Ok((other.clone(), rhs.least_arity)),
+            (other, Any) => Ok((other.clone(), lhs.least_arity)),
             (Numeric, Numeric) => Ok((Numeric, 0)),
             (Integer, Integer) => Ok((Integer, 0)),
-            (SInteger(l), SInteger(r)) => Ok((SInteger(max(*r, *l)), 0)),
-            (UInteger(l), UInteger(r)) => Ok((UInteger(max(*r, *l)), 0)),
-            (Float(l), Float(r)) => Ok((Float(max(*l, *r)), 0)),
+            (SInteger(l), SInteger(r)) => Ok((SInteger(max(r, l)), 0)),
+            (UInteger(l), UInteger(r)) => Ok((UInteger(max(r, l)), 0)),
+            (Float(l), Float(r)) => Ok((Float(max(l, r)), 0)),
             (Bool, Bool) => Ok((Bool, 0)),
             (Bool, other) | (other, Bool) => Err(format!("Bool not unifiable with {:?}", other)),
             (Numeric, Integer) | (Integer, Numeric) => Ok((Integer, 0)),
-            (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok((SInteger(*w), 0)),
-            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok((UInteger(*w), 0)),
-            (Numeric, Float(i)) | (Float(i), Numeric) => Ok((Float(*i), 0)),
-            (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok((SInteger(*x), 0)),
-            (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok((UInteger(*x), 0)),
+            (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok((SInteger(w), 0)),
+            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok((UInteger(w), 0)),
+            (Numeric, Float(i)) | (Float(i), Numeric) => Ok((Float(i), 0)),
+            (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok((SInteger(x), 0)),
+            (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok((UInteger(x), 0)),
             (Integer, other) | (other, Integer) => Err(format!("Integer and non-Integer {:?}", other)),
             (SInteger(_), other) | (other, SInteger(_)) => Err(format!("Int not unifiable with {:?}", other)),
             (UInteger(_), other) | (other, UInteger(_)) => Err(format!("UInt not unifiable with {:?}", other)),
-            (Tuple, Tuple) => Ok((Tuple, max(lhs.least_arity, rhs.least_arity))),
-            (Tuple, _) | (_, Tuple) => Err(String::from("Tuple unification only with other Tuples")),
+            (AnyTuple, AnyTuple) => Ok((AnyTuple, max(lhs.least_arity, rhs.least_arity))),
+            (AnyTuple, Tuple(size)) => tuple_meet(lhs.least_arity, size),
+            (Tuple(size), AnyTuple) => tuple_meet(rhs.least_arity, size),
+            (AnyTuple, _) | (_, AnyTuple) => Err(String::from("Tuple unification only with other Tuples")),
+            (Tuple(size_l), Tuple(size_r)) => {
+                if size_l == size_r {
+                    Ok((Tuple(size_l), size_l))
+                } else {
+                    Err(format!("Tuple of length {} cannot be unified with tuple of length {}", size_l, size_r))
+                }
+            }
+            (Tuple(_), _) | (_, Tuple(_)) => Err(String::from("Tuple unification only with other Tuples")),
             (TString, TString) => Ok((TString, 0)),
             (TString, _) | (_, TString) => Err(String::from("String unification only with other Strings")),
             (Bytes, Bytes) => Ok((Bytes, 0)),
@@ -50,13 +70,16 @@ impl Variant for IAbstractType {
             (Option, Option) => Ok((Option, 1)),
             (Option, _) | (_, Option) => Err(String::from("Option unification only with other Options")), //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
         }?;
+        Ok(Partial { variant: new_var, least_arity: min_arity })
     }
 
-    fn fixed_arity(&self) -> bool {
+    fn arity(&self) -> Arity {
         use IAbstractType::*;
         match self {
-            Any | Tuple => false,
-            _ => true,
+            Any | AnyTuple => Arity::Variable,
+            Tuple(x) => Arity::Fixed(*x),
+            Option => Arity::Fixed(1),
+            _ => Arity::Fixed(0),
         }
     }
 
@@ -90,6 +113,7 @@ impl Constructable for IAbstractType {
     fn construct(&self, children: &[IConcreteType]) -> Result<IConcreteType, String> {
         match self {
             IAbstractType::Any => Err("Cannot reify `Any`.".to_string()),
+            IAbstractType::AnyTuple => Err("Cannot reify AnyTuple".to_string()),
             IAbstractType::SInteger(w) if *w <= 8 => Ok(IConcreteType::Integer8),
             IAbstractType::SInteger(w) if *w <= 16 => Ok(IConcreteType::Integer16),
             IAbstractType::SInteger(w) if *w <= 32 => Ok(IConcreteType::Integer32),
@@ -113,7 +137,7 @@ impl Constructable for IAbstractType {
             */
             IAbstractType::Integer => Ok(IConcreteType::Integer32), //TODO REVIEW default case
             IAbstractType::Bool => Ok(IConcreteType::Bool),
-            IAbstractType::Tuple => Ok(IConcreteType::Tuple(children.into_vec())),
+            IAbstractType::Tuple(_) => Ok(IConcreteType::Tuple(children.to_vec())),
             IAbstractType::TString => Ok(IConcreteType::TString),
             IAbstractType::Bytes => Ok(IConcreteType::Byte),
             IAbstractType::Option => Ok(IConcreteType::Option(Box::new(children[0].clone()))),

@@ -1,4 +1,4 @@
-use super::rusttyc::Partial;
+use super::rusttyc::{Arity, Partial};
 use super::rusttyc::{Constructable, Variant};
 use crate::common_ir::{StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind};
@@ -89,12 +89,13 @@ pub(crate) enum PacingErrorKind {
     ParameterizationNeeded {
         who: Span,
         why: Span,
-        spawn: Option<(AbstractPacingType, AbstractExpressionType)>,
-        filter: Option<AbstractExpressionType>,
-        close: Option<AbstractExpressionType>,
+        spawn: Option<(ConcretePacingType, Expression)>,
+        filter: Option<Expression>,
+        close: Option<Expression>,
     },
+    PacingTypeMismatch(Option<Span>, ConcretePacingType, ConcretePacingType),
     ParameterizationNotAllowed(Span),
-    UnintuitivePacingWarning(Span, AbstractPacingType),
+    UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String),
     OtherPacingError(Option<Span>, String, Vec<AbstractPacingType>),
     OtherExpressionError(Option<Span>, String, Vec<AbstractExpressionType>),
@@ -202,7 +203,7 @@ impl ActivationCondition {
         ac
     }
 
-    pub(crate) fn parse(ast_expr: &Expression) -> Result<Self, PacingError> {
+    pub(crate) fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
         use ExpressionKind::*;
         match &ast_expr.kind {
             LoadConstant(c) => match c {
@@ -214,15 +215,13 @@ impl ActivationCondition {
                             Err(PacingErrorKind::MalformedAC(
                                 ast_expr.span.clone(),
                                 "Only 'True' is supported as literals in activation conditions.".into(),
-                            )
-                            .into())
+                            ))
                         }
                     }
                     _ => Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "Only 'True' is supported as literals in activation conditions.".into(),
-                    )
-                    .into()),
+                    )),
                 },
             },
             StreamAccess(sref, kind, args) => {
@@ -230,8 +229,7 @@ impl ActivationCondition {
                     return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
-                    )
-                    .into());
+                    ));
                 }
                 match kind {
                     StreamAccessKind::Sync => {}
@@ -239,16 +237,14 @@ impl ActivationCondition {
                         return Err(PacingErrorKind::MalformedAC(
                             ast_expr.span.clone(),
                             "An activation condition can only contain literals and binary operators.".into(),
-                        )
-                        .into());
+                        ));
                     }
                 }
                 if sref.is_output() {
                     return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only refer to input streams".into(),
-                    )
-                    .into());
+                    ));
                 }
                 Ok(ActivationCondition::Stream(*sref))
             }
@@ -257,8 +253,7 @@ impl ActivationCondition {
                     return Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
-                    )
-                    .into());
+                    ));
                 }
                 let ac_l = Self::parse(&v[0])?;
                 let ac_r = Self::parse(&v[1])?;
@@ -269,15 +264,13 @@ impl ActivationCondition {
                     _ => Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                    )
-                    .into()),
+                    )),
                 }
             }
             _ => Err(PacingErrorKind::MalformedAC(
                 ast_expr.span.clone(),
                 "An activation condition can only contain literals and binary operators.".into(),
-            )
-            .into()),
+            )),
         }
     }
 
@@ -390,14 +383,7 @@ impl PacingError {
             }
             ParameterizationNeeded { who, why, spawn, filter, close } => {
                 let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
-                    format!(
-                        "\nspawn @{} with <...>{}",
-                        pacing.to_string(names),
-                        match cond {
-                            AbstractExpressionType::Any => "".into(),
-                            AbstractExpressionType::Expression(e) => format!(" if {}", e.pretty_string(names)),
-                        }
-                    )
+                    format!("\nspawn @{} with <...> if {}", pacing.to_string(names), cond.pretty_string(names))
                 });
                 let filter_str: String =
                     filter.map_or("".into(), |filter| format!("\nfilter {}", filter.pretty_string(names)));
@@ -442,6 +428,19 @@ impl PacingError {
                 .maybe_add_span_with_label(self.key2.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
                 .emit();
             }
+            PacingTypeMismatch(span, got, expected) => {
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\nExpected pacing type: {} but got: {}",
+                        expected.to_string(names),
+                        got.to_string(names)
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(span, Some("here"), true)
+                .emit();
+            }
         }
     }
 }
@@ -467,7 +466,7 @@ impl From<TcErr<AbstractPacingType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::Construction(key, preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+            TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
             TcErr::ChildConstruction(key, idx, preliminary, kind) => {
                 PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
             }
@@ -475,9 +474,9 @@ impl From<TcErr<AbstractPacingType>> for PacingError {
     }
 }
 
-impl Into<PacingError> for PacingErrorKind {
-    fn into(self) -> PacingError {
-        PacingError { kind: self, key1: None, key2: None }
+impl From<PacingErrorKind> for PacingError {
+    fn from(kind: PacingErrorKind) -> Self {
+        PacingError { kind, key1: None, key2: None }
     }
 }
 
@@ -502,7 +501,7 @@ impl From<TcErr<AbstractExpressionType>> for PacingError {
                     key2: None,
                 }
             }
-            TcErr::Construction(key, preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+            TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
             TcErr::ChildConstruction(key, idx, preliminary, kind) => {
                 PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
             }
@@ -515,7 +514,7 @@ impl From<TcErr<AbstractExpressionType>> for PacingError {
 impl std::fmt::Display for Freq {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Freq::Any => write!(f, "Any"),
+            Freq::Any => write!(f, "Periodic"),
             Freq::Fixed(freq) => {
                 write!(f, "{}", freq.clone().into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation))
             }
@@ -574,14 +573,14 @@ impl Variant for AbstractPacingType {
         assert_eq!(rhs.least_arity, 0, "Suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
             (Any, x) | (x, Any) => Ok(x.clone()),
-            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac.clone()), Periodic(*f))),
-            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(*f), Event(ac.clone()))),
+            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac.clone()), Periodic(f))),
+            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(f), Event(ac.clone()))),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1.clone().and(ac2.clone()))),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
-                    Ok(Periodic(*f2))
+                    Ok(Periodic(f2))
                 } else if let Freq::Any = f2 {
-                    Ok(Periodic(*f1))
+                    Ok(Periodic(f1))
                 } else {
                     Ok(Periodic(f1.conjunction(&f2)))
                 }
@@ -590,8 +589,8 @@ impl Variant for AbstractPacingType {
         Ok(Partial { variant: new_var, least_arity: 0 })
     }
 
-    fn fixed_arity(&self) -> bool {
-        true
+    fn arity(&self) -> Arity {
+        Arity::Fixed(0)
     }
 
     fn top() -> Self {
@@ -608,7 +607,7 @@ impl Constructable for AbstractPacingType {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
             AbstractPacingType::Periodic(freq) => match freq {
-                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(f)),
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(*f)),
                 Freq::Any => Ok(ConcretePacingType::Periodic),
             },
         }
@@ -661,8 +660,8 @@ impl Variant for AbstractExpressionType {
         Ok(Partial { variant: new_var, least_arity: 0 })
     }
 
-    fn fixed_arity(&self) -> bool {
-        true
+    fn arity(&self) -> Arity {
+        Arity::Fixed(0)
     }
 
     fn top() -> Self {
@@ -671,7 +670,7 @@ impl Variant for AbstractExpressionType {
 }
 
 impl Constructable for AbstractExpressionType {
-    type Type = AbstractExpressionType;
+    type Type = Expression;
 
     fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
         assert!(children.is_empty(), "Suspicious children");
@@ -689,7 +688,6 @@ impl Constructable for AbstractExpressionType {
             }),
             Self::Expression(e) => Ok(e.clone()),
         }
-        Ok(self.clone())
     }
 }
 
@@ -714,6 +712,17 @@ impl AbstractExpressionType {
 }
 
 impl ConcretePacingType {
+    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+        match self {
+            ConcretePacingType::Event(ac) => ac.to_string(names),
+            ConcretePacingType::FixedPeriodic(freq) => {
+                freq.clone().into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation).to_string()
+            }
+            ConcretePacingType::Periodic => "Periodic".to_string(),
+            ConcretePacingType::Constant => "Constant".to_string(),
+        }
+    }
+
     pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
         match self {
             ConcretePacingType::FixedPeriodic(f) => Ok(AbstractPacingType::Periodic(Freq::Fixed(*f))),
@@ -726,12 +735,12 @@ impl ConcretePacingType {
         ac: &AC,
         hir: &RTLolaHIR<M>,
     ) -> Result<Self, PacingErrorKind> {
-        Ok(match ac {
-            AC::Frequency { span, value } => ConcretePacingType::FixedPeriodic(*value),
+        match ac {
+            AC::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
             AC::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 ActivationCondition::parse(expr).map(|pac| ConcretePacingType::Event(pac))
             }
-        })
+        }
     }
 }
