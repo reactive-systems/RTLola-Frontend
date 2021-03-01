@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use uom::lib::sync::RwLock;
 
 /// Represents a location in the source
+// Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Span {
     /// Direct code reference through byte offset

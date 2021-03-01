@@ -1,6 +1,6 @@
-use super::*;
 extern crate regex;
 
+use super::rusttyc::TypeTable;
 use crate::common_ir::{Offset, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
@@ -8,6 +8,7 @@ use crate::hir::modes::HirMode;
 use crate::hir::{AnnotatedType, Input, Output, Trigger, Window};
 use crate::reporting::{Handler, Span};
 use crate::tyc::pacing_types::ConcreteStreamPacing;
+use crate::tyc::value_types::IConcreteType;
 use crate::tyc::{pacing_types::Freq, rtltc::NodeId, value_types::IAbstractType};
 use crate::RTLolaHIR;
 use bimap::BiMap;
@@ -34,6 +35,7 @@ where
     pub(crate) handler: &'a Handler,
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
+    pub(crate) annotated_checks: HashMap<TcKey, (IConcreteType, Option<TcKey>)>,
 }
 
 impl<'a, M> ValueContext<'a, M>
@@ -49,6 +51,7 @@ where
         let mut tyc = TypeChecker::new();
         let mut node_key = BiMap::new();
         let key_span = HashMap::new();
+        let annotated_checks = HashMap::new();
 
         for input in hir.inputs() {
             let key = tyc.get_var_key(&Variable { name: input.name.clone() });
@@ -77,6 +80,7 @@ where
             handler,
             hir,
             pacing_tt,
+            annotated_checks,
         }
     }
 
@@ -93,6 +97,18 @@ where
     pub fn bind_to_annotated_type(
         &mut self,
         target: TcKey,
+        bound: &AnnotatedType,
+        conflict_key: Option<TcKey>,
+    ) -> Result<(), TcErr<IAbstractType>> {
+        let concrete_type =
+            IConcreteType::from_annotated_type(bound).map_err(|reason| TcErr::Bound(target, None, reason))?;
+        self.annotated_checks.insert(target, (concrete_type, conflict_key));
+        Ok(())
+    }
+
+    pub fn concretizes_annotated_type(
+        &mut self,
+        target: TcKey,
         annotated_type: &AnnotatedType,
     ) -> Result<(), TcErr<IAbstractType>> {
         match annotated_type {
@@ -105,13 +121,13 @@ where
             AnnotatedType::Option(op) => {
                 self.tyc.impose(target.concretizes_explicit(IAbstractType::Option))?;
                 let child_key = self.tyc.get_child_key(target, 0)?;
-                self.bind_to_annotated_type(child_key, op.as_ref())
+                self.concretizes_annotated_type(child_key, op.as_ref())
             }
             AnnotatedType::Tuple(children) => {
                 self.tyc.impose(target.concretizes_explicit(IAbstractType::Tuple(children.len())))?;
                 for (ix, child) in children.iter().enumerate() {
                     let child_key = self.tyc.get_child_key(target, ix)?;
-                    self.bind_to_annotated_type(child_key, child)?;
+                    self.concretizes_annotated_type(child_key, child)?;
                 }
                 Ok(())
             }
@@ -124,10 +140,10 @@ where
 
     pub fn input_infer(&mut self, input: &Input) -> Result<TcKey, TcErr<IAbstractType>> {
         let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
-        dbg!(term_key);
         //Annotated Type
 
-        self.bind_to_annotated_type(term_key, &input.annotated_type)?;
+        self.concretizes_annotated_type(term_key, &input.annotated_type)?;
+        self.bind_to_annotated_type(term_key, &input.annotated_type, None)?;
 
         /*
         let mut param_types = Vec::new();
@@ -151,7 +167,6 @@ where
 
     pub fn output_infer(&mut self, out: &Output) -> Result<TcKey, TcErr<IAbstractType>> {
         let out_key = *self.node_key.get_by_left(&NodeId::SRef(out.sr)).expect("Added in constructor");
-        dbg!(out_key);
 
         let mut param_types = Vec::new();
         for param in &out.params {
@@ -161,7 +176,8 @@ where
             self.key_span.insert(param_key, param.span.clone());
 
             if let Some(a_ty) = param.annotated_type.as_ref() {
-                self.bind_to_annotated_type(param_key, a_ty)?;
+                self.concretizes_annotated_type(param_key, a_ty)?;
+                self.bind_to_annotated_type(param_key, a_ty, None)?;
             }
             param_types.push(param_key);
         }
@@ -172,18 +188,21 @@ where
             //chek target exression type matches parameter type
             if let Some(spawn) = opt_spawn {
                 let spawn_target_key = self.expression_infer(spawn, None)?;
-                if param_types.len() > 1 {
-                    self.tyc.impose(spawn_target_key.concretizes_explicit(IAbstractType::Tuple(param_types.len())))?;
-                    let parameter_tuple = self.tyc.new_term_key();
-                    for (ix, p) in param_types.iter().enumerate() {
-                        let child = self.tyc.get_child_key(parameter_tuple, ix)?;
-                        self.tyc.impose(child.equate_with(*p))?;
+                match param_types.len() {
+                    0 => return Err(TcErr::Bound(spawn_target_key, None, "Spawn condition without parameters".into())),
+                    1 => {
+                        self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
                     }
-                    self.tyc.impose(parameter_tuple.equate_with(spawn_target_key))?;
-                } else if param_types.len() == 1 {
-                    self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
-                } else {
-                    return Err(TcErr::Bound(spawn_target_key, None, format!("Spawn condition without parameters")));
+                    _ => {
+                        self.tyc
+                            .impose(spawn_target_key.concretizes_explicit(IAbstractType::Tuple(param_types.len())))?;
+                        let parameter_tuple = self.tyc.new_term_key();
+                        for (ix, p) in param_types.iter().enumerate() {
+                            let child = self.tyc.get_child_key(parameter_tuple, ix)?;
+                            self.tyc.impose(child.equate_with(*p))?;
+                        }
+                        self.tyc.impose(parameter_tuple.equate_with(spawn_target_key))?;
+                    }
                 }
             }
             if let Some(cond) = opt_cond {
@@ -197,9 +216,10 @@ where
             self.expression_infer(filter, Some(IAbstractType::Bool))?;
         }
 
-        let expression_key = dbg!(self.expression_infer(self.hir.expr(out.sr), None)?);
+        let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
         if let Some(a_ty) = out.annotated_type.as_ref() {
-            self.bind_to_annotated_type(out_key, a_ty)?;
+            self.concretizes_annotated_type(out_key, a_ty)?;
+            self.bind_to_annotated_type(out_key, a_ty, Some(expression_key))?;
         }
 
         self.tyc.impose(out_key.equate_with(expression_key))?;
@@ -220,8 +240,7 @@ where
         exp: &Expression,
         target_type: Option<IAbstractType>,
     ) -> Result<TcKey, TcErr<IAbstractType>> {
-        let term_key: TcKey = dbg!(self.tyc.new_term_key());
-        dbg!(&exp);
+        let term_key: TcKey = self.tyc.new_term_key();
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
         self.key_span.insert(term_key, exp.span.clone());
         if let Some(t) = target_type {
@@ -233,17 +252,13 @@ where
                 let cons_lit = match c {
                     Constant::BasicConstant(lit) => lit,
                     Constant::InlinedConstant(lit, anno_ty) => {
-                        self.bind_to_annotated_type(term_key, anno_ty)?;
+                        self.concretizes_annotated_type(term_key, anno_ty)?;
+                        self.bind_to_annotated_type(term_key, anno_ty, None)?;
                         lit
                     }
                 };
                 let literal_type = self.match_const_literal(cons_lit);
                 self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
-                //dbg!(&literal_type);
-                // Todo: How to check this now?
-                /*if !matches!(anno_ty, IAbstractType::Any) {
-                    self.tyc.impose(term_key.has_exactly_type(anno_ty))?;
-                }*/
             }
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
@@ -280,7 +295,6 @@ where
 
                 match kind {
                     StreamAccessKind::Sync => {
-                        dbg!(&term_key, &target_key);
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
                     StreamAccessKind::DiscreteWindow(_wref) | StreamAccessKind::SlidingWindow(_wref) => {
@@ -310,7 +324,7 @@ where
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
                             WindowOperation::Integral => {
-                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?; //TODO maybe numeric
+                                self.tyc.impose(target_key.concretizes_explicit(IAbstractType::Numeric))?;
                                 if wait {
                                     self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
@@ -346,11 +360,8 @@ where
                     }
                     StreamAccessKind::Offset(off) => match off {
                         Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
-                            dbg!(term_key);
-                            dbg!(target_key);
                             self.tyc.impose(term_key.concretizes_explicit(IAbstractType::Option))?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                            dbg!(inner_key);
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
                         Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
@@ -510,10 +521,10 @@ where
             }
 
             ExpressionKind::TupleAccess(expr, idx) => {
-                let ex_key = dbg!(self.expression_infer(expr, None)?);
+                let ex_key = self.expression_infer(expr, None)?;
                 self.tyc.impose(ex_key.concretizes_explicit(IAbstractType::AnyTuple))?;
 
-                let accessed_child = dbg!(self.tyc.get_child_key(ex_key, *idx)?);
+                let accessed_child = self.tyc.get_child_key(ex_key, *idx)?;
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
             }
 
@@ -541,12 +552,13 @@ where
                     .iter()
                     .map(|gen| {
                         let gen_key: TcKey = self.tyc.new_term_key();
-                        self.bind_to_annotated_type(gen_key, gen).map(|_| gen_key)
+                        self.concretizes_annotated_type(gen_key, gen).map(|_| gen_key)
                     })
                     .collect::<Result<Vec<TcKey>, TcErr<IAbstractType>>>()?;
 
                 for (t, gen) in type_param.iter().zip(generics.iter()) {
-                    self.bind_to_annotated_type(*gen, t)?;
+                    self.concretizes_annotated_type(*gen, t)?;
+                    self.bind_to_annotated_type(*gen, t, None)?;
                 }
                 //FOR: type.captures(generic)
                 args.iter()
@@ -589,10 +601,27 @@ where
             | AnnotatedType::Option(_)
             | AnnotatedType::Tuple(_) => {
                 let replace_key = self.tyc.new_term_key();
-                self.bind_to_annotated_type(replace_key, at)?;
+                self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
             }
         }
+    }
+
+    pub(crate) fn check_explicit_bounds(
+        annotated_checks: HashMap<TcKey, (IConcreteType, Option<TcKey>)>,
+        tt: &TypeTable<IAbstractType>,
+    ) -> Vec<TcErr<IAbstractType>> {
+        annotated_checks
+            .into_iter()
+            .filter_map(|(target, (bound, conflict))| {
+                let resolved = tt[&target].clone();
+                if resolved != bound {
+                    Some(TcErr::Bound(target, conflict, "Inferred type does not match annotated type".to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn handle_error(&self, err: TcErr<IAbstractType>) -> String {
@@ -623,7 +652,7 @@ where
                     Some(k2) => format!(
                         "Invalid type bound enforced on {:?} by {:?}: {}",
                         self.node_key.get_by_right(&key).unwrap(),
-                        self.node_key.get_by_right(&k2).unwrap(),
+                        self.node_key.get_by_right(&k2),
                         msg
                     ),
                 }
@@ -652,7 +681,7 @@ where
         } else {
             self.handler.error(&msg);
         }
-        msg.to_string()
+        msg
     }
 }
 
@@ -801,7 +830,6 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //Todo: Fix when tuples are implemented
     fn parametric_access_default() {
         let spec = "output i(a: Int8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true):= if b then a else 0 \n output o(x) spawn @1Hz with 42 := i(1,false).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
@@ -813,9 +841,8 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //Todo: Fix when tuples are implemented
     fn parametric_declaration_x() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1";
+        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true) := 1";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
         assert_eq!(0, complete_check(spec));
@@ -823,9 +850,8 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //Todo: Fix when tuples are implemented
     fn parametric_declaration_param_infer() {
-        let spec = "output x(a: UInt8, b: Bool) @1Hz := a";
+        let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true) := a";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
         assert_eq!(0, complete_check(spec));
@@ -834,15 +860,38 @@ mod value_type_tests {
     }
 
     #[test]
-    #[ignore] //Todo: Fix when tuples are implemented
     fn parametric_declaration() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz := 1 output y @1Hz := x(1, false)";
+        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true) := 1 output y @1Hz := x(1, false).hold().defaults(to:5)";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.output("x");
         let output_2_id = tb.output("y");
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(output_id)], IConcreteType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_2_id)], IConcreteType::Integer8);
+    }
+
+    #[test]
+    fn parametric_declaration_param_two_many() {
+        let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true, false) := a";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn parametric_declaration_param_two_few() {
+        let spec = "output x(a: UInt8, b: Bool, c:String) @1Hz spawn @1Hz with (5, true) := a";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn parametric_declaration_param_infer2() {
+        let spec = "output x (a, b) @1Hz spawn @1Hz with (5, true) := 42";
+        let (tb, result_map) = check_value_type(spec);
+        let x = tb.output("x");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::Param(0, x)], IConcreteType::Integer32);
+        assert_eq!(result_map[&NodeId::Param(1, x)], IConcreteType::Bool);
     }
 
     #[test]
@@ -1266,7 +1315,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_tuple_access() {
         //TODO runs with 'in.1' not with 'in[0].1' - zero offset still optional result
-        let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
+        let spec = "input in: (Int8, Bool)\noutput out: Bool := in.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
         let in_id = tb.input("in");

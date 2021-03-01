@@ -93,12 +93,14 @@ pub(crate) enum PacingErrorKind {
         filter: Option<Expression>,
         close: Option<Expression>,
     },
-    PacingTypeMismatch(Option<Span>, ConcretePacingType, ConcretePacingType),
+    /// Bound, Inferred
+    PacingTypeMismatch(ConcretePacingType, ConcretePacingType),
     ParameterizationNotAllowed(Span),
     UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String),
     OtherPacingError(Option<Span>, String, Vec<AbstractPacingType>),
     OtherExpressionError(Option<Span>, String, Vec<AbstractExpressionType>),
+    SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -291,6 +293,37 @@ impl ActivationCondition {
     }
 }
 
+pub(crate) fn get_sync_accesses<M>(hir: &RTLolaHIR<M>, exp: &Expression) -> Vec<StreamReference>
+where
+    M: HirMode + WithIrExpr + 'static,
+{
+    match &exp.kind {
+        ExpressionKind::ArithLog(_, children)
+        | ExpressionKind::Tuple(children)
+        | ExpressionKind::Function { args: children, .. } => {
+            children.iter().flat_map(|c| get_sync_accesses(hir, c)).collect()
+        }
+        ExpressionKind::StreamAccess(target, kind, children) => match kind {
+            StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
+                vec![*target].into_iter().chain(children.iter().flat_map(|c| get_sync_accesses(hir, c))).collect()
+            }
+            _ => children.iter().flat_map(|c| get_sync_accesses(hir, c)).collect(),
+        },
+        ExpressionKind::Ite { condition, consequence, alternative } => get_sync_accesses(hir, condition.as_ref())
+            .into_iter()
+            .chain(get_sync_accesses(hir, consequence.as_ref()))
+            .chain(get_sync_accesses(hir, alternative.as_ref()))
+            .collect(),
+        ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(child, _) => {
+            get_sync_accesses(hir, child.as_ref())
+        }
+        ExpressionKind::Default { expr, default } => {
+            get_sync_accesses(hir, expr.as_ref()).into_iter().chain(get_sync_accesses(hir, default.as_ref())).collect()
+        }
+        _ => vec![],
+    }
+}
+
 impl PacingError {
     pub(crate) fn emit(
         &self,
@@ -428,19 +461,45 @@ impl PacingError {
                 .maybe_add_span_with_label(self.key2.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
                 .emit();
             }
-            PacingTypeMismatch(span, got, expected) => {
+            PacingTypeMismatch(bound, inferred) => {
+                let bound_str = bound.to_string(names);
+                let inferred_str = inferred.to_string(names);
+                let bound_span = self.key1.map(|k| pacing_spans[&k].clone());
+                let inferred_span = self.key2.and_then(|k| pacing_spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
                     format!(
-                        "In pacing type analysis:\nExpected pacing type: {} but got: {}",
-                        expected.to_string(names),
-                        got.to_string(names)
+                        "In pacing type analysis:\nInferred pacing type: {} but expected: {}",
+                        &inferred_str, &bound_str
                     )
                     .as_str(),
                 )
-                .maybe_add_span_with_label(span, Some("here"), true)
+                .maybe_add_span_with_label(bound_span, Some(format!("Expected {} here", bound_str).as_str()), true)
+                .maybe_add_span_with_label(
+                    inferred_span,
+                    Some(format!("Inferred {} here", inferred_str).as_str()),
+                    true,
+                )
                 .emit();
             }
+            SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
+                handler,
+                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
+            )
+            .add_span_with_label(
+                access_span,
+                Some(
+                    format!(
+                        "Found accessing stream here with: spawn @{} <...> if {}",
+                        access_pacing.to_string(names),
+                        access_condition.pretty_string(names)
+                    )
+                    .as_str(),
+                ),
+                true,
+            )
+            .add_span_with_label(target_span, Some("Found target stream here"), false)
+            .emit(),
         }
     }
 }
@@ -564,6 +623,43 @@ impl Freq {
     }
 }
 
+// trait Emittable2 {
+//     fn get_error(&self) -> PacingError;
+//     fn emit(&self, names: HashMap<StreamReference, &str>) {
+//         let err = self.get_error();
+//         err.emit();
+//     }
+// }
+//
+// impl<V: Variant<Err = PacingErrorKind>> Emittable2 for TcErr<V> {
+//     fn get_error(&self) -> PacingError {
+//         match self {
+//             TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
+//             TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
+//             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
+//                 let msg = "Child type out of bounds for type: ";
+//                 PacingError {
+//                     kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
+//                     key1: Some(key),
+//                     key2: None,
+//                 }
+//             }
+//             TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
+//                 let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
+//                 PacingError {
+//                     kind: PacingErrorKind::OtherExpressionError(None, msg, vec![variant]),
+//                     key1: Some(key),
+//                     key2: None,
+//                 }
+//             }
+//             TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+//             TcErr::ChildConstruction(key, idx, preliminary, kind) => {
+//                 PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
+//             }
+//         }
+//     }
+// }
+
 impl Variant for AbstractPacingType {
     type Err = PacingErrorKind;
 
@@ -572,10 +668,10 @@ impl Variant for AbstractPacingType {
         assert_eq!(lhs.least_arity, 0, "Suspicious child");
         assert_eq!(rhs.least_arity, 0, "Suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
-            (Any, x) | (x, Any) => Ok(x.clone()),
-            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac.clone()), Periodic(f))),
-            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(f), Event(ac.clone()))),
-            (Event(ac1), Event(ac2)) => Ok(Event(ac1.clone().and(ac2.clone()))),
+            (Any, x) | (x, Any) => Ok(x),
+            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac), Periodic(f))),
+            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(f), Event(ac))),
+            (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(ac2))),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
                     Ok(Periodic(f2))
@@ -644,16 +740,13 @@ impl Variant for AbstractExpressionType {
         assert_eq!(lhs.least_arity, 0, "Suspicious child");
         assert_eq!(rhs.least_arity, 0, "Suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
-            (Self::Any, x) | (x, Self::Any) => Ok(x.clone()),
-            (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x.clone()),
+            (Self::Any, x) | (x, Self::Any) => Ok(x),
+            (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
             (Self::Expression(a), Self::Expression(b)) => {
                 if a == b {
-                    Ok(Self::Expression(a.clone()))
+                    Ok(Self::Expression(a))
                 } else {
-                    Err(PacingErrorKind::IncompatibleExpressions(
-                        Self::Expression(a.clone()),
-                        Self::Expression(b.clone()),
-                    ))
+                    Err(PacingErrorKind::IncompatibleExpressions(Self::Expression(a), Self::Expression(b)))
                 }
             }
         }?;
@@ -739,7 +832,7 @@ impl ConcretePacingType {
             AC::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
             AC::Expr(eid) => {
                 let expr = hir.expression(*eid);
-                ActivationCondition::parse(expr).map(|pac| ConcretePacingType::Event(pac))
+                ActivationCondition::parse(expr).map(ConcretePacingType::Event)
             }
         }
     }

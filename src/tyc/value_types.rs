@@ -1,5 +1,6 @@
 use super::rusttyc::{Arity, Partial};
 use super::*;
+use crate::hir::AnnotatedType;
 use rusttyc::{Constructable, Variant};
 use std::cmp::max;
 
@@ -32,8 +33,8 @@ impl Variant for IAbstractType {
         }
         use IAbstractType::*;
         let (new_var, min_arity) = match (lhs.variant, rhs.variant) {
-            (Any, other) => Ok((other.clone(), rhs.least_arity)),
-            (other, Any) => Ok((other.clone(), lhs.least_arity)),
+            (Any, other) => Ok((other, rhs.least_arity)),
+            (other, Any) => Ok((other, lhs.least_arity)),
             (Numeric, Numeric) => Ok((Numeric, 0)),
             (Integer, Integer) => Ok((Integer, 0)),
             (SInteger(l), SInteger(r)) => Ok((SInteger(max(r, l)), 0)),
@@ -140,6 +141,41 @@ impl Constructable for IAbstractType {
             IAbstractType::TString => Ok(IConcreteType::TString),
             IAbstractType::Bytes => Ok(IConcreteType::Byte),
             IAbstractType::Option => Ok(IConcreteType::Option(Box::new(children[0].clone()))),
+        }
+    }
+}
+
+impl IConcreteType {
+    pub(crate) fn from_annotated_type(at: &AnnotatedType) -> Result<Self, String> {
+        match at {
+            AnnotatedType::String => Ok(IConcreteType::TString),
+            AnnotatedType::Bool => Ok(IConcreteType::Bool),
+            AnnotatedType::Bytes => Ok(IConcreteType::Byte),
+            AnnotatedType::Float(w) if *w <= 32 => Ok(IConcreteType::Float32),
+            AnnotatedType::Float(w) if *w <= 64 => Ok(IConcreteType::Float64),
+            AnnotatedType::Float(w) => Err(format!("Floating point number too wide, {}-bit not supported.", w)),
+            AnnotatedType::Int(w) if *w <= 8 => Ok(IConcreteType::Integer8),
+            AnnotatedType::Int(w) if *w <= 16 => Ok(IConcreteType::Integer16),
+            AnnotatedType::Int(w) if *w <= 32 => Ok(IConcreteType::Integer32),
+            AnnotatedType::Int(w) if *w <= 64 => Ok(IConcreteType::Integer64),
+            AnnotatedType::Int(w) => Err(format!("Integer too wide, {}-bit not supported.", w)),
+            AnnotatedType::UInt(w) if *w <= 8 => Ok(IConcreteType::UInteger8),
+            AnnotatedType::UInt(w) if *w <= 16 => Ok(IConcreteType::UInteger16),
+            AnnotatedType::UInt(w) if *w <= 32 => Ok(IConcreteType::UInteger32),
+            AnnotatedType::UInt(w) if *w <= 64 => Ok(IConcreteType::UInteger64),
+            AnnotatedType::UInt(w) => Err(format!("UInteger too wide, {}-bit not supported.", w)),
+            AnnotatedType::Tuple(children) => children
+                .iter()
+                .map(IConcreteType::from_annotated_type)
+                .collect::<Result<Vec<IConcreteType>, String>>()
+                .map(IConcreteType::Tuple),
+            AnnotatedType::Option(child) => {
+                IConcreteType::from_annotated_type(child).map(|child| IConcreteType::Option(Box::new(child)))
+            }
+            AnnotatedType::Numeric =>
+                Err("Cannot construct concrete type for numeric annotation. Either define a default (int/fixed) or restrict type.".to_string()),
+
+            AnnotatedType::Param(..) => Err("Cannot construct concrete type for parameter annotation".to_string()),
         }
     }
 }

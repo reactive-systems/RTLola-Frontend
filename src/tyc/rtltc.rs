@@ -175,6 +175,13 @@ where
             return None;
         }
 
+        for pe in PacingContext::<M>::check_explicit_bounds(ctx.annotated_checks, &pacing_tt) {
+            pe.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+        }
+        if self.handler.contains_error() {
+            return None;
+        }
+
         for pe in PacingContext::post_process(&self.hir, nid_key, &pacing_tt, &exp_tt) {
             pe.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
         }
@@ -242,7 +249,14 @@ where
             return Err(msg);
         }
         let tt = tt_r.expect("Ensured by previous cases");
-        dbg!(&tt);
+
+        let mut msg = String::new();
+        for err in ValueContext::<M>::check_explicit_bounds(ctx.annotated_checks.clone(), &tt) {
+            msg = ctx.handle_error(err);
+        }
+        if self.handler.contains_error() {
+            return Err(msg);
+        }
         /*
         let bm = ctx.node_key;
         for (nid, k) in bm.iter() {
