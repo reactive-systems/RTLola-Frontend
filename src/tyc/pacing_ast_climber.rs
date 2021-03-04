@@ -9,9 +9,9 @@ use crate::hir::{Input, Output, SpawnTemplate, Trigger, AC};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{
     get_sync_accesses, AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
-    PacingError, PacingErrorKind, StreamTypeKeys,
+    PacingErrorKind, StreamTypeKeys,
 };
-use crate::tyc::rtltc::NodeId;
+use crate::tyc::rtltc::{NodeId, TypeError};
 use crate::RTLolaHIR;
 use rusttyc::TypeTable;
 use rusttyc::{TcKey, TypeChecker};
@@ -22,7 +22,7 @@ pub struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct Context<'a, M>
+pub struct PacingTypeChecker<'a, M>
 where
     M: HirMode + WithIrExpr + 'static,
 {
@@ -32,27 +32,22 @@ where
     pub(crate) node_key: HashMap<NodeId, StreamTypeKeys>,
     pub(crate) pacing_key_span: HashMap<TcKey, Span>,
     pub(crate) expression_key_span: HashMap<TcKey, Span>,
-    pub(crate) names: HashMap<StreamReference, &'a str>,
+    pub(crate) names: &'a HashMap<StreamReference, &'a str>,
     pub(crate) annotated_checks: HashMap<TcKey, (ConcretePacingType, TcKey)>,
 }
 
-impl<'a, M> Context<'a, M>
+impl<'a, M> PacingTypeChecker<'a, M>
 where
     M: HirMode + WithIrExpr + 'static,
 {
-    pub(crate) fn new(hir: &'a RTLolaHIR<M>) -> Self {
+    pub(crate) fn new(hir: &'a RTLolaHIR<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
         let pacing_tyc = TypeChecker::new();
         let expression_tyc = TypeChecker::new();
         let pacing_key_span = HashMap::new();
         let expression_key_span = HashMap::new();
         let annotated_checks = HashMap::new();
-        let names: HashMap<StreamReference, &str> = hir
-            .inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(hir.outputs().map(|o| (o.sr, o.name.as_str())))
-            .collect();
-        let mut res = Context {
+        let mut res = PacingTypeChecker {
             hir,
             pacing_tyc,
             expression_tyc,
@@ -90,7 +85,7 @@ where
         &mut self,
         keys_l: StreamTypeKeys,
         keys_r: StreamTypeKeys,
-    ) -> Result<(), PacingError> {
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         self.pacing_tyc.impose(keys_l.exp_pacing.concretizes(keys_r.exp_pacing))?;
         self.pacing_tyc.impose(keys_l.spawn.0.concretizes(keys_r.spawn.0))?;
         self.expression_tyc.impose(keys_l.spawn.1.concretizes(keys_r.spawn.1))?;
@@ -160,27 +155,27 @@ where
         target: TcKey,
         bound: &AC,
         conflict_key: TcKey,
-    ) -> Result<(), PacingError> {
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let concrete_pacing = ConcretePacingType::from_ac(bound, self.hir)?;
         self.annotated_checks.insert(target, (concrete_pacing, conflict_key));
         Ok(())
     }
 
-    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), PacingError> {
+    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TypeError<PacingErrorKind>> {
         let ac = AbstractPacingType::Event(ActivationCondition::Stream(input.sr));
         let keys = self.node_key[&NodeId::SRef(input.sr)];
         self.pacing_tyc.impose(keys.exp_pacing.concretizes_explicit(ac))?;
         Ok(())
     }
 
-    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), PacingError> {
+    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         let trigger_key = self.node_key[&NodeId::SRef(trigger.sr)].exp_pacing;
         self.pacing_tyc.impose(trigger_key.equate_with(ex_key.exp_pacing))?;
         Ok(())
     }
 
-    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), PacingError> {
+    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), TypeError<PacingErrorKind>> {
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
         // Type Expression Pacing
@@ -230,7 +225,7 @@ where
         spawn: &SpawnTemplate,
         stream_keys: StreamTypeKeys,
         exp_keys: StreamTypeKeys,
-    ) -> Result<(), PacingError> {
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let spawn_target_keys = self.new_stream_key();
         let spawn_condition_keys = self.new_stream_key();
 
@@ -283,7 +278,7 @@ where
         filter_id: ExprId,
         stream_keys: StreamTypeKeys,
         exp_keys: StreamTypeKeys,
-    ) -> Result<(), PacingError> {
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let filter = self.hir.expression(filter_id);
         let filter_keys = self.expression_infer(filter)?;
 
@@ -302,7 +297,7 @@ where
         close_id: ExprId,
         stream_keys: StreamTypeKeys,
         exp_keys: StreamTypeKeys,
-    ) -> Result<(), PacingError> {
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let close = self.hir.expression(close_id);
         self.expression_infer(close)?;
 
@@ -314,7 +309,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, PacingError> {
+    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
         let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
         match &exp.kind {
@@ -335,25 +330,23 @@ where
                         });
                         if let Some(spawn_args) = target {
                             if spawn_args != args.clone() {
-                                return Err(PacingError {
-                                    kind: PacingErrorKind::Other(
-                                        exp.span.clone(),
-                                        format!(
-                                            "Expected spawn arguments: ({}) but found: ({})",
-                                            spawn_args
-                                                .iter()
-                                                .map(|e| e.pretty_string(&self.names))
-                                                .collect::<Vec<String>>()
-                                                .join(", "),
-                                            args.iter()
-                                                .map(|e| e.pretty_string(&self.names))
-                                                .collect::<Vec<String>>()
-                                                .join(", ")
-                                        ),
+                                return Err(PacingErrorKind::Other(
+                                    exp.span.clone(),
+                                    format!(
+                                        "Expected spawn arguments: ({}) but found: ({})",
+                                        spawn_args
+                                            .iter()
+                                            .map(|e| e.pretty_string(&self.names))
+                                            .collect::<Vec<String>>()
+                                            .join(", "),
+                                        args.iter()
+                                            .map(|e| e.pretty_string(&self.names))
+                                            .collect::<Vec<String>>()
+                                            .join(", ")
                                     ),
-                                    key1: None,
-                                    key2: None,
-                                });
+                                    vec![],
+                                )
+                                .into());
                             }
                         }
                     }
@@ -439,13 +432,13 @@ where
     pub(crate) fn check_explicit_bounds(
         checks: HashMap<TcKey, (ConcretePacingType, TcKey)>,
         tt: &TypeTable<AbstractPacingType>,
-    ) -> Vec<PacingError> {
+    ) -> Vec<TypeError<PacingErrorKind>> {
         checks
             .into_iter()
             .filter_map(|(key, (bound, conflict_key))| {
                 let inferred = tt[&key].clone();
                 if inferred != bound {
-                    Some(PacingError {
+                    Some(TypeError {
                         kind: PacingErrorKind::PacingTypeMismatch(bound, inferred),
                         key1: Some(key),
                         key2: Some(conflict_key),
@@ -481,7 +474,7 @@ where
         nid_key: HashMap<NodeId, StreamTypeKeys>,
         pacing_tt: &TypeTable<AbstractPacingType>,
         exp_tt: &TypeTable<AbstractExpressionType>,
-    ) -> Vec<PacingError> {
+    ) -> Vec<TypeError<PacingErrorKind>> {
         let mut res = vec![];
 
         // Check that every periodic stream has a frequency
@@ -564,8 +557,12 @@ where
                         .or_else(|| template.condition.map(|id| hir.expression(id).span.clone()))
                         .unwrap_or_else(|| output.span.clone());
                     res.push(
-                        PacingErrorKind::Other(span, "No instance is created as spawn pacing is 'Constant'".into())
-                            .into(),
+                        PacingErrorKind::Other(
+                            span,
+                            "No instance is created as spawn pacing is 'Constant'".into(),
+                            vec![],
+                        )
+                        .into(),
                     )
                 }
             }
@@ -618,6 +615,7 @@ where
                     PacingErrorKind::Other(
                         output.span.clone(),
                         "A spawn declaration is needed to initialize the parameters of the stream.".into(),
+                        vec![],
                     )
                     .into(),
                 );
@@ -629,6 +627,7 @@ where
                         PacingErrorKind::Other(
                             span,
                             "Found a spawn target declaration in a stream without parameter.".into(),
+                            vec![],
                         )
                         .into(),
                     );

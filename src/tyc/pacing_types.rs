@@ -6,6 +6,7 @@ use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
 use crate::hir::AC;
 use crate::reporting::{Diagnostic, Handler, Span};
+use crate::tyc::rtltc::{Emittable, TypeError};
 use crate::RTLolaHIR;
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
@@ -79,7 +80,7 @@ pub(crate) struct StreamTypeKeys {
     pub close: TcKey,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
@@ -97,17 +98,8 @@ pub(crate) enum PacingErrorKind {
     PacingTypeMismatch(ConcretePacingType, ConcretePacingType),
     ParameterizationNotAllowed(Span),
     UnintuitivePacingWarning(Span, ConcretePacingType),
-    Other(Span, String),
-    OtherPacingError(Option<Span>, String, Vec<AbstractPacingType>),
-    OtherExpressionError(Option<Span>, String, Vec<AbstractExpressionType>),
+    Other(Span, String, Vec<Box<dyn PrintableVariant>>),
     SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PacingError {
-    pub(crate) kind: PacingErrorKind,
-    pub(crate) key1: Option<TcKey>,
-    pub(crate) key2: Option<TcKey>,
 }
 
 /// The external definition of a pacing type
@@ -324,16 +316,19 @@ where
     }
 }
 
-impl PacingError {
-    pub(crate) fn emit(
-        &self,
+impl Emittable for PacingErrorKind {
+    fn emit(
+        self,
         handler: &Handler,
-        pacing_spans: &HashMap<TcKey, Span>,
-        exp_spans: &HashMap<TcKey, Span>,
+        spans: &[&HashMap<TcKey, Span>],
         names: &HashMap<StreamReference, &str>,
+        key1: Option<TcKey>,
+        key2: Option<TcKey>,
     ) {
+        let pacing_spans = spans[0];
+        let exp_spans = spans[1];
         use PacingErrorKind::*;
-        match self.kind.clone() {
+        match self {
             FreqAnnotationNeeded(span) => {
                 handler.error_with_span("In pacing type analysis:\nFrequency annotation needed.", span, Some("here"));
             }
@@ -351,10 +346,10 @@ impl PacingError {
                 );
             }
             MixedEventPeriodic(absty1, absty2) => {
-                let span1 = self.key1.and_then(|k| pacing_spans.get(&k).cloned());
-                let span2 = self.key2.and_then(|k| pacing_spans.get(&k).cloned());
-                let ty1 = absty1.to_string(names);
-                let ty2 = absty2.to_string(names);
+                let span1 = key1.and_then(|k| pacing_spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| pacing_spans.get(&k).cloned());
+                let ty1 = absty1.to_pretty_string(names);
+                let ty2 = absty2.to_pretty_string(names);
                 Diagnostic::error(
                     handler,
                     format!("In pacing type analysis:\nMixed an event and a periodic type: {} and {}", ty1, ty2)
@@ -365,25 +360,25 @@ impl PacingError {
                 .emit();
             }
             IncompatibleExpressions(e1, e2) => {
-                let span1 = self.key1.and_then(|k| exp_spans.get(&k).cloned());
-                let span2 = self.key2.and_then(|k| exp_spans.get(&k).cloned());
+                let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
                     format!(
                         "In pacing type analysis:\nIncompatible expressions: {} and {}",
-                        e1.pretty_string(names),
-                        e2.pretty_string(names)
+                        e1.to_pretty_string(names),
+                        e2.to_pretty_string(names)
                     )
                     .as_str(),
                 )
                 .maybe_add_span_with_label(
                     span1,
-                    Some(format!("Found {} here", e1.pretty_string(names)).as_str()),
+                    Some(format!("Found {} here", e1.to_pretty_string(names)).as_str()),
                     true,
                 )
                 .maybe_add_span_with_label(
                     span2,
-                    Some(format!("and found {} here", e2.pretty_string(names)).as_str()),
+                    Some(format!("and found {} here", e2.to_pretty_string(names)).as_str()),
                     false,
                 )
                 .emit();
@@ -402,8 +397,20 @@ impl PacingError {
                 .as_str(),
             )
             .emit(),
-            Other(span, reason) => {
-                handler.error_with_span(format!("In pacing type analysis:\n{}", reason).as_str(), span, Some("here"));
+            Other(span, reason, causes) => {
+                Diagnostic::error(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\n{} {}",
+                        reason,
+                        causes.iter().map(|ty| ty.to_pretty_string(names)).join(" and ")
+                    )
+                    .as_str(),
+                )
+                .add_span_with_label(span, Some("here"), true)
+                .maybe_add_span_with_label(key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
+                .maybe_add_span_with_label(key2.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
+                .emit();
             }
             ParameterizationNotAllowed(span) => {
                 Diagnostic::error(
@@ -431,41 +438,11 @@ impl PacingError {
                     ))
                     .emit();
             }
-            OtherPacingError(span, reason, causes) => {
-                Diagnostic::error(
-                    handler,
-                    format!(
-                        "In pacing type analysis:\n{} {}",
-                        reason,
-                        causes.iter().map(|ty| ty.to_string(names)).join(" and ")
-                    )
-                    .as_str(),
-                )
-                .maybe_add_span_with_label(span, Some("here"), true)
-                .maybe_add_span_with_label(self.key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(self.key2.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
-                .emit();
-            }
-            OtherExpressionError(span, reason, causes) => {
-                Diagnostic::error(
-                    handler,
-                    format!(
-                        "In pacing type analysis:\n{} {}",
-                        reason,
-                        causes.iter().map(|ty| ty.pretty_string(names)).join(" and ")
-                    )
-                    .as_str(),
-                )
-                .maybe_add_span_with_label(span, Some("here"), true)
-                .maybe_add_span_with_label(self.key1.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(self.key2.and_then(|k| exp_spans.get(&k).cloned()), Some("here"), true)
-                .emit();
-            }
             PacingTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_string(names);
                 let inferred_str = inferred.to_string(names);
-                let bound_span = self.key1.map(|k| pacing_spans[&k].clone());
-                let inferred_span = self.key2.and_then(|k| pacing_spans.get(&k).cloned());
+                let bound_span = key1.map(|k| pacing_spans[&k].clone());
+                let inferred_span = key2.and_then(|k| pacing_spans.get(&k).cloned());
                 Diagnostic::error(
                     handler,
                     format!(
@@ -504,65 +481,34 @@ impl PacingError {
     }
 }
 
-impl From<TcErr<AbstractPacingType>> for PacingError {
-    fn from(error: TcErr<AbstractPacingType>) -> Self {
-        match error {
-            TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
-            TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
+pub(crate) trait PrintableVariant: Debug {
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String;
+}
+
+impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
+    fn from(err: TcErr<V>) -> TypeError<PacingErrorKind> {
+        match err {
+            TcErr::KeyEquation(k1, k2, err) => TypeError { kind: err, key1: Some(k1), key2: Some(k2) },
+            TcErr::Bound(k1, k2, err) => TypeError { kind: err, key1: Some(k1), key2: k2 },
             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
                 let msg = "Child type out of bounds for type: ";
-                PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg.into(), vec![ty]),
+                TypeError {
+                    kind: PacingErrorKind::Other(Span::Unknown, msg.into(), vec![Box::new(ty)]),
                     key1: Some(key),
                     key2: None,
                 }
             }
             TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
                 let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
-                PacingError {
-                    kind: PacingErrorKind::OtherPacingError(None, msg, vec![variant]),
+                TypeError {
+                    kind: PacingErrorKind::Other(Span::Unknown, msg, vec![Box::new(variant)]),
                     key1: Some(key),
                     key2: None,
                 }
             }
-            TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
+            TcErr::Construction(key, _preliminary, kind) => TypeError { kind, key1: Some(key), key2: None },
             TcErr::ChildConstruction(key, idx, preliminary, kind) => {
-                PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
-            }
-        }
-    }
-}
-
-impl From<PacingErrorKind> for PacingError {
-    fn from(kind: PacingErrorKind) -> Self {
-        PacingError { kind, key1: None, key2: None }
-    }
-}
-
-impl From<TcErr<AbstractExpressionType>> for PacingError {
-    fn from(error: TcErr<AbstractExpressionType>) -> Self {
-        match error {
-            TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
-            TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
-            TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-                let msg = "Child type out of bounds for type: ";
-                PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
-                    key1: Some(key),
-                    key2: None,
-                }
-            }
-            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
-                let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
-                PacingError {
-                    kind: PacingErrorKind::OtherExpressionError(None, msg, vec![variant]),
-                    key1: Some(key),
-                    key2: None,
-                }
-            }
-            TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
-            TcErr::ChildConstruction(key, idx, preliminary, kind) => {
-                PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
+                TypeError { kind, key1: Some(key), key2: preliminary.children[idx] }
             }
         }
     }
@@ -582,7 +528,7 @@ impl std::fmt::Display for Freq {
 }
 
 impl Freq {
-    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, PacingError> {
+    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, PacingErrorKind> {
         let lhs = match self {
             Freq::Fixed(f) => f,
             Freq::Any => return Ok(false),
@@ -600,8 +546,8 @@ impl Freq {
             None => Err(PacingErrorKind::Other(
                 Span::Unknown,
                 format!("division of frequencies `{:?}`/`{:?}` failed", &lhs, &rhs),
-            )
-            .into()),
+                vec![],
+            )),
         }
     }
 
@@ -622,43 +568,6 @@ impl Freq {
         Freq::Fixed(UOM_Frequency::new::<hertz>(r))
     }
 }
-
-// trait Emittable2 {
-//     fn get_error(&self) -> PacingError;
-//     fn emit(&self, names: HashMap<StreamReference, &str>) {
-//         let err = self.get_error();
-//         err.emit();
-//     }
-// }
-//
-// impl<V: Variant<Err = PacingErrorKind>> Emittable2 for TcErr<V> {
-//     fn get_error(&self) -> PacingError {
-//         match self {
-//             TcErr::KeyEquation(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: Some(k2) },
-//             TcErr::Bound(k1, k2, err) => PacingError { kind: err, key1: Some(k1), key2: k2 },
-//             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
-//                 let msg = "Child type out of bounds for type: ";
-//                 PacingError {
-//                     kind: PacingErrorKind::OtherExpressionError(None, msg.into(), vec![ty]),
-//                     key1: Some(key),
-//                     key2: None,
-//                 }
-//             }
-//             TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => {
-//                 let msg = format!("Expected an arity of {} but got {} for type: ", inferred_arity, reported_arity);
-//                 PacingError {
-//                     kind: PacingErrorKind::OtherExpressionError(None, msg, vec![variant]),
-//                     key1: Some(key),
-//                     key2: None,
-//                 }
-//             }
-//             TcErr::Construction(key, _preliminary, kind) => PacingError { kind, key1: Some(key), key2: None },
-//             TcErr::ChildConstruction(key, idx, preliminary, kind) => {
-//                 PacingError { kind, key1: Some(key), key2: preliminary.children[idx] }
-//             }
-//         }
-//     }
-// }
 
 impl Variant for AbstractPacingType {
     type Err = PacingErrorKind;
@@ -710,15 +619,27 @@ impl Constructable for AbstractPacingType {
     }
 }
 
-impl AbstractPacingType {
-    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+impl PrintableVariant for AbstractPacingType {
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             AbstractPacingType::Event(ac) => ac.to_string(names),
             AbstractPacingType::Periodic(freq) => freq.to_string(),
             AbstractPacingType::Any => "Any".to_string(),
         }
     }
+}
 
+impl PrintableVariant for AbstractExpressionType {
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+        match self {
+            Self::Any => "Any".into(),
+            Self::AnyClose => "AnyClose".into(),
+            Self::Expression(e) => e.pretty_string(names),
+        }
+    }
+}
+
+impl AbstractPacingType {
     pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
         ac: &AC,
         hir: &RTLolaHIR<M>,
@@ -735,6 +656,10 @@ impl AbstractPacingType {
 
 impl Variant for AbstractExpressionType {
     type Err = PacingErrorKind;
+
+    fn top() -> Self {
+        AbstractExpressionType::Any
+    }
 
     fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         assert_eq!(lhs.least_arity, 0, "Suspicious child");
@@ -755,10 +680,6 @@ impl Variant for AbstractExpressionType {
 
     fn arity(&self) -> Arity {
         Arity::Fixed(0)
-    }
-
-    fn top() -> Self {
-        AbstractExpressionType::Any
     }
 }
 
@@ -790,16 +711,6 @@ impl std::fmt::Display for AbstractExpressionType {
             Self::Any => write!(f, "Any"),
             Self::AnyClose => write!(f, "AnyClose"),
             Self::Expression(e) => write!(f, "Exp({})", e),
-        }
-    }
-}
-
-impl AbstractExpressionType {
-    fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
-        match self {
-            Self::Any => "Any".into(),
-            Self::AnyClose => "AnyClose".into(),
-            Self::Expression(e) => e.pretty_string(names),
         }
     }
 }

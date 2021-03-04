@@ -1,12 +1,13 @@
+use super::rusttyc::TcKey;
 use crate::common_ir::StreamReference;
 use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
-use crate::reporting::Handler;
-use crate::tyc::pacing_types::{ConcreteStreamPacing, PacingError};
+use crate::reporting::{Handler, Span};
+use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::{
-    pacing_ast_climber::Context as PacingContext, pacing_types::ConcretePacingType, value_ast_climber::ValueContext,
-    value_types::IConcreteType,
+    pacing_ast_climber::PacingTypeChecker as PacingContext, pacing_types::ConcretePacingType,
+    value_ast_climber::ValueTypeChecker, value_types::ConcreteValueType,
 };
 use crate::RTLolaHIR;
 use std::cmp::Ordering;
@@ -19,6 +20,7 @@ where
 {
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) handler: &'a Handler,
+    pub(crate) names: HashMap<StreamReference, &'a str>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,12 +29,40 @@ pub enum NodeId {
     Expr(ExprId),
     Param(usize, StreamReference),
 }
+pub(crate) trait Emittable {
+    fn emit(
+        self,
+        handler: &Handler,
+        spans: &[&HashMap<TcKey, Span>],
+        names: &HashMap<StreamReference, &str>,
+        key1: Option<TcKey>,
+        key2: Option<TcKey>,
+    );
+}
+
+pub(crate) struct TypeError<K: Emittable> {
+    pub(crate) kind: K,
+    pub(crate) key1: Option<TcKey>,
+    pub(crate) key2: Option<TcKey>,
+}
+
+impl<E: Emittable> From<E> for TypeError<E> {
+    fn from(kind: E) -> Self {
+        TypeError { kind, key1: None, key2: None }
+    }
+}
+
+impl<K: Emittable> TypeError<K> {
+    fn emit(self, handler: &Handler, spans: &[&HashMap<TcKey, Span>], names: &HashMap<StreamReference, &str>) {
+        self.kind.emit(handler, spans, names, self.key1, self.key2)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TypeTable {
     stream_types: HashMap<StreamReference, StreamType>,
     expression_types: HashMap<ExprId, StreamType>,
-    param_types: HashMap<(StreamReference, usize), IConcreteType>,
+    param_types: HashMap<(StreamReference, usize), ConcreteValueType>,
 }
 
 impl TypeTable {
@@ -50,14 +80,14 @@ impl TypeTable {
 
     #[allow(dead_code)] // Todo: Actually use Typetable
     /// Returns the Value Type of the `idx`-th Parameter for the Stream `stream`.
-    pub fn get_parameter_type(&self, stream: StreamReference, idx: usize) -> IConcreteType {
+    pub fn get_parameter_type(&self, stream: StreamReference, idx: usize) -> ConcreteValueType {
         self.param_types[&(stream, idx)].clone()
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct StreamType {
-    pub value_ty: IConcreteType,
+    pub value_ty: ConcreteValueType,
     pub pacing_ty: ConcretePacingType,
     pub spawn: (ConcretePacingType, Expression),
     pub filter: Expression,
@@ -66,7 +96,7 @@ pub struct StreamType {
 
 impl StreamType {
     #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_value_type(&self) -> &IConcreteType {
+    pub fn get_value_type(&self) -> &ConcreteValueType {
         &self.value_ty
     }
 
@@ -86,7 +116,12 @@ where
     M: WithIrExpr + HirMode + 'static,
 {
     pub fn new(hir: &'a RTLolaHIR<M>, handler: &'a Handler) -> Self {
-        LolaTypeChecker { hir, handler }
+        let names: HashMap<StreamReference, &str> = hir
+            .inputs()
+            .map(|i| (i.sr, i.name.as_str()))
+            .chain(hir.outputs().map(|o| (o.sr, o.name.as_str())))
+            .collect();
+        LolaTypeChecker { hir, handler, names }
     }
 
     pub fn check(&mut self) -> Result<TypeTable, String> {
@@ -96,8 +131,8 @@ where
         };
 
         let value_tt = match self.value_type_infer(&pacing_tt) {
-            Ok(tt) => tt,
-            Err(e) => return Err(e),
+            Some(tt) => tt,
+            None => return Err("Invalid Value Types".to_string()),
         };
 
         let mut expression_map = HashMap::new();
@@ -130,28 +165,22 @@ where
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
-        let stream_names: HashMap<StreamReference, &str> = self
-            .hir
-            .inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(self.hir.outputs().map(|o| (o.sr, o.name.as_str())))
-            .collect();
-        let mut ctx = PacingContext::new(&self.hir);
+        let mut ctx = PacingContext::new(&self.hir, &self.names);
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
-                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
             }
         }
 
         for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
-                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
             }
         }
 
         for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
-                e.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
             }
         }
 
@@ -159,14 +188,14 @@ where
         let pacing_tt = match ctx.pacing_tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                TypeError::from(e).emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
                 return None;
             }
         };
         let exp_tt = match ctx.expression_tyc.type_check() {
             Ok(t) => t,
             Err(e) => {
-                PacingError::from(e).emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+                TypeError::from(e).emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
                 return None;
             }
         };
@@ -176,14 +205,14 @@ where
         }
 
         for pe in PacingContext::<M>::check_explicit_bounds(ctx.annotated_checks, &pacing_tt) {
-            pe.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+            pe.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
         }
         if self.handler.contains_error() {
             return None;
         }
 
         for pe in PacingContext::post_process(&self.hir, nid_key, &pacing_tt, &exp_tt) {
-            pe.emit(self.handler, &ctx.pacing_key_span, &ctx.expression_key_span, &stream_names);
+            pe.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
         }
         if self.handler.contains_error() {
             return None;
@@ -217,58 +246,47 @@ where
     pub(crate) fn value_type_infer(
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Result<HashMap<NodeId, IConcreteType>, String> {
-        //let value_tyc = rusttyc::TypeChecker::new();
-
-        let mut ctx = ValueContext::new(&self.hir, self.handler, pacing_tt);
-
+    ) -> Option<HashMap<NodeId, ConcreteValueType>> {
+        let mut ctx = ValueTypeChecker::new(&self.hir, pacing_tt);
         for input in self.hir.inputs() {
             if let Err(e) = ctx.input_infer(input) {
-                let msg = ctx.handle_error(e);
-                return Err(msg);
+                e.emit(self.handler, &[&ctx.key_span], &self.names)
             }
         }
 
         for output in self.hir.outputs() {
             if let Err(e) = ctx.output_infer(output) {
-                let msg = ctx.handle_error(e);
-                return Err(msg);
+                e.emit(self.handler, &[&ctx.key_span], &self.names)
             }
         }
 
         for trigger in self.hir.triggers() {
             if let Err(e) = ctx.trigger_infer(trigger) {
-                let msg = ctx.handle_error(e);
-                return Err(msg);
+                e.emit(self.handler, &[&ctx.key_span], &self.names)
             }
         }
 
-        let tt_r = ctx.tyc.clone().type_check();
-        if let Err(tc_err) = tt_r {
-            let msg: String = ctx.handle_error(tc_err);
-            return Err(msg);
+        if self.handler.contains_error() {
+            return None;
         }
-        let tt = tt_r.expect("Ensured by previous cases");
 
-        let mut msg = String::new();
-        for err in ValueContext::<M>::check_explicit_bounds(ctx.annotated_checks.clone(), &tt) {
-            msg = ctx.handle_error(err);
+        let tt = match ctx.tyc.clone().type_check() {
+            Ok(t) => t,
+            Err(e) => {
+                TypeError::from(e).emit(self.handler, &[&ctx.key_span], &self.names);
+                return None;
+            }
+        };
+
+        for err in ValueTypeChecker::<M>::check_explicit_bounds(ctx.annotated_checks.clone(), &tt) {
+            err.emit(self.handler, &[&ctx.key_span], &self.names);
         }
         if self.handler.contains_error() {
-            return Err(msg);
+            return None;
         }
-        /*
-        let bm = ctx.node_key;
-        for (nid, k) in bm.iter() {
-            //DEBUGG
-            println!("{:?}", (*nid, tt[*k].clone()));
-        }
-        */
-        let mut result_map = HashMap::new();
-        for (nid, k) in ctx.node_key.iter() {
-            result_map.insert(*nid, tt[k].clone());
-        }
-        Ok(result_map)
+
+        let result_map = ctx.node_key.into_iter().map(|(node, key)| (node, tt[&key].clone())).collect();
+        Some(result_map)
     }
 }
 
