@@ -9,7 +9,7 @@ use crate::hir::{Input, Output, SpawnTemplate, Trigger, AC};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{
     get_sync_accesses, AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, Freq,
-    PacingErrorKind, StreamTypeKeys,
+    InferredTemplates, PacingErrorKind, StreamTypeKeys,
 };
 use crate::tyc::rtltc::{NodeId, TypeError};
 use crate::RTLolaHIR;
@@ -599,9 +599,7 @@ where
                     PacingErrorKind::ParameterizationNeeded {
                         who: output.span.clone(),
                         why: hir.expression(output.expr_id).span.clone(),
-                        spawn,
-                        filter,
-                        close,
+                        inferred: Box::new(InferredTemplates { spawn, filter, close }),
                     }
                     .into(),
                 )

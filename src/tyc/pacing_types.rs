@@ -81,6 +81,13 @@ pub(crate) struct StreamTypeKeys {
 }
 
 #[derive(Debug)]
+pub(crate) struct InferredTemplates {
+    pub(crate) spawn: Option<(ConcretePacingType, Expression)>,
+    pub(crate) filter: Option<Expression>,
+    pub(crate) close: Option<Expression>,
+}
+
+#[derive(Debug)]
 pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
@@ -90,9 +97,7 @@ pub(crate) enum PacingErrorKind {
     ParameterizationNeeded {
         who: Span,
         why: Span,
-        spawn: Option<(ConcretePacingType, Expression)>,
-        filter: Option<Expression>,
-        close: Option<Expression>,
+        inferred: Box<InferredTemplates>,
     },
     /// Bound, Inferred
     PacingTypeMismatch(ConcretePacingType, ConcretePacingType),
@@ -421,7 +426,8 @@ impl Emittable for PacingErrorKind {
                 .add_note("Help: Consider using a hold access")
                 .emit();
             }
-            ParameterizationNeeded { who, why, spawn, filter, close } => {
+            ParameterizationNeeded { who, why, inferred } => {
+                let InferredTemplates { spawn, filter, close } = *inferred;
                 let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
                     format!("\nspawn @{} with <...> if {}", pacing.to_string(names), cond.pretty_string(names))
                 });

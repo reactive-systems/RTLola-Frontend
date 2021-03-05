@@ -872,9 +872,9 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
  * Transforms a textual representation of a Lola specification into
  * an AST representation.
  */
-pub fn parse<'a, 'b>(
-    content: &'a str,
-    handler: &'b Handler,
+pub fn parse(
+    content: &'_ str,
+    handler: &'_ Handler,
     config: FrontendConfig,
 ) -> Result<RTLolaAst, pest::error::Error<Rule>> {
     RTLolaParser::new(content, handler, config).parse()

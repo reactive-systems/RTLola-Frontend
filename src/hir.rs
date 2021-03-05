@@ -62,7 +62,7 @@ impl<M: HirMode> Hir<M> {
         self.triggers.len()
     }
 
-    pub fn all_streams<'a>(&'a self) -> impl Iterator<Item = SRef> + 'a {
+    pub fn all_streams(&'_ self) -> impl Iterator<Item = SRef> + '_ {
         self.inputs
             .iter()
             .map(|i| i.sr)
