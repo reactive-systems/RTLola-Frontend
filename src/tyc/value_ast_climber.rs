@@ -973,6 +973,30 @@ mod value_type_tests {
     }
 
     #[test]
+    fn test_boolean_operator() {
+        let spec = "
+input i_0: Bool
+output o_0: Bool @i_0 := !false
+output o_1: Bool @i_0 := !true
+output o_2: Bool @i_0 := false ∨ false
+output o_3: Bool @i_0 := false ∨ true
+output o_4: Bool @i_0 := true  || false
+output o_5: Bool @i_0 := true  || true
+output o_6: Bool @i_0 := false ∧ false
+output o_7: Bool @i_0 := false ∧ true
+output o_8: Bool @i_0 := true  && false
+output o_9: Bool @i_0 := true  && true";
+        let (tb, result_map) = check_value_type(spec);
+        for i in 0..10 {
+            let out_id = tb.output(&format!("o_{}", i));
+            assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Bool);
+        }
+
+        let in_id = tb.input("i_0");
+        assert_eq!(result_map[&NodeId::SRef(in_id)], IConcreteType::Bool);
+    }
+
+    #[test]
     fn simple_binary_faulty() {
         let spec = "output o: Float32 @1Hz := false + 2.5";
         let tb = check_expect_error(spec);

@@ -402,7 +402,7 @@ impl ExpressionTransformer {
                     BinOp::Div => Div,
                     BinOp::Rem => Rem,
                     BinOp::Pow => Pow,
-                    BinOp::And => Add,
+                    BinOp::And => And,
                     BinOp::Or => Or,
                     BinOp::BitXor => BitXor,
                     BinOp::BitAnd => BitAnd,
