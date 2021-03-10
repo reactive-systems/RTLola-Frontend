@@ -11,13 +11,13 @@ use crate::{hir, hir::Hir, mir, mir::Mir};
 
 impl Hir<Complete> {
     pub(crate) fn lower(self) -> Mir {
-        let Hir { inputs, outputs, triggers, mode, .. } = self.clone();
+        let Hir { inputs, outputs, triggers, mode, .. } = &self;
         let inputs = inputs
             .into_iter()
             .map(|i| {
                 let sr = i.sr;
                 mir::InputStream {
-                    name: i.name,
+                    name: i.name.clone(),
                     ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     acccessed_by: mode.direct_accesses(sr),
                     aggregates: mode.aggregates(sr),
@@ -32,7 +32,7 @@ impl Hir<Complete> {
             .map(|o| {
                 let sr = o.sr;
                 mir::OutputStream {
-                    name: o.name,
+                    name: o.name.clone(),
                     ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     expr: self.lower_expr(self.expr(sr)),
                     acccesses: mode.direct_accesses(sr),
@@ -64,7 +64,7 @@ impl Hir<Complete> {
             sliding_windows.into_iter().map(|win| self.lower_sliding_window(win)).collect::<Vec<mir::SlidingWindow>>();
         let triggers = triggers
             .into_iter()
-            .map(|t| mir::Trigger { message: t.message, reference: t.sr })
+            .map(|t| mir::Trigger { message: t.message.clone(), reference: t.sr })
             .collect::<Vec<mir::Trigger>>();
         Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows }
     }
@@ -146,16 +146,14 @@ impl Hir<Complete> {
     }
 
     fn lower_expr(&self, expr: &hir::expression::Expression) -> mir::Expression {
-        mir::Expression {
-            kind: self.lower_expression_kind(&expr.kind),
-            ty: Self::lower_value_type(self.mode.expr_type(expr.eid).get_value_type()),
-        }
+        let ty = Self::lower_value_type(self.mode.expr_type(expr.eid).get_value_type());
+        mir::Expression { kind: self.lower_expression_kind(&expr.kind, &ty), ty }
     }
 
-    fn lower_expression_kind(&self, expr: &hir::expression::ExpressionKind) -> mir::ExpressionKind {
+    fn lower_expression_kind(&self, expr: &hir::expression::ExpressionKind, ty: &mir::Type) -> mir::ExpressionKind {
         match expr {
             hir::expression::ExpressionKind::LoadConstant(constant) => {
-                mir::ExpressionKind::LoadConstant(Self::lower_constant(constant))
+                mir::ExpressionKind::LoadConstant(Self::lower_constant(constant, ty))
             }
             hir::expression::ExpressionKind::ArithLog(op, args) => {
                 let op = Self::lower_arith_log_op(*op);
@@ -198,19 +196,30 @@ impl Hir<Complete> {
         }
     }
 
-    fn lower_constant(constant: &hir::expression::Constant) -> mir::Constant {
+    fn lower_constant(constant: &hir::expression::Constant, ty: &mir::Type) -> mir::Constant {
         match constant {
-            hir::expression::Constant::BasicConstant(lit) => Self::lower_constant_literal(lit),
-            hir::expression::Constant::InlinedConstant(lit, _ty) => Self::lower_constant_literal(lit),
+            hir::expression::Constant::BasicConstant(lit) => Self::lower_constant_literal(lit, ty),
+            hir::expression::Constant::InlinedConstant(lit, _ty) => Self::lower_constant_literal(lit, ty),
         }
     }
 
-    fn lower_constant_literal(constant: &hir::expression::ConstantLiteral) -> mir::Constant {
+    fn lower_constant_literal(constant: &hir::expression::ConstantLiteral, ty: &mir::Type) -> mir::Constant {
         match constant {
             hir::expression::ConstantLiteral::Str(s) => mir::Constant::Str(s.clone()),
             hir::expression::ConstantLiteral::Bool(b) => mir::Constant::Bool(*b),
-            hir::expression::ConstantLiteral::Integer(i) => mir::Constant::Int(*i),
-            hir::expression::ConstantLiteral::SInt(_i) => todo!("review needed"),
+            hir::expression::ConstantLiteral::Integer(i) => match ty {
+                mir::Type::Int(_) => mir::Constant::Int(*i),
+                mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                _ => unreachable!(),
+            },
+            hir::expression::ConstantLiteral::SInt(i) => {
+                //TODO rewrite to 128 bytes
+                match ty {
+                    mir::Type::Int(_) => mir::Constant::Int(*i as i64),
+                    mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                    _ => unreachable!(),
+                }
+            }
             hir::expression::ConstantLiteral::Float(f) => mir::Constant::Float(*f),
         }
     }

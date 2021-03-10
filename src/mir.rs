@@ -2,7 +2,7 @@
 This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
 */
 
-use crate::common_ir::*;
+pub use crate::common_ir::*;
 
 pub(crate) mod lowering;
 mod print;
@@ -14,9 +14,10 @@ pub use crate::mir::schedule::{Deadline, Schedule};
 pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for IR
 
 use num::traits::Inv;
-use std::time::Duration;
+use std::{convert::TryInto, time::Duration};
 use uom::si::rational64::Frequency as UOM_Frequency;
 use uom::si::rational64::Time as UOM_Time;
+use uom::si::time::nanosecond;
 
 pub(crate) type Mir = RTLolaMIR;
 
@@ -144,6 +145,11 @@ impl TimeDrivenStream {
     }
     pub fn frequency(&self) -> UOM_Frequency {
         self.frequency
+    }
+    pub fn period_in_duration(&self) -> Duration {
+        Duration::from_nanos(
+            self.period().get::<nanosecond>().to_integer().try_into().expect("Period [ns] too large for u64!"),
+        )
     }
 }
 
@@ -423,29 +429,25 @@ impl RTLolaMIR {
 
     /// Returns a `Vec` containing a reference to an output stream representing a trigger in the specification.
     pub fn get_triggers(&self) -> Vec<&OutputStream> {
-        // self.triggers.iter().map(|t| self.get_out(t.reference)).collect()
-        todo!()
+        self.triggers.iter().map(|t| self.get_out(t.reference)).collect()
     }
 
     /// Returns a `Vec` containing a reference for each event-driven output stream in the specification.
     pub fn get_event_driven(&self) -> Vec<&OutputStream> {
-        // self.event_driven.iter().map(|t| self.get_out(t.reference)).collect()
-        todo!()
+        self.event_driven.iter().map(|t| self.get_out(t.reference)).collect()
     }
 
     /// Returns a `Vec` containing a reference for each time-driven output stream in the specification.
     pub fn get_time_driven(&self) -> Vec<&OutputStream> {
-        // self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
-        todo!()
+        self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
     }
 
     /// Returns a discrete Window instance for a given WindowReference in the specification
-    pub fn get_discrete_window(&self, _window: WindowReference) -> &DiscreteWindow {
-        // match window {
-        //     WindowReference::DiscreteWindow(x) => &self.discrete_windows[x],
-        //     WindowReference::SlidingWindow(_) => panic!("wrong type of window reference passed to getter"),
-        // }
-        todo!()
+    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+        match window {
+            WindowReference::DiscreteRef(x) => &self.discrete_windows[x],
+            WindowReference::SlidingRef(_) => panic!("wrong type of window reference passed to getter"),
+        }
     }
 
     /// Returns a sliding window instance for a given WindowReference in the specification

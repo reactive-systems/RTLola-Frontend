@@ -454,7 +454,7 @@ impl Declaration {
     }
 
     fn is_function(&self) -> bool {
-        matches!(self ,Declaration::Func(_) | Declaration::ParamOut(_))
+        matches!(self, Declaration::Func(_) | Declaration::ParamOut(_))
     }
 }
 

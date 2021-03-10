@@ -761,7 +761,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
-        assert!(matches!(expr.kind, ExpressionKind::Default{..}));
+        assert!(matches!(expr.kind, ExpressionKind::Default { .. }));
     }
 
     #[test]
@@ -827,7 +827,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
-        assert!(matches!(expr.kind, ExpressionKind::Ite{..}));
+        assert!(matches!(expr.kind, ExpressionKind::Ite { .. }));
         if let ExpressionKind::Ite { condition, consequence, alternative } = &expr.kind {
             assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(_, 2)));
             assert!(matches!(consequence.kind, ExpressionKind::ParameterAccess(_, 0)));
@@ -956,10 +956,7 @@ mod tests {
         assert_eq!(ir.mode.ir_expr_res.func_table.len(), 1);
         let output_expr_id = ir.outputs[1].expr_id;
         let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
-        assert!(matches!(expr.kind, ExpressionKind::Default{
-            expr: _,
-            default: _
-        }));
+        assert!(matches!(expr.kind, ExpressionKind::Default { expr: _, default: _ }));
         if let ExpressionKind::Default { expr: ex, default } = &expr.kind {
             assert!(matches!(default.kind, ExpressionKind::LoadConstant(_)));
             assert!(matches!(ex.kind, ExpressionKind::StreamAccess(SRef::OutRef(0), _, _)));

@@ -34,4 +34,4 @@ color-backtrace = "0.3"
 uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
 bimap = "0.5.2"
 regex = "*"
-rusttyc = { git = "https://github.com/Schwenger/RustTyC.git" }
+rusttyc = "0.3.2"
