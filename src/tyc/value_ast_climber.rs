@@ -955,11 +955,11 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         for i in 0..10 {
             let out_id = tb.output(&format!("o_{}", i));
-            assert_eq!(result_map[&NodeId::SRef(out_id)], IConcreteType::Bool);
+            assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Bool);
         }
 
         let in_id = tb.input("i_0");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], IConcreteType::Bool);
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Bool);
     }
 
     #[test]
