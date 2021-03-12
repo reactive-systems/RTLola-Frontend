@@ -57,14 +57,15 @@ where
             names,
             annotated_checks,
         };
-        res.init();
+        res.generate_keys_for_streams();
         res
     }
 
     pub(crate) fn new_stream_key(&mut self) -> StreamTypeKeys {
         let close = self.expression_tyc.new_term_key();
-        // Should be safe to expect no error
-        self.expression_tyc.impose(close.concretizes_explicit(AbstractExpressionType::AnyClose)).unwrap();
+        self.expression_tyc
+            .impose(close.concretizes_explicit(AbstractExpressionType::AnyClose))
+            .expect("close key cannot be bound otherwise yet");
         StreamTypeKeys {
             exp_pacing: self.pacing_tyc.new_term_key(),
             spawn: (self.pacing_tyc.new_term_key(), self.expression_tyc.new_term_key()),
@@ -73,7 +74,7 @@ where
         }
     }
 
-    pub(crate) fn add_stream_key_span(&mut self, keys: StreamTypeKeys, span: Span) {
+    pub(crate) fn add_span_to_stream_key(&mut self, keys: StreamTypeKeys, span: Span) {
         self.pacing_key_span.insert(keys.exp_pacing, span.clone());
         self.pacing_key_span.insert(keys.spawn.0, span.clone());
         self.expression_key_span.insert(keys.spawn.1, span.clone());
@@ -94,7 +95,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn init(&mut self) {
+    pub(crate) fn generate_keys_for_streams(&mut self) {
         for input in self.hir.inputs() {
             let key = self.new_stream_key();
             self.node_key.insert(NodeId::SRef(input.sr), key);
@@ -136,6 +137,13 @@ where
                 key.close,
                 output.instance_template.close.map(|id| self.hir.expression(id).span.clone()).unwrap_or(Span::Unknown),
             );
+
+            // Create Stream Parameters
+            for (idx, parameter) in output.params.iter().enumerate() {
+                let key = self.new_stream_key();
+                self.node_key.insert(NodeId::Param(idx, output.sr), key);
+                self.add_span_to_stream_key(key, parameter.span.clone());
+            }
         }
 
         for trigger in self.hir.triggers() {
@@ -185,16 +193,7 @@ where
         if let Some(ac) = &output.activation_condition {
             let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
-            //
-            // Bind key to parsed type
-            //self.pacing_tyc.impose(annotated_ty_key.has_exactly_type(annotated_ty.clone()))?;
-            //self.pacing_tyc.impose(annotated_ty_key.concretizes_explicit(annotated_ty))?;
-            //
-            // // Annotated type should be more concrete than inferred type
-            // self.pacing_tyc.impose(annotated_ty_key.concretizes(exp_key.exp_pacing))?;
-            //
-            // // Output type is equal to declared type
-            // self.pacing_tyc.impose(stream_keys.exp_pacing.equate_with(annotated_ty_key))?;
+
             self.bind_to_annotated_type(stream_keys.exp_pacing, ac, exp_key.exp_pacing)?;
             self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes_explicit(annotated_ty))?;
             self.pacing_tyc.impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))?;
@@ -242,7 +241,7 @@ where
         if let Some(spawn_target) = spawn_exp {
             let inferred = self.expression_infer(spawn_target)?;
             self.node_key.insert(NodeId::Expr(spawn_target.eid), spawn_target_keys);
-            self.add_stream_key_span(spawn_target_keys, spawn_target.span.clone());
+            self.add_span_to_stream_key(spawn_target_keys, spawn_target.span.clone());
             self.impose_more_concrete(spawn_target_keys, inferred)?;
         }
 
@@ -250,7 +249,7 @@ where
         let spawn_condition_exp = spawn.condition.map(|eid| self.hir.expression(eid).clone());
         if let Some(spawn_condition) = spawn_condition_exp {
             self.node_key.insert(NodeId::Expr(spawn_condition.eid), spawn_condition_keys);
-            self.add_stream_key_span(spawn_condition_keys, spawn_condition.span.clone());
+            self.add_span_to_stream_key(spawn_condition_keys, spawn_condition.span.clone());
             let inferred = self.expression_infer(&spawn_condition)?;
             self.impose_more_concrete(spawn_condition_keys, inferred)?;
 
@@ -425,7 +424,7 @@ where
             }
         };
         self.node_key.insert(NodeId::Expr(exp.eid), term_keys);
-        self.add_stream_key_span(term_keys, exp.span.clone());
+        self.add_span_to_stream_key(term_keys, exp.span.clone());
         Ok(term_keys)
     }
 

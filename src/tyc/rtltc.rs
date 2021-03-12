@@ -300,3 +300,32 @@ impl PartialOrd for NodeId {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::hir::modes::IrExpression;
+    use crate::parse::parse;
+    use crate::reporting::Handler;
+    use crate::tyc::rtltc::LolaTypeChecker;
+    use crate::{RTLolaAst, RTLolaHIR};
+    use std::path::PathBuf;
+
+    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
+        let handler = Handler::new(PathBuf::from("test"), spec.into());
+        let ast: RTLolaAst = match parse(spec, &handler, crate::FrontendConfig::default()) {
+            Ok(s) => s,
+            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+        };
+        let hir = crate::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &crate::FrontendConfig::default());
+        (hir, handler)
+    }
+
+    #[test]
+    fn type_table_creation() {
+        let spec =  "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let (hir, handler) = setup_ast(spec);
+
+        let mut tyc = LolaTypeChecker::new(&hir, &handler);
+        tyc.check().unwrap();
+    }
+}
