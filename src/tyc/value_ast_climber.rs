@@ -342,12 +342,14 @@ where
                         self.tyc.impose(target_key.equate_with(inner_key))?;
                     }
                     StreamAccessKind::Offset(off) => match off {
-                        Offset::PastDiscreteOffset(_) | Offset::FutureDiscreteOffset(_) => {
+                        Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {
                             self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
-                        Offset::FutureRealTimeOffset(d) | Offset::PastRealTimeOffset(d) => {
+                        Offset::FutureRealTime(d) | Offset::PastRealTime(d) => {
+                            debug_assert!(false, "Real-Time offsets are not supported yet");
+
                             //dbg!("RealTimeOffset");
                             use num::rational::Rational64 as Rational;
                             use uom::si::frequency::hertz;
@@ -365,10 +367,10 @@ where
                             let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
                             let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
                             let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].expression_pacing.to_abstract_freq();
-                            //TODO special case: period of current output > offset
+                            //special case: period of current output > offset
                             // && offset is multiple of target stream (no optional needed)
                             if let Ok(Periodic(target_freq)) = target_ratio {
-                                //fif the frequencies match the access is possible
+                                //if the frequencies match the access is possible
                                 //dbg!(&freq, &target_freq);
                                 if let Ok(true) = target_freq.is_multiple_of(&freq) {
                                     //dbg!("frequencies compatible");
@@ -404,9 +406,6 @@ where
                 //selftyc.impose(term_key.equate_with(def_key))?;
                 self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
-            //TODO
-            ///// implicit widening requieres join operand
-            // a + b -> c c = meet(a,b) then equate a and b with join(a,b) //FIXME
             ExpressionKind::ArithLog(op, expr_v) => {
                 use crate::hir::expression::ArithLogOp;
                 let arg_keys: Result<Vec<TcKey>, TypeError<ValueErrorKind>> =
@@ -725,7 +724,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_access_default() {
-        let spec = "output i(a: Int8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true):= if b then a else 0 \n output o(x) spawn @1Hz with 42 := i(1,false).offset(by:-1).defaults(to: 42)";
+        let spec = "output i(a: Int8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true):= if b then a else 0 \n output o(x) spawn @1Hz with 42 := i(5,true).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
@@ -1117,9 +1116,8 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
-    #[ignore] //Todo: Fix when tuples are implemented
     fn test_close_type() {
-        let spec = "input in: Bool\n output a(b: Bool): Int8 @1Hz close in := 3";
+        let spec = "input in: Bool\n output a: Int8 @1Hz close in := 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1202,7 +1200,6 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_tuple_access() {
-        //TODO runs with 'in.1' not with 'in[0].1' - zero offset still optional result
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
@@ -1225,7 +1222,6 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_tuple_access_faulty_len() {
-        //TODO optional result at offset zero
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in.2";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
@@ -1276,7 +1272,6 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
-    #[ignore] //tuple with variable length are not supported TODO
     fn test_tuple_of_tuples2() {
         let spec = "input in: (Int8, (UInt8, Bool))\noutput out: Bool := in.1.1";
         let (tb, result_map) = check_value_type(spec);
@@ -1429,6 +1424,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Real time offsets are not supported yet
     fn test_rt_offset() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @1Hz := a[-1s].defaults(to:1)";
         let (tb, result_map) = check_value_type(spec);
@@ -1440,6 +1436,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Real time offsets are not supported yet
     fn test_rt_offset_regression() {
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to:0) + 1";
         let (tb, result_map) = check_value_type(spec);
@@ -1449,6 +1446,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Real time offsets are not supported yet
     fn test_rt_offset_regression2() {
         let spec = "
                             output x @ 10Hz := 1
@@ -1463,6 +1461,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Real time offsets are not supported yet
     fn test_rt_offset_skip() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-1s].defaults(to:1)";
         let (tb, result_map) = check_value_type(spec);
@@ -1474,6 +1473,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Real time offsets are not supported yet
     fn test_rt_offset_skip2() {
         let spec = "output a: Int8 @1Hz := 1\noutput b: Int8 @0.5Hz := a[-2s].defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);

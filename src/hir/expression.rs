@@ -177,32 +177,39 @@ pub struct DiscreteWindow {
     pub eid: ExprId,
 }
 
-impl PartialEq for ExpressionKind {
-    fn eq(&self, other: &Self) -> bool {
+pub(crate) trait ValueEq {
+    fn value_eq(&self, other: &Self) -> bool;
+    fn value_neq(&self, other: &Self) -> bool {
+        !self.value_eq(other)
+    }
+}
+
+impl ValueEq for ExpressionKind {
+    fn value_eq(&self, other: &Self) -> bool {
         use self::ExpressionKind::*;
         match (self, other) {
             (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => sref == sref2 && idx == idx2,
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
-                op == op2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+                op == op2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
             }
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
-                sref == sref2 && kind == kind2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+                sref == sref2 && kind == kind2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
             }
             (
                 Ite { condition: c1, consequence: c2, alternative: c3 },
                 Ite { condition: b1, consequence: b2, alternative: b3 },
-            ) => c1.kind == b1.kind && c2.kind == b2.kind && c3.kind == b3.kind,
-            (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind),
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.kind == inner2.kind,
+            ) => c1.value_eq(&b1) && c2.value_eq(&b2) && c3.value_eq(&b3),
+            (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2)),
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2),
             (Function { name, args, type_param }, Function { name: name2, args: args2, type_param: type_param2 }) => {
                 name == name2
                     && type_param == type_param2
-                    && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.kind == a2.kind)
+                    && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
             }
-            (Widen(inner, t1), Widen(inner2, t2)) => t1 == t2 && inner.kind == inner2.kind,
+            (Widen(inner, t1), Widen(inner2, t2)) => t1 == t2 && inner.value_eq(&inner2),
             (Default { expr, default }, Default { expr: expr2, default: default2 }) => {
-                expr.kind == expr2.kind && default.kind == default2.kind
+                expr.value_eq(&expr2) && default.value_eq(&default2)
             }
             _ => false,
         }
@@ -225,9 +232,8 @@ impl PartialEq for ConstantLiteral {
 
 impl Eq for ConstantLiteral {}
 
-impl PartialEq for Expression {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind
+impl ValueEq for Expression {
+    fn value_eq(&self, other: &Self) -> bool {
+        self.kind.value_eq(&other.kind)
     }
 }
-impl Eq for Expression {}

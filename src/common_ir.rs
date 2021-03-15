@@ -65,13 +65,13 @@ pub enum StreamAccessKind {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
-    FutureDiscreteOffset(u32),
+    FutureDiscrete(u32),
     /// A non-negative discrete offset, e.g., `0`, `-4`, or `-42`
-    PastDiscreteOffset(u32),
+    PastDiscrete(u32),
     /// A positive real-time offset, e.g., `-3ms`, `-4min`, `-2.3h`
-    FutureRealTimeOffset(Duration),
+    FutureRealTime(Duration),
     /// A non-negative real-time offset, e.g., `0`, `4min`, `2.3h`
-    PastRealTimeOffset(Duration),
+    PastRealTime(Duration),
 }
 
 /// Representation of an evaluation layer
@@ -259,18 +259,18 @@ impl PartialOrd for Offset {
         use std::cmp::Ordering;
         use Offset::*;
         match (self, other) {
-            (PastDiscreteOffset(_), FutureDiscreteOffset(_))
-            | (PastRealTimeOffset(_), FutureRealTimeOffset(_))
-            | (PastDiscreteOffset(_), FutureRealTimeOffset(_))
-            | (PastRealTimeOffset(_), FutureDiscreteOffset(_)) => Some(Ordering::Less),
+            (PastDiscrete(_), FutureDiscrete(_))
+            | (PastRealTime(_), FutureRealTime(_))
+            | (PastDiscrete(_), FutureRealTime(_))
+            | (PastRealTime(_), FutureDiscrete(_)) => Some(Ordering::Less),
 
-            (FutureDiscreteOffset(_), PastDiscreteOffset(_))
-            | (FutureDiscreteOffset(_), PastRealTimeOffset(_))
-            | (FutureRealTimeOffset(_), PastDiscreteOffset(_))
-            | (FutureRealTimeOffset(_), PastRealTimeOffset(_)) => Some(Ordering::Greater),
+            (FutureDiscrete(_), PastDiscrete(_))
+            | (FutureDiscrete(_), PastRealTime(_))
+            | (FutureRealTime(_), PastDiscrete(_))
+            | (FutureRealTime(_), PastRealTime(_)) => Some(Ordering::Greater),
 
-            (FutureDiscreteOffset(a), FutureDiscreteOffset(b)) => Some(a.cmp(b)),
-            (PastDiscreteOffset(a), PastDiscreteOffset(b)) => Some(b.cmp(a)),
+            (FutureDiscrete(a), FutureDiscrete(b)) => Some(a.cmp(b)),
+            (PastDiscrete(a), PastDiscrete(b)) => Some(b.cmp(a)),
 
             (_, _) => unimplemented!(),
         }

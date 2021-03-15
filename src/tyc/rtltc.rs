@@ -6,8 +6,8 @@ use crate::hir::modes::HirMode;
 use crate::reporting::{Handler, Span};
 use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::{
-    pacing_ast_climber::PacingTypeChecker as PacingContext, pacing_types::ConcretePacingType,
-    value_ast_climber::ValueTypeChecker, value_types::ConcreteValueType,
+    pacing_ast_climber::PacingTypeChecker, pacing_types::ConcretePacingType, value_ast_climber::ValueTypeChecker,
+    value_types::ConcreteValueType,
 };
 use crate::RTLolaHIR;
 use std::cmp::Ordering;
@@ -53,7 +53,12 @@ impl<E: Emittable> From<E> for TypeError<E> {
 }
 
 impl<K: Emittable> TypeError<K> {
-    fn emit(self, handler: &Handler, spans: &[&HashMap<TcKey, Span>], names: &HashMap<StreamReference, &str>) {
+    pub(crate) fn emit(
+        self,
+        handler: &Handler,
+        spans: &[&HashMap<TcKey, Span>],
+        names: &HashMap<StreamReference, &str>,
+    ) {
         self.kind.emit(handler, spans, names, self.key1, self.key2)
     }
 }
@@ -147,7 +152,6 @@ where
                 spawn: (concrete_pacing.spawn.0, concrete_pacing.spawn.1),
                 close: concrete_pacing.close,
             };
-            // Todo: Upto here
             match id {
                 NodeId::SRef(sref) => {
                     stream_map.insert(*sref, st);
@@ -165,82 +169,8 @@ where
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
-        let mut ctx = PacingContext::new(&self.hir, &self.names);
-        for input in self.hir.inputs() {
-            if let Err(e) = ctx.input_infer(input) {
-                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-            }
-        }
-
-        for output in self.hir.outputs() {
-            if let Err(e) = ctx.output_infer(output) {
-                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-            }
-        }
-
-        for trigger in self.hir.triggers() {
-            if let Err(e) = ctx.trigger_infer(trigger) {
-                e.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-            }
-        }
-
-        let nid_key = ctx.node_key.clone();
-        let pacing_tt = match ctx.pacing_tyc.type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-                return None;
-            }
-        };
-        let exp_tt = match ctx.expression_tyc.type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-                return None;
-            }
-        };
-
-        if self.handler.contains_error() {
-            return None;
-        }
-
-        for pe in PacingContext::<M>::check_explicit_bounds(ctx.annotated_checks, &pacing_tt) {
-            pe.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-        }
-        if self.handler.contains_error() {
-            return None;
-        }
-
-        for pe in PacingContext::post_process(&self.hir, nid_key, &pacing_tt, &exp_tt) {
-            pe.emit(self.handler, &[&ctx.pacing_key_span, &ctx.expression_key_span], &self.names);
-        }
-        if self.handler.contains_error() {
-            return None;
-        }
-
-        let ctt: HashMap<NodeId, ConcreteStreamPacing> = ctx
-            .node_key
-            .iter()
-            .map(|(id, key)| {
-                let exp_pacing = pacing_tt[&key.exp_pacing].clone();
-                let spawn_pacing = pacing_tt[&key.spawn.0].clone();
-                let spawn_condition_expression = exp_tt[&key.spawn.1].clone();
-                let filter = exp_tt[&key.filter].clone();
-                let close = exp_tt[&key.close].clone();
-
-                (
-                    *id,
-                    ConcreteStreamPacing {
-                        expression_pacing: exp_pacing,
-                        spawn: (spawn_pacing, spawn_condition_expression),
-                        filter,
-                        close,
-                    },
-                )
-            })
-            .collect();
-
-        Some(ctt)
+        let ptc = PacingTypeChecker::new(&self.hir, &self.names);
+        ptc.type_check(self.handler)
     }
 
     pub(crate) fn value_type_infer(

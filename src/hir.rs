@@ -103,7 +103,7 @@ pub struct Output {
     /// The user annotated Type
     pub annotated_type: Option<AnnotatedType>,
     /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
-    pub activation_condition: Option<AC>,
+    pub activation_condition: Option<Ac>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
@@ -130,7 +130,7 @@ pub struct Parameter {
 
 /// Use to hold either a frequency or an expression for the annotated activation condition
 #[derive(Debug, Clone, PartialEq)]
-pub enum AC {
+pub enum Ac {
     Frequency { span: Span, value: UOM_Frequency },
     Expr(ExprId),
 }
@@ -150,7 +150,7 @@ pub struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub pacing: Option<AC>,
+    pub pacing: Option<Ac>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<ExprId>,
 }

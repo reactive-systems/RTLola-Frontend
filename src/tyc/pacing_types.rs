@@ -1,10 +1,10 @@
 use super::rusttyc::{Arity, Partial};
 use super::rusttyc::{Constructable, Variant};
 use crate::common_ir::{StreamAccessKind, StreamReference};
-use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind};
+use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
-use crate::hir::AC;
+use crate::hir::Ac;
 use crate::reporting::{Diagnostic, Handler, Span};
 use crate::tyc::rtltc::{Emittable, TypeError};
 use crate::RTLolaHIR;
@@ -21,21 +21,13 @@ use uom::si::rational64::Frequency as UOM_Frequency;
 /// The activation condition describes when an event-based stream produces a new value.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Ord, Hash)]
 pub enum ActivationCondition {
-    /**
-    When all of the activation conditions is true.
-    */
+    /// When all of the activation conditions is true.
     Conjunction(Vec<Self>),
-    /**
-    When one of the activation conditions is true.
-    */
+    /// When one of the activation conditions is true.
     Disjunction(Vec<Self>),
-    /**
-    Whenever the specified stream produces a new value.
-    */
+    /// Whenever the specified stream produces a new value.
     Stream(StreamReference),
-    /**
-    Whenever an event-based stream produces a new value.
-    */
+    /// Whenever an event-based stream produces a new value.
     True,
 }
 
@@ -58,12 +50,27 @@ pub(crate) enum AbstractPacingType {
 }
 
 /// The internal representation of an expression type
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) enum AbstractExpressionType {
+    /// Any is concretized into True
     Any,
+    /// AnyClose is concretized into False
     AnyClose,
     Expression(Expression),
 }
+
+impl PartialEq for AbstractExpressionType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (AbstractExpressionType::Any, AbstractExpressionType::Any) => true,
+            (AbstractExpressionType::AnyClose, AbstractExpressionType::AnyClose) => true,
+            (AbstractExpressionType::Expression(l), AbstractExpressionType::Expression(r)) => l.value_eq(r),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for AbstractExpressionType {}
 
 /// The internal representation of the overall Stream pacing
 /// Types are given by keys in the respective rustic instances
@@ -108,7 +115,7 @@ pub(crate) enum PacingErrorKind {
 }
 
 /// The external definition of a pacing type
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConcretePacingType {
     /// The stream / expression can be evaluated whenever the activation condition is satisfied.
     Event(ActivationCondition),
@@ -121,7 +128,7 @@ pub enum ConcretePacingType {
 }
 
 /// The external definition of the stream pacing
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct ConcreteStreamPacing {
     /// The pacing of the stream expression
     pub expression_pacing: ConcretePacingType,
@@ -134,9 +141,11 @@ pub struct ConcreteStreamPacing {
     pub close: Expression,
 }
 
-impl ActivationCondition {
-    pub(crate) fn and(self, other: Self) -> Self {
-        let ac = match (self, other) {
+impl std::ops::BitAnd for ActivationCondition {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
             (ActivationCondition::Conjunction(mut left), ActivationCondition::Conjunction(mut right)) => {
                 left.append(&mut right);
                 left.sort();
@@ -157,19 +166,16 @@ impl ActivationCondition {
                 childs.dedup();
                 ActivationCondition::Conjunction(childs)
             }
-        };
-        match &ac {
-            ActivationCondition::Conjunction(v) | ActivationCondition::Disjunction(v) => {
-                if v.len() == 1 {
-                    return v[0].clone();
-                }
-            }
-            _ => {}
         }
-        ac
+        .flatten()
     }
-    pub(crate) fn or(self, other: Self) -> Self {
-        let ac = match (self, other) {
+}
+
+impl std::ops::BitOr for ActivationCondition {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
             (ActivationCondition::Disjunction(mut left), ActivationCondition::Disjunction(mut right)) => {
                 left.append(&mut right);
                 left.sort();
@@ -190,16 +196,18 @@ impl ActivationCondition {
                 childs.dedup();
                 ActivationCondition::Disjunction(childs)
             }
-        };
-        match &ac {
-            ActivationCondition::Conjunction(v) | ActivationCondition::Disjunction(v) => {
-                if v.len() == 1 {
-                    return v[0].clone();
-                }
-            }
-            _ => {}
         }
-        ac
+        .flatten()
+    }
+}
+impl ActivationCondition {
+    fn flatten(self) -> Self {
+        match self {
+            ActivationCondition::Conjunction(mut v) | ActivationCondition::Disjunction(mut v) if v.len() == 1 => {
+                v.remove(0)
+            }
+            _ => self,
+        }
     }
 
     pub(crate) fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
@@ -258,8 +266,8 @@ impl ActivationCondition {
                 let ac_r = Self::parse(&v[1])?;
                 use crate::hir::expression::ArithLogOp;
                 match op {
-                    ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l.and(ac_r)),
-                    ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l.or(ac_r)),
+                    ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l & ac_r),
+                    ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l | ac_r),
                     _ => Err(PacingErrorKind::MalformedAC(
                         ast_expr.span.clone(),
                         "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
@@ -586,7 +594,7 @@ impl Variant for AbstractPacingType {
             (Any, x) | (x, Any) => Ok(x),
             (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac), Periodic(f))),
             (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(f), Event(ac))),
-            (Event(ac1), Event(ac2)) => Ok(Event(ac1.and(ac2))),
+            (Event(ac1), Event(ac2)) => Ok(Event(ac1 & ac2)),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
                     Ok(Periodic(f2))
@@ -647,12 +655,12 @@ impl PrintableVariant for AbstractExpressionType {
 
 impl AbstractPacingType {
     pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
-        ac: &AC,
+        ac: &Ac,
         hir: &RTLolaHIR<M>,
     ) -> Result<(Self, Span), PacingErrorKind> {
         Ok(match ac {
-            AC::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
-            AC::Expr(eid) => {
+            Ac::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
+            Ac::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 (AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span.clone())
             }
@@ -674,7 +682,7 @@ impl Variant for AbstractExpressionType {
             (Self::Any, x) | (x, Self::Any) => Ok(x),
             (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
             (Self::Expression(a), Self::Expression(b)) => {
-                if a == b {
+                if a.value_eq(&b) {
                     Ok(Self::Expression(a))
                 } else {
                     Err(PacingErrorKind::IncompatibleExpressions(Self::Expression(a), Self::Expression(b)))
@@ -742,12 +750,12 @@ impl ConcretePacingType {
     }
 
     pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
-        ac: &AC,
+        ac: &Ac,
         hir: &RTLolaHIR<M>,
     ) -> Result<Self, PacingErrorKind> {
         match ac {
-            AC::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
-            AC::Expr(eid) => {
+            Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
+            Ac::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 ActivationCondition::parse(expr).map(ConcretePacingType::Event)
             }
