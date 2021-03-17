@@ -1,7 +1,7 @@
 extern crate regex;
 
 use super::rusttyc::TypeTable;
-use crate::common_ir::{Offset, StreamAccessKind};
+use crate::common_ir::{Offset, SRef, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
@@ -12,24 +12,28 @@ use crate::tyc::rtltc::TypeError;
 use crate::tyc::value_types::{ConcreteValueType, ValueErrorKind};
 use crate::tyc::{pacing_types::Freq, rtltc::NodeId, value_types::AbstractValueType};
 use crate::RTLolaHIR;
-use bimap::BiMap;
 use itertools::Either;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
+impl Variable {
+    fn for_parameter(output: &Output, idx: usize) -> Self {
+        Variable(output.name.clone() + "_" + &output.params[idx].name.clone())
+    }
+}
+
 pub(crate) struct ValueTypeChecker<'a, M>
 where
     M: WithIrExpr + HirMode + 'static,
 {
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
-    //pub(crate) decl: DeclarationTable,
-    //Map assumes uniqueness of Ast and Tc ids
-    pub(crate) node_key: BiMap<NodeId, TcKey>,
+    pub(crate) node_key: HashMap<NodeId, TcKey>,
     pub(crate) key_span: HashMap<TcKey, Span>,
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
@@ -40,13 +44,9 @@ impl<'a, M> ValueTypeChecker<'a, M>
 where
     M: WithIrExpr + HirMode + 'static,
 {
-    pub(crate) fn new(
-        hir: &'a RTLolaHIR<M>,
-        //decl: DeclarationTable,
-        pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Self {
+    pub(crate) fn new(hir: &'a RTLolaHIR<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
         let mut tyc = TypeChecker::new();
-        let mut node_key = BiMap::new();
+        let mut node_key = HashMap::new();
         let mut key_span = HashMap::new();
         let annotated_checks = HashMap::new();
 
@@ -82,7 +82,7 @@ where
 
     fn match_const_literal(&self, lit: &ConstantLiteral) -> AbstractValueType {
         match lit {
-            ConstantLiteral::Str(_) => AbstractValueType::TString,
+            ConstantLiteral::Str(_) => AbstractValueType::String,
             ConstantLiteral::Bool(_) => AbstractValueType::Bool,
             ConstantLiteral::Integer(_) => AbstractValueType::Integer,
             ConstantLiteral::SInt(_) => AbstractValueType::SInteger(1),
@@ -111,7 +111,7 @@ where
         annotated_type: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
         match annotated_type {
-            AnnotatedType::String => self.tyc.impose(target.concretizes_explicit(AbstractValueType::TString))?,
+            AnnotatedType::String => self.tyc.impose(target.concretizes_explicit(AbstractValueType::String))?,
             AnnotatedType::Int(x) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::SInteger(*x)))?,
             AnnotatedType::Float(f) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Float(*f)))?,
             AnnotatedType::UInt(u) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::UInteger(*u)))?,
@@ -137,41 +137,50 @@ where
         Ok(())
     }
 
-    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let term_key: TcKey = *self.node_key.get_by_left(&NodeId::SRef(input.sr)).expect("Added in constructor");
-        //Annotated Type
+    fn handle_annotated_type(
+        &mut self,
+        target: TcKey,
+        a_ty: &AnnotatedType,
+        conflict: Option<TcKey>,
+    ) -> Result<(), TypeError<ValueErrorKind>> {
+        self.concretizes_annotated_type(target, a_ty)?;
+        self.bind_to_annotated_type(target, a_ty, conflict)
+    }
 
-        self.concretizes_annotated_type(term_key, &input.annotated_type)?;
-        self.bind_to_annotated_type(term_key, &input.annotated_type, None)?;
+    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<TcKey, TypeError<ValueErrorKind>> {
+        let term_key: TcKey = *self.node_key.get(&NodeId::SRef(input.sr)).expect("Added in constructor");
+
+        self.handle_annotated_type(term_key, &input.annotated_type, None)?;
 
         Ok(term_key)
     }
 
     pub(crate) fn output_infer(&mut self, out: &Output) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let out_key = *self.node_key.get_by_left(&NodeId::SRef(out.sr)).expect("Added in constructor");
+        let out_key = *self.node_key.get(&NodeId::SRef(out.sr)).expect("Added in constructor");
 
-        let mut param_types = Vec::new();
-        for param in &out.params {
-            let param_key = self.tyc.get_var_key(&Variable(out.name.clone() + "_" + &param.name.clone()));
+        let param_types: Vec<TcKey> = out
+            .params
+            .iter()
+            .map(|param| {
+                let param_key = self.tyc.get_var_key(&Variable::for_parameter(out, param.idx));
 
-            self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
-            self.key_span.insert(param_key, param.span.clone());
+                self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
+                self.key_span.insert(param_key, param.span.clone());
 
-            if let Some(a_ty) = param.annotated_type.as_ref() {
-                self.concretizes_annotated_type(param_key, a_ty)?;
-                self.bind_to_annotated_type(param_key, a_ty, None)?;
-            }
-            param_types.push(param_key);
-        }
+                if let Some(a_ty) = param.annotated_type.as_ref() {
+                    self.handle_annotated_type(param_key, a_ty, None)?;
+                }
+                Ok(param_key)
+            })
+            .collect::<Result<Vec<_>, TypeError<ValueErrorKind>>>()?;
 
-        //dbg!(&out.instance_template);
         let opt_spawn = &self.hir.spawn(out.sr);
         if let Some((opt_spawn, opt_cond)) = opt_spawn {
-            //chek target exression type matches parameter type
+            //check target expression type matches parameter type
             if let Some(spawn) = opt_spawn {
                 let spawn_target_key = self.expression_infer(spawn, None)?;
                 match param_types.len() {
-                    0 => unreachable!("Ensured by pacing type checker"),
+                    0 => unreachable!("ensured by pacing type checker"),
                     1 => {
                         self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
                     }
@@ -201,21 +210,66 @@ where
 
         let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
         if let Some(a_ty) = out.annotated_type.as_ref() {
-            self.concretizes_annotated_type(out_key, a_ty)?;
-            self.bind_to_annotated_type(out_key, a_ty, Some(expression_key))?;
+            self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
         }
 
         self.tyc.impose(out_key.equate_with(expression_key))?;
-        //dbg!(&out_key, &expression_key);
 
         Ok(out_key)
     }
 
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let tr_key = *self.node_key.get_by_left(&NodeId::SRef(tr.sr)).expect("Added in constructor");
+        let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
         let expression_key = self.expression_infer(&self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
+    }
+
+    fn handle_realtime_offset(
+        &mut self,
+        target_ref: SRef,
+        d: &Duration,
+        term_key: TcKey,
+        target_key: TcKey,
+    ) -> Result<(), TypeError<ValueErrorKind>> {
+        use num::rational::Rational64 as Rational;
+        use uom::si::frequency::hertz;
+        use uom::si::rational64::Frequency as UOM_Frequency;
+
+        use crate::tyc::pacing_types::AbstractPacingType::*;
+        let mut duration_as_f = d.as_secs_f64();
+        let mut c = 0;
+        while duration_as_f % 1.0f64 > 0f64 {
+            c += 1;
+            duration_as_f *= 10f64;
+        }
+
+        let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
+        let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
+        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].expression_pacing.to_abstract_freq();
+        //special case: period of current output > offset
+        // && offset is multiple of target stream (no optional needed)
+        if let Ok(Periodic(target_freq)) = target_ratio {
+            //if the frequencies match the access is possible
+            //dbg!(&freq, &target_freq);
+            if let Ok(true) = target_freq.is_multiple_of(&freq) {
+                //dbg!("frequencies compatible");
+                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                self.tyc.impose(target_key.equate_with(inner_key))?;
+            } else {
+                //dbg!("frequencies NOT compatible");
+                //if the ey dont match return error
+                return Err(TypeError {
+                    kind: ValueErrorKind::IncompatibleRealTimeOffset(target_freq, duration_as_f as i64),
+                    key1: Some(term_key),
+                    key2: Some(target_key),
+                });
+            }
+        } else {
+            unreachable!("Ensured by pacing type checker!")
+        }
+        Ok(())
     }
 
     fn expression_infer(
@@ -229,14 +283,13 @@ where
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
-        //dbg!(&exp.kind, term_key);
+
         match &exp.kind {
             ExpressionKind::LoadConstant(c) => {
                 let cons_lit = match c {
                     Constant::BasicConstant(lit) => lit,
                     Constant::InlinedConstant(lit, anno_ty) => {
-                        self.concretizes_annotated_type(term_key, anno_ty)?;
-                        self.bind_to_annotated_type(term_key, anno_ty, None)?;
+                        self.handle_annotated_type(term_key, anno_ty, None)?;
                         lit
                     }
                 };
@@ -246,46 +299,44 @@ where
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
                 if sr.is_input() {
-                    assert!(args.is_empty(), "Parametrized Input Stream are unsupported");
+                    assert!(args.is_empty(), "parametrized input streams are unsupported");
                 }
 
                 if !args.is_empty() {
-                    let target_stream: &Output =
-                        self.hir.outputs().find(|o| o.sr == *sr).expect("Unable to find referenced stream");
+                    let target_stream: &Output = self.hir.output(*sr).expect("unable to find referenced stream");
                     let param_keys: Vec<_> = target_stream
                         .params
                         .iter()
                         .map(|p| {
-                            let v = Variable(target_stream.name.clone() + "_" + &p.name);
-                            self.tyc.get_var_key(&v)
+                            // Todo: Move to own function in Variable
+                            self.tyc.get_var_key(&Variable::for_parameter(target_stream, p.idx))
                         })
                         .collect();
-                    //dbg!(&param_keys);
+
                     let arg_keys: Vec<TcKey> = args
                         .iter()
                         .map(|arg| self.expression_infer(arg, None))
                         .collect::<Result<Vec<TcKey>, TypeError<ValueErrorKind>>>()?;
 
-                    let res: Result<Vec<()>, TcErr<AbstractValueType>> = param_keys
+                    param_keys
                         .iter()
                         .zip(arg_keys.iter())
                         .map(|(p, a)| self.tyc.impose(a.equate_with(*p)))
-                        .collect();
-                    res?;
+                        .collect::<Result<Vec<()>, TcErr<AbstractValueType>>>()?;
                 }
 
-                let target_key = self.node_key.get_by_left(&NodeId::SRef(*sr)).expect("Entered in constructor");
+                let target_key = self.node_key.get(&NodeId::SRef(*sr)).expect("entered in constructor");
 
                 match kind {
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
                     StreamAccessKind::DiscreteWindow(_wref) | StreamAccessKind::SlidingWindow(_wref) => {
-                        //TODO use acutall wref as access methdd
+                        //TODO use actual wref as access method
                         let window = self.hir.single_window(Window { expr: exp.eid });
                         let (target_key, op, wait) = match window {
-                            Either::Left(sw) => (self.node_key.get_by_left(&NodeId::SRef(sw.target)), sw.op, sw.wait),
-                            Either::Right(dw) => (self.node_key.get_by_left(&NodeId::SRef(dw.target)), dw.op, dw.wait),
+                            Either::Left(sw) => (self.node_key.get(&NodeId::SRef(sw.target)), sw.op, sw.wait),
+                            Either::Right(dw) => (self.node_key.get(&NodeId::SRef(dw.target)), dw.op, dw.wait),
                         };
                         let target_key = *target_key.expect("Entered in Constructor");
                         //let duration_key = self.expression_infer(&*duration, None)?;
@@ -342,56 +393,19 @@ where
                         self.tyc.impose(target_key.equate_with(inner_key))?;
                     }
                     StreamAccessKind::Offset(off) => match off {
-                        Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {
+                        Offset::PastDiscrete(_) => {
                             self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                             let inner_key = self.tyc.get_child_key(term_key, 0)?;
                             self.tyc.impose(target_key.equate_with(inner_key))?;
                         }
-                        Offset::FutureRealTime(d) | Offset::PastRealTime(d) => {
-                            debug_assert!(false, "Real-Time offsets are not supported yet");
+                        Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
+                            panic!("future offsets are not supported")
+                        }
 
-                            //dbg!("RealTimeOffset");
-                            use num::rational::Rational64 as Rational;
-                            use uom::si::frequency::hertz;
-                            use uom::si::rational64::Frequency as UOM_Frequency;
-
-                            use crate::tyc::pacing_types::AbstractPacingType::*;
-                            //let n = UOM_Time::new::<second>(d);
-                            let mut duration_as_f = d.as_secs_f64();
-                            let mut c = 0;
-                            while duration_as_f % 1.0f64 > 0f64 {
-                                c += 1;
-                                duration_as_f *= 10f64;
-                            }
-                            //dbg!(duration_as_f);
-                            let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
-                            let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-                            let target_ratio = self.pacing_tt[&NodeId::SRef(*sr)].expression_pacing.to_abstract_freq();
-                            //special case: period of current output > offset
-                            // && offset is multiple of target stream (no optional needed)
-                            if let Ok(Periodic(target_freq)) = target_ratio {
-                                //if the frequencies match the access is possible
-                                //dbg!(&freq, &target_freq);
-                                if let Ok(true) = target_freq.is_multiple_of(&freq) {
-                                    //dbg!("frequencies compatible");
-                                    self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                                    self.tyc.impose(target_key.equate_with(inner_key))?;
-                                } else {
-                                    //dbg!("frequencies NOT compatible");
-                                    //if the ey dont match return error
-                                    return Err(TypeError {
-                                        kind: ValueErrorKind::IncompatibleRealTimeOffset(
-                                            target_freq,
-                                            duration_as_f as i64,
-                                        ),
-                                        key1: Some(term_key),
-                                        key2: Some(*target_key),
-                                    });
-                                }
-                            } else {
-                                unreachable!("Ensured by pacing type checker!")
-                            }
+                        Offset::PastRealTime(d) => {
+                            debug_assert!(false, "real-time offsets are not supported yet");
+                            let tk = *target_key;
+                            self.handle_realtime_offset(*sr, d, term_key, tk)?;
                         }
                     },
                 };
@@ -399,11 +413,8 @@ where
             ExpressionKind::Default { expr, default } => {
                 let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
-                                                                       //dbg!(ex_key, def_key);
                 self.tyc.impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
-                //self.tyc.impose(def_key.equate_with(inner_key))?;
-                //selftyc.impose(term_key.equate_with(def_key))?;
                 self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
             ExpressionKind::ArithLog(op, expr_v) => {
@@ -510,11 +521,13 @@ where
 
             ExpressionKind::Widen(inner, ty) => {
                 let inner_expr_key = self.expression_infer(inner, None)?;
+                // Bind expr type to least restrictive version of the variant i.e. e.g. Integer w/ width of 1 bit.
+                // Also bind the result to the type annotation of the widening call.
                 let (upper_bound, type_bound) = match ty {
                     AnnotatedType::UInt(x) => (AbstractValueType::UInteger(1), AbstractValueType::UInteger(*x)),
                     AnnotatedType::Int(x) => (AbstractValueType::SInteger(1), AbstractValueType::SInteger(*x)),
                     AnnotatedType::Float(x) => (AbstractValueType::Float(1), AbstractValueType::Float(*x)),
-                    _ => unimplemented!("Unsupported widen Type"),
+                    _ => unimplemented!("unsupported widening type"),
                 };
                 let internal_key = self.tyc.new_term_key();
                 self.key_span.insert(internal_key, exp.span.clone());
@@ -525,6 +538,19 @@ where
             }
             ExpressionKind::Function { name, type_param, args } => {
                 // check for name in context
+
+                // Function declaration:
+                // cast<A, B>(x: A)          -> B
+                //      ^  ^     ^              ^
+                //      |  |     |              |
+                //  Generics     parameter      result type
+
+                // Function call:
+                // cast<Int, Float>      (x)
+                //       ^      ^         ^
+                //       |      |         |
+                //      type parameter    args
+
                 let fun_decl = self.hir.func_declaration(name);
                 //Generics
                 let generics: Vec<TcKey> = fun_decl
@@ -536,20 +562,22 @@ where
                     })
                     .collect::<Result<Vec<TcKey>, TypeError<ValueErrorKind>>>()?;
 
+                // Bind generics to annotated types in function call
                 for (t, gen) in type_param.iter().zip(generics.iter()) {
-                    self.concretizes_annotated_type(*gen, t)?;
-                    self.bind_to_annotated_type(*gen, t, None)?;
+                    self.handle_annotated_type(*gen, t, None)?;
                 }
-                //FOR: type.captures(generic)
+
+                // function call arguments have type given by generics
                 args.iter()
                     .zip(fun_decl.parameters.iter())
                     .map(|(arg, param)| {
+                        // Replace reference to generic with generic key
                         let p = self.replace_type(param, &generics)?;
                         let arg_key = self.expression_infer(&*arg, None)?;
                         self.tyc.impose(arg_key.concretizes(p))?;
-                        Ok(arg_key)
+                        Ok(())
                     })
-                    .collect::<Result<Vec<TcKey>, TypeError<ValueErrorKind>>>()?;
+                    .collect::<Result<Vec<()>, TypeError<ValueErrorKind>>>()?;
 
                 let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
 
@@ -558,8 +586,7 @@ where
             ExpressionKind::ParameterAccess(current_stream, ix) => {
                 let output: &Output =
                     self.hir.outputs().find(|o| o.sr == *current_stream).expect("Expect valid stream reference");
-                let v = Variable(output.name.clone() + "_" + &output.params[*ix].name);
-                let par_key = self.tyc.get_var_key(&v);
+                let par_key = self.tyc.get_var_key(&Variable::for_parameter(output, *ix));
                 //dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
             }
@@ -783,7 +810,7 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let x = tb.output("x");
         assert_eq!(0, complete_check(spec));
-        assert_eq!(result_map[&NodeId::Param(0, x)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::Param(0, x)], ConcreteValueType::Integer64);
         assert_eq!(result_map[&NodeId::Param(1, x)], ConcreteValueType::Bool);
     }
 
@@ -1246,6 +1273,7 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    #[ignore] // Future offsets are not yet supported
     fn test_input_offset() {
         let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
         let (tb, result_map) = check_value_type(spec);
@@ -1302,7 +1330,7 @@ output o_9: Bool @i_0 := true  && true";
         let out2 = tb.output("out2");
         let out1 = tb.output("out1");
         let tuple_type = ConcreteValueType::Tuple(vec![
-            ConcreteValueType::Integer32,
+            ConcreteValueType::Integer64,
             ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Bool]),
         ]);
         assert_eq!(0, complete_check(spec));

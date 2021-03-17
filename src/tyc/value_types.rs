@@ -41,7 +41,7 @@ pub(crate) enum AbstractValueType {
     Bool,
     AnyTuple,
     Tuple(usize),
-    TString,
+    String,
     Bytes,
     Option,
 }
@@ -89,16 +89,11 @@ impl Variant for AbstractValueType {
             (AnyTuple, Tuple(size)) => tuple_meet(lhs.least_arity, size),
             (Tuple(size), AnyTuple) => tuple_meet(rhs.least_arity, size),
             (AnyTuple, _) | (_, AnyTuple) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (Tuple(size_l), Tuple(size_r)) => {
-                if size_l == size_r {
-                    Ok((Tuple(size_l), size_l))
-                } else {
-                    Err(TupleSize(size_l, size_r))
-                }
-            }
+            (Tuple(size_l), Tuple(size_r)) if size_l == size_r => Ok((Tuple(size_l), size_l)),
+            (Tuple(size_l), Tuple(size_r)) => Err(TupleSize(size_l, size_r)),
             (Tuple(_), _) | (_, Tuple(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (TString, TString) => Ok((TString, 0)),
-            (TString, _) | (_, TString) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (String, String) => Ok((String, 0)),
+            (String, _) | (_, String) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Bytes, Bytes) => Ok((Bytes, 0)),
             (Bytes, _) | (_, Bytes) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Option, Option) => Ok((Option, 1)),
@@ -113,7 +108,7 @@ impl Variant for AbstractValueType {
             Any | AnyTuple => Arity::Variable,
             Tuple(x) => Arity::Fixed(*x),
             Option => Arity::Fixed(1),
-            _ => Arity::Fixed(0),
+            Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | String | Bytes => Arity::Fixed(0),
         }
     }
 }
@@ -159,10 +154,10 @@ impl Constructable for AbstractValueType {
             AbstractValueType::Float(w) if *w <= 64 => Ok(ConcreteValueType::Float64),
             AbstractValueType::Float(_) => Err(ReificationTooWide(*self)),
             AbstractValueType::Numeric => Err(CannotReify(*self)),
-            AbstractValueType::Integer => Ok(ConcreteValueType::Integer32), //TODO REVIEW default case
+            AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
             AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
             AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),
-            AbstractValueType::TString => Ok(ConcreteValueType::TString),
+            AbstractValueType::String => Ok(ConcreteValueType::TString),
             AbstractValueType::Bytes => Ok(ConcreteValueType::Byte),
             AbstractValueType::Option => Ok(ConcreteValueType::Option(Box::new(children[0].clone()))),
         }
@@ -216,7 +211,7 @@ impl Display for AbstractValueType {
             AbstractValueType::Bool => write!(f, "Bool"),
             AbstractValueType::AnyTuple => write!(f, "AnyTuple"),
             AbstractValueType::Tuple(w) => write!(f, "{}Tuple", *w),
-            AbstractValueType::TString => write!(f, "String"),
+            AbstractValueType::String => write!(f, "String"),
             AbstractValueType::Bytes => write!(f, "String"),
             AbstractValueType::Option => write!(f, "Option<?>"),
         }

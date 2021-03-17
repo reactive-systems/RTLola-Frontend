@@ -8,8 +8,8 @@ use crate::hir::modes::HirMode;
 use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{
-    get_sync_accesses, AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType,
-    ConcreteStreamPacing, Freq, InferredTemplates, PacingErrorKind, StreamTypeKeys,
+    AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, ConcreteStreamPacing, Freq,
+    InferredTemplates, PacingErrorKind, StreamTypeKeys,
 };
 use crate::tyc::rtltc::{NodeId, TypeError};
 use crate::RTLolaHIR;
@@ -685,7 +685,7 @@ where
             if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
                 && spawn_pacing != ConcretePacingType::Constant
             {
-                let accesses_streams = get_sync_accesses(hir, hir.expr(output.sr));
+                let accesses_streams = hir.expr(output.sr).get_sync_accesses();
                 for target in accesses_streams {
                     let target_keys = nid_key[&NodeId::SRef(target)];
                     let target_spawn_pacing = pacing_tt[&target_keys.spawn.0].clone();

@@ -75,6 +75,12 @@ impl<M: HirMode> Hir<M> {
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
         self.outputs.iter().find(|&o| o.name == name)
     }
+    pub fn output(&self, sref: SRef) -> Option<&Output> {
+        self.outputs().find(|o| o.sr == sref)
+    }
+    pub fn input(&self, sref: SRef) -> Option<&Input> {
+        self.inputs().find(|i| i.sr == sref)
+    }
 }
 
 /// Represents an input stream in an RTLola specification.

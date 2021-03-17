@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::WindowOperation;
+use crate::common_ir::StreamReference;
 use crate::hir::AnnotatedType;
 use crate::{
     common_ir::StreamAccessKind, common_ir::StreamReference as SRef, common_ir::WindowReference as WRef,
@@ -33,7 +34,7 @@ pub enum ExpressionKind {
     /// n-ary: kth argument -> kth operand
     ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
-    /// The Expression vector containsthe arguments for a parametrized stream access
+    /// The Expression vector contains the arguments for a parametrized stream access
     StreamAccess(SRef, StreamAccessKind, Vec<Expression>),
     /// Accessing the n'th parameter of this parameterized stream
     ParameterAccess(SRef, usize),
@@ -235,5 +236,37 @@ impl Eq for ConstantLiteral {}
 impl ValueEq for Expression {
     fn value_eq(&self, other: &Self) -> bool {
         self.kind.value_eq(&other.kind)
+    }
+}
+
+impl Expression {
+    pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
+        match &self.kind {
+            ExpressionKind::ArithLog(_, children)
+            | ExpressionKind::Tuple(children)
+            | ExpressionKind::Function { args: children, .. } => {
+                children.iter().flat_map(|c| c.get_sync_accesses()).collect()
+            }
+            ExpressionKind::StreamAccess(target, kind, children) => match kind {
+                StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
+                    vec![*target].into_iter().chain(children.iter().flat_map(|c| c.get_sync_accesses())).collect()
+                }
+                _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
+            },
+            ExpressionKind::Ite { condition, consequence, alternative } => condition
+                .as_ref()
+                .get_sync_accesses()
+                .into_iter()
+                .chain(consequence.as_ref().get_sync_accesses())
+                .chain(alternative.as_ref().get_sync_accesses())
+                .collect(),
+            ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(child, _) => {
+                child.as_ref().get_sync_accesses()
+            }
+            ExpressionKind::Default { expr, default } => {
+                expr.as_ref().get_sync_accesses().into_iter().chain(default.as_ref().get_sync_accesses()).collect()
+            }
+            _ => vec![],
+        }
     }
 }

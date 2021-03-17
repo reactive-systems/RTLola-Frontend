@@ -298,37 +298,6 @@ impl ActivationCondition {
     }
 }
 
-pub(crate) fn get_sync_accesses<M>(hir: &RTLolaHIR<M>, exp: &Expression) -> Vec<StreamReference>
-where
-    M: HirMode + WithIrExpr + 'static,
-{
-    match &exp.kind {
-        ExpressionKind::ArithLog(_, children)
-        | ExpressionKind::Tuple(children)
-        | ExpressionKind::Function { args: children, .. } => {
-            children.iter().flat_map(|c| get_sync_accesses(hir, c)).collect()
-        }
-        ExpressionKind::StreamAccess(target, kind, children) => match kind {
-            StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
-                vec![*target].into_iter().chain(children.iter().flat_map(|c| get_sync_accesses(hir, c))).collect()
-            }
-            _ => children.iter().flat_map(|c| get_sync_accesses(hir, c)).collect(),
-        },
-        ExpressionKind::Ite { condition, consequence, alternative } => get_sync_accesses(hir, condition.as_ref())
-            .into_iter()
-            .chain(get_sync_accesses(hir, consequence.as_ref()))
-            .chain(get_sync_accesses(hir, alternative.as_ref()))
-            .collect(),
-        ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(child, _) => {
-            get_sync_accesses(hir, child.as_ref())
-        }
-        ExpressionKind::Default { expr, default } => {
-            get_sync_accesses(hir, expr.as_ref()).into_iter().chain(get_sync_accesses(hir, default.as_ref())).collect()
-        }
-        _ => vec![],
-    }
-}
-
 impl Emittable for PacingErrorKind {
     fn emit(
         self,
@@ -586,14 +555,20 @@ impl Freq {
 impl Variant for AbstractPacingType {
     type Err = PacingErrorKind;
 
+    fn top() -> Self {
+        AbstractPacingType::Any
+    }
+
     fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         use AbstractPacingType::*;
-        assert_eq!(lhs.least_arity, 0, "Suspicious child");
-        assert_eq!(rhs.least_arity, 0, "Suspicious child");
-        let new_var = match (lhs.variant, rhs.variant) {
+        assert_eq!(lhs.least_arity, 0, "suspicious child");
+        assert_eq!(rhs.least_arity, 0, "suspicious child");
+        // Todo: Avoid clone
+        let new_var = match (lhs.variant.clone(), rhs.variant.clone()) {
             (Any, x) | (x, Any) => Ok(x),
-            (Event(ac), Periodic(f)) => Err(PacingErrorKind::MixedEventPeriodic(Event(ac), Periodic(f))),
-            (Periodic(f), Event(ac)) => Err(PacingErrorKind::MixedEventPeriodic(Periodic(f), Event(ac))),
+            (Periodic(_), Event(_)) | (Event(_), Periodic(_)) => {
+                Err(PacingErrorKind::MixedEventPeriodic(lhs.variant, rhs.variant))
+            }
             (Event(ac1), Event(ac2)) => Ok(Event(ac1 & ac2)),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
@@ -610,10 +585,6 @@ impl Variant for AbstractPacingType {
 
     fn arity(&self) -> Arity {
         Arity::Fixed(0)
-    }
-
-    fn top() -> Self {
-        AbstractPacingType::Any
     }
 }
 
@@ -676,8 +647,8 @@ impl Variant for AbstractExpressionType {
     }
 
     fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
-        assert_eq!(lhs.least_arity, 0, "Suspicious child");
-        assert_eq!(rhs.least_arity, 0, "Suspicious child");
+        assert_eq!(lhs.least_arity, 0, "suspicious child");
+        assert_eq!(rhs.least_arity, 0, "suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
             (Self::Any, x) | (x, Self::Any) => Ok(x),
             (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
@@ -701,7 +672,7 @@ impl Constructable for AbstractExpressionType {
     type Type = Expression;
 
     fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
-        assert!(children.is_empty(), "Suspicious children");
+        assert!(children.is_empty(), "suspicious children");
 
         match self {
             Self::Any => Ok(Expression {
