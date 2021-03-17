@@ -175,7 +175,8 @@ impl HirMode for Ordered {}
 
 impl Hir<Ordered> {
     pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
-        let memory = Memory::analyze(&self);
+        //TODO: forward config argument
+        let memory = Memory::analyze(&self, false);
 
         let mode = MemBound {
             ir_expr: self.mode.ir_expr,
