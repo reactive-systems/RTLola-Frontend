@@ -105,6 +105,8 @@ pub struct OutputStream {
     pub name: String,
     /// The type of the stream.
     pub ty: Type,
+    /// The template containing, the spawn, filter, and close conditions
+    pub instance_template: Option<InstanceTemplate>,
     /// The stream expression
     pub expr: Expression,
     /// The List of streams that are accessed by the stream expression, spawn expression, filter expression, close expression. (non-transitive)
@@ -131,6 +133,29 @@ pub struct Trigger {
     pub reference: StreamReference,
     /// The index of the trigger.
     pub trigger_reference: TriggerReference,
+}
+
+// Representation of the instance template, containing the spawn, filter, and close expressions
+#[derive(Debug, Clone, PartialEq)]
+pub struct InstanceTemplate {
+    /// The invoke condition of the parametrized stream.
+    pub spawn: SpawnTemplate,
+    /// The extend condition of the parametrized stream.
+    pub filter: Expression,
+    /// The termination condition of the parametrized stream.
+    pub close: Expression,
+}
+
+// Representation of the spawn template, containing the spawn expressions
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnTemplate {
+    // TODO Review: Maybe another representation might be better, e.g., Vec<Expressions> or even Vec<SRef>
+    /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
+    pub target: Expression,
+    /// The activation condition describing when a new instance is created.
+    pub pacing: ActivationCondition,
+    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
+    pub condition: Expression,
 }
 
 /// Wrapper for output streams providing additional information specific to timedriven streams.

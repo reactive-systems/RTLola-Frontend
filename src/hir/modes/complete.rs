@@ -1,6 +1,5 @@
 use itertools::Itertools;
 
-use crate::common_ir::StreamReference;
 use crate::hir::modes::{
     dependencies::WithDependencies, ir_expr::WithIrExpr, memory_bounds::MemoryAnalyzed, ordering::EvaluationOrderBuilt,
     types::TypeChecked, Complete,
@@ -9,6 +8,7 @@ use crate::tyc::{
     pacing_types::ActivationCondition, pacing_types::ConcretePacingType as PacingTy,
     value_types::ConcreteValueType as ValueTy,
 };
+use crate::{common_ir::StreamReference, mir::InstanceTemplate};
 use crate::{hir, hir::Hir, mir, mir::Mir};
 
 impl Hir<Complete> {
@@ -38,6 +38,7 @@ impl Hir<Complete> {
                     name: o.name.clone(),
                     ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     expr: self.lower_expr(self.expr(sr)),
+                    instance_template: self.lower_instance_template(sr),
                     acccesses: mode.direct_accesses(sr),
                     acccessed_by: mode.direct_accessed_by(sr),
                     aggregated_by: mode.aggregated_by(sr),
@@ -58,6 +59,7 @@ impl Hir<Complete> {
                     name: format!("trigger_{}", index), //TODO better name
                     ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     expr: self.lower_expr(self.expr(sr)),
+                    instance_template: None,
                     acccesses: mode.direct_accesses(sr),
                     acccessed_by: mode.direct_accessed_by(sr),
                     aggregated_by: mode.aggregated_by(sr),
@@ -126,6 +128,18 @@ impl Hir<Complete> {
         } else {
             unreachable!()
         }
+    }
+
+    fn lower_instance_template(&self, _sr: StreamReference) -> Option<InstanceTemplate> {
+        // let HirType { value_ty: _, pacing_ty: _, spawn, filter, close } = self.stream_type(sr);
+        // let spawn_cond = self.lower_expr(&spawn.1);
+        // let filter = self.lower_expr(&filter);
+        // let close = self.lower_expr(&close);
+        // assert!(matches!(spawn.0, PacingTy::Constant));
+        // assert_eq!(spawn_cond.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(true)));
+        // assert_eq!(filter.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(true)));
+        // assert_eq!(close.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(false)));
+        None
     }
 
     fn lower_sliding_window(&self, win: hir::SlidingWindow) -> mir::SlidingWindow {
