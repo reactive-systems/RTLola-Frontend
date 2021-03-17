@@ -265,7 +265,7 @@ mod tests {
     #[test]
     #[ignore = "syntax discrete window"]
     fn discrete_window_lookup() {
-        let spec = "input a: UInt8\noutput b: UInt8 := a.aggregate(over: 5, using: sum)\noutput c: UInt8 := a + 3\noutput d: UInt8 := c.aggregate(over: 5, using: sum)";
+        let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)\noutput c: UInt8 := a + 3\noutput d: UInt8 := c.aggregate(over: 5, using: sum)";
         let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
                 .into_iter()
@@ -307,7 +307,6 @@ mod tests {
         check_eval_order_for_spec(spec, event_layers, periodic_layers)
     }
     #[test]
-    #[ignore = "type checker bug"]
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
         let sname_to_sref =
@@ -327,7 +326,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn lookup_chain() {
         let spec = "input a: Int8\noutput b: Int8 := a + d.hold().defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
         let sname_to_sref =
@@ -407,7 +405,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn negative_and_postive_lookups_as_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a + d.offset(by:-1).defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c";
         let sname_to_sref =
@@ -445,7 +442,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn simple_chain_with_parameter() {
         let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b := para + a";
         let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1))]
@@ -463,9 +459,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn lookup_chain_with_parametrization() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(a)\noutput d(para) spawn with a if a > 6 := a + c(a)";
         let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
                 .into_iter()
@@ -483,9 +478,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 4 := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
             ("a", SRef::InRef(0)),
             ("b", SRef::InRef(1)),
@@ -513,11 +507,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn parameter_nested_lookup_implicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
         let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
+            vec![("a", SRef::InRef(0)), ("b", SRef::InRef(1)), ("c", SRef::OutRef(0)), ("d", SRef::OutRef(1))]
                 .into_iter()
                 .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
@@ -533,7 +526,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn parameter_nested_lookup_explicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let sname_to_sref = vec![
