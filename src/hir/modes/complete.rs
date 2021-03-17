@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::common_ir::StreamReference;
 use crate::hir::modes::{
     dependencies::WithDependencies, ir_expr::WithIrExpr, memory_bounds::MemoryAnalyzed, ordering::EvaluationOrderBuilt,
@@ -20,13 +22,14 @@ impl Hir<Complete> {
                     name: i.name.clone(),
                     ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
                     acccessed_by: mode.direct_accesses(sr),
-                    aggregates: mode.aggregates(sr),
+                    aggregated_by: mode.aggregated_by(sr),
                     layer: mode.stream_layers(sr),
                     memory_bound: mode.memory_bound(sr),
                     reference: sr,
                 }
             })
             .collect::<Vec<mir::InputStream>>();
+        // assert that each sr is available
         let outputs = outputs
             .into_iter()
             .map(|o| {
@@ -37,13 +40,44 @@ impl Hir<Complete> {
                     expr: self.lower_expr(self.expr(sr)),
                     acccesses: mode.direct_accesses(sr),
                     acccessed_by: mode.direct_accessed_by(sr),
-                    aggregates: mode.aggregates(sr),
+                    aggregated_by: mode.aggregated_by(sr),
                     memory_bound: mode.memory_bound(sr),
                     layer: mode.stream_layers(sr),
                     reference: sr,
                 }
             })
             .collect::<Vec<mir::OutputStream>>();
+        let (trigger_streams, triggers): (Vec<mir::OutputStream>, Vec<mir::Trigger>) = triggers
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.sr, &b.sr))
+            .enumerate()
+            .map(|(index, t)| {
+                let sr = t.sr;
+                let mir_trigger = mir::Trigger { message: t.message.clone(), reference: sr, trigger_reference: index };
+                let mir_output_stream = mir::OutputStream {
+                    name: format!("trigger_{}", index), //TODO better name
+                    ty: Self::lower_value_type(self.stream_type(sr).get_value_type()),
+                    expr: self.lower_expr(self.expr(sr)),
+                    acccesses: mode.direct_accesses(sr),
+                    acccessed_by: mode.direct_accessed_by(sr),
+                    aggregated_by: mode.aggregated_by(sr),
+                    memory_bound: mode.memory_bound(sr),
+                    layer: mode.stream_layers(sr),
+                    reference: sr,
+                };
+                (mir_output_stream, mir_trigger)
+            })
+            .unzip();
+        let outputs = outputs
+            .into_iter()
+            .chain(trigger_streams.into_iter())
+            .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
+            .collect::<Vec<_>>();
+        //TODO: change SR if streams are deleted during a transformation
+        assert!(
+            outputs.iter().enumerate().all(|(index, o)| index == o.reference.out_ix()),
+            "Streamreferences need to enumerated from 0 to the number of streams"
+        );
         let time_driven = outputs
             .iter()
             .filter(|o| mode.is_periodic(o.reference))
@@ -62,10 +96,6 @@ impl Hir<Complete> {
             .collect::<Vec<mir::DiscreteWindow>>();
         let sliding_windows =
             sliding_windows.into_iter().map(|win| self.lower_sliding_window(win)).collect::<Vec<mir::SlidingWindow>>();
-        let triggers = triggers
-            .into_iter()
-            .map(|t| mir::Trigger { message: t.message.clone(), reference: t.sr })
-            .collect::<Vec<mir::Trigger>>();
         Mir { inputs, outputs, triggers, event_driven, time_driven, sliding_windows, discrete_windows }
     }
 
@@ -281,8 +311,8 @@ mod tests {
         let (hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 3);
-        assert_eq!(mir.event_driven.len(), 3);
+        assert_eq!(mir.outputs.len(), 5);
+        assert_eq!(mir.event_driven.len(), 5);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
@@ -301,9 +331,9 @@ mod tests {
         let (hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 3);
+        assert_eq!(mir.outputs.len(), 4);
         assert_eq!(mir.event_driven.len(), 0);
-        assert_eq!(mir.time_driven.len(), 3);
+        assert_eq!(mir.time_driven.len(), 4);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 3);
         assert_eq!(mir.triggers.len(), 1);

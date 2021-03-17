@@ -88,7 +88,7 @@ pub struct InputStream {
     /// The List of streams that access the current stream. (non-transitive)
     pub acccessed_by: Vec<SRef>,
     /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
-    pub aggregates: Vec<(StreamReference, WindowReference)>,
+    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     // *was:* pub dependent_windows: Vec<WindowReference>,
     /// Indicates in which evaluation layer the stream is.  
     pub layer: StreamLayers,
@@ -112,7 +112,7 @@ pub struct OutputStream {
     /// The List of streams that access the current stream. (non-transitive)
     pub acccessed_by: Vec<SRef>,
     /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
-    pub aggregates: Vec<(StreamReference, WindowReference)>,
+    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// The amount of memory required for this stream.
     pub memory_bound: MemorizationBound,
     /// Indicates in which evaluation layer the stream is.  
@@ -121,6 +121,7 @@ pub struct OutputStream {
     pub reference: StreamReference,
 }
 
+pub type TriggerReference = usize;
 /// Wrapper for output streams that are actually triggers.  Provides additional information specific to triggers.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Trigger {
@@ -128,6 +129,8 @@ pub struct Trigger {
     pub message: String,
     /// A reference to the output stream representing the trigger.
     pub reference: StreamReference,
+    /// The index of the trigger.
+    pub trigger_reference: TriggerReference,
 }
 
 /// Wrapper for output streams providing additional information specific to timedriven streams.
@@ -500,9 +503,7 @@ impl RTLolaMIR {
 
     /// Computes a schedule for all time-driven streams.
     pub fn compute_schedule(&self) -> Result<Schedule, String> {
-        // TODO adapt to mir
-        unimplemented!();
-        // Schedule::from(self)
+        Schedule::from(self)
     }
 }
 
