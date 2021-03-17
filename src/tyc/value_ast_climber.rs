@@ -5,7 +5,7 @@ use crate::common_ir::{Offset, SRef, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::hir::modes::ir_expr::WithIrExpr;
 use crate::hir::modes::HirMode;
-use crate::hir::{AnnotatedType, Input, Output, Trigger, Window};
+use crate::hir::{AnnotatedType, Input, Output, Trigger};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::rtltc::TypeError;
@@ -331,16 +331,13 @@ where
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
-                    StreamAccessKind::DiscreteWindow(_wref) | StreamAccessKind::SlidingWindow(_wref) => {
-                        //TODO use actual wref as access method
-                        let window = self.hir.single_window(Window { expr: exp.eid });
+                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                        let window = self.hir.single_window(*wref);
                         let (target_key, op, wait) = match window {
                             Either::Left(sw) => (self.node_key.get(&NodeId::SRef(sw.target)), sw.op, sw.wait),
                             Either::Right(dw) => (self.node_key.get(&NodeId::SRef(dw.target)), dw.op, dw.wait),
                         };
                         let target_key = *target_key.expect("Entered in Constructor");
-                        //let duration_key = self.expression_infer(&*duration, None)?;
-                        //self.tyc.impose(duration_key.concretizes_explicit(IAbstractType::Numeric))?;
 
                         use crate::ast::WindowOperation;
                         match op {

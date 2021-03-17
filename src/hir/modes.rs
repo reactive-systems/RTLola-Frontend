@@ -11,7 +11,7 @@ pub(crate) mod raw;
 pub(crate) mod types;
 
 use crate::hir::function_lookup::FuncDecl;
-use crate::hir::SlidingWindow;
+use crate::hir::{DiscreteWindow, SlidingWindow};
 use std::collections::HashMap;
 
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
 };
 
 use self::dependencies::DependencyErr;
+use itertools::Either;
 use petgraph::stable_graph::StableGraph;
 
 pub(crate) struct Raw {}
@@ -35,7 +36,7 @@ impl Hir<Raw> {
 }
 
 pub type ExpressionLookUps = HashMap<ExprId, Expression>;
-pub type WindowLookUps = HashMap<ExprId, SlidingWindow>;
+pub type WindowLookUps = HashMap<WRef, Either<SlidingWindow, DiscreteWindow>>;
 pub type FunctionLookUps = HashMap<String, FuncDecl>;
 
 #[derive(Clone, Debug)]

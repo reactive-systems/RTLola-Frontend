@@ -4,8 +4,7 @@ use crate::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
     },
     hir::modes::{HirMode, IrExprRes},
-    hir::Ac,
-    hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
+    hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
 };
 
 use super::IrExpression;
@@ -24,21 +23,27 @@ use std::rc::Rc;
 use std::time::Duration;
 
 pub trait WithIrExpr {
-    fn window_refs(&self) -> Vec<Window>;
+    fn window_refs(&self) -> Vec<WRef>;
     fn all_windows(&self) -> (Vec<SlidingWindow>, Vec<DiscreteWindow>) {
         self.window_refs().into_iter().partition_map(|w| self.single_window(w))
     }
-    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow>;
+    fn sliding_windows(&self) -> Vec<SlidingWindow> {
+        self.all_windows().0
+    }
+    fn discrete_windows(&self) -> Vec<DiscreteWindow> {
+        self.all_windows().1
+    }
+    fn single_window(&self, window: WRef) -> Either<SlidingWindow, DiscreteWindow>;
     fn expression(&self, id: ExprId) -> &Expression;
     fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
 impl WithIrExpr for IrExprRes {
-    fn window_refs(&self) -> Vec<Window> {
-        self.windows.values().map(|w| Window { expr: w.eid }).collect()
+    fn window_refs(&self) -> Vec<WRef> {
+        self.windows.keys().cloned().collect()
     }
 
-    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow> {
-        Either::Left(self.windows[&window.expr])
+    fn single_window(&self, wref: WRef) -> Either<SlidingWindow, DiscreteWindow> {
+        self.windows[&wref]
     }
 
     fn expression(&self, id: ExprId) -> &Expression {
@@ -56,7 +61,7 @@ impl<M> Hir<M>
 where
     M: WithIrExpr + HirMode + 'static,
 {
-    pub fn windows(&self) -> Vec<Window> {
+    pub fn windows(&self) -> Vec<WRef> {
         self.window_refs()
     }
 
@@ -156,10 +161,10 @@ impl IrExprWrapper for IrExpression {
 }
 
 impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
-    fn window_refs(&self) -> Vec<Window> {
+    fn window_refs(&self) -> Vec<WRef> {
         self.inner_expr().window_refs()
     }
-    fn single_window(&self, window: Window) -> Either<SlidingWindow, DiscreteWindow> {
+    fn single_window(&self, window: WRef) -> Either<SlidingWindow, DiscreteWindow> {
         self.inner_expr().single_window(window)
     }
 
@@ -181,7 +186,6 @@ pub enum TransformationError {
 pub struct ExpressionTransformer {
     sliding_windows: Vec<SlidingWindow>,
     discrete_windows: Vec<DiscreteWindow>,
-    windows: Vec<Window>,
     decl_table: HashMap<NodeId, Declaration>,
     stream_by_name: HashMap<String, SRef>,
     current_exp_id: u32,
@@ -192,7 +196,6 @@ impl ExpressionTransformer {
         ExpressionTransformer {
             sliding_windows: vec![],
             discrete_windows: vec![],
-            windows: vec![],
             decl_table,
             stream_by_name,
             current_exp_id: 0,
@@ -356,7 +359,6 @@ impl ExpressionTransformer {
                     let idx = self.sliding_windows.len();
                     let wref = WRef::SlidingRef(idx);
                     let duration = (*duration).parse_discrete_duration().expect("Todo Error case");
-                    self.windows.push(Window { expr: new_id });
                     let window = DiscreteWindow {
                         target: sref,
                         caller: current_output,
@@ -377,7 +379,6 @@ impl ExpressionTransformer {
                     let idx = self.sliding_windows.len();
                     let wref = WRef::SlidingRef(idx);
                     let duration = parse_duration_from_expr(&*duration);
-                    self.windows.push(Window { expr: new_id });
                     let window = SlidingWindow {
                         target: sref,
                         caller: current_output,
@@ -656,9 +657,13 @@ impl Hir<IrExpression> {
             })
             .collect();
 
-        let ExpressionTransformer { sliding_windows, discrete_windows: _, .. } = expr_transformer;
-        //TODO use discrete windows
-        let windows: HashMap<ExprId, SlidingWindow> = sliding_windows.into_iter().map(|w| (w.eid, w)).collect();
+        let ExpressionTransformer { sliding_windows, discrete_windows, .. } = expr_transformer;
+
+        let windows = sliding_windows
+            .into_iter()
+            .map(|w| (w.reference, Either::Left(w)))
+            .chain(discrete_windows.into_iter().map(|w| (w.reference, Either::Right(w))))
+            .collect();
 
         let new_mode = IrExpression { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
 
@@ -739,13 +744,6 @@ mod tests {
     }
 
     #[test]
-    fn window_len() {
-        let ir = obtain_expressions("output a @1Hz := 1 output b @1min:= a.aggregate(over: 1s, using: sum)");
-        assert_eq!(1, ir.mode.ir_expr_res.windows.len());
-        //TODO
-    }
-
-    #[test]
     fn all() {
         //Tests all cases are implemented
         let spec = "
@@ -818,7 +816,7 @@ mod tests {
             expr.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::SlidingRef(0)), _)
         ));
-        let window = &ir.mode.ir_expr_res.windows[&ExprId(0)].clone();
+        let window = &ir.mode.ir_expr_res.windows[&wref].clone().left().expect("should be a sliding window");
         assert_eq!(
             window,
             &SlidingWindow {

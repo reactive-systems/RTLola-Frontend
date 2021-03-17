@@ -155,7 +155,7 @@ pub struct SlidingWindow {
     pub op: WindowOperation,
     /// A reference to this sliding window.
     pub reference: WRef,
-    /// The ExprId references the window location
+    /// The Id of the expression in which this window is accessed. NOT the id of the window.
     pub eid: ExprId,
 }
 
@@ -174,7 +174,7 @@ pub struct DiscreteWindow {
     pub op: WindowOperation,
     /// A reference to this sliding window.
     pub reference: WRef,
-    /// The ExprId references the window location
+    /// The Id of the expression in which this window is accessed. NOT the id of the window.
     pub eid: ExprId,
 }
 

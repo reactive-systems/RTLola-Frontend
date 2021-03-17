@@ -96,11 +96,6 @@ pub struct Input {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Window {
-    pub expr: ExprId,
-}
-
 /// Represents an output stream in an RTLola specification.
 #[derive(Debug, Clone)]
 pub struct Output {
