@@ -171,13 +171,12 @@ mod dynaminc_memory_bound_tests {
     }
 
     #[test]
-    #[ignore = "syntax discrete window"]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
         let sname_to_sref =
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(5)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(0)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
@@ -357,6 +356,20 @@ mod static_memory_bound_tests {
             vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(1)),
+        ]
+        .into_iter()
+        .collect();
+        check_memory_bound_for_spec(spec, memory_bounds)
+    }
+
+    #[test]
+    fn discrete_window_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
+        let sname_to_sref =
+            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let memory_bounds = vec![
+            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
         ]
         .into_iter()

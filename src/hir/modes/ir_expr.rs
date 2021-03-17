@@ -357,7 +357,7 @@ impl ExpressionTransformer {
             ast::ExpressionKind::DiscreteWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
                     let idx = self.sliding_windows.len();
-                    let wref = WRef::SlidingRef(idx);
+                    let wref = WRef::DiscreteRef(idx);
                     let duration = (*duration).parse_discrete_duration().expect("Todo Error case");
                     let window = DiscreteWindow {
                         target: sref,
