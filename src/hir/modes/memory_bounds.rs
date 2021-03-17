@@ -2,7 +2,7 @@ use num::abs;
 
 use crate::common_ir::SRef;
 
-use super::{EdgeWeight, MemBound, MemorizationBound, Memory};
+use super::{EdgeWeight, MemorizationBound, Memory};
 
 use crate::hir::modes::{dependencies::WithDependencies, HirMode};
 use crate::hir::Hir;
@@ -18,26 +18,6 @@ impl MemoryAnalyzed for Memory {
         self.memory_bound_per_stream[&sr]
     }
 }
-
-pub(crate) trait MemoryWrapper {
-    type InnerM: MemoryAnalyzed;
-    fn inner_memory(&self) -> &Self::InnerM;
-}
-
-impl MemoryWrapper for MemBound {
-    type InnerM = Memory;
-
-    fn inner_memory(&self) -> &Self::InnerM {
-        &self.memory
-    }
-}
-
-impl<A: MemoryWrapper<InnerM = T>, T: MemoryAnalyzed + 'static> MemoryAnalyzed for A {
-    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
-        self.inner_memory().memory_bound(sr)
-    }
-}
-
 pub(crate) struct MemoryReport {}
 
 impl Memory {

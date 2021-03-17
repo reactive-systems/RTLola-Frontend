@@ -148,34 +148,6 @@ where
     }
 }
 
-pub trait IrExprWrapper {
-    type InnerE: WithIrExpr;
-    fn inner_expr(&self) -> &Self::InnerE;
-}
-
-impl IrExprWrapper for IrExpression {
-    type InnerE = IrExprRes;
-    fn inner_expr(&self) -> &Self::InnerE {
-        &self.ir_expr_res
-    }
-}
-
-impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
-    fn window_refs(&self) -> Vec<WRef> {
-        self.inner_expr().window_refs()
-    }
-    fn single_window(&self, window: WRef) -> Either<SlidingWindow, DiscreteWindow> {
-        self.inner_expr().single_window(window)
-    }
-
-    fn expression(&self, id: ExprId) -> &Expression {
-        self.inner_expr().expression(id)
-    }
-    fn func_declaration(&self, func_name: &str) -> &FuncDecl {
-        self.inner_expr().func_declaration(func_name)
-    }
-}
-
 #[derive(Debug)]
 pub enum TransformationError {
     InvalidIdentRef(Declaration),

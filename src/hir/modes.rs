@@ -50,7 +50,6 @@ pub struct IrExprRes {
 pub struct IrExpression {
     ir_expr_res: IrExprRes,
 }
-impl HirMode for IrExpression {}
 
 impl Hir<IrExpression> {
     pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
@@ -100,7 +99,6 @@ pub(crate) struct DependencyAnalyzed {
     ir_expr: IrExprRes,
     dependencies: Dependencies,
 }
-impl HirMode for DependencyAnalyzed {}
 
 impl Hir<DependencyAnalyzed> {
     pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<Typed>, String> {
@@ -133,7 +131,6 @@ pub(crate) struct Typed {
     dependencies: Dependencies,
     tts: TypeTable,
 }
-impl HirMode for Typed {}
 
 impl Hir<Typed> {
     pub(crate) fn build_evaluation_order(self) -> Hir<Ordered> {
@@ -171,7 +168,6 @@ pub(crate) struct Ordered {
     types: TypeTable,
     layers: EvaluationOrder,
 }
-impl HirMode for Ordered {}
 
 impl Hir<Ordered> {
     pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
@@ -210,7 +206,6 @@ pub(crate) struct MemBound {
     layers: EvaluationOrder,
     memory: Memory,
 }
-impl HirMode for MemBound {}
 
 impl Hir<MemBound> {
     pub(crate) fn finalize(self) -> Hir<Complete> {
@@ -241,7 +236,6 @@ pub(crate) struct Complete {
     layers: EvaluationOrder,
     memory: Memory,
 }
-impl HirMode for Complete {}
 
 pub(crate) trait AstExpr {
     fn expr(&self, sr: SRef) -> ast::Expression;

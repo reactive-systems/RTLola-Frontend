@@ -6,7 +6,7 @@ use super::dg_functionality::*;
 use std::collections::HashMap;
 
 use crate::hir::modes::{
-    dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, DependencyGraph, HirMode, Ordered,
+    dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, DependencyGraph, HirMode,
 };
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Outgoing};
@@ -22,24 +22,6 @@ impl EvaluationOrderBuilt for EvaluationOrder {
             None => self.periodic_layers[&sr],
         }
         // todo!("Is there a better way to decide if the stream is periodic or event-based?")
-    }
-}
-
-pub(crate) trait OrderedWrapper {
-    type InnerO: EvaluationOrderBuilt;
-    fn inner_order(&self) -> &Self::InnerO;
-}
-
-impl OrderedWrapper for Ordered {
-    type InnerO = EvaluationOrder;
-    fn inner_order(&self) -> &Self::InnerO {
-        &self.layers
-    }
-}
-
-impl<A: OrderedWrapper<InnerO = T>, T: EvaluationOrderBuilt + 'static> EvaluationOrderBuilt for A {
-    fn stream_layers(&self, sr: SRef) -> StreamLayers {
-        self.inner_order().stream_layers(sr)
     }
 }
 

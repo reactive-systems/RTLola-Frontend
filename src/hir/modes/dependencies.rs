@@ -10,16 +10,12 @@ use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::Hir;
 use crate::{
     common_ir::{Offset, StreamAccessKind},
-    hir::modes::{ir_expr::WithIrExpr, DependencyAnalyzed, HirMode},
+    hir::modes::{ir_expr::WithIrExpr, HirMode},
 };
 use petgraph::Outgoing;
 use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, stable_graph::StableGraph};
 
 pub(crate) trait WithDependencies {
-    // https://github.com/rust-lang/rust/issues/63063
-    // type I1 = impl Iterator<Item = SRef>;
-    // type I2 = impl Iterator<Item = (SRef, WRef)>;
-
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
@@ -72,48 +68,6 @@ impl WithDependencies for Dependencies {
 
     fn graph(&self) -> &DependencyGraph {
         &self.graph
-    }
-}
-
-pub(crate) trait DependenciesWrapper {
-    type InnerD: WithDependencies;
-    fn inner_dep(&self) -> &Self::InnerD;
-}
-
-impl DependenciesWrapper for DependencyAnalyzed {
-    type InnerD = Dependencies;
-    fn inner_dep(&self) -> &Self::InnerD {
-        &self.dependencies
-    }
-}
-
-impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDependencies for A {
-    fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().direct_accesses(who)
-    }
-
-    fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().transitive_accesses(who)
-    }
-
-    fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().direct_accessed_by(who)
-    }
-
-    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.inner_dep().transitive_accessed_by(who)
-    }
-
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.inner_dep().aggregated_by(who)
-    }
-
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.inner_dep().aggregates(who)
-    }
-
-    fn graph(&self) -> &DependencyGraph {
-        self.inner_dep().graph()
     }
 }
 
