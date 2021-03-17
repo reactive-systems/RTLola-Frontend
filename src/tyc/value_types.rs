@@ -1,9 +1,37 @@
+use super::rusttyc::{Arity, Partial, TcErr, TcKey};
 use super::*;
-use rusttyc::types::{Abstract, ReificationErr};
+use crate::common_ir::StreamReference;
+use crate::hir::AnnotatedType;
+use crate::reporting::{Diagnostic, Span};
+use crate::tyc::pacing_types::Freq;
+use crate::tyc::rtltc::{Emittable, TypeError};
+use itertools::Itertools;
+use rusttyc::{Constructable, Variant};
 use std::cmp::max;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum IAbstractType {
+#[derive(Debug, Clone)]
+pub(crate) enum ValueErrorKind {
+    TypeClash(AbstractValueType, AbstractValueType),
+    TupleSize(usize, usize),
+    ReificationTooWide(AbstractValueType),
+    CannotReify(AbstractValueType),
+    AnnotationTooWide(AnnotatedType),
+    AnnotationInvalid(AnnotatedType),
+    ///target freq, Offset
+    IncompatibleRealTimeOffset(Freq, i64),
+    /// Inferred, Expected
+    ExactTypeMismatch(ConcreteValueType, ConcreteValueType),
+    AccessOutOfBound(AbstractValueType, usize),
+    /// Type, inferred, reported
+    ArityMismatch(AbstractValueType, usize, usize),
+    /// Child Construction Error, Parent Type, Index of Child
+    ChildConstruction(Box<Self>, AbstractValueType, usize),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum AbstractValueType {
     Any,
     Numeric,
     Integer,
@@ -11,101 +39,82 @@ pub enum IAbstractType {
     UInteger(u32),
     Float(u32),
     Bool,
-    Tuple(Vec<IAbstractType>),
-    TString,
+    AnyTuple,
+    Tuple(usize),
+    String,
     Bytes,
-    Option(Box<IAbstractType>),
+    Option,
 }
 
-impl Abstract for IAbstractType {
-    type Err = String;
+impl Variant for AbstractValueType {
+    type Err = ValueErrorKind;
 
-    fn unconstrained() -> Self {
-        IAbstractType::Any
+    fn top() -> Self {
+        Self::Any
     }
 
-    fn meet(&self, other: &Self) -> Result<Self, Self::Err> {
-        use IAbstractType::*;
-        match (self, other) {
-            (Any, other) | (other, Any) => Ok(other.clone()),
-            (Numeric, Numeric) => Ok(Numeric),
-            (Integer, Integer) => Ok(Integer),
-            (SInteger(l), SInteger(r)) => Ok(SInteger(max(*r, *l))),
-            (UInteger(l), UInteger(r)) => Ok(UInteger(max(*r, *l))),
-            (Float(l), Float(r)) => Ok(Float(max(*l, *r))),
-            //(Float(i), Integer) | (Integer, Float(i)) => Ok(Float(*i)),
-            //(Float(i), SInteger(u)) | (SInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
-            //(Float(i), UInteger(u)) | (UInteger(u), Float(i)) => Ok(Float(max(*i, *u))),
-            (Bool, Bool) => Ok(Bool),
-            (Bool, other) | (other, Bool) => Err(format!("Bool not unifiable with {:?}", other)),
-            (Numeric, Integer) | (Integer, Numeric) => Ok(Integer),
-            (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok(SInteger(*w)),
-            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok(UInteger(*w)),
-            (Numeric, Float(i)) | (Float(i), Numeric) => Ok(Float(*i)),
-            (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok(SInteger(*x)),
-            (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok(UInteger(*x)),
-            (Integer, other) | (other, Integer) => Err(format!("Integer and non-Integer {:?}", other)),
-            (SInteger(_), other) | (other, SInteger(_)) => Err(format!("Int not unifiable with {:?}", other)),
-            (UInteger(_), other) | (other, UInteger(_)) => Err(format!("UInt not unifiable with {:?}", other)),
-            (Tuple(lv), Tuple(rv)) => {
-                if lv.len() != rv.len() {
-                    return Err(String::from("Tuple unification demands equal number of arguments"));
-                }
-                let (recursive_result, errors): (Vec<Result<Self, Self::Err>>, Vec<_>) =
-                    lv.iter().zip(rv.iter()).map(|(l, r)| Self::meet(l, r)).partition(Result::is_ok);
-                if !errors.is_empty() {
-                    let error_unwraped: Vec<String> = errors.into_iter().map(Result::unwrap_err).collect();
-                    Err(error_unwraped.join(", "))
-                } else {
-                    Ok(Tuple(recursive_result.into_iter().map(Result::unwrap).collect()))
-                }
+    fn meet(
+        lhs: Partial<AbstractValueType>,
+        rhs: Partial<AbstractValueType>,
+    ) -> Result<Partial<AbstractValueType>, Self::Err> {
+        use ValueErrorKind::*;
+        fn tuple_meet(least_arity: usize, size: usize) -> Result<(AbstractValueType, usize), ValueErrorKind> {
+            if least_arity <= size {
+                Ok((Tuple(size), size))
+            } else {
+                Err(TupleSize(least_arity, size))
             }
-            (Tuple(_), _) | (_, Tuple(_)) => Err(String::from("Tuple unification only with other Tuples")),
-            (TString, TString) => Ok(TString),
-            (TString, _) | (_, TString) => Err(String::from("String unification only with other Strings")),
-            (Bytes, Bytes) => Ok(Bytes),
-            (Bytes, _) | (_, Bytes) => Err(String::from("Bytes unification only with other Bytes")),
-            (Option(l), Option(r)) => match Self::meet(l, r) {
-                Ok(t) => Ok(Option(Box::new(t))),
-                Err(e) => Err(e),
-            },
-            (Option(_), _) | (_, Option(_)) => Err(String::from("Option unification only with other Options")), //(l, r) => Err(String::from(format!("unification error: left: {:?}, right: {:?}",l,r))),
         }
+        use AbstractValueType::*;
+        let (new_var, min_arity) = match (lhs.variant, rhs.variant) {
+            (Any, other) => Ok((other, rhs.least_arity)),
+            (other, Any) => Ok((other, lhs.least_arity)),
+            (Numeric, Numeric) => Ok((Numeric, 0)),
+            (Integer, Integer) => Ok((Integer, 0)),
+            (SInteger(l), SInteger(r)) => Ok((SInteger(max(r, l)), 0)),
+            (UInteger(l), UInteger(r)) => Ok((UInteger(max(r, l)), 0)),
+            (Float(l), Float(r)) => Ok((Float(max(l, r)), 0)),
+            (Bool, Bool) => Ok((Bool, 0)),
+            (Bool, _) | (_, Bool) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Numeric, Integer) | (Integer, Numeric) => Ok((Integer, 0)),
+            (Numeric, SInteger(w)) | (SInteger(w), Numeric) => Ok((SInteger(w), 0)),
+            (Numeric, UInteger(w)) | (UInteger(w), Numeric) => Ok((UInteger(w), 0)),
+            (Numeric, Float(i)) | (Float(i), Numeric) => Ok((Float(i), 0)),
+            (Integer, SInteger(x)) | (SInteger(x), Integer) => Ok((SInteger(x), 0)),
+            (Integer, UInteger(x)) | (UInteger(x), Integer) => Ok((UInteger(x), 0)),
+            (Integer, _) | (_, Integer) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (SInteger(_), _) | (_, SInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (UInteger(_), _) | (_, UInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (AnyTuple, AnyTuple) => Ok((AnyTuple, max(lhs.least_arity, rhs.least_arity))),
+            (AnyTuple, Tuple(size)) => tuple_meet(lhs.least_arity, size),
+            (Tuple(size), AnyTuple) => tuple_meet(rhs.least_arity, size),
+            (AnyTuple, _) | (_, AnyTuple) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Tuple(size_l), Tuple(size_r)) if size_l == size_r => Ok((Tuple(size_l), size_l)),
+            (Tuple(size_l), Tuple(size_r)) => Err(TupleSize(size_l, size_r)),
+            (Tuple(_), _) | (_, Tuple(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (String, String) => Ok((String, 0)),
+            (String, _) | (_, String) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Bytes, Bytes) => Ok((Bytes, 0)),
+            (Bytes, _) | (_, Bytes) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Option, Option) => Ok((Option, 1)),
+            (Option, _) | (_, Option) => Err(TypeClash(lhs.variant, rhs.variant)),
+        }?;
+        Ok(Partial { variant: new_var, least_arity: min_arity })
     }
 
-    fn arity(&self) -> Option<usize> {
-        use IAbstractType::*;
+    fn arity(&self) -> Arity {
+        use AbstractValueType::*;
         match self {
-            Option(_) => Some(1),
-            Tuple(t) => Some(t.len()),
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => Some(0),
-        }
-    }
-
-    fn nth_child(&self, n: usize) -> &Self {
-        use IAbstractType::*;
-        match self {
-            Option(op) => &*op,
-            Tuple(vec) => &vec[n],
-            Any | Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | TString | Bytes => unreachable!(),
-        }
-    }
-
-    fn with_children<I>(&self, children: I) -> Self
-    where
-        I: IntoIterator<Item = Self>,
-    {
-        let mut it = children.into_iter();
-        match self {
-            IAbstractType::Option(_op) => IAbstractType::Option(it.next().expect("").into()),
-            IAbstractType::Tuple(_v) => IAbstractType::Tuple(it.collect()),
-            t => t.clone(),
+            Any | AnyTuple => Arity::Variable,
+            Tuple(x) => Arity::Fixed(*x),
+            Option => Arity::Fixed(1),
+            Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | String | Bytes => Arity::Fixed(0),
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum IConcreteType {
+pub enum ConcreteValueType {
     Bool,
     Integer8,
     Integer16,
@@ -117,98 +126,263 @@ pub enum IConcreteType {
     UInteger64,
     Float32,
     Float64,
-    Tuple(Vec<IConcreteType>),
+    Tuple(Vec<ConcreteValueType>),
     TString,
     Byte,
-    Option(Box<IConcreteType>),
+    Option(Box<ConcreteValueType>),
 }
 
-impl rusttyc::types::TryReifiable for IAbstractType {
-    type Reified = IConcreteType;
+impl Constructable for AbstractValueType {
+    type Type = ConcreteValueType;
 
-    fn try_reify(&self) -> Result<Self::Reified, ReificationErr> {
+    fn construct(&self, children: &[ConcreteValueType]) -> Result<ConcreteValueType, ValueErrorKind> {
+        use ValueErrorKind::*;
         match self {
-            IAbstractType::Any => Err(ReificationErr::TooGeneral("Cannot reify `Any`.".to_string())),
-            IAbstractType::SInteger(w) if *w <= 8 => Ok(IConcreteType::Integer8),
-            IAbstractType::SInteger(w) if *w <= 16 => Ok(IConcreteType::Integer16),
-            IAbstractType::SInteger(w) if *w <= 32 => Ok(IConcreteType::Integer32),
-            IAbstractType::SInteger(w) if *w <= 64 => Ok(IConcreteType::Integer64),
-            IAbstractType::SInteger(w) => {
-                Err(ReificationErr::Conflicting(format!("Integer too wide, {}-bit not supported.", w)))
-            }
-            IAbstractType::UInteger(w) if *w <= 8 => Ok(IConcreteType::UInteger8),
-            IAbstractType::UInteger(w) if *w <= 16 => Ok(IConcreteType::UInteger16),
-            IAbstractType::UInteger(w) if *w <= 32 => Ok(IConcreteType::UInteger32),
-            IAbstractType::UInteger(w) if *w <= 64 => Ok(IConcreteType::UInteger64),
-            IAbstractType::UInteger(w) => {
-                Err(ReificationErr::Conflicting(format!("UInteger too wide, {}-bit not supported.", w)))
-            }
-            IAbstractType::Float(w) if *w <= 32 => Ok(IConcreteType::Float32),
-            IAbstractType::Float(w) if *w <= 64 => Ok(IConcreteType::Float64),
-            IAbstractType::Float(w) => {
-                Err(ReificationErr::Conflicting(format!("Floating point number too wide, {}-bit not supported.", w)))
-            }
-            IAbstractType::Numeric => Err(ReificationErr::TooGeneral(
-                "Cannot reify a numeric value. Either define a default (int/fixed) or restrict type.".to_string(),
-            )),
-            /*
-            IAbstractType::Integer => Err(ReificationErr::TooGeneral(
-                "Cannot reify an Integer value. Either define a default (int/uint) or restrict type.".to_string(),
-            )),
-            */
-            IAbstractType::Integer => Ok(IConcreteType::Integer32), //TODO REVIEW default case
-            IAbstractType::Bool => Ok(IConcreteType::Bool),
-            IAbstractType::Tuple(sub_types) => {
-                let (recursive_result, errors): (Vec<Result<IConcreteType, ReificationErr>>, Vec<_>) =
-                    sub_types.iter().map(|v| rusttyc::types::TryReifiable::try_reify(v)).partition(Result::is_ok);
-                if !errors.is_empty() {
-                    let error_unwraped: Vec<ReificationErr> = errors.into_iter().map(Result::unwrap_err).collect();
-                    Err(match &error_unwraped[0] {
-                        ReificationErr::Conflicting(s) => ReificationErr::Conflicting(s.clone()),
-                        ReificationErr::TooGeneral(s) => ReificationErr::TooGeneral(s.clone()),
-                    })
-                } else {
-                    Ok(IConcreteType::Tuple(recursive_result.into_iter().map(Result::unwrap).collect()))
-                }
-            }
-            IAbstractType::TString => Ok(IConcreteType::TString),
-            IAbstractType::Bytes => Ok(IConcreteType::Byte),
-            IAbstractType::Option(inner_type) => {
-                let res: Result<IConcreteType, ReificationErr> = Self::try_reify(&**inner_type);
-                match res {
-                    Err(e) => Err(e),
-                    Ok(ty) => Ok(IConcreteType::Option(Box::new(ty))),
-                }
-            }
+            AbstractValueType::Any => Err(CannotReify(*self)),
+            AbstractValueType::AnyTuple => Err(CannotReify(*self)),
+            AbstractValueType::SInteger(w) if *w <= 8 => Ok(ConcreteValueType::Integer8),
+            AbstractValueType::SInteger(w) if *w <= 16 => Ok(ConcreteValueType::Integer16),
+            AbstractValueType::SInteger(w) if *w <= 32 => Ok(ConcreteValueType::Integer32),
+            AbstractValueType::SInteger(w) if *w <= 64 => Ok(ConcreteValueType::Integer64),
+            AbstractValueType::SInteger(_) => Err(ReificationTooWide(*self)),
+            AbstractValueType::UInteger(w) if *w <= 8 => Ok(ConcreteValueType::UInteger8),
+            AbstractValueType::UInteger(w) if *w <= 16 => Ok(ConcreteValueType::UInteger16),
+            AbstractValueType::UInteger(w) if *w <= 32 => Ok(ConcreteValueType::UInteger32),
+            AbstractValueType::UInteger(w) if *w <= 64 => Ok(ConcreteValueType::UInteger64),
+            AbstractValueType::UInteger(_) => Err(ReificationTooWide(*self)),
+            AbstractValueType::Float(w) if *w <= 32 => Ok(ConcreteValueType::Float32),
+            AbstractValueType::Float(w) if *w <= 64 => Ok(ConcreteValueType::Float64),
+            AbstractValueType::Float(_) => Err(ReificationTooWide(*self)),
+            AbstractValueType::Numeric => Err(CannotReify(*self)),
+            AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
+            AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
+            AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),
+            AbstractValueType::String => Ok(ConcreteValueType::TString),
+            AbstractValueType::Bytes => Ok(ConcreteValueType::Byte),
+            AbstractValueType::Option => Ok(ConcreteValueType::Option(Box::new(children[0].clone()))),
         }
     }
 }
 
-impl rusttyc::types::Generalizable for IConcreteType {
-    type Generalized = IAbstractType;
-
-    fn generalize(&self) -> Self::Generalized {
-        match self {
-            IConcreteType::Float64 => IAbstractType::Float(64),
-            IConcreteType::Float32 => IAbstractType::Float(32),
-            IConcreteType::Integer8 => IAbstractType::SInteger(8),
-            IConcreteType::Integer16 => IAbstractType::SInteger(16),
-            IConcreteType::Integer32 => IAbstractType::SInteger(32),
-            IConcreteType::Integer64 => IAbstractType::SInteger(64),
-            IConcreteType::UInteger8 => IAbstractType::UInteger(8),
-            IConcreteType::UInteger16 => IAbstractType::UInteger(16),
-            IConcreteType::UInteger32 => IAbstractType::UInteger(32),
-            IConcreteType::UInteger64 => IAbstractType::UInteger(64),
-            IConcreteType::Bool => IAbstractType::Bool,
-            IConcreteType::Tuple(type_list) => {
-                let result_vec: Vec<IAbstractType> = type_list.iter().map(|t| Self::generalize(t)).collect();
-                IAbstractType::Tuple(result_vec)
+impl ConcreteValueType {
+    pub(crate) fn from_annotated_type(at: &AnnotatedType) -> Result<Self, ValueErrorKind> {
+        use ValueErrorKind::*;
+        match at {
+            AnnotatedType::String => Ok(ConcreteValueType::TString),
+            AnnotatedType::Bool => Ok(ConcreteValueType::Bool),
+            AnnotatedType::Bytes => Ok(ConcreteValueType::Byte),
+            AnnotatedType::Float(w) if *w <= 32 => Ok(ConcreteValueType::Float32),
+            AnnotatedType::Float(w) if *w <= 64 => Ok(ConcreteValueType::Float64),
+            AnnotatedType::Float(_) => Err(AnnotationTooWide(at.clone())),
+            AnnotatedType::Int(w) if *w <= 8 => Ok(ConcreteValueType::Integer8),
+            AnnotatedType::Int(w) if *w <= 16 => Ok(ConcreteValueType::Integer16),
+            AnnotatedType::Int(w) if *w <= 32 => Ok(ConcreteValueType::Integer32),
+            AnnotatedType::Int(w) if *w <= 64 => Ok(ConcreteValueType::Integer64),
+            AnnotatedType::Int(_) => Err(AnnotationTooWide(at.clone())),
+            AnnotatedType::UInt(w) if *w <= 8 => Ok(ConcreteValueType::UInteger8),
+            AnnotatedType::UInt(w) if *w <= 16 => Ok(ConcreteValueType::UInteger16),
+            AnnotatedType::UInt(w) if *w <= 32 => Ok(ConcreteValueType::UInteger32),
+            AnnotatedType::UInt(w) if *w <= 64 => Ok(ConcreteValueType::UInteger64),
+            AnnotatedType::UInt(_) => Err(AnnotationTooWide(at.clone())),
+            AnnotatedType::Tuple(children) => children
+                .iter()
+                .map(ConcreteValueType::from_annotated_type)
+                .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
+                .map(ConcreteValueType::Tuple),
+            AnnotatedType::Option(child) => {
+                ConcreteValueType::from_annotated_type(child).map(|child| ConcreteValueType::Option(Box::new(child)))
             }
-            IConcreteType::TString => IAbstractType::TString,
-            IConcreteType::Byte => IAbstractType::Bytes,
-            IConcreteType::Option(inner_type) => {
-                let result: IAbstractType = Self::generalize(&**inner_type);
-                IAbstractType::Option(Box::new(result))
+            AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
+
+            AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
+        }
+    }
+}
+
+impl Display for AbstractValueType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AbstractValueType::Any => write!(f, "Any"),
+            AbstractValueType::Numeric => write!(f, "Numeric"),
+            AbstractValueType::Integer => write!(f, "Integer"),
+            AbstractValueType::SInteger(w) => write!(f, "Int({})", *w),
+            AbstractValueType::UInteger(w) => write!(f, "UInt({})", *w),
+            AbstractValueType::Float(w) => write!(f, "Float({})", *w),
+            AbstractValueType::Bool => write!(f, "Bool"),
+            AbstractValueType::AnyTuple => write!(f, "AnyTuple"),
+            AbstractValueType::Tuple(w) => write!(f, "{}Tuple", *w),
+            AbstractValueType::String => write!(f, "String"),
+            AbstractValueType::Bytes => write!(f, "String"),
+            AbstractValueType::Option => write!(f, "Option<?>"),
+        }
+    }
+}
+
+impl Display for ConcreteValueType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConcreteValueType::Bool => write!(f, "Bool"),
+            ConcreteValueType::Integer8 => write!(f, "Int8"),
+            ConcreteValueType::Integer16 => write!(f, "Int16"),
+            ConcreteValueType::Integer32 => write!(f, "Int32"),
+            ConcreteValueType::Integer64 => write!(f, "Int64"),
+            ConcreteValueType::UInteger8 => write!(f, "UInt8"),
+            ConcreteValueType::UInteger16 => write!(f, "UInt16"),
+            ConcreteValueType::UInteger32 => write!(f, "UInt32"),
+            ConcreteValueType::UInteger64 => write!(f, "UInt64"),
+            ConcreteValueType::Float32 => write!(f, "Float32"),
+            ConcreteValueType::Float64 => write!(f, "Float64"),
+            ConcreteValueType::Tuple(children) => write!(f, "({})", children.iter().map(|c| c.to_string()).join(", ")),
+            ConcreteValueType::TString => write!(f, "String"),
+            ConcreteValueType::Byte => write!(f, "Byte"),
+            ConcreteValueType::Option(c) => write!(f, "Option<{}>", c),
+        }
+    }
+}
+
+impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
+    fn from(err: TcErr<AbstractValueType>) -> Self {
+        match err {
+            TcErr::KeyEquation(key1, key2, err) => TypeError { kind: err, key1: Some(key1), key2: Some(key2) },
+            TcErr::Bound(key1, key2, err) => TypeError { kind: err, key1: Some(key1), key2 },
+            TcErr::ChildAccessOutOfBound(key, value_ty, index) => {
+                TypeError { kind: ValueErrorKind::AccessOutOfBound(value_ty, index), key1: Some(key), key2: None }
+            }
+            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => TypeError {
+                kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
+                key1: Some(key),
+                key2: None,
+            },
+            TcErr::Construction(key, _, err) => TypeError { kind: err, key1: Some(key), key2: None },
+            TcErr::ChildConstruction(key, idx, parent, err) => TypeError {
+                kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
+                key1: Some(key),
+                key2: None,
+            },
+        }
+    }
+}
+
+impl Emittable for ValueErrorKind {
+    fn emit(
+        self,
+        handler: &Handler,
+        spans: &[&HashMap<TcKey, Span>],
+        _names: &HashMap<StreamReference, &str>,
+        key1: Option<TcKey>,
+        key2: Option<TcKey>,
+    ) {
+        let spans = spans[0];
+        match self {
+            ValueErrorKind::TypeClash(ty1, ty2) => {
+                let span1 = key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nFound incompatible types: {} and {}", ty1, ty2),
+                )
+                .maybe_add_span_with_label(span1, Some(&format!("found {} here", ty1)), true)
+                .maybe_add_span_with_label(span2, Some(&format!("found {} here", ty2)), false)
+                .emit()
+            }
+            ValueErrorKind::TupleSize(size1, size2) => {
+                let span1 = key1.and_then(|k| spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| spans.get(&k).cloned());
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "In value type analysis:\nTried to merge Tuples of different sizes {} and {}",
+                        size1, size2
+                    ),
+                )
+                .maybe_add_span_with_label(span1, Some(&format!("found Tuple of size {} here", size1)), true)
+                .maybe_add_span_with_label(span2, Some(&format!("found Tuple of size {} here", size2)), false)
+                .emit()
+            }
+            ValueErrorKind::ReificationTooWide(ty) => Diagnostic::error(
+                handler,
+                &format!("In value type analysis:\nType {} is too wide to be concretized", ty),
+            )
+            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            .emit(),
+            ValueErrorKind::CannotReify(ty) => {
+                Diagnostic::error(handler, &format!("In value type analysis:\nType {} cannot be concretized", ty))
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                    .add_note("Help: Consider an explicit type annotation.")
+                    .emit()
+            }
+            ValueErrorKind::AnnotationTooWide(ty) => {
+                Diagnostic::error(handler, &format!("In value type analysis:\nAnnotated Type {} is too wide", ty))
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                    .emit()
+            }
+            ValueErrorKind::AnnotationInvalid(ty) => {
+                Diagnostic::error(handler, &format!("In value type analysis:\nUnknown annotated type: {}", ty))
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                    .add_note("Help: Consider an explicit type annotation.")
+                    .emit()
+            }
+            ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => Diagnostic::error(
+                handler,
+                "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
+            )
+            .maybe_add_span_with_label(
+                key1.and_then(|k| spans.get(&k).cloned()),
+                Some(&format!("Found offset with duration {} here", dur)),
+                true,
+            )
+            .maybe_add_span_with_label(
+                key2.and_then(|k| spans.get(&k).cloned()),
+                Some(&format!("Target stream with frequency {} is found here", freq)),
+                false,
+            )
+            .emit(),
+
+            ValueErrorKind::ExactTypeMismatch(inferred, expected) => Diagnostic::error(
+                handler,
+                &format!("In value type analysis:\nInferred type {} but expected {}.", inferred, expected),
+            )
+            .maybe_add_span_with_label(
+                key1.and_then(|k| spans.get(&k).cloned()),
+                Some(&format!("Expected {} here", expected)),
+                true,
+            )
+            .maybe_add_span_with_label(
+                key2.and_then(|k| spans.get(&k).cloned()),
+                Some(&format!("But inferred {} here", inferred)),
+                false,
+            )
+            .emit(),
+            ValueErrorKind::AccessOutOfBound(ty, idx) => Diagnostic::error(
+                handler,
+                &format!("In value type analysis:\nChild at index {} does not exists in type {}", idx - 1, ty),
+            )
+            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            .emit(),
+            ValueErrorKind::ArityMismatch(ty, inferred, expected) => Diagnostic::error(
+                handler,
+                &format!(
+                    "In value type analysis:\nExpected type {} to have {} children but inferred {}",
+                    ty, expected, inferred
+                ),
+            )
+            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            .emit(),
+            ValueErrorKind::ChildConstruction(child_err, parent, idx) => {
+                let reason = match child_err.as_ref() {
+                    ValueErrorKind::ReificationTooWide(ty) => format!("Type {} is too wide to be concretized", ty),
+                    ValueErrorKind::CannotReify(ty) => format!("Type {} cannot be concretized", ty),
+                    _ => "Unknown".to_string(),
+                };
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "In value type analysis:\nCannot construct sub type of {} at index {}.\nReason: {}",
+                        parent, idx, reason
+                    ),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit()
             }
         }
     }

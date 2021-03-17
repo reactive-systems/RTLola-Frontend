@@ -319,8 +319,8 @@ impl Dependencies {
         match w {
             StreamAccessKind::Sync => EdgeWeight::Offset(0),
             StreamAccessKind::Offset(o) => match o {
-                Offset::PastDiscreteOffset(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
-                Offset::FutureDiscreteOffset(o) => {
+                Offset::PastDiscrete(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
+                Offset::FutureDiscrete(o) => {
                     if o == 0 {
                         EdgeWeight::Offset(i32::try_from(o).unwrap())
                     } else {

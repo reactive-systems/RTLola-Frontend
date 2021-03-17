@@ -5,7 +5,7 @@ use crate::hir::modes::{
 };
 use crate::tyc::{
     pacing_types::ActivationCondition, pacing_types::ConcretePacingType as PacingTy,
-    value_types::IConcreteType as ValueTy,
+    value_types::ConcreteValueType as ValueTy,
 };
 use crate::{hir, hir::Hir, mir, mir::Mir};
 

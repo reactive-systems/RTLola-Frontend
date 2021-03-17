@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter, Result};
 impl Display for Offset {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Offset::PastDiscreteOffset(u) => write!(f, "{}", u),
+            Offset::PastDiscrete(u) => write!(f, "{}", u),
             _ => unimplemented!(),
         }
     }

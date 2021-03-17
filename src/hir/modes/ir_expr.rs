@@ -4,7 +4,7 @@ use crate::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
     },
     hir::modes::{HirMode, IrExprRes},
-    hir::AC,
+    hir::Ac,
     hir::{AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger, Window},
 };
 
@@ -13,6 +13,7 @@ use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
+use crate::hir::expression::ArithLogOp;
 use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
 use crate::reporting::Handler;
@@ -84,8 +85,8 @@ where
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
                         match ac {
-                            AC::Expr(e) => Some(self.mode.expression(*e)),
-                            AC::Frequency { .. } => None, //May change return type
+                            Ac::Expr(e) => Some(self.mode.expression(*e)),
+                            Ac::Frequency { .. } => None, //May change return type
                         }
                     } else {
                         None
@@ -263,16 +264,16 @@ impl ExpressionTransformer {
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         ac_expr: ast::Expression,
         current: SRef,
-    ) -> AC {
+    ) -> Ac {
         if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                return AC::Frequency {
+                return Ac::Frequency {
                     span: ac_expr.span.clone(),
                     value: ac_expr.parse_freqspec().expect("Invalid Literal with Postfix (unable to parse Frequency)"),
                 };
             }
         }
-        AC::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)))
+        Ac::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)))
     }
 
     fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
@@ -324,8 +325,8 @@ impl ExpressionTransformer {
                 use uom::si::time::nanosecond;
                 let ir_offset = match offset {
                     ast::Offset::Discrete(i) if i == 0 => None,
-                    ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscreteOffset(i.abs() as u32)),
-                    ast::Offset::Discrete(i) => Some(Offset::PastDiscreteOffset(i.abs() as u32)),
+                    ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscrete(i.abs() as u32)),
+                    ast::Offset::Discrete(i) => Some(Offset::PastDiscrete(i.abs() as u32)),
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time =
                             offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
@@ -337,11 +338,11 @@ impl ExpressionTransformer {
                             0 => None,
                             i if i < &0 => {
                                 let positive_dur = Duration::from_nanos((-dur) as u64);
-                                Some(Offset::PastRealTimeOffset(positive_dur))
+                                Some(Offset::PastRealTime(positive_dur))
                             }
                             _ => {
                                 let positive_dur = Duration::from_nanos(dur as u64);
-                                Some(Offset::FutureRealTimeOffset(positive_dur))
+                                Some(Offset::FutureRealTime(positive_dur))
                             }
                         }
                     }
@@ -526,19 +527,30 @@ fn transform_template_spec(
     current_output: SRef,
 ) -> InstanceTemplate {
     InstanceTemplate {
-        spawn: spawn_spec.map(|spawn_spec| SpawnTemplate {
-            target: spawn_spec.target.and_then(|target| {
-                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
-                    if let ast::ExpressionKind::MissingExpression = exp.kind {
-                        return None;
+        spawn: spawn_spec.map(|spawn_spec| {
+            let is_if = spawn_spec.is_if;
+            SpawnTemplate {
+                target: spawn_spec.target.and_then(|target| {
+                    if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
+                        if let ast::ExpressionKind::MissingExpression = exp.kind {
+                            return None;
+                        }
                     }
-                }
-                Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
-            }),
-            condition: spawn_spec.condition.map(|cond_expr| {
-                insert_return(exprid_to_expr, transformer.transform_expression(cond_expr, current_output))
-            }),
-            is_if: spawn_spec.is_if,
+                    Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
+                }),
+                pacing: spawn_spec.pacing.expr.map(|ac| transformer.transform_ac(exprid_to_expr, ac, current_output)),
+                condition: spawn_spec.condition.map(|cond_expr| {
+                    let mut e = transformer.transform_expression(cond_expr, current_output);
+                    if !is_if {
+                        e = Expression {
+                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
+                            eid: transformer.next_exp_id(),
+                            span: e.span,
+                        }
+                    }
+                    insert_return(exprid_to_expr, e)
+                }),
+            }
         }),
         filter: filter_spec.map(|filter_spec| {
             insert_return(exprid_to_expr, transformer.transform_expression(filter_spec.target, current_output))
@@ -772,16 +784,16 @@ mod tests {
             ("input o :Int8 output off := o", StreamAccessKind::Sync),
             //("input o :Int8 output off := o.aggregate(over: 1s, using: sum)",StreamAccessKind::DiscreteWindow(WRef::SlidingRef(0))),
             ("input o :Int8 output off := o.hold()", StreamAccessKind::Hold),
-            ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscreteOffset(1))),
-            ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscreteOffset(1))),
+            ("input o :Int8 output off := o.offset(by:-1)", StreamAccessKind::Offset(Offset::PastDiscrete(1))),
+            ("input o :Int8 output off := o.offset(by: 1)", StreamAccessKind::Offset(Offset::FutureDiscrete(1))),
             ("input o :Int8 output off := o.offset(by: 0)", StreamAccessKind::Sync),
             (
                 "input o :Int8 output off := o.offset(by:-1s)",
-                StreamAccessKind::Offset(Offset::PastRealTimeOffset(Duration::from_secs(1))),
+                StreamAccessKind::Offset(Offset::PastRealTime(Duration::from_secs(1))),
             ),
             (
                 "input o :Int8 output off := o.offset(by: 1s)",
-                StreamAccessKind::Offset(Offset::FutureRealTimeOffset(Duration::from_secs(1))),
+                StreamAccessKind::Offset(Offset::FutureRealTime(Duration::from_secs(1))),
             ),
             ("input o :Int8 output off := o.offset(by: 0s)", StreamAccessKind::Sync),
         ] {
@@ -846,7 +858,7 @@ mod tests {
         let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
         assert!(matches!(
             expr.kind,
-            ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscreteOffset(_)), _)
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscrete(_)), _)
         ));
         if let ExpressionKind::StreamAccess(sr, _, v) = &expr.kind {
             assert_eq!(*sr, SRef::OutRef(0));
@@ -967,12 +979,12 @@ mod tests {
 
     #[test]
     fn test_instance() {
-        use crate::hir::{Output, AC};
+        use crate::hir::{Ac, Output};
         let spec = "input i: Bool output c(a: Int8): Bool @1Hz spawn with i if i filter i close i:= i";
         let ir = obtain_expressions(spec);
         let output: Output = ir.outputs[0].clone();
         assert!(output.annotated_type.is_some());
-        assert!(matches!(output.activation_condition, Some(AC::Frequency { .. })));
+        assert!(matches!(output.activation_condition, Some(Ac::Frequency { .. })));
         assert!(output.params.len() == 1);
         let fil: &Expression = ir.filter(output.sr).unwrap();
         assert!(matches!(fil.kind, ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)));
@@ -985,13 +997,13 @@ mod tests {
 
     #[test]
     fn test_ac() {
-        use crate::hir::{Output, AC};
+        use crate::hir::{Ac, Output};
         let spec = "input in: Bool output a: Bool @2.5Hz := true output b: Bool @in := false";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(matches!(a.activation_condition, Some(AC::Frequency { .. })));
+        assert!(matches!(a.activation_condition, Some(Ac::Frequency { .. })));
         let b: &Output = &ir.outputs[1];
-        assert!(matches!(b.activation_condition, Some(AC::Expr(_))));
+        assert!(matches!(b.activation_condition, Some(Ac::Expr(_))));
     }
 
     #[test]
@@ -1001,5 +1013,16 @@ mod tests {
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
         assert!(matches!(a.instance_template.spawn, Some(SpawnTemplate { target: None, .. })));
+    }
+
+    #[test]
+    fn test_spawn_pacing() {
+        use crate::hir::Output;
+        let spec = "output a: Bool @2.5Hz spawn @1Hz with () if true := true";
+        let ir = obtain_expressions(spec);
+        let a: Output = ir.outputs[0].clone();
+        assert!(a.instance_template.spawn.is_some());
+        let template = a.instance_template.spawn;
+        assert!(matches!(template.unwrap().pacing, Some(Ac::Frequency { .. })));
     }
 }

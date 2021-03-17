@@ -293,6 +293,19 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
         let mut spawn_children = spawn_pair.into_inner();
         let mut next_pair = spawn_children.next();
 
+        let pacing = if let Some(pair) = next_pair.clone() {
+            if let Rule::ActivationCondition = pair.as_rule() {
+                let span: Span = pair.as_span().into();
+                let expr = self.build_expression_ast(pair.into_inner());
+                next_pair = spawn_children.next();
+                ActivationCondition { expr: Some(expr), id: self.next_id(), span }
+            } else {
+                ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
+            }
+        } else {
+            ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
+        };
+
         let target = if let Some(pair) = next_pair.clone() {
             if let Rule::SpawnWith = pair.as_rule() {
                 let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
@@ -319,14 +332,14 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
             (None, false)
         };
 
-        if target.is_none() && condition.is_none() {
+        if target.is_none() && condition.is_none() && pacing.expr.is_none() {
             self.handler.error_with_span(
                 "Spawn condition needs either expression or condition",
                 span_inv.clone(),
                 Some("found spawn condition here"),
             );
         }
-        SpawnSpec { target, condition, is_if, id: self.next_id(), span: span_inv }
+        SpawnSpec { target, pacing, condition, is_if, id: self.next_id(), span: span_inv }
     }
 
     fn parse_filter_spec(&self, ext_pair: Pair<'_, Rule>) -> FilterSpec {
@@ -859,9 +872,9 @@ impl<'a, 'b> RTLolaParser<'a, 'b> {
  * Transforms a textual representation of a Lola specification into
  * an AST representation.
  */
-pub fn parse<'a, 'b>(
-    content: &'a str,
-    handler: &'b Handler,
+pub fn parse(
+    content: &'_ str,
+    handler: &'_ Handler,
     config: FrontendConfig,
 ) -> Result<RTLolaAst, pest::error::Error<Rule>> {
     RTLolaParser::new(content, handler, config).parse()
@@ -1390,5 +1403,14 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
         assert_eq!(handler.emitted_errors(), 1);
+    }
+
+    #[test]
+    fn spawn_with_pacing() {
+        let spec = "output x spawn @3Hz with (x) if true := 5\n";
+        let throw = |e| panic!("{}", e);
+        let handler = Handler::new(PathBuf::new(), spec.into());
+        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        cmp_ast_spec(&ast, spec);
     }
 }

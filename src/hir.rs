@@ -62,7 +62,7 @@ impl<M: HirMode> Hir<M> {
         self.triggers.len()
     }
 
-    pub fn all_streams<'a>(&'a self) -> impl Iterator<Item = SRef> + 'a {
+    pub fn all_streams(&'_ self) -> impl Iterator<Item = SRef> + '_ {
         self.inputs
             .iter()
             .map(|i| i.sr)
@@ -74,6 +74,12 @@ impl<M: HirMode> Hir<M> {
     }
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
         self.outputs.iter().find(|&o| o.name == name)
+    }
+    pub fn output(&self, sref: SRef) -> Option<&Output> {
+        self.outputs().find(|o| o.sr == sref)
+    }
+    pub fn input(&self, sref: SRef) -> Option<&Input> {
+        self.inputs().find(|i| i.sr == sref)
     }
 }
 
@@ -103,7 +109,7 @@ pub struct Output {
     /// The user annotated Type
     pub annotated_type: Option<AnnotatedType>,
     /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
-    pub activation_condition: Option<AC>,
+    pub activation_condition: Option<Ac>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
@@ -130,12 +136,12 @@ pub struct Parameter {
 
 /// Use to hold either a frequency or an expression for the annotated activation condition
 #[derive(Debug, Clone, PartialEq)]
-pub enum AC {
+pub enum Ac {
     Frequency { span: Span, value: UOM_Frequency },
     Expr(ExprId),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct InstanceTemplate {
     /// The invoke condition of the parametrized stream.
     pub spawn: Option<SpawnTemplate>,
@@ -145,14 +151,14 @@ pub struct InstanceTemplate {
     pub close: Option<ExprId>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<ExprId>,
-    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
+    /// The activation condition describing when a new instance is created.
+    pub pacing: Option<Ac>,
+    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<ExprId>,
-    /// A flag to describe if the invoke declaration contains an additional condition
-    pub is_if: bool,
 }
 
 #[derive(Debug, Clone)]

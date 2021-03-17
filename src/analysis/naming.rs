@@ -250,6 +250,9 @@ impl<'b> NamingAnalysis<'b> {
                 if let Some(target) = &spawn.target {
                     self.check_expression(target);
                 }
+                if let Some(pacing) = &spawn.pacing.expr {
+                    self.check_expression(pacing);
+                }
                 if let Some(cond) = &spawn.condition {
                     self.check_expression(&cond);
                 }

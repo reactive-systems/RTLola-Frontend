@@ -157,9 +157,11 @@ An AST node representing the declaration of an invoke condition of a parametrize
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<Expression>,
-    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true If 'is_true' is false, this component is assigned to 'None'
+    /// The ActivationCondition describing when a new instance should be created.
+    pub pacing: ActivationCondition,
+    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
-    /// A flag to describe if the invoke declaration contains an additional condition
+    /// A flag to describe if the condition is an 'if' or an 'unless' condition.
     pub is_if: bool,
     /// The ID of the node in the AST
     pub id: NodeId,
