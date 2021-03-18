@@ -98,7 +98,6 @@ impl DepAnaTrait for DepAnaMode {
 pub(crate) enum DependencyErr {
     WellFormedNess,
 }
-pub(crate) struct DependencyReport {}
 
 type Result<T> = std::result::Result<T, DependencyErr>;
 

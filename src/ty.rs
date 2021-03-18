@@ -1,17 +1,8 @@
-//! This module contains the basic definition of types
-//!
-//! It is inspired by <https://doc.rust-lang.org/nightly/nightly-rustc/rustc/ty/index.html>
-#![allow(dead_code)]
-pub(crate) mod check;
-pub(crate) mod unifier;
-
-use crate::parse::NodeId;
 use lazy_static::lazy_static;
-use num::rational::Rational64 as Rational;
-use num::{CheckedDiv, Integer};
-use unifier::ValueVar;
-use uom::si::frequency::hertz;
-use uom::si::rational64::Frequency as UOM_Frequency;
+
+/// Representation of key for unification of `ValueTy`
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
+pub struct ValueVar(u32);
 
 /**
 Configuration of the type system in the frontend.
@@ -22,27 +13,6 @@ pub struct TypeConfig {
     pub use_64bit_only: bool,
     /// include type aliases `Int` -> `Int64`, `UInt` -> `UInt64`, and `Float` -> `Float64`
     pub type_aliases: bool,
-}
-
-/// The type of an expression consists of both, a value type (`Bool`, `String`, etc.) and
-/// a stream type (periodic or event-based).
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Hash)]
-pub struct Ty {
-    value: ValueTy,
-    stream: StreamTy,
-}
-
-/**
-The possible stream types describing the temporal behavior of a stream.
-*/
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Hash)]
-pub enum StreamTy {
-    /// An event stream with the given dependencies
-    Event(Activation<NodeId>),
-    /// A real-time stream with given frequency
-    RealTime(Freq),
-    /// **INTERNAL USE**: The type of the stream should be inferred as the conjunction of the given `StreamTy`
-    Infer(Vec<NodeId>),
 }
 
 /// The `value` type, storing information about the stored values (`Bool`, `UInt8`, etc.)
@@ -147,17 +117,6 @@ pub enum FloatTy {
 use self::FloatTy::*;
 
 /**
-The frequency with which a stream gets executed.
-*/
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Freq {
-    /**
-    The frequency stored in the format provided by the `uom` crate.
-    */
-    pub freq: UOM_Frequency,
-}
-
-/**
 The activation condition describes when an event-based stream produces a new value.
 */
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
@@ -178,126 +137,6 @@ pub enum Activation<Var> {
     Whenever an event-based stream produces a new value.
     */
     True,
-}
-
-impl std::fmt::Display for Freq {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.freq.clone().into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation))
-    }
-}
-
-impl StreamTy {
-    pub(crate) fn new_event(activation: Activation<NodeId>) -> StreamTy {
-        StreamTy::Event(activation)
-    }
-
-    pub(crate) fn new_periodic(freq: Freq) -> StreamTy {
-        StreamTy::RealTime(freq)
-    }
-
-    pub(crate) fn is_valid(&self, right: &StreamTy) -> Result<bool, String> {
-        // RealTime<freq_self> -> RealTime<freq_right> if freq_left is multiple of freq_right
-        match (&self, &right) {
-            (StreamTy::RealTime(target), StreamTy::RealTime(other)) => {
-                // coercion is only valid if `other` is a multiple of `target`,
-                // for example, `target = 3Hz` and `other = 12Hz`
-                other.is_multiple_of(target)
-            }
-            (StreamTy::Event(target), StreamTy::Event(other)) => {
-                // coercion is only valid if the implication `target -> other` is valid,
-                // for example, `target = a && b` and `other = b` is valid while
-                //              `target = a || b` and `other = b` is invalid.
-                Ok(target.implies_valid(other))
-            }
-            _ => Ok(false),
-        }
-    }
-
-    pub(crate) fn simplify(&mut self) {
-        let ac = match self {
-            StreamTy::Event(ac) => ac,
-            _ => return,
-        };
-        match ac {
-            Activation::Conjunction(args) if args.is_empty() => *ac = Activation::True,
-            Activation::Conjunction(args) | Activation::Disjunction(args) => {
-                args.sort();
-                args.dedup();
-            }
-            _ => {}
-        }
-    }
-}
-
-impl Activation<NodeId> {
-    /// Checks whether `self -> other` is valid
-    pub(crate) fn implies_valid(&self, other: &Self) -> bool {
-        if self == other {
-            return true;
-        }
-        match (self, other) {
-            (Activation::Conjunction(left), Activation::Conjunction(right)) => {
-                right.iter().all(|cond| left.contains(cond))
-            }
-            (Activation::Conjunction(left), _) => left.contains(other),
-            (_, Activation::True) => true,
-            _ => {
-                // there are possible many more cases that we want to look at in order to make analysis more precise
-                false
-            }
-        }
-    }
-
-    pub(crate) fn conjunction(&self, other: &Self) -> Self {
-        use Activation::*;
-        match (self, other) {
-            (True, _) => other.clone(),
-            (Conjunction(c_l), Conjunction(c_r)) => {
-                let mut con = c_l.clone();
-                con.extend(c_r.iter().cloned());
-                Conjunction(con)
-            }
-            (Conjunction(c), other) | (other, Conjunction(c)) => {
-                let mut con = c.clone();
-                con.push(other.clone());
-                Conjunction(con)
-            }
-            (_, _) => Conjunction(vec![self.clone(), other.clone()]),
-        }
-    }
-}
-
-impl Freq {
-    pub(crate) fn new(freq: UOM_Frequency) -> Self {
-        Freq { freq }
-    }
-
-    pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, String> {
-        let lhs = self.freq.get::<hertz>();
-        let rhs = other.freq.get::<hertz>();
-        if lhs < rhs {
-            return Ok(false);
-        }
-        match lhs.checked_div(&rhs) {
-            Some(q) => Ok(q.is_integer()),
-            None => Err(format!("division of frequencies `{:?}`/`{:?}` failed", &self.freq, &other.freq)),
-        }
-    }
-
-    pub(crate) fn conjunction(&self, other: &Freq) -> Freq {
-        let numer_left = *self.freq.get::<hertz>().numer();
-        let numer_right = *other.freq.get::<hertz>().numer();
-        let denom_left = *self.freq.get::<hertz>().denom();
-        let denom_right = *other.freq.get::<hertz>().denom();
-        // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
-        // only works if rational numbers are reduced, which ist the default for `Rational`
-        Freq {
-            freq: UOM_Frequency::new::<hertz>(Rational::new(
-                numer_left.gcd(&numer_right),
-                denom_left.lcm(&denom_right),
-            )),
-        }
-    }
 }
 
 lazy_static! {
@@ -343,31 +182,6 @@ impl ValueTy {
         types
     }
 
-    pub(crate) fn satisfies(&self, constraint: &TypeConstraint) -> bool {
-        use self::TypeConstraint::*;
-        use self::ValueTy::*;
-        match constraint {
-            Unconstrained => true,
-            Comparable | Equatable => self.is_primitive(),
-            Numeric => self.satisfies(&Integer) || self.satisfies(&FloatingPoint),
-            FloatingPoint => matches!(self, Float(_)),
-            Integer => self.satisfies(&SignedInteger) || self.satisfies(&UnsignedInteger),
-            SignedInteger => matches!(self, Int(_)),
-            UnsignedInteger => matches!(self, UInt(_)),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn is_error(&self) -> bool {
-        use self::ValueTy::*;
-        match self {
-            Error => true,
-            Tuple(args) => args.iter().any(|el| el.is_error()),
-            Option(ty) => ty.is_error(),
-            _ => false,
-        }
-    }
-
     /**
     Returns whether this type is a primitive type.
 
@@ -376,17 +190,6 @@ impl ValueTy {
     pub fn is_primitive(&self) -> bool {
         use self::ValueTy::*;
         matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
-    }
-
-    /// Replaces parameters by the given list
-    pub(crate) fn replace_params(&self, infer_vars: &[ValueVar]) -> ValueTy {
-        match self {
-            &ValueTy::Param(id, _) => ValueTy::Infer(infer_vars[id as usize]),
-            ValueTy::Option(t) => ValueTy::Option(t.replace_params(infer_vars).into()),
-            ValueTy::Infer(_) | ValueTy::Constr(_) => self.clone(),
-            _ if self.is_primitive() => self.clone(),
-            _ => unreachable!("replace_param for {}", self),
-        }
     }
 
     /// Replaces parameters by the given list
@@ -399,20 +202,11 @@ impl ValueTy {
             _ => unreachable!("replace_param for {}", self),
         }
     }
+}
 
-    /// Replaces constraints by default values
-    pub(crate) fn replace_constr(&self) -> ValueTy {
-        match &self {
-            ValueTy::Tuple(t) => ValueTy::Tuple(t.iter().map(|el| el.replace_constr()).collect()),
-            ValueTy::Option(ty) => ValueTy::Option(ty.replace_constr().into()),
-            ValueTy::Constr(c) => match c.has_default() {
-                Some(d) => d,
-                None => ValueTy::Error,
-            },
-            ValueTy::Param(_, _) => self.clone(),
-            _ if self.is_primitive() => self.clone(),
-            _ => unreachable!("cannot replace_constr for {}", self),
-        }
+impl std::fmt::Display for ValueVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -446,33 +240,6 @@ impl std::fmt::Display for ValueTy {
     }
 }
 
-impl std::fmt::Display for StreamTy {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            StreamTy::Event(activation) => write!(f, "EventStream({})", activation),
-            StreamTy::RealTime(freq) => write!(f, "PeriodicStream({})", freq),
-            StreamTy::Infer(vars) => write!(f, "InferedStream({:?})", vars),
-        }
-    }
-}
-
-impl std::fmt::Display for Activation<NodeId> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use crate::ast::print::write_delim_list;
-        match self {
-            Activation::Conjunction(con) => write_delim_list(f, &con, "(", ")", " && "),
-            Activation::Disjunction(dis) => write_delim_list(f, &dis, "(", ")", " | "),
-            Activation::Stream(v) => write!(f, "{}", v),
-            Activation::True => write!(f, "true"),
-        }
-    }
-}
-
-/**
-Type constraint used during type checking and type inference.
-
-**FOR INERNAL USE**
-*/
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Copy)]
 pub enum TypeConstraint {
     /**
@@ -501,37 +268,6 @@ pub enum TypeConstraint {
     Unconstrained,
 }
 
-impl TypeConstraint {
-    pub(crate) fn has_default(&self) -> Option<ValueTy> {
-        use self::TypeConstraint::*;
-        match self {
-            Integer | SignedInteger | Numeric => Some(ValueTy::Int(I64)),
-            UnsignedInteger => Some(ValueTy::UInt(U64)),
-            FloatingPoint => Some(ValueTy::Float(F64)),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn conjunction<'a>(&'a self, other: &'a TypeConstraint) -> Option<&'a TypeConstraint> {
-        use self::TypeConstraint::*;
-        if self > other {
-            return other.conjunction(self);
-        }
-        if self == other {
-            return Some(self);
-        }
-        assert!(self < other);
-        match other {
-            Unconstrained | Comparable | Equatable | Numeric => Some(self),
-            Integer => match self {
-                FloatingPoint => None,
-                _ => Some(self),
-            },
-            FloatingPoint | SignedInteger | UnsignedInteger => None,
-        }
-    }
-}
-
 impl std::fmt::Display for TypeConstraint {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use self::TypeConstraint::*;
@@ -545,19 +281,5 @@ impl std::fmt::Display for TypeConstraint {
             Comparable => write!(f, "comparable type"),
             Unconstrained => write!(f, "unconstrained type"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use num::traits::cast::FromPrimitive;
-
-    #[test]
-    fn test_freq_conjunction() {
-        let a = Freq::new(UOM_Frequency::new::<hertz>(Rational::from_i64(6).unwrap()));
-        let b = Freq::new(UOM_Frequency::new::<hertz>(Rational::from_i64(4).unwrap()));
-        let c = Freq::new(UOM_Frequency::new::<hertz>(Rational::from_i64(2).unwrap()));
-        assert_eq!(a.conjunction(&b), c)
     }
 }

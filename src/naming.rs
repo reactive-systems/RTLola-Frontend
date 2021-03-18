@@ -4,8 +4,6 @@ use crate::ast::*;
 use crate::hir::function_lookup::FuncDecl;
 use crate::parse::{Ident, NodeId};
 use crate::reporting::{Diagnostic, Handler, Span};
-#[allow(unused_imports)]
-use crate::stdlib;
 use crate::ty::ValueTy;
 use crate::FrontendConfig;
 use std::{collections::HashMap, rc::Rc};

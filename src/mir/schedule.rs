@@ -199,7 +199,6 @@ mod tests {
     use super::*;
     use crate::mir::RTLolaMIR;
     use crate::FrontendConfig;
-    #[allow(unused_imports)]
     use num::FromPrimitive;
     use num::ToPrimitive;
 

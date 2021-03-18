@@ -8,12 +8,12 @@ use crate::{
 };
 
 use super::{dependencies::DependencyErr, DepAnaMode, Dependencies, IrExprMode, IrExprTrait};
-use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::hir::expression::ArithLogOp;
 use crate::hir::function_lookup::FuncDecl;
+use crate::naming::{Declaration, NamingAnalysis};
 use crate::parse::NodeId;
 use crate::reporting::Handler;
 use crate::FrontendConfig;

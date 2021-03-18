@@ -19,8 +19,6 @@ impl OrderedTrait for OrderedMode {
     }
 }
 
-pub(crate) struct OrderingReport {}
-
 impl EvaluationOrder {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> EvaluationOrder
     where

@@ -2,7 +2,9 @@ use num::abs;
 
 use crate::{common_ir::SRef, mir::StreamLayers};
 
-use super::{CompleteMode, MemBoundMode, MemBoundTrait, MemorizationBound, Memory, OrderedMode, dependencies::EdgeWeight};
+use super::{
+    dependencies::EdgeWeight, CompleteMode, MemBoundMode, MemBoundTrait, MemorizationBound, Memory, OrderedMode,
+};
 
 use crate::hir::modes::{DepAnaTrait, HirMode};
 use crate::hir::Hir;
@@ -62,8 +64,6 @@ impl Hir<OrderedMode> {
         }
     }
 }
-
-pub(crate) struct MemoryReport {}
 
 impl Memory {
     const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);

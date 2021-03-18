@@ -2,8 +2,7 @@ use super::{
     dependencies::{DependencyGraph, EdgeWeight},
     DepAnaTrait, IrExprTrait, TypedTrait,
 };
-use crate::hir::HirMode;
-use crate::Hir;
+use crate::hir::{Hir, HirMode};
 
 pub(crate) fn graph_without_negative_offset_edges(graph: &DependencyGraph) -> DependencyGraph {
     let mut working_graph = graph.clone();

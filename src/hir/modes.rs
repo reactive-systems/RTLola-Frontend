@@ -1,13 +1,11 @@
 pub trait HirMode {}
 
-pub(crate) mod blanket;
 pub(crate) mod complete;
 pub(crate) mod dependencies;
 pub(crate) mod dg_functionality;
 pub mod ir_expr;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
-pub(crate) mod raw;
 pub(crate) mod types;
 
 use crate::hir::function_lookup::FuncDecl;
@@ -17,8 +15,7 @@ use std::collections::HashMap;
 
 use crate::{
     common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
-    common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir, reporting::Handler,
-    tyc::rtltc::TypeTable, FrontendConfig,
+    common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir, tyc::rtltc::TypeTable,
 };
 
 use self::{
@@ -27,17 +24,6 @@ use self::{
     types::HirType,
 };
 use itertools::Either;
-
-pub(crate) struct Raw {}
-impl HirMode for Raw {}
-
-impl Hir<Raw> {
-    #[allow(unused_variables)]
-    pub(crate) fn transform_expressions(self, handler: &Handler, config: &FrontendConfig) -> Hir<IrExprMode> {
-        //Hir::<IrExpression>::transform_expressions(self, handler, config)
-        todo!()
-    }
-}
 
 pub type ExpressionLookUps = HashMap<ExprId, Expression>;
 pub type WindowLookUps = HashMap<WRef, Either<SlidingWindow, DiscreteWindow>>;

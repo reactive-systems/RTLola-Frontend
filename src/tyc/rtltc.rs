@@ -1,5 +1,5 @@
 use super::rusttyc::TcKey;
-use crate::common_ir::StreamReference;
+use crate::{common_ir::StreamReference, hir::Hir};
 use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
@@ -9,7 +9,6 @@ use crate::tyc::{
     pacing_ast_climber::PacingTypeChecker, pacing_types::ConcretePacingType, value_ast_climber::ValueTypeChecker,
     value_types::ConcreteValueType,
 };
-use crate::RTLolaHIR;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -18,7 +17,7 @@ pub struct LolaTypeChecker<'a, M>
 where
     M: IrExprTrait + HirMode + 'static,
 {
-    pub(crate) hir: &'a RTLolaHIR<M>,
+    pub(crate) hir: &'a Hir<M>,
     pub(crate) handler: &'a Handler,
     pub(crate) names: HashMap<StreamReference, &'a str>,
 }
@@ -120,7 +119,7 @@ impl<'a, M> LolaTypeChecker<'a, M>
 where
     M: IrExprTrait + HirMode + 'static,
 {
-    pub fn new(hir: &'a RTLolaHIR<M>, handler: &'a Handler) -> Self {
+    pub fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
         let names: HashMap<StreamReference, &str> = hir
             .inputs()
             .map(|i| (i.sr, i.name.as_str()))

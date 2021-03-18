@@ -13,41 +13,31 @@
     unused_qualifications
 )]
 
-pub mod analysis;
 pub mod ast;
 pub mod common_ir;
-mod export;
 pub mod hir;
 pub mod mir;
-pub(crate) mod new_analysis;
+pub mod naming;
 pub mod parse;
 pub mod reporting;
 mod stdlib;
 // mod transformations;
-pub mod ty;
+mod ty;
 mod tyc;
-
-//#[cfg(test)]
-//mod tests;
-
-// Re-export
-use crate::hir::modes::IrExprMode;
-pub use ast::RTLolaAst;
-pub use export::analyze;
-pub use hir::RTLolaHIR;
-use hir::{modes::CompleteMode, Hir};
-pub use mir::RTLolaMIR;
-pub use ty::TypeConfig;
 
 #[macro_use]
 extern crate rtlola_macros;
+#[cfg(test)]
+mod tests;
 
-/**
-This module contains a module for each binary that this crate provides.
-*/
-pub mod app {
-    pub mod analyze;
-}
+use hir::{
+    modes::{CompleteMode, IrExprMode},
+    Hir,
+};
+
+// Re-export
+pub use crate::mir::RTLolaMIR;
+pub use crate::ty::TypeConfig;
 
 /**
 Hold the configuration of the frontend
@@ -71,21 +61,18 @@ impl Default for FrontendConfig {
 }
 
 // Replace by more elaborate interface.
-#[rustfmt::skip]
 /**
 Parses a RTLola specification and transforms it to optimize the runtime.
 
-The string passed in as `spec_str` should be the content of the file specified by `filename`.  
-The filename is only used for printing locations.  
-See the `FrontendConfig` documentation on more information about the parser options.  
+The string passed in as `spec_str` should be the content of the file specified by `filename`.
+The filename is only used for printing locations.
+See the `FrontendConfig` documentation on more information about the parser options.
 */
 pub fn parse(filename: &str, spec_str: &str, config: FrontendConfig) -> Result<RTLolaMIR, String> {
     let hir = parse_to_hir(filename, spec_str, config);
     match hir {
-        Err(_) => { Err("Analysis failed due to errors in the specification".to_string())},
-        Ok(hir) => {
-            Ok(hir.lower())
-        }
+        Err(_) => Err("Analysis failed due to errors in the specification".to_string()),
+        Ok(hir) => Ok(hir.lower()),
     }
 }
 
@@ -100,7 +87,7 @@ pub(crate) fn parse_to_hir(
     filename: &str,
     spec_str: &str,
     config: FrontendConfig,
-) -> Result<RTLolaHIR<CompleteMode>, String> {
+) -> Result<Hir<CompleteMode>, String> {
     let handler = reporting::Handler::new(std::path::PathBuf::from(filename), spec_str.into());
 
     let spec = match crate::parse::parse(&spec_str, &handler, config) {
@@ -121,24 +108,3 @@ pub(crate) fn parse_to_hir(
     //     .map(|report| hir::RTLolaHIR::<FullInformationHirMode>::new(&spec, &report))
     //     .map_err(|_| "Analysis failed due to errors in the specification".to_string())
 }
-
-// The string passed in as `spec_str` should be the content of the file specified by `filename`.
-// The filename is only used for printing locations.
-// See the `FrontendConfig` documentation on more information about the parser options.
-// */
-// pub fn parse(filename: &str, spec_str: &str, config: FrontendConfig) -> Result<RTLolaIR, String> {
-//     let mapper = crate::parse::SourceMapper::new(std::path::PathBuf::from(filename), spec_str);
-//     let handler = reporting::Handler::new(mapper);
-
-//     let spec = match crate::parse::parse(&spec_str, &handler, config) {
-//         Ok(spec) => spec,
-//         Err(e) => {
-//             return Err(format!("error: invalid syntax:\n{}", e));
-//         }
-//     };
-
-//     let analysis_result = analysis::analyze(&spec, &handler, config);
-//     analysis_result
-//         .map(|report| ir::lowering::Lowering::new(&spec, &report).lower())
-//         .map_err(|_| "Analysis failed due to errors in the specification".to_string())
-// }

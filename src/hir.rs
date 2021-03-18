@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 /*!
 This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
 
@@ -12,14 +10,11 @@ use crate::parse;
 
 pub mod expression;
 pub mod function_lookup;
-pub(crate) mod lowering;
 pub mod modes;
 mod print;
-mod schedule;
 
 pub use crate::ast::StreamAccessKind;
 pub use crate::ast::WindowOperation;
-pub use crate::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy}; // Re-export needed for MIR
 
 use crate::reporting::Span;
 use modes::HirMode;

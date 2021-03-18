@@ -4,7 +4,6 @@ This module describes the high level intermediate representation of a specificat
 
 pub use crate::common_ir::*;
 
-pub(crate) mod lowering;
 mod print;
 mod schedule;
 

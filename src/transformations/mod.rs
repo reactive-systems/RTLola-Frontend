@@ -1,4 +1,4 @@
-use crate::{hir::modes::HirMode, RTLolaHIR};
+use crate::hir::{modes::HirMode, Hir};
 use std::cmp::Ordering;
 
 pub(crate) mod sccp; //sparse conditional constant propagation
@@ -6,13 +6,14 @@ pub(crate) mod sccp; //sparse conditional constant propagation
 /// Transforms an intermediate representation to an optimized one.
 /// Currently Sparse Conditional Constant Propagation is implemented
 pub(crate) trait Transformation<M: HirMode> {
-    fn transform(ir: RTLolaHIR<M>) -> RTLolaHIR<M>;
+    fn transform(ir: Hir<M>) -> Hir<M>;
 }
 
 /// Abstract lattice values used for the transfromations
 #[derive(Debug, Clone, PartialEq)]
 enum LatticeValues<A: PartialEq> {
     Bot,
+    #[allow(dead_code)]
     Val(A),
     Top,
 }
@@ -38,22 +39,22 @@ impl<A: PartialEq> PartialOrd for LatticeValues<A> {
 }
 
 impl<A: PartialEq> LatticeValues<A> {
-    fn meet(lhs: LatticeValues<A>, rhs: LatticeValues<A>) -> LatticeValues<A> {
-        match lhs.partial_cmp(&rhs) {
-            None => LatticeValues::Bot,
-            Some(Ordering::Less) => lhs,
-            Some(Ordering::Equal) => rhs,
-            Some(Ordering::Greater) => rhs,
-        }
-    }
-    fn join(lhs: LatticeValues<A>, rhs: LatticeValues<A>) -> LatticeValues<A> {
-        match lhs.partial_cmp(&rhs) {
-            None => LatticeValues::Top,
-            Some(Ordering::Less) => rhs,
-            Some(Ordering::Equal) => lhs,
-            Some(Ordering::Greater) => lhs,
-        }
-    }
+    // fn meet(lhs: LatticeValues<A>, rhs: LatticeValues<A>) -> LatticeValues<A> {
+    //     match lhs.partial_cmp(&rhs) {
+    //         None => LatticeValues::Bot,
+    //         Some(Ordering::Less) => lhs,
+    //         Some(Ordering::Equal) => rhs,
+    //         Some(Ordering::Greater) => rhs,
+    //     }
+    // }
+    // fn join(lhs: LatticeValues<A>, rhs: LatticeValues<A>) -> LatticeValues<A> {
+    //     match lhs.partial_cmp(&rhs) {
+    //         None => LatticeValues::Top,
+    //         Some(Ordering::Less) => rhs,
+    //         Some(Ordering::Equal) => lhs,
+    //         Some(Ordering::Greater) => lhs,
+    //     }
+    // }
 }
 
 #[cfg(test)]

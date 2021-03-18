@@ -1,9 +1,7 @@
 use crate::ast::{BinOp, FunctionName, UnOp};
-#[allow(unused_imports)]
-use crate::ty::{FloatTy, IntTy, TypeConstraint, UIntTy, ValueTy};
+
+use crate::ty::{TypeConstraint, UIntTy, ValueTy};
 use lazy_static::lazy_static;
-#[allow(unused_imports)]
-use std::collections::HashMap;
 
 /// A (possibly generic) function declaration
 #[derive(Debug, Clone)]

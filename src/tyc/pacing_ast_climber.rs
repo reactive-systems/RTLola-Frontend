@@ -5,14 +5,13 @@ use crate::common_ir::{Offset, StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
-use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger};
+use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger, Hir};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{
     AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, ConcreteStreamPacing, Freq,
     InferredTemplates, PacingErrorKind, StreamTypeKeys,
 };
 use crate::tyc::rtltc::{NodeId, TypeError};
-use crate::RTLolaHIR;
 use rusttyc::TypeTable;
 use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
@@ -26,7 +25,7 @@ pub struct PacingTypeChecker<'a, M>
 where
     M: HirMode + IrExprTrait + 'static,
 {
-    pub(crate) hir: &'a RTLolaHIR<M>,
+    pub(crate) hir: &'a Hir<M>,
     pub(crate) pacing_tyc: TypeChecker<AbstractPacingType, Variable>,
     pub(crate) expression_tyc: TypeChecker<AbstractExpressionType, Variable>,
     pub(crate) node_key: HashMap<NodeId, StreamTypeKeys>,
@@ -40,7 +39,7 @@ impl<'a, M> PacingTypeChecker<'a, M>
 where
     M: HirMode + IrExprTrait + 'static,
 {
-    pub(crate) fn new(hir: &'a RTLolaHIR<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
+    pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
         let pacing_tyc = TypeChecker::new();
         let expression_tyc = TypeChecker::new();
@@ -482,7 +481,7 @@ where
     }
 
     pub(crate) fn post_process(
-        hir: &RTLolaHIR<M>,
+        hir: &Hir<M>,
         nid_key: HashMap<NodeId, StreamTypeKeys>,
         pacing_tt: &TypeTable<AbstractPacingType>,
         exp_tt: &TypeTable<AbstractExpressionType>,

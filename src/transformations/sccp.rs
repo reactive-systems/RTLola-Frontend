@@ -1,12 +1,9 @@
-#[allow(unused_imports)]
-use crate::{hir::expression::Constant, transformations::Transformation};
-use crate::{hir::modes::Complete, RTLolaHIR};
-#[allow(unused_imports)]
-use std::cmp::Ordering;
+use crate::hir::{modes::CompleteMode, Hir};
+use crate::transformations::Transformation;
 
 pub(crate) struct SCCP;
-impl Transformation<Complete> for SCCP {
-    fn transform(_ir: RTLolaHIR<Complete>) -> RTLolaHIR<Complete> {
+impl Transformation<CompleteMode> for SCCP {
+    fn transform(_ir: Hir<CompleteMode>) -> Hir<CompleteMode> {
         // transform concrete stream expressions to lattice expressions.
         unimplemented!()
     }

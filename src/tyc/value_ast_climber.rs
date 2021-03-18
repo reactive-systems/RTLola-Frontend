@@ -1,17 +1,19 @@
 extern crate regex;
 
 use super::rusttyc::TypeTable;
-use crate::common_ir::{Offset, SRef, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use crate::hir::modes::IrExprTrait;
 use crate::hir::modes::HirMode;
+use crate::hir::modes::IrExprTrait;
 use crate::hir::{AnnotatedType, Input, Output, Trigger};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::rtltc::TypeError;
 use crate::tyc::value_types::{ConcreteValueType, ValueErrorKind};
 use crate::tyc::{pacing_types::Freq, rtltc::NodeId, value_types::AbstractValueType};
-use crate::RTLolaHIR;
+use crate::{
+    common_ir::{Offset, SRef, StreamAccessKind},
+    hir::Hir,
+};
 use itertools::Either;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
@@ -35,7 +37,7 @@ where
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
     pub(crate) node_key: HashMap<NodeId, TcKey>,
     pub(crate) key_span: HashMap<TcKey, Span>,
-    pub(crate) hir: &'a RTLolaHIR<M>,
+    pub(crate) hir: &'a Hir<M>,
     pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
     pub(crate) annotated_checks: HashMap<TcKey, (ConcreteValueType, Option<TcKey>)>,
 }
@@ -44,7 +46,7 @@ impl<'a, M> ValueTypeChecker<'a, M>
 where
     M: IrExprTrait + HirMode + 'static,
 {
-    pub(crate) fn new(hir: &'a RTLolaHIR<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
+    pub(crate) fn new(hir: &'a Hir<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = HashMap::new();
         let mut key_span = HashMap::new();

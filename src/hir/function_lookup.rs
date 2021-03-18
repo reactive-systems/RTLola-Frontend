@@ -1,8 +1,7 @@
 //! This module contains the Lola standard library.
-#![allow(dead_code)]
-use crate::analysis::naming::ScopedDecl;
 use crate::ast::FunctionName;
 use crate::hir::AnnotatedType;
+use crate::naming::ScopedDecl;
 use lazy_static::lazy_static;
 
 /// A (possibly generic) function declaration
