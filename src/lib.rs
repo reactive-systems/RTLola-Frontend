@@ -97,6 +97,7 @@ pub(crate) fn parse_to_hir(
         }
     };
     Ok(Hir::<IrExprMode>::transform_expressions(spec, &handler, &config)
+        .map_err(|e| format!("error in expression transformation: {:?}", e))?
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
         .type_check(&handler)?

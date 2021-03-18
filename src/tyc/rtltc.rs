@@ -222,7 +222,8 @@ mod tests {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
-        let hir = crate::hir::RTLolaHIR::<IrExprMode>::from_ast(ast, &handler, &crate::FrontendConfig::default());
+        let hir =
+            crate::hir::RTLolaHIR::<IrExprMode>::from_ast(ast, &handler, &crate::FrontendConfig::default()).unwrap();
         (hir, handler)
     }
 

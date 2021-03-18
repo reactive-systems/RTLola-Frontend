@@ -1,12 +1,15 @@
 use super::rusttyc::{Arity, Partial};
 use super::rusttyc::{Constructable, Variant};
-use crate::{common_ir::{StreamAccessKind, StreamReference}, hir::Hir};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
-use crate::hir:: Ac;
+use crate::hir::Ac;
 use crate::reporting::{Diagnostic, Handler, Span};
 use crate::tyc::rtltc::{Emittable, TypeError};
+use crate::{
+    common_ir::{StreamAccessKind, StreamReference},
+    hir::Hir,
+};
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rusttyc::{TcErr, TcKey};
@@ -719,10 +722,7 @@ impl ConcretePacingType {
         }
     }
 
-    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(
-        ac: &Ac,
-        hir: &Hir<M>,
-    ) -> Result<Self, PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
         match ac {
             Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
             Ac::Expr(eid) => {

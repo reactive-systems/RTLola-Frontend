@@ -124,6 +124,7 @@ mod dynaminc_memory_bound_tests {
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
+            .unwrap()
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)
@@ -331,6 +332,7 @@ mod static_memory_bound_tests {
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
+            .unwrap()
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)

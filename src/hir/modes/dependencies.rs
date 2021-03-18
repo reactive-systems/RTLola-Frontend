@@ -330,7 +330,7 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config);
+        let hir = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config).unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (

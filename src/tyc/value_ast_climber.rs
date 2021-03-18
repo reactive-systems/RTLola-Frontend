@@ -673,7 +673,8 @@ mod value_type_tests {
             ast,
             &handler,
             &crate::FrontendConfig::default(),
-        );
+        )
+        .unwrap();
         //let mut dec = na.check(&spec);
         assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
         TestBox { hir, handler }

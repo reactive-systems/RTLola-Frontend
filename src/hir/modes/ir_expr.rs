@@ -9,13 +9,13 @@ use crate::{
 
 use super::{dependencies::DependencyErr, DepAna, DepAnaMode, IrExprMode, IrExprTrait};
 use crate::ast;
-use crate::ast::{Ast, Literal, StreamAccessKind, Type};
+use crate::ast::{Ast, Literal, SpawnSpec, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
 use crate::hir::expression::ArithLogOp;
 use crate::hir::function_lookup::FuncDecl;
 use crate::naming::{Declaration, NamingAnalysis};
 use crate::parse::NodeId;
-use crate::reporting::Handler;
+use crate::reporting::{Handler, Span};
 use crate::FrontendConfig;
 use itertools::Either;
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 impl Hir<IrExprMode> {
-    pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+    pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Result<Self, TransformationError> {
         Hir::<IrExprMode>::transform_expressions(ast, handler, config)
     }
 
@@ -156,6 +156,18 @@ where
 pub enum TransformationError {
     InvalidIdentRef(Declaration),
     InvalidRefExpr(String),
+    ConstantWithoutType(Span),
+    NonNumericInLiteral(Span),
+    InvalidAc(String),
+    InvalidRealtimeOffset(Span),
+    InvalidDuration(String, Span),
+    MissingExpr(Span),
+    MissingWidenArg(Span),
+    InvalidTypeArgument(Type, Span),
+    UnknownFunction(Span),
+    MissingInputType(Span),
+    MethodAccess,
+    InvalidLiteral(Span),
 }
 
 #[derive(Debug)]
@@ -192,7 +204,11 @@ impl ExpressionTransformer {
             ast::ExpressionKind::Function(_, _, args) => match &self.decl_table[&expr.id] {
                 Declaration::ParamOut(o) => Ok((
                     self.stream_by_name[&o.name.name],
-                    args.iter().map(|e| self.transform_expression(*e.clone(), current_output)).collect(),
+                    args.iter().map(|e| self.transform_expression(*e.clone(), current_output)).collect::<Result<
+                        Vec<_>,
+                        TransformationError,
+                    >>(
+                    )?,
                 )),
                 decl => Err(TransformationError::InvalidIdentRef(decl.clone())),
             },
@@ -206,36 +222,32 @@ impl ExpressionTransformer {
         ExprId(ret)
     }
 
-    fn transform_literal(&self, lit: &Literal) -> ConstantLiteral {
-        match &lit.kind {
+    fn transform_literal(&self, lit: &Literal) -> Result<ConstantLiteral, TransformationError> {
+        Ok(match &lit.kind {
             ast::LitKind::Bool(b) => ConstantLiteral::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => ConstantLiteral::Str(s.clone()),
             ast::LitKind::Numeric(num_str, postfix) => {
                 match postfix {
-                    None => {
-                        if num_str.contains('.') {
-                            // Floating Point
-                            ConstantLiteral::Float(num_str.parse().expect("Expect numeric value for literal"))
-                        } else if num_str.starts_with('-') {
-                            ConstantLiteral::SInt(num_str.parse().expect("Expect numeric value for literal"))
-                        } else {
-                            ConstantLiteral::Integer(num_str.parse().expect("Expect numeric value for literal"))
-                        }
-                    }
-                    Some(s) if s.is_empty() => {
-                        if num_str.contains('.') {
-                            // Floating Point
-                            ConstantLiteral::Float(num_str.parse().expect("Expect numeric value for literal"))
-                        } else if num_str.starts_with('-') {
-                            ConstantLiteral::SInt(num_str.parse().expect("Expect numeric value for literal"))
-                        } else {
-                            ConstantLiteral::Integer(num_str.parse().expect("Expect numeric value for literal"))
-                        }
-                    }
-                    Some(_) => unreachable!(),
+                    Some(s) if !s.is_empty() => return Err(TransformationError::InvalidLiteral(lit.span.clone())),
+                    _ => {}
+                }
+
+                if num_str.contains('.') {
+                    // Floating Point
+                    ConstantLiteral::Float(
+                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                    )
+                } else if num_str.starts_with('-') {
+                    ConstantLiteral::SInt(
+                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                    )
+                } else {
+                    ConstantLiteral::Integer(
+                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                    )
                 }
             }
-        }
+        })
     }
 
     fn transform_ac(
@@ -243,24 +255,26 @@ impl ExpressionTransformer {
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         ac_expr: ast::Expression,
         current: SRef,
-    ) -> Ac {
+    ) -> Result<Ac, TransformationError> {
         if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                return Ac::Frequency {
-                    span: ac_expr.span.clone(),
-                    value: ac_expr.parse_freqspec().expect("Invalid Literal with Postfix (unable to parse Frequency)"),
-                };
+                let val = ac_expr.parse_freqspec().map_err(TransformationError::InvalidAc)?;
+                return Ok(Ac::Frequency { span: ac_expr.span.clone(), value: val });
             }
         }
-        Ac::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)))
+        Ok(Ac::Expr(insert_return(exprid_to_expr, self.transform_expression(ac_expr, current)?)))
     }
 
-    fn transform_expression(&mut self, ast_expression: ast::Expression, current_output: SRef) -> Expression {
+    fn transform_expression(
+        &mut self,
+        ast_expression: ast::Expression,
+        current_output: SRef,
+    ) -> Result<Expression, TransformationError> {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
-                let constant = self.transform_literal(&lit);
+                let constant = self.transform_literal(&lit)?;
                 ExpressionKind::LoadConstant(HIRConstant::BasicConstant(constant))
             }
             ast::ExpressionKind::Ident(_) => match &self.decl_table[&ast_expression.id] {
@@ -273,32 +287,28 @@ impl ExpressionTransformer {
                     ExpressionKind::StreamAccess(sr, IRAccess::Sync, Vec::new())
                 }
                 Declaration::Const(c) => {
+                    let ty = c.ty.as_ref().ok_or_else(|| TransformationError::ConstantWithoutType(span.clone()))?;
                     let annotated_type =
-                        match annotated_type(&c.ty.as_ref().expect("Constant variables must have type annotation")) {
-                            Some(t) => t,
-                            None => unreachable!("Constant variables must have type annotation"),
-                        };
+                        annotated_type(ty).ok_or_else(|| TransformationError::ConstantWithoutType(span.clone()))?;
                     ExpressionKind::LoadConstant(HIRConstant::InlinedConstant(
-                        self.transform_literal(&c.literal),
+                        self.transform_literal(&c.literal)?,
                         annotated_type,
                     ))
                 }
 
                 Declaration::Param(p) => ExpressionKind::ParameterAccess(current_output, p.param_idx),
-                Declaration::ParamOut(_) => todo!("may be unreachable"),
-                Declaration::Func(_) => todo!("unreach"),
-                Declaration::Type(_) => todo!("type identifier transform"),
+                Declaration::ParamOut(_) | Declaration::Func(_) | Declaration::Type(_) => {
+                    unreachable!("Identifiers can only refer to streams")
+                }
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
-                let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Sync }; //TODO
-                let (expr_ref, args) =
-                    self.get_stream_ref(&*expr, current_output).expect("Invalid streamaccess expression"); //TODO error case
-                                                                                                           //TODO param function case
+                let access_kind = if let StreamAccessKind::Hold = kind { IRAccess::Hold } else { IRAccess::Sync };
+                let (expr_ref, args) = self.get_stream_ref(&*expr, current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             }
             ast::ExpressionKind::Default(expr, def) => ExpressionKind::Default {
-                expr: self.transform_expression(*expr, current_output).into(),
-                default: self.transform_expression(*def, current_output).into(),
+                expr: Box::new(self.transform_expression(*expr, current_output)?),
+                default: Box::new(self.transform_expression(*def, current_output)?),
             },
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
                 use uom::si::time::nanosecond;
@@ -307,8 +317,9 @@ impl ExpressionTransformer {
                     ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscrete(i.abs() as u32)),
                     ast::Offset::Discrete(i) => Some(Offset::PastDiscrete(i.abs() as u32)),
                     ast::Offset::RealTime(_, _) => {
-                        let offset_uom_time =
-                            offset.to_uom_time().expect("ast::Offset::RealTime should return uom_time");
+                        let offset_uom_time = offset
+                            .to_uom_time()
+                            .ok_or_else(|| TransformationError::InvalidRealtimeOffset(span.clone()))?;
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
                         let time = offset_uom_time.get::<nanosecond>();
@@ -326,49 +337,46 @@ impl ExpressionTransformer {
                         }
                     }
                 };
-                let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output).unwrap(); //TODO error case
+                let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output)?;
                 let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
                 ExpressionKind::StreamAccess(expr_ref, kind, args)
             }
             ast::ExpressionKind::DiscreteWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
-                if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
-                    let idx = self.sliding_windows.len();
-                    let wref = WRef::DiscreteRef(idx);
-                    let duration = (*duration).parse_discrete_duration().expect("Todo Error case");
-                    let window = DiscreteWindow {
-                        target: sref,
-                        caller: current_output,
-                        duration: duration as u32,
-                        wait,
-                        op: win_op,
-                        reference: wref,
-                        eid: new_id,
-                    };
-                    self.discrete_windows.push(window);
-                    ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::DiscreteRef(idx)), Vec::new())
-                } else {
-                    todo!("error case")
-                }
+                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
+                let idx = self.sliding_windows.len();
+                let wref = WRef::DiscreteRef(idx);
+                let duration = (*duration)
+                    .parse_discrete_duration()
+                    .map_err(|e| TransformationError::InvalidDuration(e, span.clone()))?;
+                let window = DiscreteWindow {
+                    target: sref,
+                    caller: current_output,
+                    duration: duration as u32,
+                    wait,
+                    op: win_op,
+                    reference: wref,
+                    eid: new_id,
+                };
+                self.discrete_windows.push(window);
+                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::DiscreteRef(idx)), Vec::new())
             }
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
-                if let Ok((sref, _)) = self.get_stream_ref(&w_expr, current_output) {
-                    let idx = self.sliding_windows.len();
-                    let wref = WRef::SlidingRef(idx);
-                    let duration = parse_duration_from_expr(&*duration);
-                    let window = SlidingWindow {
-                        target: sref,
-                        caller: current_output,
-                        duration,
-                        wait,
-                        op: win_op,
-                        reference: wref,
-                        eid: new_id,
-                    };
-                    self.sliding_windows.push(window);
-                    ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::SlidingRef(idx)), Vec::new())
-                } else {
-                    todo!("error case")
-                }
+                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
+                let idx = self.sliding_windows.len();
+                let wref = WRef::SlidingRef(idx);
+                let duration = parse_duration_from_expr(&*duration)
+                    .map_err(|e| TransformationError::InvalidDuration(e, span.clone()))?;
+                let window = SlidingWindow {
+                    target: sref,
+                    caller: current_output,
+                    duration,
+                    wait,
+                    op: win_op,
+                    reference: wref,
+                    eid: new_id,
+                };
+                self.sliding_windows.push(window);
+                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::SlidingRef(idx)), Vec::new())
             }
             ast::ExpressionKind::Binary(op, left, right) => {
                 use crate::ast::BinOp;
@@ -395,8 +403,8 @@ impl ExpressionTransformer {
                     BinOp::Gt => Gt,
                 };
                 let arguments: Vec<Expression> = vec![
-                    self.transform_expression(*left, current_output),
-                    self.transform_expression(*right, current_output),
+                    self.transform_expression(*left, current_output)?,
+                    self.transform_expression(*right, current_output)?,
                 ];
                 ExpressionKind::ArithLog(arith_op, arguments)
             }
@@ -408,85 +416,103 @@ impl ExpressionTransformer {
                     UnOp::Neg => Neg,
                     UnOp::BitNot => BitNot,
                 };
-                let arguments: Vec<Expression> = vec![self.transform_expression(*arg, current_output)];
+                let arguments: Vec<Expression> = vec![self.transform_expression(*arg, current_output)?];
                 ExpressionKind::ArithLog(arith_op, arguments)
             }
             ast::ExpressionKind::Ite(cond, cons, alt) => {
-                let condition = self.transform_expression(*cond, current_output).into();
-                let consequence = self.transform_expression(*cons, current_output).into();
-                let alternative = self.transform_expression(*alt, current_output).into();
+                let condition = Box::new(self.transform_expression(*cond, current_output)?);
+                let consequence = Box::new(self.transform_expression(*cons, current_output)?);
+                let alternative = Box::new(self.transform_expression(*alt, current_output)?);
                 ExpressionKind::Ite { condition, consequence, alternative }
             }
             ast::ExpressionKind::ParenthesizedExpression(_, inner, _) => {
                 return self.transform_expression(*inner, current_output);
             }
-            ast::ExpressionKind::MissingExpression => unimplemented!(),
+            ast::ExpressionKind::MissingExpression => return Err(TransformationError::MissingExpr(span)),
             ast::ExpressionKind::Tuple(inner) => ExpressionKind::Tuple(
-                inner.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
+                inner
+                    .into_iter()
+                    .map(|ex| self.transform_expression(*ex, current_output))
+                    .collect::<Result<Vec<_>, TransformationError>>()?,
             ),
             ast::ExpressionKind::Field(inner_exp, ident) => {
                 let num: usize = ident.name.parse().expect("checked in AST verifier");
-                let inner = self.transform_expression(*inner_exp, current_output).into();
+                let inner = Box::new(self.transform_expression(*inner_exp, current_output)?);
                 ExpressionKind::TupleAccess(inner, num)
             }
-            ast::ExpressionKind::Method(_base, _name, _types, _params) => todo!(),
+            ast::ExpressionKind::Method(_base, _name, _types, _params) => {
+                return Err(TransformationError::MethodAccess);
+            }
             ast::ExpressionKind::Function(name, type_param, args) => {
-                let decl = self.decl_table.get(&ast_expression.id);
-                if let Some(decl) = decl {
-                    match decl {
-                        Declaration::Func(_) => {
-                            let name = name.name.name;
-                            let args: Vec<Expression> =
-                                args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect();
+                let decl = self
+                    .decl_table
+                    .get(&ast_expression.id)
+                    .ok_or_else(|| TransformationError::UnknownFunction(span.clone()))?;
+                match decl {
+                    Declaration::Func(_) => {
+                        let name = name.name.name;
+                        let args: Vec<Expression> = args
+                            .into_iter()
+                            .map(|ex| self.transform_expression(*ex, current_output))
+                            .collect::<Result<Vec<_>, TransformationError>>()?;
 
-                            if name.starts_with("widen") {
-                                ExpressionKind::Widen(
-                                    (args.get(0).expect("Widen is expecting exactly 1 Argument").clone()).into(),
-                                    match type_param.get(0) {
-                                        Some(t) => {
-                                            annotated_type(t).expect("given type arguments have to be replaceable")
-                                        }
-                                        None => todo!("error case"),
-                                    },
-                                )
-                            } else {
-                                ExpressionKind::Function {
-                                    name,
-                                    args,
-                                    type_param: type_param
-                                        .into_iter()
-                                        .map(|t| {
-                                            annotated_type(&t).expect("given type arguments have to be replaceable")
-                                        })
-                                        .collect(),
-                                }
+                        if name.starts_with("widen") {
+                            let widen_arg =
+                                args.get(0).ok_or_else(|| TransformationError::MissingWidenArg(span.clone()))?;
+                            ExpressionKind::Widen(
+                                Box::new(widen_arg.clone()),
+                                match type_param.get(0) {
+                                    Some(t) => annotated_type(t).ok_or_else(|| {
+                                        TransformationError::InvalidTypeArgument(t.clone(), span.clone())
+                                    })?,
+                                    None => todo!("error case"),
+                                },
+                            )
+                        } else {
+                            ExpressionKind::Function {
+                                name,
+                                args,
+                                type_param: type_param
+                                    .into_iter()
+                                    .map(|t| {
+                                        annotated_type(&t)
+                                            .ok_or_else(|| TransformationError::InvalidTypeArgument(t, span.clone()))
+                                    })
+                                    .collect::<Result<Vec<_>, TransformationError>>()?,
                             }
                         }
-                        Declaration::ParamOut(_) => ExpressionKind::StreamAccess(
+                    }
+                    Declaration::ParamOut(_) => {
+                        ExpressionKind::StreamAccess(
                             self.stream_by_name[&name.name.name],
                             IRAccess::Sync,
-                            args.into_iter().map(|ex| self.transform_expression(*ex, current_output)).collect(),
-                        ),
-                        _ => todo!("error case"),
+                            args.into_iter()
+                                .map(|ex| self.transform_expression(*ex, current_output))
+                                .collect::<Result<Vec<_>, TransformationError>>()?,
+                        )
                     }
-                } else {
-                    todo!("Error case: unknown function")
+                    _ => return Err(TransformationError::UnknownFunction(span)),
                 }
             }
         };
-        Expression { kind, eid: new_id, span }
+        Ok(Expression { kind, eid: new_id, span })
     }
 }
 
-fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Duration {
+fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Result<Duration, String> {
     use num::{traits::Inv, ToPrimitive};
     use uom::si::frequency::hertz;
     use uom::si::rational64::Time as UOM_Time;
     use uom::si::time::second;
 
-    let freq = ast_expression.parse_freqspec().unwrap();
+    let freq = ast_expression.parse_freqspec()?;
     let period = UOM_Time::new::<second>(freq.get::<hertz>().inv());
-    Duration::from_nanos(period.get::<uom::si::time::nanosecond>().to_integer().to_u64().unwrap())
+    let nanos = period
+        .get::<uom::si::time::nanosecond>()
+        .to_integer()
+        .to_u64()
+        .ok_or_else(|| String::from("Period to large to fit into u64"))?;
+    Ok(Duration::from_nanos(nanos))
 }
 
 fn insert_return(exprid_to_expr: &mut HashMap<ExprId, Expression>, expr: Expression) -> ExprId {
@@ -497,49 +523,62 @@ fn insert_return(exprid_to_expr: &mut HashMap<ExprId, Expression>, expr: Express
 
 fn transform_template_spec(
     transformer: &mut ExpressionTransformer,
-    spawn_spec: Option<ast::SpawnSpec>,
+    spawn_spec: Option<SpawnSpec>,
     filter_spec: Option<ast::FilterSpec>,
     close_spec: Option<ast::CloseSpec>,
     exprid_to_expr: &mut HashMap<ExprId, Expression>,
     current_output: SRef,
-) -> InstanceTemplate {
-    InstanceTemplate {
-        spawn: spawn_spec.map(|spawn_spec| {
-            let is_if = spawn_spec.is_if;
-            SpawnTemplate {
-                target: spawn_spec.target.and_then(|target| {
-                    if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target.kind {
-                        if let ast::ExpressionKind::MissingExpression = exp.kind {
-                            return None;
-                        }
+) -> Result<InstanceTemplate, TransformationError> {
+    Ok(InstanceTemplate {
+        spawn: spawn_spec.map_or(Ok(None), |spawn_spec| {
+            let SpawnSpec { target, pacing, condition, is_if, .. } = spawn_spec;
+            let target = target.map_or(Ok(None), |target_exp| {
+                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target_exp.kind {
+                    if let ast::ExpressionKind::MissingExpression = exp.kind {
+                        return Ok(None);
                     }
-                    Some(insert_return(exprid_to_expr, transformer.transform_expression(target, current_output)))
-                }),
-                pacing: spawn_spec.pacing.expr.map(|ac| transformer.transform_ac(exprid_to_expr, ac, current_output)),
-                condition: spawn_spec.condition.map(|cond_expr| {
-                    let mut e = transformer.transform_expression(cond_expr, current_output);
-                    if !is_if {
-                        e = Expression {
-                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
-                            eid: transformer.next_exp_id(),
-                            span: e.span,
-                        }
+                }
+                let exp = transformer.transform_expression(target_exp, current_output)?;
+                Ok(Some(insert_return(exprid_to_expr, exp)))
+            })?;
+            let pacing = pacing
+                .expr
+                .map_or(Ok(None), |ac| Ok(Some(transformer.transform_ac(exprid_to_expr, ac, current_output)?)))?;
+
+            let condition = condition.map_or(Ok(None), |cond_expr| {
+                let mut e = transformer.transform_expression(cond_expr, current_output)?;
+                if !is_if {
+                    e = Expression {
+                        kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
+                        eid: transformer.next_exp_id(),
+                        span: e.span,
                     }
-                    insert_return(exprid_to_expr, e)
-                }),
-            }
-        }),
-        filter: filter_spec.map(|filter_spec| {
-            insert_return(exprid_to_expr, transformer.transform_expression(filter_spec.target, current_output))
-        }),
-        close: close_spec.map(|close_spec| {
-            insert_return(exprid_to_expr, transformer.transform_expression(close_spec.target, current_output))
-        }),
-    }
+                }
+                Ok(Some(insert_return(exprid_to_expr, e)))
+            })?;
+            Ok(Some(SpawnTemplate { target, pacing, condition }))
+        })?,
+        filter: filter_spec.map_or(Ok(None), |filter_spec| {
+            Ok(Some(insert_return(
+                exprid_to_expr,
+                transformer.transform_expression(filter_spec.target, current_output)?,
+            )))
+        })?,
+        close: close_spec.map_or(Ok(None), |close_spec| {
+            Ok(Some(insert_return(
+                exprid_to_expr,
+                transformer.transform_expression(close_spec.target, current_output)?,
+            )))
+        })?,
+    })
 }
 
 impl Hir<IrExprMode> {
-    pub fn transform_expressions(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+    pub fn transform_expressions(
+        ast: Ast,
+        handler: &Handler,
+        config: &FrontendConfig,
+    ) -> Result<Self, TransformationError> {
         let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
         let decl_table = naming_analyzer.check(&ast);
         let func_table: HashMap<String, FuncDecl> = decl_table
@@ -594,12 +633,14 @@ impl Hir<IrExprMode> {
                 })
                 .collect();
             let annotated_type = annotated_type(&ty);
-            let expression = expr_transformer.transform_expression(expression, sr);
+            let expression = expr_transformer.transform_expression(expression, sr)?;
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
-            let ac = extend.expr.map(|ex| expr_transformer.transform_ac(&mut exprid_to_expr, ex, sr));
+            let ac = extend
+                .expr
+                .map_or(Ok(None), |exp| expr_transformer.transform_ac(&mut exprid_to_expr, exp, sr).map(Some))?;
             let instance_template =
-                transform_template_spec(&mut expr_transformer, spawn, filter, close, &mut exprid_to_expr, sr);
+                transform_template_spec(&mut expr_transformer, spawn, filter, close, &mut exprid_to_expr, sr)?;
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
@@ -617,7 +658,7 @@ impl Hir<IrExprMode> {
             let sr = SRef::OutRef(hir_outputs.len() + ix);
             let ast::Trigger { message, name, expression, span, .. } =
                 Rc::try_unwrap(t).expect("other strong references should be dropped now");
-            let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression, sr));
+            let expr_id = insert_return(&mut exprid_to_expr, expr_transformer.transform_expression(expression, sr)?);
 
             hir_triggers.push(Trigger::new(name, message, expr_id, sr, span));
         }
@@ -625,13 +666,16 @@ impl Hir<IrExprMode> {
         let hir_inputs: Vec<Input> = inputs
             .into_iter()
             .enumerate()
-            .map(|(ix, i)| Input {
-                annotated_type: annotated_type(&i.ty).expect("Input Streams must have type annotation"),
-                name: i.name.name.clone(),
-                sr: SRef::InRef(ix),
-                span: i.span.clone(),
+            .map(|(ix, i)| {
+                Ok(Input {
+                    annotated_type: annotated_type(&i.ty)
+                        .ok_or_else(|| TransformationError::MissingInputType(i.span.clone()))?,
+                    name: i.name.name.clone(),
+                    sr: SRef::InRef(ix),
+                    span: i.span.clone(),
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, TransformationError>>()?;
 
         let ExpressionTransformer { sliding_windows, discrete_windows, .. } = expr_transformer;
 
@@ -643,14 +687,14 @@ impl Hir<IrExprMode> {
 
         let new_mode = IrExprMode { ir_expr: IrExpr { exprid_to_expr, windows, func_table } };
 
-        Hir {
+        Ok(Hir {
             next_input_ref: hir_inputs.len(),
             inputs: hir_inputs,
             next_output_ref: hir_outputs.len(),
             outputs: hir_outputs,
             triggers: hir_triggers,
             mode: new_mode,
-        }
+        })
     }
 }
 
@@ -715,7 +759,8 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let replaced: Hir<IrExprMode> = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config);
+        let replaced: Hir<IrExprMode> =
+            Hir::<IrExprMode>::transform_expressions(ast, &handler, &config).expect("Expected valid spec");
         replaced
     }
 
