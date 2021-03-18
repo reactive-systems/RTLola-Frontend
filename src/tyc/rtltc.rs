@@ -1,7 +1,7 @@
 use super::rusttyc::TcKey;
 use crate::common_ir::StreamReference;
 use crate::hir::expression::{ExprId, Expression};
-use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
 use crate::reporting::{Handler, Span};
 use crate::tyc::pacing_types::ConcreteStreamPacing;
@@ -16,7 +16,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug)]
 pub struct LolaTypeChecker<'a, M>
 where
-    M: WithIrExpr + HirMode + 'static,
+    M: IrExprTrait + HirMode + 'static,
 {
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) handler: &'a Handler,
@@ -118,7 +118,7 @@ impl StreamType {
 
 impl<'a, M> LolaTypeChecker<'a, M>
 where
-    M: WithIrExpr + HirMode + 'static,
+    M: IrExprTrait + HirMode + 'static,
 {
     pub fn new(hir: &'a RTLolaHIR<M>, handler: &'a Handler) -> Self {
         let names: HashMap<StreamReference, &str> = hir
@@ -233,20 +233,20 @@ impl PartialOrd for NodeId {
 
 #[cfg(test)]
 mod tests {
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::tyc::rtltc::LolaTypeChecker;
     use crate::{RTLolaAst, RTLolaHIR};
     use std::path::PathBuf;
 
-    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
+    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExprMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
         let ast: RTLolaAst = match parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
-        let hir = crate::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &crate::FrontendConfig::default());
+        let hir = crate::hir::RTLolaHIR::<IrExprMode>::from_ast(ast, &handler, &crate::FrontendConfig::default());
         (hir, handler)
     }
 

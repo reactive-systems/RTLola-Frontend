@@ -1,24 +1,26 @@
-use crate::{common_ir::SRef, hir::expression::ExprId, tyc::pacing_types::ConcretePacingType, tyc::rtltc::TypeTable};
+use crate::{common_ir::SRef, hir::expression::ExprId, tyc::pacing_types::ConcretePacingType};
 
-pub(crate) trait TypeChecked {
+use super::TypedMode;
+
+pub(crate) trait TypedTrait {
     fn stream_type(&self, _sr: SRef) -> HirType;
     fn is_periodic(&self, _sr: SRef) -> bool;
     fn is_event(&self, _sr: SRef) -> bool;
     fn expr_type(&self, _eid: ExprId) -> HirType;
 }
 
-impl TypeChecked for TypeTable {
+impl TypedTrait for TypedMode {
     fn stream_type(&self, sr: SRef) -> HirType {
-        self.get_type_for_stream(sr)
+        self.tts.get_type_for_stream(sr)
     }
     fn is_periodic(&self, sr: SRef) -> bool {
-        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
+        matches!(self.tts.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
     }
     fn is_event(&self, sr: SRef) -> bool {
-        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
+        matches!(self.tts.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
     }
     fn expr_type(&self, eid: ExprId) -> HirType {
-        self.get_type_for_expr(eid)
+        self.tts.get_type_for_expr(eid)
     }
 }
 

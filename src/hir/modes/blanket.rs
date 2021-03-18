@@ -1,82 +1,47 @@
-use super::{ir_expr::WithIrExpr, types::HirType, HirMode};
-use crate::hir::modes::memory_bounds::MemoryAnalyzed;
-use crate::hir::modes::types::TypeChecked;
-use crate::hir::{modes::DependencyAnalyzed, modes::*, Hir};
-use crate::{hir::modes::dependencies::WithDependencies, hir::modes::ordering::EvaluationOrderBuilt};
+use super::{ir_expr::IrExprTrait, types::HirType, HirMode};
+use crate::hir::modes::memory_bounds::MemBoundTrait;
+use crate::hir::modes::types::TypedTrait;
+use crate::hir::{modes::DepAnaMode, modes::*, Hir};
+use crate::{hir::modes::dependencies::DepAnaTrait, hir::modes::ordering::OrderedTrait};
 
 // MODE IMPLS
-impl HirMode for IrExpression {}
-impl HirMode for DependencyAnalyzed {}
-impl HirMode for Typed {}
-impl HirMode for Ordered {}
-impl HirMode for MemBound {}
-impl HirMode for Complete {}
+impl HirMode for IrExprMode {}
+impl HirMode for DepAnaMode {}
+impl HirMode for TypedMode {}
+impl HirMode for OrderedMode {}
+impl HirMode for MemBoundMode {}
+impl HirMode for CompleteMode {}
 
 // WRAPPERS
 
 pub(crate) trait TypedWrapper {
-    type InnerT: TypeChecked;
+    type InnerT: TypedTrait;
     fn inner_typed(&self) -> &Self::InnerT;
 }
 
 pub(crate) trait OrderedWrapper {
-    type InnerO: EvaluationOrderBuilt;
+    type InnerO: OrderedTrait;
     fn inner_order(&self) -> &Self::InnerO;
 }
-pub(crate) trait DependenciesWrapper {
-    type InnerD: WithDependencies;
+pub(crate) trait DepAnaWrapper {
+    type InnerD: DepAnaTrait;
     fn inner_dep(&self) -> &Self::InnerD;
 }
 
 pub(crate) trait MemoryWrapper {
-    type InnerM: MemoryAnalyzed;
+    type InnerM: MemBoundTrait;
     fn inner_memory(&self) -> &Self::InnerM;
 }
 
 pub trait IrExprWrapper {
-    type InnerE: WithIrExpr;
+    type InnerE: IrExprTrait;
     fn inner_expr(&self) -> &Self::InnerE;
 }
 
-// WRAPPER IMPLEMENTATIONS
-impl TypedWrapper for Typed {
-    type InnerT = TypeTable;
-    fn inner_typed(&self) -> &Self::InnerT {
-        &self.tts
-    }
-}
-
-impl OrderedWrapper for Ordered {
-    type InnerO = EvaluationOrder;
-    fn inner_order(&self) -> &Self::InnerO {
-        &self.layers
-    }
-}
-impl MemoryWrapper for MemBound {
-    type InnerM = Memory;
-
-    fn inner_memory(&self) -> &Self::InnerM {
-        &self.memory
-    }
-}
-impl DependenciesWrapper for DependencyAnalyzed {
-    type InnerD = Dependencies;
-    fn inner_dep(&self) -> &Self::InnerD {
-        &self.dependencies
-    }
-}
-
-impl IrExprWrapper for IrExpression {
-    type InnerE = IrExprRes;
-    fn inner_expr(&self) -> &Self::InnerE {
-        &self.ir_expr_res
-    }
-}
-
 // WRAPPER HIR IMPLEMENTATIONS
-impl<M> DependenciesWrapper for Hir<M>
+impl<M> DepAnaWrapper for Hir<M>
 where
-    M: WithDependencies + HirMode,
+    M: DepAnaTrait + HirMode,
 {
     type InnerD = M;
     fn inner_dep(&self) -> &Self::InnerD {
@@ -86,7 +51,7 @@ where
 
 impl<M> IrExprWrapper for Hir<M>
 where
-    M: WithIrExpr + HirMode,
+    M: IrExprTrait + HirMode,
 {
     type InnerE = M;
     fn inner_expr(&self) -> &Self::InnerE {
@@ -96,7 +61,7 @@ where
 
 impl<M> OrderedWrapper for Hir<M>
 where
-    M: EvaluationOrderBuilt + HirMode,
+    M: OrderedTrait + HirMode,
 {
     type InnerO = M;
     fn inner_order(&self) -> &Self::InnerO {
@@ -106,7 +71,7 @@ where
 
 impl<M> TypedWrapper for Hir<M>
 where
-    M: TypeChecked + HirMode,
+    M: TypedTrait + HirMode,
 {
     type InnerT = M;
     fn inner_typed(&self) -> &Self::InnerT {
@@ -116,7 +81,7 @@ where
 
 impl<M> MemoryWrapper for Hir<M>
 where
-    M: MemoryAnalyzed + HirMode,
+    M: MemBoundTrait + HirMode,
 {
     type InnerM = M;
     fn inner_memory(&self) -> &Self::InnerM {
@@ -125,7 +90,7 @@ where
 }
 
 // BLANKET IMPLEMENTATIONS
-impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
+impl<A: TypedWrapper<InnerT = T>, T: TypedTrait + 'static> TypedTrait for A {
     fn stream_type(&self, sr: SRef) -> HirType {
         self.inner_typed().stream_type(sr)
     }
@@ -139,18 +104,18 @@ impl<A: TypedWrapper<InnerT = T>, T: TypeChecked + 'static> TypeChecked for A {
         self.inner_typed().expr_type(eid)
     }
 }
-impl<A: OrderedWrapper<InnerO = T>, T: EvaluationOrderBuilt + 'static> EvaluationOrderBuilt for A {
+impl<A: OrderedWrapper<InnerO = T>, T: OrderedTrait + 'static> OrderedTrait for A {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
         self.inner_order().stream_layers(sr)
     }
 }
-impl<A: MemoryWrapper<InnerM = T>, T: MemoryAnalyzed + 'static> MemoryAnalyzed for A {
+impl<A: MemoryWrapper<InnerM = T>, T: MemBoundTrait + 'static> MemBoundTrait for A {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.inner_memory().memory_bound(sr)
     }
 }
 
-impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
+impl<A: IrExprWrapper<InnerE = T>, T: IrExprTrait + 'static> IrExprTrait for A {
     fn window_refs(&self) -> Vec<WRef> {
         self.inner_expr().window_refs()
     }
@@ -165,7 +130,7 @@ impl<A: IrExprWrapper<InnerE = T>, T: WithIrExpr + 'static> WithIrExpr for A {
         self.inner_expr().func_declaration(func_name)
     }
 }
-impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDependencies for A {
+impl<A: DepAnaWrapper<InnerD = T>, T: DepAnaTrait + 'static> DepAnaTrait for A {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
         self.inner_dep().direct_accesses(who)
     }
@@ -197,8 +162,8 @@ impl<A: DependenciesWrapper<InnerD = T>, T: WithDependencies + 'static> WithDepe
 
 // EXTENSION IMPLEMENTATION
 
-impl IrExprWrapper for DependencyAnalyzed {
-    type InnerE = IrExprRes;
+impl IrExprWrapper for DepAnaMode {
+    type InnerE = IrExprMode;
     fn inner_expr(&self) -> &Self::InnerE {
         &self.ir_expr
     }
@@ -206,15 +171,15 @@ impl IrExprWrapper for DependencyAnalyzed {
 
 // All Below Typed
 
-impl IrExprWrapper for Typed {
-    type InnerE = IrExprRes;
+impl IrExprWrapper for TypedMode {
+    type InnerE = IrExprMode;
     fn inner_expr(&self) -> &Self::InnerE {
         &self.ir_expr
     }
 }
 
-impl DependenciesWrapper for Typed {
-    type InnerD = Dependencies;
+impl DepAnaWrapper for TypedMode {
+    type InnerD = DepAnaMode;
     fn inner_dep(&self) -> &Self::InnerD {
         &self.dependencies
     }
@@ -222,22 +187,22 @@ impl DependenciesWrapper for Typed {
 
 // All Below Ordered
 
-impl IrExprWrapper for Ordered {
-    type InnerE = IrExprRes;
+impl IrExprWrapper for OrderedMode {
+    type InnerE = IrExprMode;
     fn inner_expr(&self) -> &Self::InnerE {
         &self.ir_expr
     }
 }
 
-impl DependenciesWrapper for Ordered {
-    type InnerD = Dependencies;
+impl DepAnaWrapper for OrderedMode {
+    type InnerD = DepAnaMode;
     fn inner_dep(&self) -> &Self::InnerD {
         &self.dependencies
     }
 }
 
-impl TypedWrapper for Ordered {
-    type InnerT = TypeTable;
+impl TypedWrapper for OrderedMode {
+    type InnerT = TypedMode;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }
@@ -245,29 +210,29 @@ impl TypedWrapper for Ordered {
 
 // All below Membound
 
-impl IrExprWrapper for MemBound {
-    type InnerE = IrExprRes;
+impl IrExprWrapper for MemBoundMode {
+    type InnerE = IrExprMode;
     fn inner_expr(&self) -> &Self::InnerE {
         &self.ir_expr
     }
 }
 
-impl DependenciesWrapper for MemBound {
-    type InnerD = Dependencies;
+impl DepAnaWrapper for MemBoundMode {
+    type InnerD = DepAnaMode;
     fn inner_dep(&self) -> &Self::InnerD {
         &self.dependencies
     }
 }
 
-impl TypedWrapper for MemBound {
-    type InnerT = TypeTable;
+impl TypedWrapper for MemBoundMode {
+    type InnerT = TypedMode;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }
 }
 
-impl OrderedWrapper for MemBound {
-    type InnerO = EvaluationOrder;
+impl OrderedWrapper for MemBoundMode {
+    type InnerO = OrderedMode;
     fn inner_order(&self) -> &Self::InnerO {
         &self.layers
     }
@@ -275,35 +240,35 @@ impl OrderedWrapper for MemBound {
 
 // All below Complete
 
-impl IrExprWrapper for Complete {
-    type InnerE = IrExprRes;
+impl IrExprWrapper for CompleteMode {
+    type InnerE = IrExprMode;
     fn inner_expr(&self) -> &Self::InnerE {
         &self.ir_expr
     }
 }
 
-impl DependenciesWrapper for Complete {
-    type InnerD = Dependencies;
+impl DepAnaWrapper for CompleteMode {
+    type InnerD = DepAnaMode;
     fn inner_dep(&self) -> &Self::InnerD {
         &self.dependencies
     }
 }
 
-impl TypedWrapper for Complete {
-    type InnerT = TypeTable;
+impl TypedWrapper for CompleteMode {
+    type InnerT = TypedMode;
     fn inner_typed(&self) -> &Self::InnerT {
         &self.types
     }
 }
 
-impl OrderedWrapper for Complete {
-    type InnerO = EvaluationOrder;
+impl OrderedWrapper for CompleteMode {
+    type InnerO = OrderedMode;
     fn inner_order(&self) -> &Self::InnerO {
         &self.layers
     }
 }
 
-impl MemoryWrapper for Complete {
+impl MemoryWrapper for CompleteMode {
     type InnerM = Memory;
     fn inner_memory(&self) -> &Self::InnerM {
         &self.memory

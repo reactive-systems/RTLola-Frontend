@@ -4,16 +4,16 @@ use crate::common_ir::SRef;
 
 use super::{EdgeWeight, MemorizationBound, Memory};
 
-use crate::hir::modes::{dependencies::WithDependencies, HirMode};
+use crate::hir::modes::{dependencies::DepAnaTrait, HirMode};
 use crate::hir::Hir;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-pub(crate) trait MemoryAnalyzed {
+pub(crate) trait MemBoundTrait {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 
-impl MemoryAnalyzed for Memory {
+impl MemBoundTrait for Memory {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.memory_bound_per_stream[&sr]
     }
@@ -25,7 +25,7 @@ impl Memory {
     const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
     pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> Memory
     where
-        M: HirMode + 'static + WithDependencies,
+        M: HirMode + 'static + DepAnaTrait,
     {
         // Assign streams to default value
         let mut memory_bounds = spec
@@ -71,7 +71,7 @@ impl Memory {
 #[cfg(test)]
 mod dynaminc_memory_bound_tests {
     use super::*;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
@@ -80,7 +80,7 @@ mod dynaminc_memory_bound_tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExpression>::from_ast(ast, &handler, &config)
+        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)
@@ -278,7 +278,7 @@ mod dynaminc_memory_bound_tests {
 #[cfg(test)]
 mod static_memory_bound_tests {
     use super::*;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
@@ -287,7 +287,7 @@ mod static_memory_bound_tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExpression>::from_ast(ast, &handler, &config)
+        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)

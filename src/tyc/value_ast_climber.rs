@@ -3,7 +3,7 @@ extern crate regex;
 use super::rusttyc::TypeTable;
 use crate::common_ir::{Offset, SRef, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
 use crate::hir::{AnnotatedType, Input, Output, Trigger};
 use crate::reporting::Span;
@@ -30,7 +30,7 @@ impl Variable {
 
 pub(crate) struct ValueTypeChecker<'a, M>
 where
-    M: WithIrExpr + HirMode + 'static,
+    M: IrExprTrait + HirMode + 'static,
 {
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
     pub(crate) node_key: HashMap<NodeId, TcKey>,
@@ -42,7 +42,7 @@ where
 
 impl<'a, M> ValueTypeChecker<'a, M>
 where
-    M: WithIrExpr + HirMode + 'static,
+    M: IrExprTrait + HirMode + 'static,
 {
     pub(crate) fn new(hir: &'a RTLolaHIR<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
         let mut tyc = TypeChecker::new();
@@ -636,7 +636,7 @@ where
 #[cfg(test)]
 mod value_type_tests {
     use crate::common_ir::StreamReference;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::reporting::Handler;
     use crate::tyc::rtltc::NodeId;
     use crate::tyc::value_types::ConcreteValueType;
@@ -647,7 +647,7 @@ mod value_type_tests {
     use std::path::PathBuf;
 
     struct TestBox {
-        pub hir: RTLolaHIR<IrExpression>,
+        pub hir: RTLolaHIR<IrExprMode>,
         pub handler: Handler,
     }
 
@@ -667,7 +667,7 @@ mod value_type_tests {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
-        let hir = crate::hir::RTLolaHIR::<IrExpression>::transform_expressions(
+        let hir = crate::hir::RTLolaHIR::<IrExprMode>::transform_expressions(
             ast,
             &handler,
             &crate::FrontendConfig::default(),

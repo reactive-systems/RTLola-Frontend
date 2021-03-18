@@ -1,8 +1,8 @@
 use itertools::Itertools;
 
 use crate::hir::modes::{
-    dependencies::WithDependencies, ir_expr::WithIrExpr, memory_bounds::MemoryAnalyzed, ordering::EvaluationOrderBuilt,
-    types::TypeChecked, Complete,
+    dependencies::DepAnaTrait, ir_expr::IrExprTrait, memory_bounds::MemBoundTrait, ordering::OrderedTrait,
+    types::TypedTrait, CompleteMode,
 };
 use crate::tyc::{
     pacing_types::ActivationCondition, pacing_types::ConcretePacingType as PacingTy,
@@ -11,7 +11,7 @@ use crate::tyc::{
 use crate::{common_ir::StreamReference, mir::InstanceTemplate};
 use crate::{hir, hir::Hir, mir, mir::Mir};
 
-impl Hir<Complete> {
+impl Hir<CompleteMode> {
     pub(crate) fn lower(self) -> Mir {
         let Hir { inputs, outputs, triggers, mode, .. } = &self;
         let inputs = inputs
@@ -299,16 +299,16 @@ impl Hir<Complete> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
     use std::path::PathBuf;
-    fn lower_spec(spec: &str) -> (hir::RTLolaHIR<Complete>, mir::RTLolaMIR) {
+    fn lower_spec(spec: &str) -> (hir::RTLolaHIR<CompleteMode>, mir::RTLolaMIR) {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExpression>::from_ast(ast, &handler, &config)
+        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)

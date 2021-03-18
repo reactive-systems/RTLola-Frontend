@@ -29,7 +29,7 @@ impl HirMode for Raw {}
 
 impl Hir<Raw> {
     #[allow(unused_variables)]
-    pub(crate) fn transform_expressions(self, handler: &Handler, config: &FrontendConfig) -> Hir<IrExpression> {
+    pub(crate) fn transform_expressions(self, handler: &Handler, config: &FrontendConfig) -> Hir<IrExprMode> {
         //Hir::<IrExpression>::transform_expressions(self, handler, config)
         todo!()
     }
@@ -47,18 +47,18 @@ pub struct IrExprRes {
 }
 
 #[derive(Clone, Debug)]
-pub struct IrExpression {
+pub struct IrExprMode {
     ir_expr_res: IrExprRes,
 }
 
-impl Hir<IrExpression> {
+impl Hir<IrExprMode> {
     pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
-        Hir::<IrExpression>::transform_expressions(ast, handler, config)
+        Hir::<IrExprMode>::transform_expressions(ast, handler, config)
     }
 
-    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DependencyAnalyzed>, DependencyErr> {
+    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DepAnaMode>, DependencyErr> {
         let dependencies = Dependencies::analyze(&self)?;
-        let mode = DependencyAnalyzed { ir_expr: self.mode.ir_expr_res, dependencies };
+        let mode = DepAnaMode { ir_expr: self.mode, dependencies };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
@@ -95,16 +95,16 @@ pub(crate) struct Dependencies {
     graph: DependencyGraph,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct DependencyAnalyzed {
-    ir_expr: IrExprRes,
+pub(crate) struct DepAnaMode {
+    ir_expr: IrExprMode,
     dependencies: Dependencies,
 }
 
-impl Hir<DependencyAnalyzed> {
-    pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<Typed>, String> {
+impl Hir<DepAnaMode> {
+    pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<TypedMode>, String> {
         let tts = crate::tyc::type_check(&self, handler)?;
 
-        let mode = Typed { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, tts };
+        let mode = TypedMode { ir_expr: self.mode.ir_expr.clone(), dependencies: self.mode, tts };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
@@ -126,20 +126,21 @@ pub(crate) struct TypeTables {
 }
 */
 #[derive(Debug, Clone)]
-pub(crate) struct Typed {
-    ir_expr: IrExprRes,
-    dependencies: Dependencies,
+pub(crate) struct TypedMode {
+    ir_expr: IrExprMode,
+    dependencies: DepAnaMode,
     tts: TypeTable,
 }
 
-impl Hir<Typed> {
-    pub(crate) fn build_evaluation_order(self) -> Hir<Ordered> {
+impl Hir<TypedMode> {
+    pub(crate) fn build_evaluation_order(self) -> Hir<OrderedMode> {
         let order = EvaluationOrder::analyze(&self);
 
-        let mode = Ordered {
+        let old_mode = self.mode.clone();
+        let mode = OrderedMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
-            types: self.mode.tts,
+            types: old_mode,
             layers: order,
         };
 
@@ -162,23 +163,24 @@ pub(crate) struct EvaluationOrder {
     periodic_layers: LayerRepresentation,
 }
 #[derive(Debug, Clone)]
-pub(crate) struct Ordered {
-    ir_expr: IrExprRes,
-    dependencies: Dependencies,
-    types: TypeTable,
+pub(crate) struct OrderedMode {
+    ir_expr: IrExprMode,
+    dependencies: DepAnaMode,
+    types: TypedMode,
     layers: EvaluationOrder,
 }
 
-impl Hir<Ordered> {
-    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBound> {
+impl Hir<OrderedMode> {
+    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBoundMode> {
         //TODO: forward config argument
         let memory = Memory::analyze(&self, false);
 
-        let mode = MemBound {
+        let old_mode = self.mode.clone();
+        let mode = MemBoundMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
-            layers: self.mode.layers,
+            layers: old_mode,
             memory,
         };
 
@@ -199,17 +201,17 @@ pub(crate) struct Memory {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MemBound {
-    ir_expr: IrExprRes,
-    dependencies: Dependencies,
-    types: TypeTable,
-    layers: EvaluationOrder,
+pub(crate) struct MemBoundMode {
+    ir_expr: IrExprMode,
+    dependencies: DepAnaMode,
+    types: TypedMode,
+    layers: OrderedMode,
     memory: Memory,
 }
 
-impl Hir<MemBound> {
-    pub(crate) fn finalize(self) -> Hir<Complete> {
-        let mode = Complete {
+impl Hir<MemBoundMode> {
+    pub(crate) fn finalize(self) -> Hir<CompleteMode> {
+        let mode = CompleteMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
@@ -229,11 +231,11 @@ impl Hir<MemBound> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Complete {
-    ir_expr: IrExprRes,
-    dependencies: Dependencies,
-    types: TypeTable,
-    layers: EvaluationOrder,
+pub(crate) struct CompleteMode {
+    ir_expr: IrExprMode,
+    dependencies: DepAnaMode,
+    types: TypedMode,
+    layers: OrderedMode,
     memory: Memory,
 }
 

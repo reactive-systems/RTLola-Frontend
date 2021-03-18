@@ -1,5 +1,5 @@
 use super::{DependencyGraph, EdgeWeight};
-use crate::hir::modes::{dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked};
+use crate::hir::modes::{dependencies::DepAnaTrait, ir_expr::IrExprTrait, types::TypedTrait};
 use crate::hir::HirMode;
 use crate::Hir;
 
@@ -47,7 +47,7 @@ pub(crate) fn only_spawn_edges(graph: &DependencyGraph) -> DependencyGraph {
 
 pub(crate) fn split_graph<M>(spec: &Hir<M>, graph: DependencyGraph) -> (DependencyGraph, DependencyGraph)
 where
-    M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
+    M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
 {
     // remove edges and nodes, so mapping does not change
     let mut event_graph = graph.clone();

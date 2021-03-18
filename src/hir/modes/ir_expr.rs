@@ -7,7 +7,7 @@ use crate::{
     hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
 };
 
-use super::IrExpression;
+use super::IrExprMode;
 use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-pub trait WithIrExpr {
+pub trait IrExprTrait {
     fn window_refs(&self) -> Vec<WRef>;
     fn all_windows(&self) -> (Vec<SlidingWindow>, Vec<DiscreteWindow>) {
         self.window_refs().into_iter().partition_map(|w| self.single_window(w))
@@ -37,21 +37,21 @@ pub trait WithIrExpr {
     fn expression(&self, id: ExprId) -> &Expression;
     fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
-impl WithIrExpr for IrExprRes {
+impl IrExprTrait for IrExprMode {
     fn window_refs(&self) -> Vec<WRef> {
-        self.windows.keys().cloned().collect()
+        self.ir_expr_res.windows.keys().cloned().collect()
     }
 
     fn single_window(&self, wref: WRef) -> Either<SlidingWindow, DiscreteWindow> {
-        self.windows[&wref]
+        self.ir_expr_res.windows[&wref]
     }
 
     fn expression(&self, id: ExprId) -> &Expression {
-        &self.exprid_to_expr[&id]
+        &self.ir_expr_res.exprid_to_expr[&id]
     }
 
     fn func_declaration(&self, func_name: &str) -> &FuncDecl {
-        &self.func_table[func_name]
+        &self.ir_expr_res.func_table[func_name]
     }
 }
 
@@ -59,7 +59,7 @@ pub(crate) type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 impl<M> Hir<M>
 where
-    M: WithIrExpr + HirMode + 'static,
+    M: IrExprTrait + HirMode + 'static,
 {
     pub fn windows(&self) -> Vec<WRef> {
         self.window_refs()
@@ -534,7 +534,7 @@ fn transform_template_spec(
     }
 }
 
-impl Hir<IrExpression> {
+impl Hir<IrExprMode> {
     pub fn transform_expressions(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
         let mut naming_analyzer = NamingAnalysis::new(&handler, *config);
         let decl_table = naming_analyzer.check(&ast);
@@ -637,7 +637,7 @@ impl Hir<IrExpression> {
             .chain(discrete_windows.into_iter().map(|w| (w.reference, Either::Right(w))))
             .collect();
 
-        let new_mode = IrExpression { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
+        let new_mode = IrExprMode { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
 
         Hir {
             next_input_ref: hir_inputs.len(),
@@ -707,11 +707,11 @@ mod tests {
     use crate::parse::parse;
     use std::path::PathBuf;
 
-    fn obtain_expressions(spec: &str) -> Hir<IrExpression> {
+    fn obtain_expressions(spec: &str) -> Hir<IrExprMode> {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let replaced: Hir<IrExpression> = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
+        let replaced: Hir<IrExprMode> = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config);
         replaced
     }
 

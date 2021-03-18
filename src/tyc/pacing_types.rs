@@ -2,7 +2,7 @@ use super::rusttyc::{Arity, Partial};
 use super::rusttyc::{Constructable, Variant};
 use crate::common_ir::{StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
-use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
 use crate::hir::Ac;
 use crate::reporting::{Diagnostic, Handler, Span};
@@ -625,7 +625,7 @@ impl PrintableVariant for AbstractExpressionType {
 }
 
 impl AbstractPacingType {
-    pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
+    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(
         ac: &Ac,
         hir: &RTLolaHIR<M>,
     ) -> Result<(Self, Span), PacingErrorKind> {
@@ -720,7 +720,7 @@ impl ConcretePacingType {
         }
     }
 
-    pub(crate) fn from_ac<M: HirMode + WithIrExpr + 'static>(
+    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(
         ac: &Ac,
         hir: &RTLolaHIR<M>,
     ) -> Result<Self, PacingErrorKind> {

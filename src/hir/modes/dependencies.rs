@@ -1,6 +1,6 @@
 use crate::common_ir::{SRef, WRef};
 
-use super::{Dependencies, DependencyGraph, EdgeWeight};
+use super::{DepAnaMode, Dependencies, DependencyGraph, EdgeWeight};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -10,12 +10,12 @@ use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::Hir;
 use crate::{
     common_ir::{Offset, StreamAccessKind},
-    hir::modes::{ir_expr::WithIrExpr, HirMode},
+    hir::modes::{ir_expr::IrExprTrait, HirMode},
 };
 use petgraph::Outgoing;
 use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, stable_graph::StableGraph};
 
-pub(crate) trait WithDependencies {
+pub(crate) trait DepAnaTrait {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
@@ -31,43 +31,49 @@ pub(crate) trait WithDependencies {
     fn graph(&self) -> &DependencyGraph;
 }
 
-impl WithDependencies for Dependencies {
+impl DepAnaTrait for DepAnaMode {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.direct_accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+        self.dependencies
+            .direct_accesses
+            .get(&who)
+            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.transitive_accesses
+        self.dependencies
+            .transitive_accesses
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.direct_accessed_by
+        self.dependencies
+            .direct_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.transitive_accessed_by
+        self.dependencies
+            .transitive_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
+        self.dependencies.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
             aggregated_by.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
+        self.dependencies.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
             aggregates.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn graph(&self) -> &DependencyGraph {
-        &self.graph
+        &self.dependencies.graph
     }
 }
 
@@ -82,7 +88,7 @@ type Result<T> = std::result::Result<T, DependencyErr>;
 impl Dependencies {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Dependencies>
     where
-        M: WithIrExpr + HirMode + 'static,
+        M: IrExprTrait + HirMode + 'static,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
@@ -233,7 +239,7 @@ impl Dependencies {
 
     fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>
     where
-        M: WithIrExpr + HirMode + 'static,
+        M: IrExprTrait + HirMode + 'static,
     {
         match &expr.kind {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
@@ -294,7 +300,7 @@ impl Dependencies {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
@@ -314,7 +320,7 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExpression>::transform_expressions(ast, &handler, &config);
+        let hir = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config);
         let deps = Dependencies::analyze(&hir);
         if let Ok(deps) = deps {
             let (

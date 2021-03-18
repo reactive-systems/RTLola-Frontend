@@ -31,11 +31,11 @@ mod tyc;
 //mod tests;
 
 // Re-export
-use crate::hir::modes::IrExpression;
+use crate::hir::modes::IrExprMode;
 pub use ast::RTLolaAst;
 pub use export::analyze;
 pub use hir::RTLolaHIR;
-use hir::{modes::Complete, Hir};
+use hir::{modes::CompleteMode, Hir};
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;
 
@@ -97,7 +97,7 @@ pub(crate) fn parse_to_hir(
     filename: &str,
     spec_str: &str,
     config: FrontendConfig,
-) -> Result<RTLolaHIR<Complete>, String> {
+) -> Result<RTLolaHIR<CompleteMode>, String> {
     let handler = reporting::Handler::new(std::path::PathBuf::from(filename), spec_str.into());
 
     let spec = match crate::parse::parse(&spec_str, &handler, config) {
@@ -106,7 +106,7 @@ pub(crate) fn parse_to_hir(
             return Err(format!("error: invalid syntax:\n{}", e));
         }
     };
-    Ok(Hir::<IrExpression>::transform_expressions(spec, &handler, &config)
+    Ok(Hir::<IrExprMode>::transform_expressions(spec, &handler, &config)
         .build_dependency_graph()
         .map_err(|e| format!("error in dependency analysis: {:?}", e))?
         .type_check(&handler)?

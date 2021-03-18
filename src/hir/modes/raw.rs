@@ -14,7 +14,7 @@ use crate::{
 #[allow(unused_imports)]
 use std::{collections::HashMap, rc::Rc};
 
-use super::{IrExpression, Raw};
+use super::{IrExprMode, Raw};
 
 impl From<Ast> for Hir<Raw> {
     fn from(_ast: Ast) -> Hir<Raw> {
@@ -84,7 +84,7 @@ impl From<Ast> for Hir<Raw> {
 }
 
 impl Hir<Raw> {
-    pub(crate) fn replace_expressions(self) -> Hir<IrExpression> {
+    pub(crate) fn replace_expressions(self) -> Hir<IrExprMode> {
         unimplemented!()
     }
 }

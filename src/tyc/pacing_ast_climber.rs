@@ -3,7 +3,7 @@ extern crate regex;
 
 use crate::common_ir::{Offset, StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
-use crate::hir::modes::ir_expr::WithIrExpr;
+use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
 use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger};
 use crate::reporting::Span;
@@ -24,7 +24,7 @@ impl rusttyc::TcVar for Variable {}
 
 pub struct PacingTypeChecker<'a, M>
 where
-    M: HirMode + WithIrExpr + 'static,
+    M: HirMode + IrExprTrait + 'static,
 {
     pub(crate) hir: &'a RTLolaHIR<M>,
     pub(crate) pacing_tyc: TypeChecker<AbstractPacingType, Variable>,
@@ -38,7 +38,7 @@ where
 
 impl<'a, M> PacingTypeChecker<'a, M>
 where
-    M: HirMode + WithIrExpr + 'static,
+    M: HirMode + IrExprTrait + 'static,
 {
     pub(crate) fn new(hir: &'a RTLolaHIR<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
@@ -792,7 +792,7 @@ where
 mod tests {
     use crate::common_ir::{StreamAccessKind, StreamReference};
     use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::hir::RTLolaHIR;
     use crate::reporting::{Handler, Span};
     use crate::tyc::pacing_types::{ActivationCondition, ConcretePacingType};
@@ -825,13 +825,13 @@ mod tests {
         }};
     }
 
-    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExpression>, Handler) {
+    fn setup_ast(spec: &str) -> (RTLolaHIR<IrExprMode>, Handler) {
         let handler = crate::reporting::Handler::new(PathBuf::from("test"), spec.into());
         let ast: RTLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
-        let hir = crate::hir::RTLolaHIR::<IrExpression>::from_ast(ast, &handler, &crate::FrontendConfig::default());
+        let hir = crate::hir::RTLolaHIR::<IrExprMode>::from_ast(ast, &handler, &crate::FrontendConfig::default());
         (hir, handler)
     }
 
@@ -842,14 +842,14 @@ mod tests {
         return handler.emitted_errors();
     }
 
-    fn get_sr_for_name(hir: &RTLolaHIR<IrExpression>, name: &str) -> StreamReference {
+    fn get_sr_for_name(hir: &RTLolaHIR<IrExprMode>, name: &str) -> StreamReference {
         if let Some(i) = hir.get_input_with_name(name) {
             i.sr
         } else {
             hir.get_output_with_name(name).unwrap().sr
         }
     }
-    fn get_node_for_name(hir: &RTLolaHIR<IrExpression>, name: &str) -> NodeId {
+    fn get_node_for_name(hir: &RTLolaHIR<IrExprMode>, name: &str) -> NodeId {
         NodeId::SRef(get_sr_for_name(hir, name))
     }
 

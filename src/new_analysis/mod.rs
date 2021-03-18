@@ -6,7 +6,7 @@ use crate::common_ir::StreamAccessKind;
 use crate::hir::Hir;
 use crate::{
     common_ir::Offset,
-    hir::modes::{ir_expr::WithIrExpr, HirMode},
+    hir::modes::{ir_expr::IrExprTrait, HirMode},
 };
 use crate::{
     common_ir::SRef,
@@ -74,9 +74,9 @@ impl Default for EdgeWeight {
 }
 
 impl DependencyGraph {
-    pub(crate) fn analyze<M: HirMode + 'static + WithIrExpr>(spec: &Hir<M>) -> Result<DependencyReport>
+    pub(crate) fn analyze<M: HirMode + 'static + IrExprTrait>(spec: &Hir<M>) -> Result<DependencyReport>
     where
-        M: WithIrExpr + HirMode,
+        M: IrExprTrait + HirMode,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
@@ -95,7 +95,7 @@ impl DependencyGraph {
         todo!()
     }
 
-    fn check_negative_cycle<M: HirMode + WithIrExpr>(
+    fn check_negative_cycle<M: HirMode + IrExprTrait>(
         graph: &DG,
         spec: &Hir<M>,
         mapping: &HashMap<SRef, NodeIndex>,

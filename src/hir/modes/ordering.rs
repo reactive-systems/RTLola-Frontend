@@ -1,25 +1,23 @@
 use crate::common_ir::{Layer, SRef, StreamLayers};
 
-use super::EvaluationOrder;
+use super::{EvaluationOrder, OrderedMode};
 
 use super::dg_functionality::*;
 use std::collections::HashMap;
 
-use crate::hir::modes::{
-    dependencies::WithDependencies, ir_expr::WithIrExpr, types::TypeChecked, DependencyGraph, HirMode,
-};
+use crate::hir::modes::{dependencies::DepAnaTrait, ir_expr::IrExprTrait, types::TypedTrait, DependencyGraph, HirMode};
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Outgoing};
 
-pub(crate) trait EvaluationOrderBuilt {
+pub(crate) trait OrderedTrait {
     fn stream_layers(&self, sr: SRef) -> StreamLayers;
 }
 
-impl EvaluationOrderBuilt for EvaluationOrder {
+impl OrderedTrait for OrderedMode {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
-        match self.event_layers.get(&sr) {
+        match self.layers.event_layers.get(&sr) {
             Some(layer) => *layer,
-            None => self.periodic_layers[&sr],
+            None => self.layers.periodic_layers[&sr],
         }
         // todo!("Is there a better way to decide if the stream is periodic or event-based?")
     }
@@ -30,7 +28,7 @@ pub(crate) struct OrderingReport {}
 impl EvaluationOrder {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> EvaluationOrder
     where
-        M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
+        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
     {
         // Compute Evaluation Layers
         let graph = graph_without_negative_offset_edges(spec.graph());
@@ -44,7 +42,7 @@ impl EvaluationOrder {
 
     fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
     where
-        M: WithIrExpr + HirMode + 'static + WithDependencies + TypeChecked,
+        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
     {
         debug_assert!(!is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
         let spawn_graph = only_spawn_edges(&graph_without_negative_offset_edges(graph));
@@ -126,7 +124,7 @@ impl EvaluationOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::modes::IrExpression;
+    use crate::hir::modes::IrExprMode;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::FrontendConfig;
@@ -139,7 +137,7 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExpression>::from_ast(ast, &handler, &config)
+        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
             .build_dependency_graph()
             .unwrap()
             .type_check(&handler)
