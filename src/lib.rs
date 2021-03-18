@@ -39,6 +39,9 @@ use hir::{modes::CompleteMode, Hir};
 pub use mir::RTLolaMIR;
 pub use ty::TypeConfig;
 
+#[macro_use]
+extern crate rtlola_macros;
+
 /**
 This module contains a module for each binary that this crate provides.
 */

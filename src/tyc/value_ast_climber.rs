@@ -3,7 +3,7 @@ extern crate regex;
 use super::rusttyc::TypeTable;
 use crate::common_ir::{Offset, SRef, StreamAccessKind};
 use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
-use crate::hir::modes::ir_expr::IrExprTrait;
+use crate::hir::modes::IrExprTrait;
 use crate::hir::modes::HirMode;
 use crate::hir::{AnnotatedType, Input, Output, Trigger};
 use crate::reporting::Span;

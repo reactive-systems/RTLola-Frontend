@@ -12,17 +12,21 @@ pub(crate) mod types;
 
 use crate::hir::function_lookup::FuncDecl;
 use crate::hir::{DiscreteWindow, SlidingWindow};
+use itertools::Itertools;
 use std::collections::HashMap;
 
 use crate::{
-    ast, ast::Ast, common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
+    common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
     common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir, reporting::Handler,
     tyc::rtltc::TypeTable, FrontendConfig,
 };
 
-use self::dependencies::DependencyErr;
+use self::{
+    dependencies::{DependencyGraph, Streamdependencies, Windowdependencies},
+    memory_bounds::LayerRepresentation,
+    types::HirType,
+};
 use itertools::Either;
-use petgraph::stable_graph::StableGraph;
 
 pub(crate) struct Raw {}
 impl HirMode for Raw {}
@@ -46,43 +50,27 @@ pub struct IrExprRes {
     func_table: FunctionLookUps,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, HirMode)]
 pub struct IrExprMode {
     ir_expr_res: IrExprRes,
 }
 
-impl Hir<IrExprMode> {
-    pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
-        Hir::<IrExprMode>::transform_expressions(ast, handler, config)
+#[mode_functionality]
+pub trait IrExprTrait {
+    fn window_refs(&self) -> Vec<WRef>;
+    fn all_windows(&self) -> (Vec<SlidingWindow>, Vec<DiscreteWindow>) {
+        self.window_refs().into_iter().partition_map(|w| self.single_window(w))
     }
-
-    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DepAnaMode>, DependencyErr> {
-        let dependencies = Dependencies::analyze(&self)?;
-        let mode = DepAnaMode { ir_expr: self.mode, dependencies };
-        Ok(Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        })
+    fn sliding_windows(&self) -> Vec<SlidingWindow> {
+        self.all_windows().0
     }
+    fn discrete_windows(&self) -> Vec<DiscreteWindow> {
+        self.all_windows().1
+    }
+    fn single_window(&self, window: WRef) -> Either<SlidingWindow, DiscreteWindow>;
+    fn expression(&self, id: ExprId) -> &Expression;
+    fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
-
-#[derive(Hash, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum EdgeWeight {
-    Offset(i32),
-    Aggr(WRef),
-    Hold,
-    Spawn(Box<EdgeWeight>),
-    Filter(Box<EdgeWeight>),
-    Close(Box<EdgeWeight>),
-}
-
-pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
-pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
-pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Dependencies {
@@ -94,105 +82,66 @@ pub(crate) struct Dependencies {
     aggregates: Windowdependencies,
     graph: DependencyGraph,
 }
-#[derive(Debug, Clone)]
+
+#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[derive(Debug, Clone, HirMode)]
 pub(crate) struct DepAnaMode {
     ir_expr: IrExprMode,
     dependencies: Dependencies,
 }
 
-impl Hir<DepAnaMode> {
-    pub(crate) fn type_check(self, handler: &Handler) -> Result<Hir<TypedMode>, String> {
-        let tts = crate::tyc::type_check(&self, handler)?;
+#[mode_functionality]
+pub(crate) trait DepAnaTrait {
+    fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
-        let mode = TypedMode { ir_expr: self.mode.ir_expr.clone(), dependencies: self.mode, tts };
-        Ok(Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        })
-    }
-}
-/*
-pub(crate) type StreamTypeTable = HashMap<SRef, HirType>;
-pub(crate) type ExpressionTypeTable = HashMap<SRef, HirType>; // -> why is expressionid not the key for this map
+    fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
 
-#[derive(Debug, Clone)]
-pub(crate) struct TypeTables {
-    stream_tt: StreamTypeTable,
-    expr_tt: ExpressionTypeTable, // consider merging the tts.
+    fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
+
+    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef>;
+
+    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+
+    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+
+    fn graph(&self) -> &DependencyGraph;
 }
-*/
-#[derive(Debug, Clone)]
+
+#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
+#[derive(Debug, Clone, HirMode)]
 pub(crate) struct TypedMode {
     ir_expr: IrExprMode,
     dependencies: DepAnaMode,
     tts: TypeTable,
 }
 
-impl Hir<TypedMode> {
-    pub(crate) fn build_evaluation_order(self) -> Hir<OrderedMode> {
-        let order = EvaluationOrder::analyze(&self);
-
-        let old_mode = self.mode.clone();
-        let mode = OrderedMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: old_mode,
-            layers: order,
-        };
-
-        Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        }
-    }
+#[mode_functionality]
+pub(crate) trait TypedTrait {
+    fn stream_type(&self, _sr: SRef) -> HirType;
+    fn is_periodic(&self, _sr: SRef) -> bool;
+    fn is_event(&self, _sr: SRef) -> bool;
+    fn expr_type(&self, _eid: ExprId) -> HirType;
 }
-
-pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EvaluationOrder {
     event_layers: LayerRepresentation,
     periodic_layers: LayerRepresentation,
 }
-#[derive(Debug, Clone)]
+#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
+#[extends_mode(TypedTrait, TypedMode, types)]
+#[derive(Debug, Clone, HirMode)]
 pub(crate) struct OrderedMode {
     ir_expr: IrExprMode,
     dependencies: DepAnaMode,
     types: TypedMode,
     layers: EvaluationOrder,
 }
-
-impl Hir<OrderedMode> {
-    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBoundMode> {
-        //TODO: forward config argument
-        let memory = Memory::analyze(&self, false);
-
-        let old_mode = self.mode.clone();
-        let mode = MemBoundMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: self.mode.types,
-            layers: old_mode,
-            memory,
-        };
-
-        Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        }
-    }
+#[mode_functionality]
+pub(crate) trait OrderedTrait {
+    fn stream_layers(&self, sr: SRef) -> StreamLayers;
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +149,11 @@ pub(crate) struct Memory {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
 }
 
-#[derive(Debug, Clone)]
+#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
+#[extends_mode(TypedTrait, TypedMode, types)]
+#[extends_mode(OrderedTrait, OrderedMode, layers)]
+#[derive(Debug, Clone, HirMode)]
 pub(crate) struct MemBoundMode {
     ir_expr: IrExprMode,
     dependencies: DepAnaMode,
@@ -208,37 +161,21 @@ pub(crate) struct MemBoundMode {
     layers: OrderedMode,
     memory: Memory,
 }
-
-impl Hir<MemBoundMode> {
-    pub(crate) fn finalize(self) -> Hir<CompleteMode> {
-        let mode = CompleteMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: self.mode.types,
-            layers: self.mode.layers,
-            memory: self.mode.memory,
-        };
-
-        Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        }
-    }
+#[mode_functionality]
+pub(crate) trait MemBoundTrait {
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 
-#[derive(Debug, Clone)]
+#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
+#[extends_mode(TypedTrait, TypedMode, types)]
+#[extends_mode(OrderedTrait, OrderedMode, layers)]
+#[extends_mode(MemBoundTrait, MemBoundMode, memory)]
+#[derive(Debug, Clone, HirMode)]
 pub(crate) struct CompleteMode {
     ir_expr: IrExprMode,
     dependencies: DepAnaMode,
     types: TypedMode,
     layers: OrderedMode,
-    memory: Memory,
-}
-
-pub(crate) trait AstExpr {
-    fn expr(&self, sr: SRef) -> ast::Expression;
+    memory: MemBoundMode,
 }

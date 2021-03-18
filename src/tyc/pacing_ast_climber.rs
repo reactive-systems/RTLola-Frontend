@@ -3,8 +3,8 @@ extern crate regex;
 
 use crate::common_ir::{Offset, StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
-use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
+use crate::hir::modes::IrExprTrait;
 use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{

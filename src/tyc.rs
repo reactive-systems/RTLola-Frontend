@@ -6,7 +6,7 @@ pub(crate) mod rtltc;
 pub(crate) mod value_ast_climber;
 pub(crate) mod value_types;
 
-use crate::hir::{modes::ir_expr::IrExprTrait, modes::HirMode, Hir};
+use crate::hir::{modes::HirMode, modes::IrExprTrait, Hir};
 use crate::reporting::Handler;
 use crate::tyc::rtltc::LolaTypeChecker;
 

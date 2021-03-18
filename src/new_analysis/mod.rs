@@ -6,7 +6,7 @@ use crate::common_ir::StreamAccessKind;
 use crate::hir::Hir;
 use crate::{
     common_ir::Offset,
-    hir::modes::{ir_expr::IrExprTrait, HirMode},
+    hir::modes::{IrExprTrait, HirMode},
 };
 use crate::{
     common_ir::SRef,

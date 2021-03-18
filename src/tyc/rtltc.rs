@@ -1,8 +1,8 @@
 use super::rusttyc::TcKey;
 use crate::common_ir::StreamReference;
 use crate::hir::expression::{ExprId, Expression};
-use crate::hir::modes::ir_expr::IrExprTrait;
 use crate::hir::modes::HirMode;
+use crate::hir::modes::IrExprTrait;
 use crate::reporting::{Handler, Span};
 use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::{

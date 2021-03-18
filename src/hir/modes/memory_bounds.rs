@@ -1,23 +1,68 @@
 use num::abs;
 
-use crate::common_ir::SRef;
+use crate::{common_ir::SRef, mir::StreamLayers};
 
-use super::{EdgeWeight, MemorizationBound, Memory};
+use super::{CompleteMode, MemBoundMode, MemBoundTrait, MemorizationBound, Memory, OrderedMode, dependencies::EdgeWeight};
 
-use crate::hir::modes::{dependencies::DepAnaTrait, HirMode};
+use crate::hir::modes::{DepAnaTrait, HirMode};
 use crate::hir::Hir;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-pub(crate) trait MemBoundTrait {
-    fn memory_bound(&self, sr: SRef) -> MemorizationBound;
-}
+impl Hir<MemBoundMode> {
+    pub(crate) fn finalize(self) -> Hir<CompleteMode> {
+        let old_mode = self.mode.clone();
+        let mode = CompleteMode {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: self.mode.types,
+            layers: self.mode.layers,
+            memory: old_mode,
+        };
 
-impl MemBoundTrait for Memory {
-    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
-        self.memory_bound_per_stream[&sr]
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
     }
 }
+
+impl MemBoundTrait for MemBoundMode {
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
+        self.memory.memory_bound_per_stream[&sr]
+    }
+}
+
+pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
+impl Hir<OrderedMode> {
+    pub(crate) fn compute_memory_bounds(self) -> Hir<MemBoundMode> {
+        //TODO: forward config argument
+        let memory = Memory::analyze(&self, false);
+
+        let old_mode = self.mode.clone();
+        let mode = MemBoundMode {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: self.mode.types,
+            layers: old_mode,
+            memory,
+        };
+
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
+    }
+}
+
 pub(crate) struct MemoryReport {}
 
 impl Memory {

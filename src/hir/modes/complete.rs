@@ -1,9 +1,6 @@
 use itertools::Itertools;
 
-use crate::hir::modes::{
-    dependencies::DepAnaTrait, ir_expr::IrExprTrait, memory_bounds::MemBoundTrait, ordering::OrderedTrait,
-    types::TypedTrait, CompleteMode,
-};
+use crate::hir::modes::{CompleteMode, DepAnaTrait, IrExprTrait, MemBoundTrait, OrderedTrait, TypedTrait};
 use crate::tyc::{
     pacing_types::ActivationCondition, pacing_types::ConcretePacingType as PacingTy,
     value_types::ConcreteValueType as ValueTy,

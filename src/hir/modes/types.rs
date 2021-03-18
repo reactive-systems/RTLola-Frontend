@@ -1,12 +1,29 @@
+use crate::hir::Hir;
 use crate::{common_ir::SRef, hir::expression::ExprId, tyc::pacing_types::ConcretePacingType};
 
-use super::TypedMode;
+use super::{EvaluationOrder, OrderedMode, TypedMode, TypedTrait};
 
-pub(crate) trait TypedTrait {
-    fn stream_type(&self, _sr: SRef) -> HirType;
-    fn is_periodic(&self, _sr: SRef) -> bool;
-    fn is_event(&self, _sr: SRef) -> bool;
-    fn expr_type(&self, _eid: ExprId) -> HirType;
+impl Hir<TypedMode> {
+    pub(crate) fn build_evaluation_order(self) -> Hir<OrderedMode> {
+        let order = EvaluationOrder::analyze(&self);
+
+        let old_mode = self.mode.clone();
+        let mode = OrderedMode {
+            ir_expr: self.mode.ir_expr,
+            dependencies: self.mode.dependencies,
+            types: old_mode,
+            layers: order,
+        };
+
+        Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        }
+    }
 }
 
 impl TypedTrait for TypedMode {

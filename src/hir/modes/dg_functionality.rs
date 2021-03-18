@@ -1,5 +1,7 @@
-use super::{DependencyGraph, EdgeWeight};
-use crate::hir::modes::{dependencies::DepAnaTrait, ir_expr::IrExprTrait, types::TypedTrait};
+use super::{
+    dependencies::{DependencyGraph, EdgeWeight},
+    DepAnaTrait, IrExprTrait, TypedTrait,
+};
 use crate::hir::HirMode;
 use crate::Hir;
 

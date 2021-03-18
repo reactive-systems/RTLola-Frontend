@@ -1,6 +1,9 @@
-use crate::common_ir::{SRef, WRef};
+use crate::{
+    common_ir::{SRef, WRef},
+    reporting::Handler,
+};
 
-use super::{DepAnaMode, Dependencies, DependencyGraph, EdgeWeight};
+use super::{DepAnaMode, DepAnaTrait, Dependencies, TypedMode};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -10,26 +13,40 @@ use crate::hir::expression::{Expression, ExpressionKind};
 use crate::hir::Hir;
 use crate::{
     common_ir::{Offset, StreamAccessKind},
-    hir::modes::{ir_expr::IrExprTrait, HirMode},
+    hir::modes::{HirMode, IrExprTrait},
 };
 use petgraph::Outgoing;
 use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, stable_graph::StableGraph};
 
-pub(crate) trait DepAnaTrait {
-    fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
+impl Hir<DepAnaMode> {
+    pub(crate) fn type_check(self, handler: &Handler) -> std::result::Result<Hir<TypedMode>, String> {
+        let tts = crate::tyc::type_check(&self, handler)?;
 
-    fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
-
-    fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
-
-    fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef>;
-
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
-
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
-
-    fn graph(&self) -> &DependencyGraph;
+        let mode = TypedMode { ir_expr: self.mode.ir_expr.clone(), dependencies: self.mode, tts };
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        })
+    }
 }
+
+#[derive(Hash, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum EdgeWeight {
+    Offset(i32),
+    Aggr(WRef),
+    Hold,
+    Spawn(Box<EdgeWeight>),
+    Filter(Box<EdgeWeight>),
+    Close(Box<EdgeWeight>),
+}
+
+pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
+pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
+pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
 impl DepAnaTrait for DepAnaMode {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {

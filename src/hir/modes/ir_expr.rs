@@ -7,7 +7,7 @@ use crate::{
     hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
 };
 
-use super::IrExprMode;
+use super::{dependencies::DependencyErr, DepAnaMode, Dependencies, IrExprMode, IrExprTrait};
 use crate::analysis::naming::{Declaration, NamingAnalysis};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
@@ -17,26 +17,30 @@ use crate::hir::function_lookup::FuncDecl;
 use crate::parse::NodeId;
 use crate::reporting::Handler;
 use crate::FrontendConfig;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-pub trait IrExprTrait {
-    fn window_refs(&self) -> Vec<WRef>;
-    fn all_windows(&self) -> (Vec<SlidingWindow>, Vec<DiscreteWindow>) {
-        self.window_refs().into_iter().partition_map(|w| self.single_window(w))
+impl Hir<IrExprMode> {
+    pub fn from_ast(ast: Ast, handler: &Handler, config: &FrontendConfig) -> Self {
+        Hir::<IrExprMode>::transform_expressions(ast, handler, config)
     }
-    fn sliding_windows(&self) -> Vec<SlidingWindow> {
-        self.all_windows().0
+
+    pub(crate) fn build_dependency_graph(self) -> Result<Hir<DepAnaMode>, DependencyErr> {
+        let dependencies = Dependencies::analyze(&self)?;
+        let mode = DepAnaMode { ir_expr: self.mode, dependencies };
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            mode,
+        })
     }
-    fn discrete_windows(&self) -> Vec<DiscreteWindow> {
-        self.all_windows().1
-    }
-    fn single_window(&self, window: WRef) -> Either<SlidingWindow, DiscreteWindow>;
-    fn expression(&self, id: ExprId) -> &Expression;
-    fn func_declaration(&self, func_name: &str) -> &FuncDecl;
 }
+
 impl IrExprTrait for IrExprMode {
     fn window_refs(&self) -> Vec<WRef> {
         self.ir_expr_res.windows.keys().cloned().collect()

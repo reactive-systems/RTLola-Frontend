@@ -1,17 +1,13 @@
 use crate::common_ir::{Layer, SRef, StreamLayers};
 
-use super::{EvaluationOrder, OrderedMode};
+use super::{EvaluationOrder, OrderedMode, OrderedTrait, TypedTrait};
 
 use super::dg_functionality::*;
 use std::collections::HashMap;
 
-use crate::hir::modes::{dependencies::DepAnaTrait, ir_expr::IrExprTrait, types::TypedTrait, DependencyGraph, HirMode};
+use crate::hir::modes::{DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Outgoing};
-
-pub(crate) trait OrderedTrait {
-    fn stream_layers(&self, sr: SRef) -> StreamLayers;
-}
 
 impl OrderedTrait for OrderedMode {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
