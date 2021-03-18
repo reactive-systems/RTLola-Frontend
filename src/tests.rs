@@ -49,11 +49,12 @@ fn fuzzed_lowering_bad_assumptions3() {
 }
 
 #[test]
-fn fuzzed_negative_frequence() {
+fn fuzzed_negative_frequency() {
     assert!(parse("input a: Int32\n\noutput b @-10Hz := a.hold().defaults(to:10)\noutput c @ 5Hz := a.hold().defaults(to:10)\n\n\n").is_err());
     assert!(parse("input a: Int32\n\noutput b @ 10Hz := a.hold().defaults(to:10)\noutput c @-5Hz := a.hold().defaults(to:10)\n\n\n").is_err());
 }
 
+#[ignore = "Future offsets not implemented"]
 #[test]
 fn fuzzed_memory_analysis_unimplemented() {
     assert!(parse(
@@ -156,6 +157,7 @@ fn fuzzed_invalid_activation_condition() {
     assert!(parse("input a: Int32 output x @x := a.hold().defaults(to: 0)").is_err());
 }
 
+#[ignore = "real-time offsets not implemented, yet"]
 #[test]
 fn fuzzed_big_realtime_offset() {
     assert!(parse("output a: Int8 @0.5Hz := 1 output b: Int8 @1Hz := a[-1w].defaults(to: 0)").is_err());
@@ -188,6 +190,7 @@ fn test_float16() {
     assert!(parse("input in: Float16\noutput count := in + 3.5").is_ok());
 }
 
+#[ignore = "Future offsets not implemented, yet"]
 #[test]
 fn future_offset() {
     assert!(parse("input a: Int8\noutput b := a.offset(by: 1).defaults(to: 3)").is_ok());
