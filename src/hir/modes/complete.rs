@@ -12,7 +12,7 @@ impl Hir<CompleteMode> {
     pub(crate) fn lower(self) -> Mir {
         let Hir { inputs, outputs, triggers, mode, .. } = &self;
         let inputs = inputs
-            .into_iter()
+            .iter()
             .map(|i| {
                 let sr = i.sr;
                 mir::InputStream {
@@ -28,7 +28,7 @@ impl Hir<CompleteMode> {
             .collect::<Vec<mir::InputStream>>();
         // assert that each sr is available
         let outputs = outputs
-            .into_iter()
+            .iter()
             .map(|o| {
                 let sr = o.sr;
                 mir::OutputStream {
