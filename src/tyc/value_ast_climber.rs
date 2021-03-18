@@ -637,14 +637,14 @@ where
 
 #[cfg(test)]
 mod value_type_tests {
+    use crate::ast::RTLolaAst;
     use crate::common_ir::StreamReference;
     use crate::hir::modes::IrExprMode;
+    use crate::hir::RTLolaHIR;
     use crate::reporting::Handler;
     use crate::tyc::rtltc::NodeId;
     use crate::tyc::value_types::ConcreteValueType;
     use crate::tyc::LolaTypeChecker;
-    use crate::RTLolaAst;
-    use crate::RTLolaHIR;
     use std::collections::HashMap;
     use std::path::PathBuf;
 

@@ -1,5 +1,4 @@
 use super::rusttyc::TcKey;
-use crate::{common_ir::StreamReference, hir::Hir};
 use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
@@ -9,6 +8,7 @@ use crate::tyc::{
     pacing_ast_climber::PacingTypeChecker, pacing_types::ConcretePacingType, value_ast_climber::ValueTypeChecker,
     value_types::ConcreteValueType,
 };
+use crate::{common_ir::StreamReference, hir::Hir};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -232,11 +232,12 @@ impl PartialOrd for NodeId {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::RTLolaAst;
     use crate::hir::modes::IrExprMode;
+    use crate::hir::RTLolaHIR;
     use crate::parse::parse;
     use crate::reporting::Handler;
     use crate::tyc::rtltc::LolaTypeChecker;
-    use crate::{RTLolaAst, RTLolaHIR};
     use std::path::PathBuf;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<IrExprMode>, Handler) {

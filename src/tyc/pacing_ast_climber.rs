@@ -5,7 +5,7 @@ use crate::common_ir::{Offset, StreamAccessKind, StreamReference};
 use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
-use crate::hir::{Ac, Input, Output, SpawnTemplate, Trigger, Hir};
+use crate::hir::{Ac, Hir, Input, Output, SpawnTemplate, Trigger};
 use crate::reporting::Span;
 use crate::tyc::pacing_types::{
     AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, ConcreteStreamPacing, Freq,
@@ -789,6 +789,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::RTLolaAst;
     use crate::common_ir::{StreamAccessKind, StreamReference};
     use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
     use crate::hir::modes::IrExprMode;
@@ -797,7 +798,6 @@ mod tests {
     use crate::tyc::pacing_types::{ActivationCondition, ConcretePacingType};
     use crate::tyc::rtltc::NodeId;
     use crate::tyc::LolaTypeChecker;
-    use crate::RTLolaAst;
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use std::path::PathBuf;
