@@ -3,7 +3,7 @@ use crate::{
     reporting::Handler,
 };
 
-use super::{DepAnaMode, DepAnaTrait, Dependencies, TypedMode};
+use super::{DepAna, DepAnaMode, DepAnaTrait, TypedMode};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -22,7 +22,7 @@ impl Hir<DepAnaMode> {
     pub(crate) fn type_check(self, handler: &Handler) -> std::result::Result<Hir<TypedMode>, String> {
         let tts = crate::tyc::type_check(&self, handler)?;
 
-        let mode = TypedMode { ir_expr: self.mode.ir_expr.clone(), dependencies: self.mode, tts };
+        let mode = TypedMode { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, types: tts };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
@@ -48,49 +48,43 @@ pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
-impl DepAnaTrait for DepAnaMode {
+impl DepAnaTrait for DepAna {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.dependencies
-            .direct_accesses
-            .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+        self.direct_accesses.get(&who).map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
-        self.dependencies
-            .transitive_accesses
+        self.transitive_accesses
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.dependencies
-            .direct_accessed_by
+        self.direct_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accessed_by| accessed_by.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.dependencies
-            .transitive_accessed_by
+        self.transitive_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.dependencies.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
+        self.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
             aggregated_by.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.dependencies.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
+        self.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
             aggregates.iter().map(|(sref, wref)| (*sref, *wref)).collect::<Vec<(SRef, WRef)>>()
         })
     }
 
     fn graph(&self) -> &DependencyGraph {
-        &self.dependencies.graph
+        &self.graph
     }
 }
 
@@ -101,8 +95,8 @@ pub(crate) enum DependencyErr {
 
 type Result<T> = std::result::Result<T, DependencyErr>;
 
-impl Dependencies {
-    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<Dependencies>
+impl DepAna {
+    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna>
     where
         M: IrExprTrait + HirMode + 'static,
     {
@@ -207,7 +201,7 @@ impl Dependencies {
                 (sr, transitive_dependencies)
             })
             .collect::<HashMap<SRef, Vec<SRef>>>();
-        Ok(Dependencies {
+        Ok(DepAna {
             direct_accesses,
             transitive_accesses,
             direct_accessed_by,
@@ -337,7 +331,7 @@ mod tests {
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
         let hir = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config);
-        let deps = Dependencies::analyze(&hir);
+        let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (
                 direct_accesses,

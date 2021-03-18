@@ -1,6 +1,6 @@
 use crate::common_ir::{Layer, SRef, StreamLayers};
 
-use super::{EvaluationOrder, OrderedMode, OrderedTrait, TypedTrait};
+use super::{Ordered, OrderedTrait, TypedTrait};
 
 use super::dg_functionality::*;
 use std::collections::HashMap;
@@ -9,18 +9,18 @@ use crate::hir::modes::{DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
 use crate::hir::Hir;
 use petgraph::{algo::is_cyclic_directed, Outgoing};
 
-impl OrderedTrait for OrderedMode {
+impl OrderedTrait for Ordered {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
-        match self.layers.event_layers.get(&sr) {
+        match self.event_layers.get(&sr) {
             Some(layer) => *layer,
-            None => self.layers.periodic_layers[&sr],
+            None => self.periodic_layers[&sr],
         }
         // todo!("Is there a better way to decide if the stream is periodic or event-based?")
     }
 }
 
-impl EvaluationOrder {
-    pub(crate) fn analyze<M>(spec: &Hir<M>) -> EvaluationOrder
+impl Ordered {
+    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Ordered
     where
         M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
     {
@@ -31,7 +31,7 @@ impl EvaluationOrder {
         let (event_graph, periodic_graph) = split_graph(spec, graph);
         let event_layers = Self::compute_layers(spec, &event_graph, true);
         let periodic_layers = Self::compute_layers(spec, &periodic_graph, false);
-        EvaluationOrder { event_layers, periodic_layers }
+        Ordered { event_layers, periodic_layers }
     }
 
     fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
@@ -136,8 +136,8 @@ mod tests {
             .unwrap()
             .type_check(&handler)
             .unwrap();
-        let order = EvaluationOrder::analyze(&hir);
-        let EvaluationOrder { event_layers, periodic_layers } = order;
+        let order = Ordered::analyze(&hir);
+        let Ordered { event_layers, periodic_layers } = order;
         assert_eq!(event_layers.len(), ref_event_layers.len());
         event_layers.iter().for_each(|(sr, layers)| {
             let ref_layers = &ref_event_layers[sr];

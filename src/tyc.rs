@@ -6,13 +6,11 @@ pub(crate) mod rtltc;
 pub(crate) mod value_ast_climber;
 pub(crate) mod value_types;
 
-use crate::hir::{modes::HirMode, modes::IrExprTrait, Hir};
+use crate::hir::{modes::HirMode, modes::IrExprTrait, modes::Typed, Hir};
 use crate::reporting::Handler;
 use crate::tyc::rtltc::LolaTypeChecker;
 
-use crate::tyc::rtltc::TypeTable;
-
-pub fn type_check<M>(hir: &Hir<M>, handler: &Handler) -> Result<TypeTable, String>
+pub fn type_check<M>(hir: &Hir<M>, handler: &Handler) -> Result<Typed, String>
 where
     M: HirMode + IrExprTrait + 'static,
 {

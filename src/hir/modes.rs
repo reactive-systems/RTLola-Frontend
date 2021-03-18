@@ -8,14 +8,17 @@ pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod types;
 
-use crate::hir::function_lookup::FuncDecl;
 use crate::hir::{DiscreteWindow, SlidingWindow};
+use crate::{
+    hir::function_lookup::FuncDecl,
+    tyc::{rtltc::StreamType, value_types::ConcreteValueType},
+};
 use itertools::Itertools;
 use std::collections::HashMap;
 
 use crate::{
     common_ir::MemorizationBound, common_ir::StreamLayers, common_ir::StreamReference as SRef,
-    common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir, tyc::rtltc::TypeTable,
+    common_ir::WindowReference as WRef, hir::expression::Expression, hir::ExprId, hir::Hir,
 };
 
 use self::{
@@ -30,15 +33,16 @@ pub type WindowLookUps = HashMap<WRef, Either<SlidingWindow, DiscreteWindow>>;
 pub type FunctionLookUps = HashMap<String, FuncDecl>;
 
 #[derive(Clone, Debug)]
-pub struct IrExprRes {
+pub struct IrExpr {
     exprid_to_expr: ExpressionLookUps,
     windows: WindowLookUps,
     func_table: FunctionLookUps,
 }
 
+#[covers_functionality(IrExprTrait, ir_expr)]
 #[derive(Clone, Debug, HirMode)]
 pub struct IrExprMode {
-    ir_expr_res: IrExprRes,
+    ir_expr: IrExpr,
 }
 
 #[mode_functionality]
@@ -59,7 +63,7 @@ pub trait IrExprTrait {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Dependencies {
+pub(crate) struct DepAna {
     direct_accesses: Streamdependencies,
     transitive_accesses: Streamdependencies,
     direct_accessed_by: Streamdependencies,
@@ -69,11 +73,12 @@ pub(crate) struct Dependencies {
     graph: DependencyGraph,
 }
 
-#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
+#[covers_functionality(IrExprTrait, ir_expr)]
+#[covers_functionality(DepAnaTrait, dependencies)]
 #[derive(Debug, Clone, HirMode)]
 pub(crate) struct DepAnaMode {
-    ir_expr: IrExprMode,
-    dependencies: Dependencies,
+    ir_expr: IrExpr,
+    dependencies: DepAna,
 }
 
 #[mode_functionality]
@@ -93,13 +98,31 @@ pub(crate) trait DepAnaTrait {
     fn graph(&self) -> &DependencyGraph;
 }
 
-#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
-#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
+#[covers_functionality(IrExprTrait, ir_expr)]
+#[covers_functionality(DepAnaTrait, dependencies)]
+#[covers_functionality(TypedTrait, types)]
 #[derive(Debug, Clone, HirMode)]
 pub(crate) struct TypedMode {
-    ir_expr: IrExprMode,
-    dependencies: DepAnaMode,
-    tts: TypeTable,
+    ir_expr: IrExpr,
+    dependencies: DepAna,
+    types: Typed,
+}
+
+#[derive(Debug, Clone)]
+pub struct Typed {
+    stream_types: HashMap<SRef, StreamType>,
+    expression_types: HashMap<ExprId, StreamType>,
+    param_types: HashMap<(SRef, usize), ConcreteValueType>,
+}
+
+impl Typed {
+    pub(crate) fn new(
+        stream_types: HashMap<SRef, StreamType>,
+        expression_types: HashMap<ExprId, StreamType>,
+        param_types: HashMap<(SRef, usize), ConcreteValueType>,
+    ) -> Self {
+        Typed { stream_types, expression_types, param_types }
+    }
 }
 
 #[mode_functionality]
@@ -111,19 +134,20 @@ pub(crate) trait TypedTrait {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct EvaluationOrder {
+pub(crate) struct Ordered {
     event_layers: LayerRepresentation,
     periodic_layers: LayerRepresentation,
 }
-#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
-#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
-#[extends_mode(TypedTrait, TypedMode, types)]
+#[covers_functionality(IrExprTrait, ir_expr)]
+#[covers_functionality(DepAnaTrait, dependencies)]
+#[covers_functionality(TypedTrait, types)]
+#[covers_functionality(OrderedTrait, layers)]
 #[derive(Debug, Clone, HirMode)]
 pub(crate) struct OrderedMode {
-    ir_expr: IrExprMode,
-    dependencies: DepAnaMode,
-    types: TypedMode,
-    layers: EvaluationOrder,
+    ir_expr: IrExpr,
+    dependencies: DepAna,
+    types: Typed,
+    layers: Ordered,
 }
 #[mode_functionality]
 pub(crate) trait OrderedTrait {
@@ -131,37 +155,38 @@ pub(crate) trait OrderedTrait {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Memory {
+pub(crate) struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
 }
 
-#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
-#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
-#[extends_mode(TypedTrait, TypedMode, types)]
-#[extends_mode(OrderedTrait, OrderedMode, layers)]
+#[covers_functionality(IrExprTrait, ir_expr)]
+#[covers_functionality(DepAnaTrait, dependencies)]
+#[covers_functionality(TypedTrait, types)]
+#[covers_functionality(OrderedTrait, layers)]
+#[covers_functionality(MemBoundTrait, memory)]
 #[derive(Debug, Clone, HirMode)]
 pub(crate) struct MemBoundMode {
-    ir_expr: IrExprMode,
-    dependencies: DepAnaMode,
-    types: TypedMode,
-    layers: OrderedMode,
-    memory: Memory,
+    ir_expr: IrExpr,
+    dependencies: DepAna,
+    types: Typed,
+    layers: Ordered,
+    memory: MemBound,
 }
 #[mode_functionality]
 pub(crate) trait MemBoundTrait {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 
-#[extends_mode(IrExprTrait, IrExprMode, ir_expr)]
-#[extends_mode(DepAnaTrait, DepAnaMode, dependencies)]
-#[extends_mode(TypedTrait, TypedMode, types)]
-#[extends_mode(OrderedTrait, OrderedMode, layers)]
-#[extends_mode(MemBoundTrait, MemBoundMode, memory)]
+#[covers_functionality(IrExprTrait, ir_expr)]
+#[covers_functionality(DepAnaTrait, dependencies)]
+#[covers_functionality(TypedTrait, types)]
+#[covers_functionality(OrderedTrait, layers)]
+#[covers_functionality(MemBoundTrait, memory)]
 #[derive(Debug, Clone, HirMode)]
 pub(crate) struct CompleteMode {
-    ir_expr: IrExprMode,
-    dependencies: DepAnaMode,
-    types: TypedMode,
-    layers: OrderedMode,
-    memory: MemBoundMode,
+    ir_expr: IrExpr,
+    dependencies: DepAna,
+    types: Typed,
+    layers: Ordered,
+    memory: MemBound,
 }

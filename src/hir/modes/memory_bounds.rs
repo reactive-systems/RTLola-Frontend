@@ -3,7 +3,7 @@ use num::abs;
 use crate::{common_ir::SRef, mir::StreamLayers};
 
 use super::{
-    dependencies::EdgeWeight, CompleteMode, MemBoundMode, MemBoundTrait, MemorizationBound, Memory, OrderedMode,
+    dependencies::EdgeWeight, CompleteMode, MemBound, MemBoundMode, MemBoundTrait, MemorizationBound, OrderedMode,
 };
 
 use crate::hir::modes::{DepAnaTrait, HirMode};
@@ -13,13 +13,12 @@ use std::convert::TryFrom;
 
 impl Hir<MemBoundMode> {
     pub(crate) fn finalize(self) -> Hir<CompleteMode> {
-        let old_mode = self.mode.clone();
         let mode = CompleteMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
             layers: self.mode.layers,
-            memory: old_mode,
+            memory: self.mode.memory,
         };
 
         Hir {
@@ -33,9 +32,9 @@ impl Hir<MemBoundMode> {
     }
 }
 
-impl MemBoundTrait for MemBoundMode {
+impl MemBoundTrait for MemBound {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
-        self.memory.memory_bound_per_stream[&sr]
+        self.memory_bound_per_stream[&sr]
     }
 }
 
@@ -43,14 +42,13 @@ pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
 impl Hir<OrderedMode> {
     pub(crate) fn compute_memory_bounds(self) -> Hir<MemBoundMode> {
         //TODO: forward config argument
-        let memory = Memory::analyze(&self, false);
+        let memory = MemBound::analyze(&self, false);
 
-        let old_mode = self.mode.clone();
         let mode = MemBoundMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
-            layers: old_mode,
+            layers: self.mode.layers,
             memory,
         };
 
@@ -65,10 +63,10 @@ impl Hir<OrderedMode> {
     }
 }
 
-impl Memory {
+impl MemBound {
     const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
     const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
-    pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> Memory
+    pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
     where
         M: HirMode + 'static + DepAnaTrait,
     {
@@ -86,7 +84,7 @@ impl Memory {
             let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
             *cur_mem_bound = if *cur_mem_bound > cur_edge_bound { *cur_mem_bound } else { cur_edge_bound };
         });
-        Memory { memory_bound_per_stream: memory_bounds }
+        MemBound { memory_bound_per_stream: memory_bounds }
     }
 
     fn edge_weight_to_memory_bound(w: &EdgeWeight, dynamic: bool) -> MemorizationBound {
@@ -131,7 +129,7 @@ mod dynaminc_memory_bound_tests {
             .type_check(&handler)
             .unwrap()
             .build_evaluation_order();
-        let bounds = Memory::analyze(&hir, true);
+        let bounds = MemBound::analyze(&hir, true);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
@@ -338,7 +336,7 @@ mod static_memory_bound_tests {
             .type_check(&handler)
             .unwrap()
             .build_evaluation_order();
-        let bounds = Memory::analyze(&hir, false);
+        let bounds = MemBound::analyze(&hir, false);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();

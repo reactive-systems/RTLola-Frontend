@@ -1,7 +1,10 @@
 use super::rusttyc::TcKey;
-use crate::hir::expression::{ExprId, Expression};
 use crate::hir::modes::HirMode;
 use crate::hir::modes::IrExprTrait;
+use crate::hir::{
+    expression::{ExprId, Expression},
+    modes::Typed,
+};
 use crate::reporting::{Handler, Span};
 use crate::tyc::pacing_types::ConcreteStreamPacing;
 use crate::tyc::{
@@ -63,33 +66,6 @@ impl<K: Emittable> TypeError<K> {
 }
 
 #[derive(Debug, Clone)]
-pub struct TypeTable {
-    stream_types: HashMap<StreamReference, StreamType>,
-    expression_types: HashMap<ExprId, StreamType>,
-    param_types: HashMap<(StreamReference, usize), ConcreteValueType>,
-}
-
-impl TypeTable {
-    #[allow(dead_code)] // Todo: Actually use Typetable
-    /// For a given StreamReference, lookup the corresponding StreamType.
-    pub fn get_type_for_stream(&self, sref: StreamReference) -> StreamType {
-        self.stream_types[&sref].clone()
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typetable
-    /// For a given Expression Id, lookup the corresponding StreamType.
-    pub fn get_type_for_expr(&self, exprid: ExprId) -> StreamType {
-        self.expression_types[&exprid].clone()
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typetable
-    /// Returns the Value Type of the `idx`-th Parameter for the Stream `stream`.
-    pub fn get_parameter_type(&self, stream: StreamReference, idx: usize) -> ConcreteValueType {
-        self.param_types[&(stream, idx)].clone()
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct StreamType {
     pub value_ty: ConcreteValueType,
     pub pacing_ty: ConcretePacingType,
@@ -128,7 +104,7 @@ where
         LolaTypeChecker { hir, handler, names }
     }
 
-    pub fn check(&mut self) -> Result<TypeTable, String> {
+    pub fn check(&mut self) -> Result<Typed, String> {
         let pacing_tt = match self.pacing_type_infer() {
             Some(tt) => tt,
             None => return Err("Invalid Pacing Types".to_string()),
@@ -164,7 +140,7 @@ where
             }
         });
 
-        Ok(TypeTable { stream_types: stream_map, expression_types: expression_map, param_types: parameters })
+        Ok(Typed::new(stream_map, expression_map, parameters))
     }
 
     pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {

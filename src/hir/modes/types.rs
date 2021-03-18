@@ -1,17 +1,20 @@
-use crate::hir::Hir;
-use crate::{common_ir::SRef, hir::expression::ExprId, tyc::pacing_types::ConcretePacingType};
+use crate::{
+    common_ir::SRef,
+    hir::expression::ExprId,
+    tyc::{pacing_types::ConcretePacingType, value_types::ConcreteValueType},
+};
+use crate::{hir::Hir, tyc::rtltc::StreamType};
 
-use super::{EvaluationOrder, OrderedMode, TypedMode, TypedTrait};
+use super::{Ordered, OrderedMode, Typed, TypedMode, TypedTrait};
 
 impl Hir<TypedMode> {
     pub(crate) fn build_evaluation_order(self) -> Hir<OrderedMode> {
-        let order = EvaluationOrder::analyze(&self);
+        let order = Ordered::analyze(&self);
 
-        let old_mode = self.mode.clone();
         let mode = OrderedMode {
             ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
-            types: old_mode,
+            types: self.mode.types,
             layers: order,
         };
 
@@ -26,23 +29,36 @@ impl Hir<TypedMode> {
     }
 }
 
-impl TypedTrait for TypedMode {
+impl TypedTrait for Typed {
     fn stream_type(&self, sr: SRef) -> HirType {
-        self.tts.get_type_for_stream(sr)
+        self.get_type_for_stream(sr)
     }
     fn is_periodic(&self, sr: SRef) -> bool {
-        matches!(self.tts.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
+        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
     }
     fn is_event(&self, sr: SRef) -> bool {
-        matches!(self.tts.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
+        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
     }
     fn expr_type(&self, eid: ExprId) -> HirType {
-        self.tts.get_type_for_expr(eid)
+        self.get_type_for_expr(eid)
     }
 }
 
-pub(crate) type HirType = crate::tyc::rtltc::StreamType;
-/*
-#[derive(Debug, Clone)]
-pub(crate) struct HirType {} // TBD
-*/
+impl Typed {
+    /// For a given StreamReference, lookup the corresponding StreamType.
+    pub fn get_type_for_stream(&self, sref: SRef) -> StreamType {
+        self.stream_types[&sref].clone()
+    }
+
+    /// For a given Expression Id, lookup the corresponding StreamType.
+    pub fn get_type_for_expr(&self, exprid: ExprId) -> StreamType {
+        self.expression_types[&exprid].clone()
+    }
+
+    /// Returns the Value Type of the `idx`-th Parameter for the Stream `stream`.
+    pub fn get_parameter_type(&self, stream: SRef, idx: usize) -> ConcreteValueType {
+        self.param_types[&(stream, idx)].clone()
+    }
+}
+
+pub(crate) type HirType = StreamType;

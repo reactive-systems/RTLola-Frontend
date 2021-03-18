@@ -3,11 +3,11 @@ use crate::{
     hir::expression::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
     },
-    hir::modes::{HirMode, IrExprRes},
+    hir::modes::{HirMode, IrExpr},
     hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
 };
 
-use super::{dependencies::DependencyErr, DepAnaMode, Dependencies, IrExprMode, IrExprTrait};
+use super::{dependencies::DependencyErr, DepAna, DepAnaMode, IrExprMode, IrExprTrait};
 use crate::ast;
 use crate::ast::{Ast, Literal, StreamAccessKind, Type};
 use crate::common_ir::{Offset, SRef, WRef};
@@ -28,8 +28,8 @@ impl Hir<IrExprMode> {
     }
 
     pub(crate) fn build_dependency_graph(self) -> Result<Hir<DepAnaMode>, DependencyErr> {
-        let dependencies = Dependencies::analyze(&self)?;
-        let mode = DepAnaMode { ir_expr: self.mode, dependencies };
+        let dependencies = DepAna::analyze(&self)?;
+        let mode = DepAnaMode { ir_expr: self.mode.ir_expr, dependencies };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
@@ -41,21 +41,21 @@ impl Hir<IrExprMode> {
     }
 }
 
-impl IrExprTrait for IrExprMode {
+impl IrExprTrait for IrExpr {
     fn window_refs(&self) -> Vec<WRef> {
-        self.ir_expr_res.windows.keys().cloned().collect()
+        self.windows.keys().cloned().collect()
     }
 
     fn single_window(&self, wref: WRef) -> Either<SlidingWindow, DiscreteWindow> {
-        self.ir_expr_res.windows[&wref]
+        self.windows[&wref]
     }
 
     fn expression(&self, id: ExprId) -> &Expression {
-        &self.ir_expr_res.exprid_to_expr[&id]
+        &self.exprid_to_expr[&id]
     }
 
     fn func_declaration(&self, func_name: &str) -> &FuncDecl {
-        &self.ir_expr_res.func_table[func_name]
+        &self.func_table[func_name]
     }
 }
 
@@ -641,7 +641,7 @@ impl Hir<IrExprMode> {
             .chain(discrete_windows.into_iter().map(|w| (w.reference, Either::Right(w))))
             .collect();
 
-        let new_mode = IrExprMode { ir_expr_res: IrExprRes { exprid_to_expr, windows, func_table } };
+        let new_mode = IrExprMode { ir_expr: IrExpr { exprid_to_expr, windows, func_table } };
 
         Hir {
             next_input_ref: hir_inputs.len(),
@@ -746,7 +746,7 @@ mod tests {
         let spec = "input o :Int8 output off := o.defaults(to:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::Default { .. }));
     }
 
@@ -773,7 +773,7 @@ mod tests {
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
-            let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+            let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
             assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _, _)));
             if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind, _) = expr.kind {
                 assert_eq!(result_kind, *offset);
@@ -786,13 +786,13 @@ mod tests {
         let spec = "input i:Int8 output o := i.aggregate(over: 1s, using: sum)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         let wref = WRef::SlidingRef(0);
         assert!(matches!(
             expr.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::SlidingRef(0)), _)
         ));
-        let window = &ir.mode.ir_expr_res.windows[&wref].clone().left().expect("should be a sliding window");
+        let window = &ir.mode.ir_expr.windows[&wref].clone().left().expect("should be a sliding window");
         assert_eq!(
             window,
             &SlidingWindow {
@@ -812,7 +812,7 @@ mod tests {
         let spec = "output o(a,b,c) :=  if c then a else b";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::Ite { .. }));
         if let ExpressionKind::Ite { condition, consequence, alternative } = &expr.kind {
             assert!(matches!(condition.kind, ExpressionKind::ParameterAccess(_, 2)));
@@ -829,7 +829,7 @@ mod tests {
         let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(
             expr.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscrete(_)), _)
@@ -847,7 +847,7 @@ mod tests {
         let spec = "output o := (1,2,3)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::Tuple(_)));
         if let ExpressionKind::Tuple(v) = &expr.kind {
             assert_eq!(v.len(), 3);
@@ -864,7 +864,7 @@ mod tests {
         let spec = "output o := (1,2,3).1";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::TupleAccess(_, 1)));
     }
 
@@ -874,7 +874,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         assert_eq!(ir.num_triggers(), 1);
         let tr = &ir.triggers[0];
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&tr.expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&tr.expr_id];
         assert!(matches!(expr.kind, ExpressionKind::LoadConstant(_)));
     }
 
@@ -896,7 +896,7 @@ mod tests {
         let spec = "output o := 3 + 5 ";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Add, _)));
         if let ExpressionKind::ArithLog(_, v) = &expr.kind {
             assert_eq!(v.len(), 2);
@@ -929,9 +929,9 @@ mod tests {
         use crate::common_ir::StreamAccessKind;
         let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
-        assert_eq!(ir.mode.ir_expr_res.func_table.len(), 1);
+        assert_eq!(ir.mode.ir_expr.func_table.len(), 1);
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::OutRef(0), StreamAccessKind::Sync, _)));
     }
 
@@ -939,9 +939,9 @@ mod tests {
     fn function_param_default() {
         let spec = "import math output o(a: Int) := sqrt(a) output c := o(1).defaults(to:1)";
         let ir = obtain_expressions(spec);
-        assert_eq!(ir.mode.ir_expr_res.func_table.len(), 1);
+        assert_eq!(ir.mode.ir_expr.func_table.len(), 1);
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr_res.exprid_to_expr[&output_expr_id];
+        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
         assert!(matches!(expr.kind, ExpressionKind::Default { expr: _, default: _ }));
         if let ExpressionKind::Default { expr: ex, default } = &expr.kind {
             assert!(matches!(default.kind, ExpressionKind::LoadConstant(_)));
