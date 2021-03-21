@@ -1,0 +1,1 @@
+check_ignored_tests_without_comment.sh

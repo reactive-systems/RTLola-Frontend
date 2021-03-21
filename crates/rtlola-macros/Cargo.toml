@@ -1,0 +1,21 @@
+[package]
+name = "rtlola-macros"
+version = "0.1.0"
+authors = ["Maximilian Schwenger <schwenger@react.uni-saarland.de>"]
+edition = "2018"
+description = "Procedural macros for more convenient handling of HirModes in the RTLola-Frontend."
+readme = "README.md"
+repository = "https://github.com/Schwenger/RTLolaProcMacros"
+homepage = "https://rtlola.org"
+license = "MIT"
+keywords = ["verification", "macro", "monitoring"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+syn = {version="1.0.64",features=["full"]}
+quote = "1.0.9"
+
+[lib]
+proc-macro = true
+

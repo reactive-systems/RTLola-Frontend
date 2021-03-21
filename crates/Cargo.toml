@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+  "rtlola-frontend",
+  "rtlola-parser",
+  "rtlola-hir",
+  "rtlola-macros",
+  "rtlola-reporting",
+]

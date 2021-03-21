@@ -1,0 +1,12 @@
+[package]
+name = "rtlola-reporting"
+version = "0.1.0"
+authors = ["Maximilian Schwenger <schwenger@react.uni-saarland.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+codespan-reporting = "0.9.5" # Error Reporting
+uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+pest = "2.1"         
