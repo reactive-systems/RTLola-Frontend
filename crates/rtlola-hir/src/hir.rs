@@ -5,14 +5,14 @@ The module occurs in different modes, adding different information to the interm
 */
 
 mod expression;
-
-pub use crate::hir::expression::*;
-
 mod print;
 
 use crate::modes::HirMode;
 use rtlola_reporting::Span;
 use uom::si::rational64::Frequency as UOM_Frequency;
+use lazy_static::lazy_static;
+
+pub use crate::hir::expression::*;
 
 #[derive(Debug, Clone)]
 pub struct RTLolaHir<M: HirMode> {
@@ -372,5 +372,52 @@ impl PartialOrd for Offset {
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other).unwrap()
+    }
+}
+
+lazy_static! {
+    static ref PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
+        ("Bool", &AnnotatedType::Bool),
+        ("Int8", &AnnotatedType::Int(8)),
+        ("Int16", &AnnotatedType::Int(16)),
+        ("Int32", &AnnotatedType::Int(32)),
+        ("Int64", &AnnotatedType::Int(64)),
+        ("UInt8", &AnnotatedType::UInt(8)),
+        ("UInt16", &AnnotatedType::UInt(16)),
+        ("UInt32", &AnnotatedType::UInt(32)),
+        ("UInt64", &AnnotatedType::UInt(64)),
+        ("Float16", &AnnotatedType::Float(16)),
+        ("Float32", &AnnotatedType::Float(32)),
+        ("Float64", &AnnotatedType::Float(64)),
+        ("String", &AnnotatedType::String),
+        ("Bytes", &AnnotatedType::Bytes),
+    ];
+    static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
+        ("Bool", &AnnotatedType::Bool),
+        ("Int64", &AnnotatedType::Int(64)),
+        ("UInt64", &AnnotatedType::UInt(64)),
+        ("Float64", &AnnotatedType::Float(64)),
+        ("String", &AnnotatedType::String),
+        ("Bytes", &AnnotatedType::Bytes),
+    ];
+    static ref PRIMITIVE_TYPES_ALIASES: Vec<(&'static str, &'static AnnotatedType)> = vec![
+        ("Int", &AnnotatedType::Int(64)),
+        ("UInt", &AnnotatedType::UInt(64)),
+        ("Float", &AnnotatedType::Float(64)),
+    ];
+}
+
+impl AnnotatedType {
+    pub(crate) fn primitive_types() -> Vec<(&'static str, &'static AnnotatedType)> {
+        let mut types = vec![];
+        types.extend_from_slice(&REDUCED_PRIMITIVE_TYPES);
+        types.extend_from_slice(&PRIMITIVE_TYPES_ALIASES);
+
+        types
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        use crate::hir::AnnotatedType::*;
+        matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
     }
 }

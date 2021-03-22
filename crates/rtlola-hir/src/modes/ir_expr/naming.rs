@@ -1,7 +1,7 @@
 //! This module provides naming analysis for a given Lola AST.
 
+use crate::hir::AnnotatedType;
 use crate::stdlib::fns::FuncDecl;
-use crate::stdlib::tys::ValueTy;
 use rtlola_parser::ast::*;
 use rtlola_parser::ast::{Ident, NodeId};
 use rtlola_reporting::{Diagnostic, Handler, Span};
@@ -29,7 +29,7 @@ impl<'b> NamingAnalysis<'b> {
     pub fn new(handler: &'b Handler) -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
-        for (name, ty) in ValueTy::primitive_types() {
+        for (name, ty) in AnnotatedType::primitive_types() {
             scoped_decls.add_decl_for(name, Declaration::Type(Rc::new(ty.clone())));
         }
 
@@ -417,7 +417,7 @@ pub enum Declaration {
     Out(Rc<Output>),
     /// A paramertric output, internally represented as a function application
     ParamOut(Rc<Output>),
-    Type(Rc<ValueTy>),
+    Type(Rc<AnnotatedType>),
     Param(Rc<Parameter>),
     Func(Rc<FuncDecl>),
 }
