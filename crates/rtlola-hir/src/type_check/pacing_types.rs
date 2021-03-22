@@ -1,7 +1,10 @@
-use super::rusttyc::{Arity, Partial};
 use super::rusttyc::{Constructable, Variant};
-use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
+use super::{
+    rusttyc::{Arity, Partial},
+    ConcretePacingType,
+};
 use crate::hir::Ac;
+use crate::hir::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::type_check::rtltc::{Emittable, TypeError};
@@ -114,33 +117,6 @@ pub(crate) enum PacingErrorKind {
     UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String, Vec<Box<dyn PrintableVariant>>),
     SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
-}
-
-/// The external definition of a pacing type
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConcretePacingType {
-    /// The stream / expression can be evaluated whenever the activation condition is satisfied.
-    Event(ActivationCondition),
-    /// The stream / expression can be evaluated with a fixed frequency.
-    FixedPeriodic(UOM_Frequency),
-    /// The stream / expression can be evaluated with any frequency.
-    Periodic,
-    /// The stream / expression can always be evaluated.
-    Constant,
-}
-
-/// The external definition of the stream pacing
-#[derive(Debug, Clone)]
-pub struct ConcreteStreamPacing {
-    /// The pacing of the stream expression
-    pub expression_pacing: ConcretePacingType,
-    /// First element is the pacing of the spawn expression
-    /// Second element is the spawn condition expression
-    pub spawn: (ConcretePacingType, Expression),
-    /// The filter expression
-    pub filter: Expression,
-    /// The close expression
-    pub close: Expression,
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -266,7 +242,7 @@ impl ActivationCondition {
                 }
                 let ac_l = Self::parse(&v[0])?;
                 let ac_r = Self::parse(&v[1])?;
-                use crate::hir::expression::ArithLogOp;
+                use crate::hir::ArithLogOp;
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l & ac_r),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l | ac_r),

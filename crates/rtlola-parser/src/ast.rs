@@ -28,7 +28,7 @@ pub struct RTLolaAst {
 }
 
 impl RTLolaAst {
-    pub fn new() -> RTLolaAst {
+    pub(crate) fn new() -> RTLolaAst {
         RTLolaAst {
             imports: Vec::new(),
             constants: Vec::new(),

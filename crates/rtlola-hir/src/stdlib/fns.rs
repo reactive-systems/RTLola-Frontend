@@ -1,5 +1,4 @@
 //! This module contains the Lola standard library.
-use crate::hir::naming::ScopedDecl;
 use crate::hir::AnnotatedType;
 use crate::hir::FunctionName;
 use lazy_static::lazy_static;
@@ -111,21 +110,14 @@ lazy_static! {
     };
 }
 
-pub(crate) fn import_implicit_module(fun_scope: &mut ScopedDecl) {
-    fun_scope.add_fun_decl(&WIDEN);
-    fun_scope.add_fun_decl(&CAST);
+pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
+    vec![&WIDEN, &CAST]
 }
 
-pub(crate) fn import_math_module(fun_scope: &mut ScopedDecl) {
-    fun_scope.add_fun_decl(&SQRT);
-    fun_scope.add_fun_decl(&COS);
-    fun_scope.add_fun_decl(&SIN);
-    fun_scope.add_fun_decl(&ABS);
-    fun_scope.add_fun_decl(&ARCTAN);
-    fun_scope.add_fun_decl(&MIN);
-    fun_scope.add_fun_decl(&MAX);
+pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
+    vec![&SQRT, &COS, &SIN, &ABS, &ARCTAN, &MIN, &MAX]
 }
 
-pub(crate) fn import_regex_module(fun_scope: &mut ScopedDecl) {
-    fun_scope.add_fun_decl(&MATCHES_STRING_REGEX);
+pub(crate) fn regex_module() -> Vec<&'static FuncDecl> {
+    vec![&MATCHES_STRING_REGEX]
 }

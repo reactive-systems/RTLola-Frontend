@@ -1,9 +1,9 @@
 use crate::{
-    hir::expression::ExprId,
+    hir::ExprId,
     hir::SRef,
-    type_check::{pacing_types::ConcretePacingType, value_types::ConcreteValueType},
+    type_check::{ConcretePacingType, ConcreteValueType},
 };
-use crate::{hir::Hir, type_check::rtltc::StreamType};
+use crate::{hir::Hir, type_check::StreamType};
 
 use super::{Ordered, OrderedMode, Typed, TypedMode, TypedTrait};
 

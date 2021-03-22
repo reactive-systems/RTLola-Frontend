@@ -1,14 +1,14 @@
 extern crate regex;
 
 use super::rusttyc::TypeTable;
-use crate::hir::expression::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::hir::{AnnotatedType, Input, Output, Trigger};
+use crate::hir::{Constant, ConstantLiteral, Expression, ExpressionKind};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
-use crate::type_check::pacing_types::ConcreteStreamPacing;
 use crate::type_check::rtltc::TypeError;
-use crate::type_check::value_types::{ConcreteValueType, ValueErrorKind};
+use crate::type_check::ConcreteStreamPacing;
 use crate::type_check::{pacing_types::Freq, rtltc::NodeId, value_types::AbstractValueType};
+use crate::type_check::{value_types::ValueErrorKind, ConcreteValueType};
 use crate::{
     hir::Hir,
     hir::{Offset, SRef, StreamAccessKind},
@@ -417,7 +417,7 @@ where
                 self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
             }
             ExpressionKind::ArithLog(op, expr_v) => {
-                use crate::hir::expression::ArithLogOp;
+                use crate::hir::ArithLogOp;
                 let arg_keys: Result<Vec<TcKey>, TypeError<ValueErrorKind>> =
                     expr_v.iter().map(|expr| self.expression_infer(expr, None)).collect();
                 let arg_keys = arg_keys?;

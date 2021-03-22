@@ -3,11 +3,11 @@ This module describes the high level intermediate representation of a specificat
 
 The module occurs in different modes, adding different information to the intermediate representation.
 */
+
+mod expression;
+
 pub use crate::hir::expression::*;
 
-pub mod expression;
-
-pub mod naming;
 mod print;
 
 use crate::modes::HirMode;
@@ -24,7 +24,7 @@ pub struct RTLolaHir<M: HirMode> {
     pub(crate) mode: M,
 }
 
-pub type Hir<M> = RTLolaHir<M>;
+pub(crate) type Hir<M> = RTLolaHir<M>;
 
 impl<M: HirMode> Hir<M> {
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {

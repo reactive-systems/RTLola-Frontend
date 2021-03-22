@@ -1,13 +1,12 @@
 use crate::hir::{SRef, WRef};
 use rtlola_reporting::Handler;
 
-use super::{DepAna, DepAnaMode, DepAnaTrait, TypedMode};
+use super::{DepAna, DepAnaMode, DepAnaTrait, TypedMode, TypedTrait};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use super::dg_functionality::*;
-use crate::hir::expression::{Expression, ExpressionKind};
+use crate::hir::{Expression, ExpressionKind};
 use crate::hir::{Hir, StreamReference};
 use crate::{
     hir::{Offset, StreamAccessKind},
@@ -54,6 +53,99 @@ pub(crate) enum EdgeWeight {
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
+
+pub(crate) trait ExtendedDepGraph {
+    fn without_negative_offset_edges(&self) -> Self;
+
+    fn has_negative_offset(e: &EdgeWeight) -> bool {
+        match e {
+            EdgeWeight::Offset(o) if *o < 0 => true,
+            EdgeWeight::Spawn(s) => Self::has_negative_offset(s),
+            EdgeWeight::Filter(f) => Self::has_negative_offset(f),
+            EdgeWeight::Close(c) => Self::has_negative_offset(c),
+            _ => false,
+        }
+    }
+    fn without_close_edges(&self) -> Self;
+    fn only_spawn_edges(&self) -> Self;
+
+    fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
+    where
+        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        Self: Sized;
+}
+
+impl ExtendedDepGraph for DependencyGraph {
+    fn without_negative_offset_edges(&self) -> Self {
+        let mut working_graph = self.clone();
+        self.edge_indices().for_each(|edge_index| {
+            if Self::has_negative_offset(self.edge_weight(edge_index).unwrap()) {
+                working_graph.remove_edge(edge_index);
+            }
+        });
+        working_graph
+    }
+
+    fn without_close_edges(&self) -> Self {
+        let mut working_graph = self.clone();
+        self.edge_indices().for_each(|edge_index| {
+            if let EdgeWeight::Close(_) = self.edge_weight(edge_index).unwrap() {
+                working_graph.remove_edge(edge_index);
+            }
+        });
+        working_graph
+    }
+
+    fn only_spawn_edges(&self) -> Self {
+        let mut working_graph = self.clone();
+        self.edge_indices().for_each(|edge_index| {
+            if let EdgeWeight::Spawn(_) = self.edge_weight(edge_index).unwrap() {
+            } else {
+                let res = working_graph.remove_edge(edge_index);
+                assert!(res.is_some());
+            }
+        });
+        working_graph
+    }
+
+    fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
+    where
+        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        Self: Sized,
+    {
+        // remove edges and nodes, so mapping does not change
+        let mut event_graph = self.clone();
+        let mut periodic_graph = self.clone();
+        self.edge_indices().for_each(|edge_index| {
+            let (src, tar) = self.edge_endpoints(edge_index).unwrap();
+            let src = self.node_weight(src).unwrap();
+            let tar = self.node_weight(tar).unwrap();
+            match (spec.is_event(*src), spec.is_event(*tar)) {
+                (true, true) => {
+                    periodic_graph.remove_edge(edge_index);
+                }
+                (false, false) => {
+                    event_graph.remove_edge(edge_index);
+                }
+                _ => {
+                    event_graph.remove_edge(edge_index);
+                    periodic_graph.remove_edge(edge_index);
+                }
+            }
+        });
+        // delete nodes
+        self.node_indices().for_each(|node_index| {
+            let node_sref = self.node_weight(node_index).unwrap();
+            if spec.is_event(*node_sref) {
+                periodic_graph.remove_node(node_index);
+            } else {
+                assert!(spec.is_periodic(*node_sref));
+                event_graph.remove_node(node_index);
+            }
+        });
+        (event_graph, periodic_graph)
+    }
+}
 
 impl DepAnaTrait for DepAna {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
@@ -244,8 +336,8 @@ impl DepAna {
     }
 
     fn check_well_formedness(graph: &DependencyGraph) -> Result<()> {
-        let graph = graph_without_negative_offset_edges(graph);
-        let graph = graph_without_close_edges(&graph);
+        let graph = graph.without_negative_offset_edges();
+        let graph = graph.without_close_edges();
         // check if cyclic
         if is_cyclic_directed(&graph) {
             Err(DependencyErr::WellFormedNess)

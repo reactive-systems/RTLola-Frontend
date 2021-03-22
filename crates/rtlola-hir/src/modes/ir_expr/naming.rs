@@ -1,7 +1,7 @@
 //! This module provides naming analysis for a given Lola AST.
 
-use crate::function_lookup::FuncDecl;
-use crate::ty::ValueTy;
+use crate::stdlib::fns::FuncDecl;
+use crate::stdlib::tys::ValueTy;
 use rtlola_parser::ast::*;
 use rtlola_parser::ast::{Ident, NodeId};
 use rtlola_reporting::{Diagnostic, Handler, Span};
@@ -139,12 +139,12 @@ impl<'b> NamingAnalysis<'b> {
 
     /// Entry method, checks that every identifier in the given spec is bound.
     pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
-        use crate::function_lookup;
-        function_lookup::import_implicit_module(&mut self.fun_declarations);
+        use crate::stdlib::fns;
+        self.fun_declarations.add_all_fun_decl(fns::implicit_module());
         for import in &spec.imports {
             match import.name.name.as_str() {
-                "math" => function_lookup::import_math_module(&mut self.fun_declarations),
-                "regex" => function_lookup::import_regex_module(&mut self.fun_declarations),
+                "math" => self.fun_declarations.add_all_fun_decl(fns::math_module()),
+                "regex" => self.fun_declarations.add_all_fun_decl(fns::regex_module()),
                 n => self.handler.error_with_span(
                     &format!("unresolved import `{}`", n),
                     import.name.span.clone(),
@@ -402,6 +402,10 @@ impl ScopedDecl {
             .last_mut()
             .expect("It appears that we popped the global context.")
             .insert(name, Declaration::Func(Rc::new(fun.clone())));
+    }
+
+    pub(crate) fn add_all_fun_decl(&mut self, fns: Vec<&FuncDecl>) {
+        fns.into_iter().for_each(|d| self.add_fun_decl(d));
     }
 }
 

@@ -113,25 +113,6 @@ impl Variant for AbstractValueType {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ConcreteValueType {
-    Bool,
-    Integer8,
-    Integer16,
-    Integer32,
-    Integer64,
-    UInteger8,
-    UInteger16,
-    UInteger32,
-    UInteger64,
-    Float32,
-    Float64,
-    Tuple(Vec<ConcreteValueType>),
-    TString,
-    Byte,
-    Option(Box<ConcreteValueType>),
-}
-
 impl Constructable for AbstractValueType {
     type Type = ConcreteValueType;
 

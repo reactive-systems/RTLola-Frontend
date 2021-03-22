@@ -1,10 +1,9 @@
 use super::{Ordered, OrderedTrait, TypedTrait};
 
-use super::dg_functionality::*;
 use std::collections::HashMap;
 
 use crate::hir::{Hir, SRef};
-use crate::modes::{DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
+use crate::modes::{dependencies::ExtendedDepGraph, DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
 
 use petgraph::{algo::is_cyclic_directed, Outgoing};
 
@@ -61,10 +60,10 @@ impl Ordered {
         M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
     {
         // Compute Evaluation Layers
-        let graph = graph_without_negative_offset_edges(spec.graph());
-        let graph = graph_without_close_edges(&graph);
+        let graph = spec.graph().without_negative_offset_edges();
+        let graph = graph.without_close_edges();
         // split graph in periodic and event-based
-        let (event_graph, periodic_graph) = split_graph(spec, graph);
+        let (event_graph, periodic_graph) = graph.split_graph(spec);
         let event_layers = Self::compute_layers(spec, &event_graph, true);
         let periodic_layers = Self::compute_layers(spec, &periodic_graph, false);
         Ordered { event_layers, periodic_layers }
@@ -75,7 +74,7 @@ impl Ordered {
         M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
     {
         debug_assert!(!is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
-        let spawn_graph = only_spawn_edges(&graph_without_negative_offset_edges(graph));
+        let spawn_graph = graph.without_negative_offset_edges().only_spawn_edges();
         let mut evaluation_layers = if is_event {
             spec.inputs().map(|i| (i.sr, Layer::new(0))).collect::<HashMap<SRef, Layer>>()
         } else {

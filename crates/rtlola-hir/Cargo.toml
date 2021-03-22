@@ -13,7 +13,7 @@ lazy_static = "1.3.0" # lazy_static! macro
 petgraph = "0.5"
 num = "0.3.1"     # infinite precision rationals
 rtlola-reporting = { path = "../rtlola-reporting" }
-rtlola-macros = "0.1.0"
+rtlola-macros = { path = "../rtlola-macros" }
 rtlola-parser = { path = "../rtlola-parser" } 
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git", branch="recursive-types"}
 regex = "*"

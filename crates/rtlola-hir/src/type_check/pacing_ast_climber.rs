@@ -1,16 +1,17 @@
 use super::*;
 extern crate regex;
 
-use crate::hir::expression::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::{Ac, Hir, Input, Output, SpawnTemplate, Trigger};
+use crate::hir::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
 use crate::hir::{Offset, StreamAccessKind, StreamReference};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::type_check::pacing_types::{
-    AbstractExpressionType, AbstractPacingType, ActivationCondition, ConcretePacingType, ConcreteStreamPacing, Freq,
-    InferredTemplates, PacingErrorKind, StreamTypeKeys,
+    AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, InferredTemplates, PacingErrorKind,
+    StreamTypeKeys,
 };
 use crate::type_check::rtltc::{NodeId, TypeError};
+use crate::type_check::{ConcretePacingType, ConcreteStreamPacing};
 use rtlola_reporting::Span;
 use rusttyc::TypeTable;
 use rusttyc::{TcKey, TypeChecker};

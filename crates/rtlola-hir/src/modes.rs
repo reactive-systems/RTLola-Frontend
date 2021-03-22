@@ -1,21 +1,20 @@
 pub trait HirMode {}
 
 pub(crate) mod dependencies;
-pub(crate) mod dg_functionality;
 pub mod ir_expr;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod types;
 
-use crate::function_lookup::FuncDecl;
 use crate::hir::{DiscreteWindow, SlidingWindow};
-use crate::type_check::{rtltc::StreamType, value_types::ConcreteValueType};
+use crate::stdlib::fns::FuncDecl;
+use crate::type_check::{ConcreteValueType, StreamType};
 use itertools::Itertools;
 use std::collections::HashMap;
 
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
-use crate::{hir::expression::Expression, hir::ExprId, hir::Hir, hir::SRef, hir::WRef};
+use crate::{hir::ExprId, hir::Expression, hir::Hir, hir::SRef, hir::WRef};
 
 use self::{
     dependencies::{DependencyGraph, Streamdependencies, Windowdependencies},

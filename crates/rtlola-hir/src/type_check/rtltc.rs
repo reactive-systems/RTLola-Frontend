@@ -1,13 +1,12 @@
-use super::rusttyc::TcKey;
-use crate::hir::expression::{ExprId, Expression};
+use super::{rusttyc::TcKey, StreamType};
+use crate::hir::ExprId;
 use crate::hir::{Hir, StreamReference};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::modes::Typed;
-use crate::type_check::pacing_types::ConcreteStreamPacing;
+use crate::type_check::ConcreteStreamPacing;
 use crate::type_check::{
-    pacing_ast_climber::PacingTypeChecker, pacing_types::ConcretePacingType, value_ast_climber::ValueTypeChecker,
-    value_types::ConcreteValueType,
+    pacing_ast_climber::PacingTypeChecker, value_ast_climber::ValueTypeChecker, ConcreteValueType,
 };
 use rtlola_reporting::{Handler, Span};
 use std::cmp::Ordering;
@@ -60,32 +59,6 @@ impl<K: Emittable> TypeError<K> {
         names: &HashMap<StreamReference, &str>,
     ) {
         self.kind.emit(handler, spans, names, self.key1, self.key2)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct StreamType {
-    pub value_ty: ConcreteValueType,
-    pub pacing_ty: ConcretePacingType,
-    pub spawn: (ConcretePacingType, Expression),
-    pub filter: Expression,
-    pub close: Expression,
-}
-
-impl StreamType {
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_value_type(&self) -> &ConcreteValueType {
-        &self.value_ty
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_pacing_type(&self) -> &ConcretePacingType {
-        &self.pacing_ty
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_instance_expressions(&self) -> (&Expression, &Expression, &Expression) {
-        (&self.spawn.1, &self.filter, &self.close)
     }
 }
 

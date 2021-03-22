@@ -1,9 +1,5 @@
 use lazy_static::lazy_static;
 
-/// Representation of key for unification of `ValueTy`
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
-pub struct ValueVar(u32);
-
 /// The `value` type, storing information about the stored values (`Bool`, `UInt8`, etc.)
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Hash)]
 pub enum ValueTy {
@@ -25,16 +21,8 @@ pub enum ValueTy {
     Tuple(Vec<ValueTy>),
     /// an optional value type, e.g., resulting from accessing a stream with offset -1
     Option(Box<ValueTy>),
-    /// Used during type inference
-    Infer(ValueVar),
-    /// Constraint used during type inference
-    Constr(TypeConstraint),
     /// A reference to a generic parameter in a function declaration, e.g. `T` in `a<T>(x:T) -> T`
     Param(u8, String),
-    /**
-     **INTERNAL USE**: A type error.
-     */
-    Error,
 }
 
 /**
@@ -181,16 +169,9 @@ impl ValueTy {
         match self {
             &ValueTy::Param(id, _) => generics[id as usize].clone(),
             ValueTy::Option(t) => ValueTy::Option(t.replace_params_with_ty(generics).into()),
-            ValueTy::Infer(_) | ValueTy::Constr(_) => self.clone(),
             _ if self.is_primitive() => self.clone(),
             _ => unreachable!("replace_param for {}", self),
         }
-    }
-}
-
-impl std::fmt::Display for ValueVar {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -216,10 +197,7 @@ impl std::fmt::Display for ValueTy {
                 let joined: Vec<String> = inner.iter().map(|e| format!("{}", e)).collect();
                 write!(f, "({})", joined.join(", "))
             }
-            ValueTy::Infer(id) => write!(f, "?{}", id),
-            ValueTy::Constr(constr) => write!(f, "{{{}}}", constr),
             ValueTy::Param(_, name) => write!(f, "{}", name),
-            ValueTy::Error => write!(f, "Error"),
         }
     }
 }

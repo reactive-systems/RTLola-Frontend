@@ -1,17 +1,18 @@
+mod naming;
+
+use super::{dependencies::DependencyErr, DepAna, DepAnaMode, IrExprMode, IrExprTrait};
+use crate::hir::ArithLogOp;
+use crate::hir::{Offset, SRef, WRef};
+use crate::modes::ir_expr::naming::{Declaration, NamingAnalysis};
+use crate::stdlib::fns::FuncDecl;
 use crate::{
-    hir::expression::{
+    hir::StreamAccessKind as IRAccess,
+    hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
+    hir::{
         Constant as HIRConstant, ConstantLiteral, DiscreteWindow, ExprId, Expression, ExpressionKind, SlidingWindow,
     },
     modes::{HirMode, IrExpr},
-    hir::StreamAccessKind as IRAccess,
-    hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
 };
-
-use super::{dependencies::DependencyErr, DepAna, DepAnaMode, IrExprMode, IrExprTrait};
-use crate::function_lookup::FuncDecl;
-use crate::hir::expression::ArithLogOp;
-use crate::hir::naming::{Declaration, NamingAnalysis};
-use crate::hir::{Offset, SRef, WRef};
 use itertools::Either;
 use rtlola_parser::ast;
 use rtlola_parser::ast::NodeId;
@@ -378,7 +379,7 @@ impl ExpressionTransformer {
                 ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::SlidingRef(idx)), Vec::new())
             }
             ast::ExpressionKind::Binary(op, left, right) => {
-                use crate::hir::expression::ArithLogOp::*;
+                use crate::hir::ArithLogOp::*;
                 use rtlola_parser::ast::BinOp;
                 let arith_op = match op {
                     BinOp::Add => Add,
@@ -408,7 +409,7 @@ impl ExpressionTransformer {
                 ExpressionKind::ArithLog(arith_op, arguments)
             }
             ast::ExpressionKind::Unary(op, arg) => {
-                use crate::hir::expression::ArithLogOp::*;
+                use crate::hir::ArithLogOp::*;
                 use rtlola_parser::ast::UnOp;
                 let arith_op = match op {
                     UnOp::Not => Not,
