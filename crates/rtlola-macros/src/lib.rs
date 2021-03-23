@@ -1,10 +1,9 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::punctuated::{Pair, Punctuated};
 use syn::{
-    parse_macro_input,
-    punctuated::{Pair, Punctuated},
-    AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat, PatIdent, PatType, Path, Token,
-    TraitItem, Type, Visibility,
+    parse_macro_input, AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat, PatIdent, PatType,
+    Path, Token, TraitItem, Type, Visibility,
 };
 
 #[proc_macro_derive(HirMode)]

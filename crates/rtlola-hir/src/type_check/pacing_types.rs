@@ -1,19 +1,13 @@
-use crate::hir::{Ac, Inlined};
-use crate::hir::{Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
-use crate::modes::HirMode;
-use crate::modes::IrExprTrait;
+use crate::hir::{
+    Ac, Constant, ExprId, Expression, ExpressionKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, ValueEq,
+};
+use crate::modes::{HirMode, IrExprTrait};
 use crate::type_check::rtltc::{Emittable, TypeError};
 use crate::type_check::ConcretePacingType;
-use crate::{
-    hir::Hir,
-    hir::{StreamAccessKind, StreamReference},
-};
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rtlola_reporting::{Diagnostic, Handler, Span};
-use rusttyc::{Arity, Partial};
-use rusttyc::{Constructable, Variant};
-use rusttyc::{TcErr, TcKey};
+use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use std::fmt::Debug;
 use uom::lib::collections::HashMap;
 use uom::lib::fmt::Formatter;

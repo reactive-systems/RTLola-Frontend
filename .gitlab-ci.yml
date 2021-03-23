@@ -14,12 +14,12 @@ stages:
 # Use cargo to check the source code formatting
 cargo:check-format:
   stage: check
-  image: rust:latest
+  image: rustlang/rust:nightly
   before_script:
     - rustup component add rustfmt-preview
   script:
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo fmt --all --verbose -- --check
+    - cargo +nightly fmt --all --verbose -- --check
 
 # Use cargo to run clippy (Rust linter)
 cargo:clippy:

@@ -1,10 +1,8 @@
 mod parse; // Shall not be exposed; use parse function instead.
 
-use std::{
-    fs::File,
-    io::{self, Read},
-    path::PathBuf,
-};
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::PathBuf;
 
 // Public exports
 pub mod ast;

@@ -1,6 +1,5 @@
 //! This module contains the Lola standard library.
-use crate::hir::AnnotatedType;
-use crate::hir::FunctionName;
+use crate::hir::{AnnotatedType, FunctionName};
 use lazy_static::lazy_static;
 
 /// A (possibly generic) function declaration

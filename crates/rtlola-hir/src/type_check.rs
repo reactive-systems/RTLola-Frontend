@@ -6,8 +6,8 @@ mod value_types;
 
 use self::pacing_types::ActivationCondition;
 use crate::hir::{Expression, Hir};
+use crate::modes::{HirMode, IrExprTrait, Typed};
 use crate::type_check::rtltc::LolaTypeChecker;
-use crate::{modes::HirMode, modes::IrExprTrait, modes::Typed};
 use rtlola_reporting::Handler;
 use uom::si::rational64::Frequency as UOM_Frequency;
 

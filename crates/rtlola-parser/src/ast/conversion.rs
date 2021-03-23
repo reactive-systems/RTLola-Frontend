@@ -8,8 +8,7 @@ use num::{FromPrimitive, One, Signed};
 use std::num::ParseIntError;
 use std::str::FromStr;
 use uom::si::frequency::hertz;
-use uom::si::rational64::Frequency as UOM_Frequency;
-use uom::si::rational64::Time as UOM_Time;
+use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::second;
 
 pub(crate) type RationalType = i64;

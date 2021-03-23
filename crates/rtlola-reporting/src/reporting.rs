@@ -22,10 +22,7 @@ pub enum Span {
 }
 impl<'a> From<pest::Span<'a>> for Span {
     fn from(span: pest::Span<'a>) -> Self {
-        Span::Direct {
-            start: span.start(),
-            end: span.end(),
-        }
+        Span::Direct { start: span.start(), end: span.end() }
     }
 }
 impl Into<Range<usize>> for Span {
@@ -68,15 +65,9 @@ impl Span {
         let (start1, end1) = self.get_bounds();
         let (start2, end2) = other.get_bounds();
         if self.is_indirect() || other.is_indirect() {
-            Span::Indirect(Box::new(Span::Direct {
-                start: start1.min(start2),
-                end: end1.max(end2),
-            }))
+            Span::Indirect(Box::new(Span::Direct { start: start1.min(start2), end: end1.max(end2) }))
         } else {
-            Span::Direct {
-                start: start1.min(start2),
-                end: end1.max(end2),
-            }
+            Span::Direct { start: start1.min(start2), end: end1.max(end2) }
         }
     }
 }
@@ -113,10 +104,7 @@ impl Handler {
         Handler {
             error_count: RwLock::new(0),
             warning_count: RwLock::new(0),
-            input: SimpleFile::new(
-                input_path.to_str().unwrap_or("unknown file").into(),
-                input_content,
-            ),
+            input: SimpleFile::new(input_path.to_str().unwrap_or("unknown file").into(), input_content),
             output: RwLock::new(Box::new(StandardStream::stderr(ColorChoice::Always))),
             config: Config::default(),
         }
@@ -137,13 +125,8 @@ impl Handler {
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
             _ => {}
         }
-        term::emit(
-            (*self.output.write().unwrap()).as_mut(),
-            &self.config,
-            &self.input,
-            diag,
-        )
-        .expect("Could not write diagnostic.");
+        term::emit((*self.output.write().unwrap()).as_mut(), &self.config, &self.input, diag)
+            .expect("Could not write diagnostic.");
     }
 
     /// Returns true if an error has occurred
@@ -263,11 +246,7 @@ impl<'a> Diagnostic<'a> {
             return self;
         }
         self.has_indirect_span |= span.is_indirect();
-        let mut rep_label = if primary {
-            Label::primary((), span)
-        } else {
-            Label::secondary((), span)
-        };
+        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
         if let Some(l) = label {
             rep_label.message = l.into();
         }
@@ -278,22 +257,13 @@ impl<'a> Diagnostic<'a> {
     /// Adds a code span to the diagnostic if the span is available.
     /// The `label` is printed next to the code fragment the span refers to.
     /// If `primary` is set to true the span is treated as the primary code fragment.
-    pub fn maybe_add_span_with_label(
-        mut self,
-        span: Option<Span>,
-        label: Option<&str>,
-        primary: bool,
-    ) -> Self {
+    pub fn maybe_add_span_with_label(mut self, span: Option<Span>, label: Option<&str>, primary: bool) -> Self {
         let span = match span {
             None | Some(Span::Unknown) => return self,
             Some(s) => s,
         };
         self.has_indirect_span |= span.is_indirect();
-        let mut rep_label = if primary {
-            Label::primary((), span)
-        } else {
-            Label::secondary((), span)
-        };
+        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
         if let Some(l) = label {
             rep_label.message = l.into();
         }

@@ -1,9 +1,5 @@
-use crate::type_check::StreamType;
-use crate::{
-    hir::ExprId,
-    hir::SRef,
-    type_check::{ConcretePacingType, ConcreteValueType},
-};
+use crate::hir::{ExprId, SRef};
+use crate::type_check::{ConcretePacingType, ConcreteValueType, StreamType};
 
 use super::{Typed, TypedTrait};
 

@@ -1,11 +1,11 @@
 use super::*;
 extern crate regex;
 
-use crate::hir::{self, Ac, FnExprKind, Hir, Input, Output, SpawnTemplate, Trigger};
-use crate::hir::{Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
-use crate::hir::{Offset, StreamAccessKind, StreamReference};
-use crate::modes::HirMode;
-use crate::modes::IrExprTrait;
+use crate::hir::{
+    self, Ac, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset, Output,
+    SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
+};
+use crate::modes::{HirMode, IrExprTrait};
 use crate::type_check::pacing_types::{
     AbstractExpressionType, AbstractPacingType, ActivationCondition, Freq, InferredTemplates, PacingErrorKind,
     StreamTypeKeys,
@@ -13,8 +13,7 @@ use crate::type_check::pacing_types::{
 use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::{ConcretePacingType, ConcreteStreamPacing};
 use rtlola_reporting::Span;
-use rusttyc::TypeTable;
-use rusttyc::{TcKey, TypeChecker};
+use rusttyc::{TcKey, TypeChecker, TypeTable};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

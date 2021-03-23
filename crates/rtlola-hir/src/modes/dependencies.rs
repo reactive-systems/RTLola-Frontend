@@ -1,13 +1,11 @@
 use super::{DepAna, DepAnaTrait, TypedTrait};
-use crate::hir::{Expression, ExpressionKind};
-use crate::hir::{FnExprKind, SRef, WRef, WidenExprKind};
-use crate::hir::{Hir, StreamReference};
-use crate::{
-    hir::{Offset, StreamAccessKind},
-    modes::{HirMode, IrExprTrait},
+use crate::hir::{
+    Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, StreamReference, WRef, WidenExprKind,
 };
+use crate::modes::{HirMode, IrExprTrait};
+use petgraph::algo::{has_path_connecting, is_cyclic_directed};
+use petgraph::graph::NodeIndex;
 use petgraph::Outgoing;
-use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 

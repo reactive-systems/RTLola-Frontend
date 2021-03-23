@@ -4,13 +4,7 @@ use crate::ast::*;
 use std::fmt::{Display, Formatter, Result};
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
-fn write_delim_list<T: Display>(
-    f: &mut Formatter<'_>,
-    v: &[T],
-    pref: &str,
-    suff: &str,
-    join: &str,
-) -> Result {
+fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff: &str, join: &str) -> Result {
     write!(f, "{}", pref)?;
     if let Some(e) = v.first() {
         write!(f, "{}", e)?;
@@ -38,13 +32,7 @@ fn format_type(ty: &Option<Type>) -> String {
 
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(
-            f,
-            "constant {}{} := {}",
-            self.name,
-            format_type(&self.ty),
-            self.literal
-        )
+        write!(f, "constant {}{} := {}", self.name, format_type(&self.ty), self.literal)
     }
 }
 
@@ -110,12 +98,7 @@ impl Display for SpawnSpec {
             write!(f, " with {}", target)?;
         }
         if let Some(condition) = &self.condition {
-            write!(
-                f,
-                " {} {}",
-                if self.is_if { "if" } else { "unless" },
-                condition
-            )?;
+            write!(f, " {} {}", if self.is_if { "if" } else { "unless" }, condition)?;
         }
         Ok(())
     }
@@ -187,39 +170,13 @@ impl Display for Expression {
             },
             ExpressionKind::Default(expr, val) => write!(f, "{}.defaults(to: {})", expr, val),
             ExpressionKind::Offset(expr, val) => write!(f, "{}.offset(by: {})", expr, val),
-            ExpressionKind::DiscreteWindowAggregation {
-                expr,
-                duration,
-                wait,
-                aggregation,
-            } => match wait {
-                true => write!(
-                    f,
-                    "{}.aggregate(over_exactly_discrete: {}, using: {})",
-                    expr, duration, aggregation
-                ),
-                false => write!(
-                    f,
-                    "{}.aggregate(over_discrete: {}, using: {})",
-                    expr, duration, aggregation
-                ),
+            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => match wait {
+                true => write!(f, "{}.aggregate(over_exactly_discrete: {}, using: {})", expr, duration, aggregation),
+                false => write!(f, "{}.aggregate(over_discrete: {}, using: {})", expr, duration, aggregation),
             },
-            ExpressionKind::SlidingWindowAggregation {
-                expr,
-                duration,
-                wait,
-                aggregation,
-            } => match wait {
-                true => write!(
-                    f,
-                    "{}.aggregate(over_exactly: {}, using: {})",
-                    expr, duration, aggregation
-                ),
-                false => write!(
-                    f,
-                    "{}.aggregate(over: {}, using: {})",
-                    expr, duration, aggregation
-                ),
+            ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } => match wait {
+                true => write!(f, "{}.aggregate(over_exactly: {}, using: {})", expr, duration, aggregation),
+                false => write!(f, "{}.aggregate(over: {}, using: {})", expr, duration, aggregation),
             },
             ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{} {} {}", lhs, op, rhs),
             ExpressionKind::Unary(operator, operand) => write!(f, "{}{}", operator, operand),
@@ -227,13 +184,7 @@ impl Display for Expression {
                 write!(f, "if {} then {} else {}", cond, cons, alt)
             }
             ExpressionKind::ParenthesizedExpression(left, expr, right) => {
-                write!(
-                    f,
-                    "{}{}{}",
-                    if left.is_some() { "(" } else { "" },
-                    expr,
-                    if right.is_some() { ")" } else { "" }
-                )
+                write!(f, "{}{}{}", if left.is_some() { "(" } else { "" }, expr, if right.is_some() { ")" } else { "" })
             }
             ExpressionKind::MissingExpression => Ok(()),
             ExpressionKind::Tuple(exprs) => write_delim_list(f, exprs, "(", ")", ", "),

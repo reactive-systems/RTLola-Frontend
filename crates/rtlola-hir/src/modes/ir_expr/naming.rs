@@ -2,10 +2,10 @@
 
 use crate::hir::AnnotatedType;
 use crate::stdlib::FuncDecl;
-use rtlola_parser::ast::*;
-use rtlola_parser::ast::{Ident, NodeId};
+use rtlola_parser::ast::{Ident, NodeId, *};
 use rtlola_reporting::{Diagnostic, Handler, Span};
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 // These MUST all be lowercase
 // TODO add an static assertion for this

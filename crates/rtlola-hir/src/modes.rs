@@ -4,16 +4,13 @@ pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod types;
 
-use self::{
-    dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Windowdependencies},
-    types::HirType,
-};
-use crate::hir::{DiscreteAggr, SlidingAggr, Window};
+use self::dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Windowdependencies};
+use self::types::HirType;
+use crate::hir::{DiscreteAggr, ExprId, Expression, Hir, SRef, SlidingAggr, WRef, Window};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::stdlib::FuncDecl;
 use crate::type_check::{ConcreteValueType, StreamType};
-use crate::{hir::ExprId, hir::Expression, hir::Hir, hir::SRef, hir::WRef};
 use rtlola_reporting::Handler;
 use std::collections::HashMap;
 

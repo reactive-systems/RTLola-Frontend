@@ -1,23 +1,21 @@
 mod naming;
 
 use super::{IrExprMode, IrExprTrait};
-use crate::hir::{ArithLogOp, DiscreteAggr, FnExprKind, Inlined, SlidingAggr, WidenExprKind};
-use crate::hir::{Offset, SRef, WRef};
-use crate::modes::ir_expr::naming::{Declaration, NamingAnalysis};
-use crate::stdlib::FuncDecl;
-use crate::{
-    hir::StreamAccessKind as IRAccess,
-    hir::{Ac, AnnotatedType, Hir, Input, InstanceTemplate, Output, Parameter, SpawnTemplate, Trigger},
-    hir::{Constant as HirConstant, ExprId, Expression, ExpressionKind, Literal, Window},
-    modes::{HirMode, IrExpr},
+use crate::hir::{
+    Ac, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression, ExpressionKind,
+    FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output, Parameter, SRef, SlidingAggr,
+    SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
+use crate::modes::ir_expr::naming::{Declaration, NamingAnalysis};
+use crate::modes::{HirMode, IrExpr};
+use crate::stdlib::FuncDecl;
 use rtlola_parser::ast;
-use rtlola_parser::ast::NodeId;
-use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, RTLolaAst, SpawnSpec, StreamAccessKind, Type};
+use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RTLolaAst, SpawnSpec, StreamAccessKind, Type};
 use rtlola_reporting::{Handler, Span};
+use std::collections::HashMap;
+use std::convert::TryInto;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{collections::HashMap, convert::TryInto};
 
 impl Hir<IrExprMode> {
     pub(crate) fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Self, TransformationError> {
@@ -651,7 +649,8 @@ impl ExpressionTransformer {
     }
 
     fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Result<Duration, String> {
-        use num::{traits::Inv, ToPrimitive};
+        use num::traits::Inv;
+        use num::ToPrimitive;
         use uom::si::frequency::hertz;
         use uom::si::rational64::Time as UOM_Time;
         use uom::si::time::second;

@@ -1,10 +1,9 @@
-use crate::hir::AnnotatedType;
-use crate::hir::StreamReference;
-use crate::hir::{Offset, SRef, WRef};
+use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
 use itertools::Either;
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::Span;
-use std::{fmt::Debug, time::Duration};
+use std::fmt::Debug;
+use std::time::Duration;
 
 use super::WindowReference;
 

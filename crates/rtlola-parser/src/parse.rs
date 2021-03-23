@@ -12,8 +12,9 @@ use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use pest_derive::Parser;
 use rtlola_reporting::{Handler, Span};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::str::FromStr;
-use std::{cell::RefCell, rc::Rc};
 
 #[derive(Parser)]
 #[grammar = "lola.pest"]

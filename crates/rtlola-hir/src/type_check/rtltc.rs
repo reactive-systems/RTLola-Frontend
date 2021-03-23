@@ -1,13 +1,8 @@
-use crate::hir::ExprId;
-use crate::hir::{Hir, StreamReference};
-use crate::modes::HirMode;
-use crate::modes::IrExprTrait;
-use crate::modes::Typed;
-use crate::type_check::ConcreteStreamPacing;
-use crate::type_check::StreamType;
-use crate::type_check::{
-    pacing_ast_climber::PacingTypeChecker, value_ast_climber::ValueTypeChecker, ConcreteValueType,
-};
+use crate::hir::{ExprId, Hir, StreamReference};
+use crate::modes::{HirMode, IrExprTrait, Typed};
+use crate::type_check::pacing_ast_climber::PacingTypeChecker;
+use crate::type_check::value_ast_climber::ValueTypeChecker;
+use crate::type_check::{ConcreteStreamPacing, ConcreteValueType, StreamType};
 use rtlola_reporting::{Handler, Span};
 use rusttyc::TcKey;
 use std::cmp::Ordering;

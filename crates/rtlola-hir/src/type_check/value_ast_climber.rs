@@ -1,20 +1,16 @@
 extern crate regex;
 
-use crate::hir::{AnnotatedType, FnExprKind, Inlined, Input, Output, Trigger, WidenExprKind, WindowReference};
-use crate::hir::{Constant, Expression, ExpressionKind, Literal};
-use crate::modes::HirMode;
-use crate::modes::IrExprTrait;
-use crate::type_check::rtltc::TypeError;
-use crate::type_check::ConcreteStreamPacing;
-use crate::type_check::{pacing_types::Freq, rtltc::NodeId, value_types::AbstractValueType};
-use crate::type_check::{value_types::ValueErrorKind, ConcreteValueType};
-use crate::{
-    hir::Hir,
-    hir::{Offset, SRef, StreamAccessKind},
+use crate::hir::{
+    AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
+    SRef, StreamAccessKind, Trigger, WidenExprKind, WindowReference,
 };
+use crate::modes::{HirMode, IrExprTrait};
+use crate::type_check::pacing_types::Freq;
+use crate::type_check::rtltc::{NodeId, TypeError};
+use crate::type_check::value_types::{AbstractValueType, ValueErrorKind};
+use crate::type_check::{ConcreteStreamPacing, ConcreteValueType};
 use rtlola_reporting::Span;
-use rusttyc::TypeTable;
-use rusttyc::{TcErr, TcKey, TypeChecker};
+use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 use std::collections::HashMap;
 use std::time::Duration;
 

@@ -1,5 +1,5 @@
-use crate::hir::{FnExprKind, Inlined, WidenExprKind, expression::{ArithLogOp, Constant, Expression, Literal}};
-use crate::hir::{StreamAccessKind, StreamReference};
+use crate::hir::expression::{ArithLogOp, Constant, Expression, Literal};
+use crate::hir::{FnExprKind, Inlined, StreamAccessKind, StreamReference, WidenExprKind};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result};

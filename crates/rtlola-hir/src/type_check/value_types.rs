@@ -1,12 +1,10 @@
 use super::*;
-use crate::hir::AnnotatedType;
-use crate::hir::StreamReference;
+use crate::hir::{AnnotatedType, StreamReference};
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{Emittable, TypeError};
 use itertools::Itertools;
 use rtlola_reporting::{Diagnostic, Span};
-use rusttyc::{Arity, Partial, TcErr, TcKey};
-use rusttyc::{Constructable, Variant};
+use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
