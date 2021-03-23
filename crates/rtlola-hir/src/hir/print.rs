@@ -1,10 +1,9 @@
+use super::{AnnotatedType, Offset, WindowReference};
 use crate::hir::expression::{ArithLogOp, Constant, Expression, Literal};
 use crate::hir::{FnExprKind, Inlined, StreamAccessKind, StreamReference, WidenExprKind};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result};
-
-use super::{AnnotatedType, Offset, WindowReference};
 
 impl Expression {
     /// Produces a prettified string representation of the expression given the names of the streams

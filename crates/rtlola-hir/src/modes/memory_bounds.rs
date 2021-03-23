@@ -1,10 +1,8 @@
 use num::abs;
 
-use crate::modes::dependencies::EdgeWeight;
-use crate::modes::{MemBound, MemBoundTrait};
-
 use crate::hir::{Hir, SRef};
-use crate::modes::{DepAnaTrait, HirMode};
+use crate::modes::dependencies::EdgeWeight;
+use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 

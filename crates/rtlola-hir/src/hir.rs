@@ -7,12 +7,11 @@ The module occurs in different modes, adding different information to the interm
 mod expression;
 mod print;
 
+pub use crate::hir::expression::*;
 use crate::modes::HirMode;
 use rtlola_reporting::Span;
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
-
-pub use crate::hir::expression::*;
 
 #[derive(Debug, Clone)]
 pub struct RtLolaHir<M: HirMode> {

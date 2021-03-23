@@ -1,7 +1,6 @@
+use super::{Typed, TypedTrait};
 use crate::hir::{ExprId, SRef};
 use crate::type_check::{ConcretePacingType, ConcreteValueType, StreamType};
-
-use super::{Typed, TypedTrait};
 
 impl TypedTrait for Typed {
     fn stream_type(&self, sr: SRef) -> HirType {

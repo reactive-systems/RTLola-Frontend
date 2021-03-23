@@ -1,5 +1,3 @@
-extern crate regex;
-
 use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
     SRef, StreamAccessKind, Trigger, WidenExprKind, WindowReference,

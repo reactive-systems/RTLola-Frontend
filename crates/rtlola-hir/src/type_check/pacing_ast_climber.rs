@@ -1,6 +1,4 @@
 use super::*;
-extern crate regex;
-
 use crate::hir::{
     self, Ac, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset, Output,
     SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,

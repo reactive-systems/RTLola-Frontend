@@ -1,11 +1,10 @@
+use super::WindowReference;
 use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
 use itertools::Either;
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::Span;
 use std::fmt::Debug;
 use std::time::Duration;
-
-use super::WindowReference;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub(crate) u32);

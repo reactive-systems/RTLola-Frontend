@@ -5,11 +5,10 @@ use crate::hir::{
 use crate::modes::{HirMode, IrExprTrait};
 use petgraph::algo::{has_path_connecting, is_cyclic_directed};
 use petgraph::graph::NodeIndex;
+pub use petgraph::stable_graph::StableGraph;
 use petgraph::Outgoing;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-
-pub use petgraph::stable_graph::StableGraph;
 
 /// Contains information regarding the dependency between two streams which occurs due to a lookup expression.
 #[derive(Debug, PartialEq, Eq, Clone)]

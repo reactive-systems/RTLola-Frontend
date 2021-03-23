@@ -1,13 +1,10 @@
 use super::{Ordered, OrderedTrait, TypedTrait};
-
-use std::collections::HashMap;
-
 use crate::hir::{Hir, SRef};
 use crate::modes::dependencies::ExtendedDepGraph;
 use crate::modes::{DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
-
 use petgraph::algo::is_cyclic_directed;
 use petgraph::Outgoing;
+use std::collections::HashMap;
 
 impl OrderedTrait for Ordered {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
