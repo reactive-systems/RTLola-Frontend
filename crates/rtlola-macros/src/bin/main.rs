@@ -31,7 +31,7 @@ pub struct ModeA {
     a: A,
 }
 
-struct A {}
+pub struct A {}
 
 #[mode_functionality]
 pub trait TraitA {
@@ -52,7 +52,7 @@ pub struct ModeB {
     b: B,
 }
 
-struct B {}
+pub struct B {}
 
 #[mode_functionality]
 pub trait TraitB {
