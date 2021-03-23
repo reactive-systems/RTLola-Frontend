@@ -1,7 +1,7 @@
 //! This module provides naming analysis for a given Lola AST.
 
 use crate::hir::AnnotatedType;
-use crate::stdlib::fns::FuncDecl;
+use crate::stdlib::FuncDecl;
 use rtlola_parser::ast::*;
 use rtlola_parser::ast::{Ident, NodeId};
 use rtlola_reporting::{Diagnostic, Handler, Span};
@@ -14,7 +14,7 @@ pub(crate) const KEYWORDS: [&str; 24] = [
     "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
 ];
 
-pub type DeclarationTable = HashMap<NodeId, Declaration>;
+pub(crate) type DeclarationTable = HashMap<NodeId, Declaration>;
 
 #[derive(Debug)]
 pub struct NamingAnalysis<'b> {
@@ -138,13 +138,13 @@ impl<'b> NamingAnalysis<'b> {
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
-    pub fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
-        use crate::stdlib::fns;
-        self.fun_declarations.add_all_fun_decl(fns::implicit_module());
+    pub(crate) fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
+        use crate::stdlib;
+        self.fun_declarations.add_all_fun_decl(stdlib::implicit_module());
         for import in &spec.imports {
             match import.name.name.as_str() {
-                "math" => self.fun_declarations.add_all_fun_decl(fns::math_module()),
-                "regex" => self.fun_declarations.add_all_fun_decl(fns::regex_module()),
+                "math" => self.fun_declarations.add_all_fun_decl(stdlib::math_module()),
+                "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
                 n => self.handler.error_with_span(
                     &format!("unresolved import `{}`", n),
                     import.name.span.clone(),
@@ -410,7 +410,7 @@ impl ScopedDecl {
 }
 
 #[derive(Debug, Clone)]
-pub enum Declaration {
+pub(crate) enum Declaration {
     Const(Rc<Constant>),
     In(Rc<Input>),
     /// A non-parametric output

@@ -1,14 +1,15 @@
-use super::{rusttyc::TcKey, StreamType};
 use crate::hir::ExprId;
 use crate::hir::{Hir, StreamReference};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::modes::Typed;
 use crate::type_check::ConcreteStreamPacing;
+use crate::type_check::StreamType;
 use crate::type_check::{
     pacing_ast_climber::PacingTypeChecker, value_ast_climber::ValueTypeChecker, ConcreteValueType,
 };
 use rtlola_reporting::{Handler, Span};
+use rusttyc::TcKey;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -66,7 +67,7 @@ impl<'a, M> LolaTypeChecker<'a, M>
 where
     M: IrExprTrait + HirMode + 'static,
 {
-    pub fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
+    pub(crate) fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
         let names: HashMap<StreamReference, &str> = hir
             .inputs()
             .map(|i| (i.sr, i.name.as_str()))
@@ -75,7 +76,7 @@ where
         LolaTypeChecker { hir, handler, names }
     }
 
-    pub fn check(&mut self) -> Result<Typed, String> {
+    pub(crate) fn check(&mut self) -> Result<Typed, String> {
         let pacing_tt = match self.pacing_type_infer() {
             Some(tt) => tt,
             None => return Err("Invalid Pacing Types".to_string()),
@@ -114,12 +115,12 @@ where
         Ok(Typed::new(stream_map, expression_map, parameters))
     }
 
-    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
+    fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
         let ptc = PacingTypeChecker::new(&self.hir, &self.names);
         ptc.type_check(self.handler)
     }
 
-    pub(crate) fn value_type_infer(
+    fn value_type_infer(
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Option<HashMap<NodeId, ConcreteValueType>> {

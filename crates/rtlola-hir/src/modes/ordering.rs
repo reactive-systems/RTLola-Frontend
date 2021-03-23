@@ -57,7 +57,7 @@ impl Layer {
 impl Ordered {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Ordered
     where
-        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
     {
         // Compute Evaluation Layers
         let graph = spec.graph().without_negative_offset_edges();
@@ -71,7 +71,7 @@ impl Ordered {
 
     fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
     where
-        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
     {
         debug_assert!(!is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
         let spawn_graph = graph.without_negative_offset_edges().only_spawn_edges();

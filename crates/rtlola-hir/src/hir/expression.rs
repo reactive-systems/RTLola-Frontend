@@ -1,13 +1,15 @@
-use std::time::Duration;
-
 use crate::hir::AnnotatedType;
 use crate::hir::StreamReference;
-use crate::hir::{SRef, StreamAccessKind, WRef};
+use crate::hir::{Offset, SRef, WRef};
+use itertools::Either;
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::Span;
+use std::{fmt::Debug, time::Duration};
+
+use super::WindowReference;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct ExprId(pub u32);
+pub struct ExprId(pub(crate) u32);
 
 /// Represents an expression.
 #[derive(Debug, Clone)]
@@ -15,9 +17,53 @@ pub struct Expression {
     /// The kind of expression.
     pub kind: ExpressionKind,
 
-    pub eid: ExprId,
+    pub(crate) eid: ExprId,
 
-    pub span: Span,
+    pub(crate) span: Span,
+}
+
+impl Expression {
+    pub fn id(&self) -> ExprId {
+        self.eid
+    }
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
+    pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
+        match &self.kind {
+            ExpressionKind::ArithLog(_, children)
+            | ExpressionKind::Tuple(children)
+            | ExpressionKind::Function(FnExprKind { args: children, .. }) => {
+                children.iter().flat_map(|c| c.get_sync_accesses()).collect()
+            }
+            ExpressionKind::StreamAccess(target, kind, children) => match kind {
+                StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
+                    vec![*target].into_iter().chain(children.iter().flat_map(|c| c.get_sync_accesses())).collect()
+                }
+                _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
+            },
+            ExpressionKind::Ite { condition, consequence, alternative } => condition
+                .as_ref()
+                .get_sync_accesses()
+                .into_iter()
+                .chain(consequence.as_ref().get_sync_accesses())
+                .chain(alternative.as_ref().get_sync_accesses())
+                .collect(),
+            ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(WidenExprKind { expr: child, .. }) => {
+                child.as_ref().get_sync_accesses()
+            }
+            ExpressionKind::Default { expr, default } => {
+                expr.as_ref().get_sync_accesses().into_iter().chain(default.as_ref().get_sync_accesses()).collect()
+            }
+            _ => vec![],
+        }
+    }
+}
+
+impl ValueEq for Expression {
+    fn value_eq(&self, other: &Self) -> bool {
+        self.kind.value_eq(&other.kind)
+    }
 }
 
 /// The expressions of the IR.
@@ -49,12 +95,8 @@ pub enum ExpressionKind {
     /// A function call with its monomorphic type
     /// Arguments never need to be coerced, @see `Expression::Convert`.
     //Function(String, Vec<Expression>),
-    Function {
-        name: String,
-        args: Vec<Expression>,
-        type_param: Vec<AnnotatedType>,
-    },
-    Widen(Box<Expression>, AnnotatedType),
+    Function(FnExprKind),
+    Widen(WidenExprKind),
     /// Transforms an optional value into a "normal" one
     Default {
         /// The expression that results in an optional value.
@@ -63,30 +105,58 @@ pub enum ExpressionKind {
         default: Box<Expression>,
     },
 }
+
+#[derive(Debug, Clone)]
+pub struct FnExprKind {
+    pub name: String,
+    pub args: Vec<Expression>,
+    pub(crate) type_param: Vec<AnnotatedType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WidenExprKind {
+    pub expr: Box<Expression>,
+    pub(crate) ty: AnnotatedType,
+}
 /// Represents a constant value of a certain kind.
 #[derive(Debug, Clone)]
-pub enum ConstantLiteral {
-    #[allow(missing_docs)]
+pub enum Literal {
     Str(String),
-    #[allow(missing_docs)]
     Bool(bool),
-    #[allow(missing_docs)]
     /// Integer constant with unknown sign
     Integer(i64),
-    #[allow(missing_docs)]
     /// Integer constant known to be signed
     SInt(i128),
-    #[allow(missing_docs)]
     /// Floating point constant
     Float(f64),
-    //Frequency(UOM_Frequency),
-    //Numeric(String, Option<String>),
 }
+
+impl PartialEq for Literal {
+    fn eq(&self, other: &Self) -> bool {
+        use self::Literal::*;
+        match (self, other) {
+            (Float(f1), Float(f2)) => f64::abs(f1 - f2) < 0.00001f64,
+            (Str(s1), Str(s2)) => s1 == s2,
+            (Bool(b1), Bool(b2)) => b1 == b2,
+            (Integer(i1), Integer(i2)) => i1 == i2,
+            (SInt(i1), SInt(i2)) => i1 == i2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Literal {}
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Constant {
-    BasicConstant(ConstantLiteral),
-    InlinedConstant(ConstantLiteral, AnnotatedType),
+    Basic(Literal),
+    Inlined(Inlined),
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub struct Inlined {
+    pub lit: Literal,
+    pub(crate) ty: AnnotatedType,
 }
 
 /// Contains all arithmetical and logical operations.
@@ -138,42 +208,75 @@ pub enum ArithLogOp {
     Gt,
 }
 
-/// Represents an instance of a sliding window.
+pub trait WindowAggregation: Debug + Copy {
+    fn wait_until_full(&self) -> bool;
+    fn operation(&self) -> WindowOperation;
+    fn duration(&self) -> Either<Duration, usize>;
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct SlidingAggr {
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    pub wait: bool,
+    /// The aggregation operation.
+    pub op: WindowOperation,
+    pub duration: Duration,
+}
+
+impl WindowAggregation for SlidingAggr {
+    fn wait_until_full(&self) -> bool {
+        self.wait
+    }
+    fn operation(&self) -> WindowOperation {
+        self.op
+    }
+    fn duration(&self) -> Either<Duration, usize> {
+        Either::Left(self.duration)
+    }
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct DiscreteAggr {
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    pub wait: bool,
+    /// The aggregation operation.
+    pub op: WindowOperation,
+    pub duration: usize,
+}
+
+impl WindowAggregation for DiscreteAggr {
+    fn wait_until_full(&self) -> bool {
+        self.wait
+    }
+    fn operation(&self) -> WindowOperation {
+        self.op
+    }
+    fn duration(&self) -> Either<Duration, usize> {
+        Either::Right(self.duration)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct SlidingWindow {
+pub struct Window<Aggr: WindowAggregation> {
     /// The stream whose values will be aggregated.
     pub target: SRef,
     /// The stream calling and evaluating this window.
     pub caller: SRef,
     /// The duration over which the window aggregates.
-    pub duration: Duration,
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
-    pub wait: bool,
-    /// The aggregation operation.
-    pub op: WindowOperation,
+    pub aggr: Aggr,
     /// A reference to this sliding window.
-    pub reference: WRef,
+    pub(crate) reference: WRef,
     /// The Id of the expression in which this window is accessed. NOT the id of the window.
-    pub eid: ExprId,
+    pub(crate) eid: ExprId,
 }
 
-/// Represents an instance of a discrete window.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct DiscreteWindow {
-    /// The stream whose values will be aggregated.
-    pub target: SRef,
-    /// The stream calling and evaluating this window.
-    pub caller: SRef,
-    /// The number of values over which the window aggregates.
-    pub duration: u32,
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
-    pub wait: bool,
-    /// The aggregation operation.
-    pub op: WindowOperation,
-    /// A reference to this sliding window.
-    pub reference: WRef,
-    /// The Id of the expression in which this window is accessed. NOT the id of the window.
-    pub eid: ExprId,
+impl<A: WindowAggregation> Window<A> {
+    pub fn reference(&self) -> WindowReference {
+        self.reference
+    }
+    pub fn id(&self) -> ExprId {
+        self.eid
+    }
 }
 
 pub(crate) trait ValueEq {
@@ -201,12 +304,17 @@ impl ValueEq for ExpressionKind {
             ) => c1.value_eq(&b1) && c2.value_eq(&b2) && c3.value_eq(&b3),
             (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2)),
             (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2),
-            (Function { name, args, type_param }, Function { name: name2, args: args2, type_param: type_param2 }) => {
+            (
+                Function(FnExprKind { name, args, type_param }),
+                Function(FnExprKind { name: name2, args: args2, type_param: type_param2 }),
+            ) => {
                 name == name2
                     && type_param == type_param2
                     && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
             }
-            (Widen(inner, t1), Widen(inner2, t2)) => t1 == t2 && inner.value_eq(&inner2),
+            (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
+                t1 == t2 && inner.value_eq(&inner2)
+            }
             (Default { expr, default }, Default { expr: expr2, default: default2 }) => {
                 expr.value_eq(&expr2) && default.value_eq(&default2)
             }
@@ -215,56 +323,11 @@ impl ValueEq for ExpressionKind {
     }
 }
 
-impl PartialEq for ConstantLiteral {
-    fn eq(&self, other: &Self) -> bool {
-        use self::ConstantLiteral::*;
-        match (self, other) {
-            (Float(f1), Float(f2)) => f64::abs(f1 - f2) < 0.00001f64,
-            (Str(s1), Str(s2)) => s1 == s2,
-            (Bool(b1), Bool(b2)) => b1 == b2,
-            (Integer(i1), Integer(i2)) => i1 == i2,
-            (SInt(i1), SInt(i2)) => i1 == i2,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for ConstantLiteral {}
-
-impl ValueEq for Expression {
-    fn value_eq(&self, other: &Self) -> bool {
-        self.kind.value_eq(&other.kind)
-    }
-}
-
-impl Expression {
-    pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
-        match &self.kind {
-            ExpressionKind::ArithLog(_, children)
-            | ExpressionKind::Tuple(children)
-            | ExpressionKind::Function { args: children, .. } => {
-                children.iter().flat_map(|c| c.get_sync_accesses()).collect()
-            }
-            ExpressionKind::StreamAccess(target, kind, children) => match kind {
-                StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
-                    vec![*target].into_iter().chain(children.iter().flat_map(|c| c.get_sync_accesses())).collect()
-                }
-                _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
-            },
-            ExpressionKind::Ite { condition, consequence, alternative } => condition
-                .as_ref()
-                .get_sync_accesses()
-                .into_iter()
-                .chain(consequence.as_ref().get_sync_accesses())
-                .chain(alternative.as_ref().get_sync_accesses())
-                .collect(),
-            ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(child, _) => {
-                child.as_ref().get_sync_accesses()
-            }
-            ExpressionKind::Default { expr, default } => {
-                expr.as_ref().get_sync_accesses().into_iter().chain(default.as_ref().get_sync_accesses()).collect()
-            }
-            _ => vec![],
-        }
-    }
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StreamAccessKind {
+    Sync,
+    DiscreteWindow(WRef),
+    SlidingWindow(WRef),
+    Hold,
+    Offset(Offset),
 }

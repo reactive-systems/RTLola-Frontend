@@ -9,13 +9,13 @@ mod print;
 
 use crate::modes::HirMode;
 use rtlola_reporting::Span;
+use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
-use lazy_static::lazy_static;
 
 pub use crate::hir::expression::*;
 
 #[derive(Debug, Clone)]
-pub struct RTLolaHir<M: HirMode> {
+pub struct RtLolaHir<M: HirMode> {
     pub(crate) inputs: Vec<Input>,
     pub(crate) outputs: Vec<Output>,
     pub(crate) triggers: Vec<Trigger>,
@@ -24,7 +24,7 @@ pub struct RTLolaHir<M: HirMode> {
     pub(crate) mode: M,
 }
 
-pub(crate) type Hir<M> = RTLolaHir<M>;
+pub(crate) type Hir<M> = RtLolaHir<M>;
 
 impl<M: HirMode> Hir<M> {
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
@@ -99,11 +99,20 @@ pub struct Input {
     /// The name of the stream.
     pub name: String,
     /// The reference pointing to this stream.
-    pub sr: SRef,
+    pub(crate) sr: SRef,
     /// The user annotated Type
-    pub annotated_type: AnnotatedType,
+    pub(crate) annotated_type: AnnotatedType,
     /// The code span the input represents
-    pub span: Span,
+    pub(crate) span: Span,
+}
+
+impl Input {
+    pub fn sr(&self) -> StreamReference {
+        self.sr
+    }
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
 }
 
 /// Represents an output stream in an RTLola specification.
@@ -112,19 +121,34 @@ pub struct Output {
     /// The name of the stream.
     pub name: String,
     /// The user annotated Type
-    pub annotated_type: Option<AnnotatedType>,
+    pub(crate) annotated_type: Option<AnnotatedType>,
     /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
-    pub activation_condition: Option<Ac>,
+    pub(crate) activation_condition: Option<Ac>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
-    pub params: Vec<Parameter>,
+    pub(crate) params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
-    pub instance_template: InstanceTemplate,
+    pub(crate) instance_template: InstanceTemplate,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
-    pub expr_id: ExprId,
+    pub(crate) expr_id: ExprId,
     /// The reference pointing to this stream.
-    pub sr: SRef,
+    pub(crate) sr: SRef,
     /// The code span the output represents
-    pub span: Span,
+    pub(crate) span: Span,
+}
+
+impl Output {
+    pub fn params(&self) -> impl Iterator<Item = &Parameter> {
+        self.params.iter()
+    }
+    pub fn sr(&self) -> StreamReference {
+        self.sr
+    }
+    pub fn expression(&self) -> ExprId {
+        self.expr_id
+    }
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -132,48 +156,57 @@ pub struct Parameter {
     /// The name of this parameter
     pub name: String,
     /// The annotated type of this parameter
-    pub annotated_type: Option<AnnotatedType>,
+    pub(crate) annotated_type: Option<AnnotatedType>,
     /// The id, index in the parameter vector in the output stream, for this parameter
-    pub idx: usize,
+    pub(crate) idx: usize,
     /// The code span of the parameter
-    pub span: Span,
+    pub(crate) span: Span,
+}
+
+impl Parameter {
+    pub fn index(&self) -> usize {
+        self.idx
+    }
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
 }
 
 /// Use to hold either a frequency or an expression for the annotated activation condition
 #[derive(Debug, Clone, PartialEq)]
-pub enum Ac {
+pub(crate) enum Ac {
     Frequency { span: Span, value: UOM_Frequency },
     Expr(ExprId),
 }
 
 #[derive(Debug, Clone)]
-pub struct InstanceTemplate {
+pub(crate) struct InstanceTemplate {
     /// The invoke condition of the parametrized stream.
-    pub spawn: Option<SpawnTemplate>,
+    pub(crate) spawn: Option<SpawnTemplate>,
     /// The extend condition of the parametrized stream.
-    pub filter: Option<ExprId>,
+    pub(crate) filter: Option<ExprId>,
     /// The termination condition of the parametrized stream.
-    pub close: Option<ExprId>,
+    pub(crate) close: Option<ExprId>,
 }
 
 #[derive(Debug, Clone)]
-pub struct SpawnTemplate {
+pub(crate) struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: Option<ExprId>,
+    pub(crate) target: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub pacing: Option<Ac>,
+    pub(crate) pacing: Option<Ac>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
-    pub condition: Option<ExprId>,
+    pub(crate) condition: Option<ExprId>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Trigger {
     pub name: String,
     pub message: String,
-    pub expr_id: ExprId,
-    pub sr: SRef,
+    pub(crate) expr_id: ExprId,
+    pub(crate) sr: SRef,
     /// The code span the trigger represents
-    pub span: Span,
+    pub(crate) span: Span,
 }
 
 impl Trigger {
@@ -187,14 +220,25 @@ impl Trigger {
         let name_str = name.map(|ident| ident.name).unwrap_or_else(String::new);
         Self { name: name_str, message: msg.unwrap_or_else(String::new), expr_id, sr, span }
     }
+
+    pub fn sr(&self) -> StreamReference {
+        self.sr
+    }
+
+    pub fn expression(&self) -> ExprId {
+        self.expr_id
+    }
+
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
 }
 
 /// Represents the annotated given type for constants, input streams, etc.
 /// It is converted from the AST type and an input for the typechecker.
 /// After typechecking HirType is used to represent all type information.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum AnnotatedType {
-    //Can be annotated
+pub(crate) enum AnnotatedType {
     Int(u32),
     Float(u32),
     UInt(u32),
@@ -203,9 +247,23 @@ pub enum AnnotatedType {
     Bytes,
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
-    //Used in function declaration
     Numeric,
     Param(usize, String),
+}
+
+impl AnnotatedType {
+    pub(crate) fn primitive_types() -> Vec<(&'static str, &'static AnnotatedType)> {
+        let mut types = vec![];
+        types.extend_from_slice(&crate::stdlib::REDUCED_PRIMITIVE_TYPES);
+        types.extend_from_slice(&crate::stdlib::PRIMITIVE_TYPES_ALIASES);
+
+        types
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        use crate::hir::AnnotatedType::*;
+        matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
+    }
 }
 
 /// Allows for referencing a window instance.
@@ -215,11 +273,11 @@ pub enum WindowReference {
     DiscreteRef(usize),
 }
 
-pub type WRef = WindowReference;
+pub(crate) type WRef = WindowReference;
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
-    pub fn idx(self) -> usize {
+    pub(crate) fn idx(self) -> usize {
         match self {
             WindowReference::SlidingRef(u) => u,
             WindowReference::DiscreteRef(u) => u,
@@ -241,11 +299,11 @@ pub enum StreamReference {
     OutRef(OutputReference),
 }
 
-pub type SRef = StreamReference;
+pub(crate) type SRef = StreamReference;
 
 impl StreamReference {
     /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
-    pub fn out_ix(&self) -> usize {
+    pub(crate) fn out_ix(&self) -> usize {
         match self {
             StreamReference::InRef(_) => unreachable!(),
             StreamReference::OutRef(ix) => *ix,
@@ -253,7 +311,7 @@ impl StreamReference {
     }
 
     /// Returns the index inside the reference if it is an input reference.  Panics otherwise.
-    pub fn in_ix(&self) -> usize {
+    pub(crate) fn in_ix(&self) -> usize {
         match self {
             StreamReference::OutRef(_) => unreachable!(),
             StreamReference::InRef(ix) => *ix,
@@ -261,7 +319,7 @@ impl StreamReference {
     }
 
     /// Returns the index inside the reference disregarding whether it is an input or output reference.
-    pub fn ix_unchecked(&self) -> usize {
+    pub(crate) fn ix_unchecked(&self) -> usize {
         match self {
             StreamReference::InRef(ix) | StreamReference::OutRef(ix) => *ix,
         }
@@ -306,15 +364,6 @@ impl Ord for StreamReference {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum StreamAccessKind {
-    Sync,
-    DiscreteWindow(WRef),
-    SlidingWindow(WRef),
-    Hold,
-    Offset(Offset),
-}
-
 /// Offset used in the lookup expression
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Offset {
@@ -326,24 +375,6 @@ pub enum Offset {
     FutureRealTime(Duration),
     /// A non-negative real-time offset, e.g., `0`, `4min`, `2.3h`
     PastRealTime(Duration),
-}
-use std::time::Duration;
-
-use crate::modes::memory_bounds::MemorizationBound;
-use crate::modes::ordering::Layer;
-
-/// A trait for any kind of stream.
-pub trait Stream {
-    // Returns the spawn laying in which the stream is created.
-    fn spawn_layer(&self) -> Layer;
-    /// Returns the evaluation laying in which the stream resides.
-    fn eval_layer(&self) -> Layer;
-    /// Indicates whether or not the stream is an input stream.
-    fn is_input(&self) -> bool;
-    /// Indicates how many values need to be memorized.
-    fn values_to_memorize(&self) -> MemorizationBound;
-    /// Produces a stream references referring to the stream.
-    fn as_stream_ref(&self) -> StreamReference;
 }
 
 impl PartialOrd for Offset {
@@ -372,52 +403,5 @@ impl PartialOrd for Offset {
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other).unwrap()
-    }
-}
-
-lazy_static! {
-    static ref PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
-        ("Bool", &AnnotatedType::Bool),
-        ("Int8", &AnnotatedType::Int(8)),
-        ("Int16", &AnnotatedType::Int(16)),
-        ("Int32", &AnnotatedType::Int(32)),
-        ("Int64", &AnnotatedType::Int(64)),
-        ("UInt8", &AnnotatedType::UInt(8)),
-        ("UInt16", &AnnotatedType::UInt(16)),
-        ("UInt32", &AnnotatedType::UInt(32)),
-        ("UInt64", &AnnotatedType::UInt(64)),
-        ("Float16", &AnnotatedType::Float(16)),
-        ("Float32", &AnnotatedType::Float(32)),
-        ("Float64", &AnnotatedType::Float(64)),
-        ("String", &AnnotatedType::String),
-        ("Bytes", &AnnotatedType::Bytes),
-    ];
-    static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
-        ("Bool", &AnnotatedType::Bool),
-        ("Int64", &AnnotatedType::Int(64)),
-        ("UInt64", &AnnotatedType::UInt(64)),
-        ("Float64", &AnnotatedType::Float(64)),
-        ("String", &AnnotatedType::String),
-        ("Bytes", &AnnotatedType::Bytes),
-    ];
-    static ref PRIMITIVE_TYPES_ALIASES: Vec<(&'static str, &'static AnnotatedType)> = vec![
-        ("Int", &AnnotatedType::Int(64)),
-        ("UInt", &AnnotatedType::UInt(64)),
-        ("Float", &AnnotatedType::Float(64)),
-    ];
-}
-
-impl AnnotatedType {
-    pub(crate) fn primitive_types() -> Vec<(&'static str, &'static AnnotatedType)> {
-        let mut types = vec![];
-        types.extend_from_slice(&REDUCED_PRIMITIVE_TYPES);
-        types.extend_from_slice(&PRIMITIVE_TYPES_ALIASES);
-
-        types
-    }
-
-    pub fn is_primitive(&self) -> bool {
-        use crate::hir::AnnotatedType::*;
-        matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
     }
 }

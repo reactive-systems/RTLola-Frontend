@@ -3,8 +3,8 @@ use quote::{format_ident, quote};
 use syn::{
     parse_macro_input,
     punctuated::{Pair, Punctuated},
-    AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat, PatIdent, PatType,
-    Path, Token, TraitItem, Type, Visibility,
+    AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat, PatIdent, PatType, Path, Token,
+    TraitItem, Type, Visibility,
 };
 
 #[proc_macro_derive(HirMode)]
@@ -26,15 +26,8 @@ pub fn mode_functionality(_attr: TokenStream, input: TokenStream) -> TokenStream
     let inner_name = generate_inner_name(&trait_name);
     let wrapper_name = generate_wrapper_name(&trait_name);
     let inner_fn_name = generate_wrapper_fn_name(&trait_name);
-    let wrapper = generate_wrapper(
-        &trait_name,
-        &wrapper_name,
-        &inner_name,
-        &inner_fn_name,
-        &s.vis,
-    );
-    let wrapper_impl =
-        generate_wrapper_impl(&trait_name, &wrapper_name, &inner_name, &inner_fn_name);
+    let wrapper = generate_wrapper(&trait_name, &wrapper_name, &inner_name, &inner_fn_name, &s.vis);
+    let wrapper_impl = generate_wrapper_impl(&trait_name, &wrapper_name, &inner_name, &inner_fn_name);
     let blanket = generate_blanket(&trait_name, &wrapper_name, &inner_fn_name, &s.items);
     input.extend(wrapper);
     input.extend(wrapper_impl);
@@ -148,10 +141,7 @@ pub fn covers_functionality(attr: TokenStream, input: TokenStream) -> TokenStrea
         .fields
         .iter()
         .find_map(|field| {
-            let name = field
-                .ident
-                .as_ref()
-                .expect("there can't be unnamed fields in structs");
+            let name = field.ident.as_ref().expect("there can't be unnamed fields in structs");
             if accessor == name {
                 if let Type::Path(tp) = &field.ty {
                     Some(tp.path.get_ident())
@@ -192,8 +182,8 @@ fn extract_ident(nm: &NestedMeta) -> &Ident {
 fn extract_path(nm: &NestedMeta) -> &Path {
     match nm {
         NestedMeta::Meta(Meta::Path(p)) => p,
-        NestedMeta::Meta(_) | NestedMeta::Lit(_) => panic!(
-            "extends_mode needs two arguments: the subsumed mode and a field refering to one."
-        ),
+        NestedMeta::Meta(_) | NestedMeta::Lit(_) => {
+            panic!("extends_mode needs two arguments: the subsumed mode and a field refering to one.")
+        }
     }
 }

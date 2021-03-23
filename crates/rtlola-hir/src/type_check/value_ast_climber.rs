@@ -1,8 +1,7 @@
 extern crate regex;
 
-use super::rusttyc::TypeTable;
-use crate::hir::{AnnotatedType, Input, Output, Trigger};
-use crate::hir::{Constant, ConstantLiteral, Expression, ExpressionKind};
+use crate::hir::{AnnotatedType, FnExprKind, Inlined, Input, Output, Trigger, WidenExprKind, WindowReference};
+use crate::hir::{Constant, Expression, ExpressionKind, Literal};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::type_check::rtltc::TypeError;
@@ -13,14 +12,14 @@ use crate::{
     hir::Hir,
     hir::{Offset, SRef, StreamAccessKind},
 };
-use itertools::Either;
 use rtlola_reporting::Span;
+use rusttyc::TypeTable;
 use rusttyc::{TcErr, TcKey, TypeChecker};
 use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Variable(String);
+pub(crate) struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
@@ -32,7 +31,7 @@ impl Variable {
 
 pub(crate) struct ValueTypeChecker<'a, M>
 where
-    M: IrExprTrait + HirMode + 'static,
+    M: IrExprTrait + HirMode,
 {
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
     pub(crate) node_key: HashMap<NodeId, TcKey>,
@@ -44,7 +43,7 @@ where
 
 impl<'a, M> ValueTypeChecker<'a, M>
 where
-    M: IrExprTrait + HirMode + 'static,
+    M: IrExprTrait + HirMode,
 {
     pub(crate) fn new(hir: &'a Hir<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
         let mut tyc = TypeChecker::new();
@@ -82,13 +81,13 @@ where
         }
     }
 
-    fn match_const_literal(&self, lit: &ConstantLiteral) -> AbstractValueType {
+    fn match_const_literal(&self, lit: &Literal) -> AbstractValueType {
         match lit {
-            ConstantLiteral::Str(_) => AbstractValueType::String,
-            ConstantLiteral::Bool(_) => AbstractValueType::Bool,
-            ConstantLiteral::Integer(_) => AbstractValueType::Integer,
-            ConstantLiteral::SInt(_) => AbstractValueType::SInteger(1),
-            ConstantLiteral::Float(_) => AbstractValueType::Float(1),
+            Literal::Str(_) => AbstractValueType::String,
+            Literal::Bool(_) => AbstractValueType::Bool,
+            Literal::Integer(_) => AbstractValueType::Integer,
+            Literal::SInt(_) => AbstractValueType::SInteger(1),
+            Literal::Float(_) => AbstractValueType::Float(1),
         }
     }
 
@@ -289,8 +288,8 @@ where
         match &exp.kind {
             ExpressionKind::LoadConstant(c) => {
                 let cons_lit = match c {
-                    Constant::BasicConstant(lit) => lit,
-                    Constant::InlinedConstant(lit, anno_ty) => {
+                    Constant::Basic(lit) => lit,
+                    Constant::Inlined(Inlined { lit, ty: anno_ty }) => {
                         self.handle_annotated_type(term_key, anno_ty, None)?;
                         lit
                     }
@@ -334,15 +333,23 @@ where
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     }
                     StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
-                        let window = self.hir.single_window(*wref);
-                        let (target_key, op, wait) = match window {
-                            Either::Left(sw) => (self.node_key.get(&NodeId::SRef(sw.target)), sw.op, sw.wait),
-                            Either::Right(dw) => (self.node_key.get(&NodeId::SRef(dw.target)), dw.op, dw.wait),
+                        let (target, aggr) = match wref {
+                            WindowReference::SlidingRef(_) => {
+                                let win = self.hir.single_sliding(*wref);
+                                (win.target, win.aggr)
+                            }
+                            WindowReference::DiscreteRef(_) => {
+                                let win = self.hir.single_sliding(*wref);
+                                (win.target, win.aggr)
+                            }
                         };
-                        let target_key = *target_key.expect("Entered in Constructor");
+                        let target_key = *self
+                            .node_key
+                            .get(&NodeId::SRef(target))
+                            .expect("all nodes keys were entered in the constructor");
 
                         use rtlola_parser::ast::WindowOperation;
-                        match op {
+                        match aggr.op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
                             WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
                                 self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
@@ -358,7 +365,7 @@ where
                             //integral : T <T:Num> -> Float   <-- currently used
                             WindowOperation::Integral => {
                                 self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                if wait {
+                                if aggr.wait {
                                     self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
@@ -371,7 +378,7 @@ where
                             //Σ and Π :T <T:Num> -> T
                             WindowOperation::Sum | WindowOperation::Product => {
                                 self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                if wait {
+                                if aggr.wait {
                                     self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(inner_key.equate_with(target_key))?;
@@ -518,7 +525,7 @@ where
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
             }
 
-            ExpressionKind::Widen(inner, ty) => {
+            ExpressionKind::Widen(WidenExprKind { expr: inner, ty }) => {
                 let inner_expr_key = self.expression_infer(inner, None)?;
                 // Bind expr type to least restrictive version of the variant i.e. e.g. Integer w/ width of 1 bit.
                 // Also bind the result to the type annotation of the widening call.
@@ -535,7 +542,7 @@ where
                 self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
                 self.tyc.impose(term_key.equate_with(internal_key))?;
             }
-            ExpressionKind::Function { name, type_param, args } => {
+            ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
                 // check for name in context
 
                 // Function declaration:
@@ -649,8 +656,8 @@ mod value_type_tests {
     use std::path::PathBuf;
 
     struct TestBox {
-        pub hir: RTLolaHIR<IrExprMode>,
-        pub handler: Handler,
+        hir: RTLolaHIR<IrExprMode>,
+        handler: Handler,
     }
 
     impl TestBox {

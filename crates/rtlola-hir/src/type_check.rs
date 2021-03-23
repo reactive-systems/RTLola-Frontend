@@ -1,20 +1,17 @@
-extern crate rusttyc;
-
 mod pacing_ast_climber;
 mod pacing_types;
 mod rtltc;
 mod value_ast_climber;
 mod value_types;
 
+use self::pacing_types::ActivationCondition;
 use crate::hir::{Expression, Hir};
 use crate::type_check::rtltc::LolaTypeChecker;
 use crate::{modes::HirMode, modes::IrExprTrait, modes::Typed};
 use rtlola_reporting::Handler;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use self::pacing_types::ActivationCondition;
-
-pub fn type_check<M>(hir: &Hir<M>, handler: &Handler) -> Result<Typed, String>
+pub(crate) fn type_check<M>(hir: &Hir<M>, handler: &Handler) -> Result<Typed, String>
 where
     M: HirMode + IrExprTrait + 'static,
 {
@@ -75,21 +72,4 @@ pub struct StreamType {
     pub spawn: (ConcretePacingType, Expression),
     pub filter: Expression,
     pub close: Expression,
-}
-
-impl StreamType {
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_value_type(&self) -> &ConcreteValueType {
-        &self.value_ty
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_pacing_type(&self) -> &ConcretePacingType {
-        &self.pacing_ty
-    }
-
-    #[allow(dead_code)] // Todo: Actually use Typechecker
-    pub fn get_instance_expressions(&self) -> (&Expression, &Expression, &Expression) {
-        (&self.spawn.1, &self.filter, &self.close)
-    }
 }

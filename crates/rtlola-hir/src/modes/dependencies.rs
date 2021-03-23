@@ -1,47 +1,29 @@
-use crate::hir::{SRef, WRef};
-use rtlola_reporting::Handler;
-
-use super::{DepAna, DepAnaMode, DepAnaTrait, TypedMode, TypedTrait};
-
-use std::collections::HashMap;
-use std::convert::TryFrom;
-
+use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{Expression, ExpressionKind};
+use crate::hir::{FnExprKind, SRef, WRef, WidenExprKind};
 use crate::hir::{Hir, StreamReference};
 use crate::{
     hir::{Offset, StreamAccessKind},
     modes::{HirMode, IrExprTrait},
 };
 use petgraph::Outgoing;
-use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex, stable_graph::StableGraph};
+use petgraph::{algo::has_path_connecting, algo::is_cyclic_directed, graph::NodeIndex};
+use std::collections::HashMap;
+use std::convert::TryFrom;
+
+pub use petgraph::stable_graph::StableGraph;
 
 /// Contains information regarding the dependency between two streams which occurs due to a lookup expression.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Dependency {
+pub(crate) struct Dependency {
     /// The target of the lookup.
-    pub stream: StreamReference,
+    pub(crate) stream: StreamReference,
     /// The offset of the lookup.
-    pub offsets: Vec<Offset>,
-}
-
-impl Hir<DepAnaMode> {
-    pub fn type_check(self, handler: &Handler) -> std::result::Result<Hir<TypedMode>, String> {
-        let tts = crate::type_check::type_check(&self, handler)?;
-
-        let mode = TypedMode { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, types: tts };
-        Ok(Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        })
-    }
+    pub(crate) offsets: Vec<Offset>,
 }
 
 #[derive(Hash, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum EdgeWeight {
+pub enum EdgeWeight {
     Offset(i32),
     Aggr(WRef),
     Hold,
@@ -52,7 +34,7 @@ pub(crate) enum EdgeWeight {
 
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
-pub(crate) type DependencyGraph = StableGraph<SRef, EdgeWeight>;
+pub type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
 pub(crate) trait ExtendedDepGraph {
     fn without_negative_offset_edges(&self) -> Self;
@@ -71,7 +53,7 @@ pub(crate) trait ExtendedDepGraph {
 
     fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
     where
-        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
         Self: Sized;
 }
 
@@ -110,7 +92,7 @@ impl ExtendedDepGraph for DependencyGraph {
 
     fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
     where
-        M: IrExprTrait + HirMode + 'static + DepAnaTrait + TypedTrait,
+        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
         Self: Sized,
     {
         // remove edges and nodes, so mapping does not change
@@ -197,7 +179,7 @@ type Result<T> = std::result::Result<T, DependencyErr>;
 impl DepAna {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna>
     where
-        M: IrExprTrait + HirMode + 'static,
+        M: IrExprTrait + HirMode,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
@@ -348,7 +330,7 @@ impl DepAna {
 
     fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>
     where
-        M: IrExprTrait + HirMode + 'static,
+        M: IrExprTrait + HirMode,
     {
         match &expr.kind {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
@@ -367,7 +349,7 @@ impl DepAna {
                 args.iter().flat_map(|a| Self::collect_edges(spec, src, a).into_iter()).collect()
             }
             ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect(),
-            ExpressionKind::Function { args, .. } => {
+            ExpressionKind::Function(FnExprKind { args, .. }) => {
                 args.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect()
             }
             ExpressionKind::Ite { condition, consequence, alternative } => Self::collect_edges(spec, src, condition)
@@ -376,7 +358,7 @@ impl DepAna {
                 .chain(Self::collect_edges(spec, src, alternative).into_iter())
                 .collect(),
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(spec, src, content),
-            ExpressionKind::Widen(inner, _) => Self::collect_edges(spec, src, inner),
+            ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => Self::collect_edges(spec, src, inner),
             ExpressionKind::Default { expr, default } => Self::collect_edges(spec, src, expr)
                 .into_iter()
                 .chain(Self::collect_edges(spec, src, default).into_iter())

@@ -1,8 +1,8 @@
 use super::*;
 extern crate regex;
 
-use crate::hir::{Ac, Hir, Input, Output, SpawnTemplate, Trigger};
-use crate::hir::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
+use crate::hir::{self, Ac, FnExprKind, Hir, Input, Output, SpawnTemplate, Trigger};
+use crate::hir::{Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
 use crate::hir::{Offset, StreamAccessKind, StreamReference};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
@@ -18,13 +18,13 @@ use rusttyc::{TcKey, TypeChecker};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Variable(String);
+pub(crate) struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
-pub struct PacingTypeChecker<'a, M>
+pub(crate) struct PacingTypeChecker<'a, M>
 where
-    M: HirMode + IrExprTrait + 'static,
+    M: HirMode + IrExprTrait,
 {
     pub(crate) hir: &'a Hir<M>,
     pub(crate) pacing_tyc: TypeChecker<AbstractPacingType, Variable>,
@@ -61,7 +61,7 @@ where
         res
     }
 
-    pub(crate) fn new_stream_key(&mut self) -> StreamTypeKeys {
+    fn new_stream_key(&mut self) -> StreamTypeKeys {
         let close = self.expression_tyc.new_term_key();
         self.expression_tyc
             .impose(close.concretizes_explicit(AbstractExpressionType::AnyClose))
@@ -74,7 +74,7 @@ where
         }
     }
 
-    pub(crate) fn add_span_to_stream_key(&mut self, keys: StreamTypeKeys, span: Span) {
+    fn add_span_to_stream_key(&mut self, keys: StreamTypeKeys, span: Span) {
         self.pacing_key_span.insert(keys.exp_pacing, span.clone());
         self.pacing_key_span.insert(keys.spawn.0, span.clone());
         self.expression_key_span.insert(keys.spawn.1, span.clone());
@@ -82,7 +82,7 @@ where
         self.expression_key_span.insert(keys.close, span);
     }
 
-    pub(crate) fn impose_more_concrete(
+    fn impose_more_concrete(
         &mut self,
         keys_l: StreamTypeKeys,
         keys_r: StreamTypeKeys,
@@ -95,7 +95,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn generate_keys_for_streams(&mut self) {
+    fn generate_keys_for_streams(&mut self) {
         for input in self.hir.inputs() {
             let key = self.new_stream_key();
             self.node_key.insert(NodeId::SRef(input.sr), key);
@@ -158,7 +158,7 @@ where
     }
 
     /// Binds the key to the given annotated type
-    pub(crate) fn bind_to_annotated_type(
+    fn bind_to_annotated_type(
         &mut self,
         target: TcKey,
         bound: &Ac,
@@ -169,14 +169,14 @@ where
         Ok(())
     }
 
-    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<(), TypeError<PacingErrorKind>> {
+    fn input_infer(&mut self, input: &Input) -> Result<(), TypeError<PacingErrorKind>> {
         let ac = AbstractPacingType::Event(ActivationCondition::Stream(input.sr));
         let keys = self.node_key[&NodeId::SRef(input.sr)];
         self.pacing_tyc.impose(keys.exp_pacing.concretizes_explicit(ac))?;
         Ok(())
     }
 
-    pub(crate) fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
+    fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
         let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         //Todo: add explicit pacing annotation
         let trigger_key = self.node_key[&NodeId::SRef(trigger.sr)].exp_pacing;
@@ -184,7 +184,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn output_infer(&mut self, output: &Output) -> Result<(), TypeError<PacingErrorKind>> {
+    fn output_infer(&mut self, output: &Output) -> Result<(), TypeError<PacingErrorKind>> {
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
         // Type Expression Pacing
@@ -220,7 +220,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn spawn_infer(
+    fn spawn_infer(
         &mut self,
         spawn: &SpawnTemplate,
         stream_keys: StreamTypeKeys,
@@ -272,7 +272,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn filter_infer(
+    fn filter_infer(
         &mut self,
         filter_id: ExprId,
         stream_keys: StreamTypeKeys,
@@ -291,7 +291,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn close_infer(
+    fn close_infer(
         &mut self,
         close_id: ExprId,
         stream_keys: StreamTypeKeys,
@@ -329,7 +329,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
+    fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
         let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
         match &exp.kind {
@@ -421,7 +421,7 @@ where
                     self.impose_more_concrete(term_keys, ele_keys)?;
                 }
             }
-            ExpressionKind::Function { args, .. } => {
+            ExpressionKind::Function(FnExprKind { args, .. }) => {
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.impose_more_concrete(term_keys, arg_key)?;
@@ -431,7 +431,7 @@ where
                 let exp_key = self.expression_infer(&*t)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
             }
-            ExpressionKind::Widen(inner, _) => {
+            ExpressionKind::Widen(hir::WidenExprKind { expr: inner, .. }) => {
                 let exp_key = self.expression_infer(&*inner)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
             }
@@ -472,8 +472,8 @@ where
         let filter = exp_tt[&keys.filter].clone();
         let close = exp_tt[&keys.close].clone();
 
-        let kind_true = ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true)));
-        let kind_false = ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false)));
+        let kind_true = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true)));
+        let kind_false = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false)));
 
         spawn_pacing != ConcretePacingType::Constant
             || spawn_cond.kind.value_neq(&kind_true)
@@ -481,7 +481,7 @@ where
             || close.kind.value_neq(&kind_false)
     }
 
-    pub(crate) fn post_process(
+    fn post_process(
         hir: &Hir<M>,
         nid_key: HashMap<NodeId, StreamTypeKeys>,
         pacing_tt: &TypeTable<AbstractPacingType>,
@@ -582,8 +582,8 @@ where
         //Check that stream without spawn template does not access parameterized stream
         //Check that stream without filter does not access filtered stream
         //Check that stream without close does not access closed stream
-        let kind_true = ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true)));
-        let kind_false = ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false)));
+        let kind_true = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true)));
+        let kind_false = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false)));
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::Expr(output.expr_id)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
@@ -791,7 +791,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::common_ir::{StreamAccessKind, StreamReference};
-    use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
+    use crate::hir::expression::{ArithLogOp, Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
     use crate::hir::RTLolaHIR;
     use crate::modes::IrExprMode;
     use crate::type_check::pacing_types::{ActivationCondition, ConcretePacingType};
@@ -1229,10 +1229,7 @@ mod tests {
 
         assert_eq!(exp_a.expression_pacing, ConcretePacingType::Constant);
         assert_eq!(type_a.spawn.0, ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "x"))));
-        assert_value_eq!(
-            type_a.spawn.1.kind,
-            ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false)))
-        );
+        assert_value_eq!(type_a.spawn.1.kind, ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))));
     }
 
     #[test]
@@ -1698,18 +1695,9 @@ mod tests {
             ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "x")))
         );
         assert_eq!(b.spawn.0, ConcretePacingType::Constant);
-        assert_value_eq!(
-            b.spawn.1.kind,
-            ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true)))
-        );
-        assert_value_eq!(
-            b.filter.kind,
-            ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true)))
-        );
-        assert_value_eq!(
-            b.close.kind,
-            ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false)))
-        );
+        assert_value_eq!(b.spawn.1.kind, ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))));
+        assert_value_eq!(b.filter.kind, ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))));
+        assert_value_eq!(b.close.kind, ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))));
     }
 
     #[test]

@@ -1,13 +1,9 @@
-use super::rusttyc::{Constructable, Variant};
-use super::{
-    rusttyc::{Arity, Partial},
-    ConcretePacingType,
-};
-use crate::hir::Ac;
-use crate::hir::{Constant, ConstantLiteral, ExprId, Expression, ExpressionKind, ValueEq};
+use crate::hir::{Ac, Inlined};
+use crate::hir::{Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
 use crate::modes::HirMode;
 use crate::modes::IrExprTrait;
 use crate::type_check::rtltc::{Emittable, TypeError};
+use crate::type_check::ConcretePacingType;
 use crate::{
     hir::Hir,
     hir::{StreamAccessKind, StreamReference},
@@ -15,6 +11,8 @@ use crate::{
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rtlola_reporting::{Diagnostic, Handler, Span};
+use rusttyc::{Arity, Partial};
+use rusttyc::{Constructable, Variant};
 use rusttyc::{TcErr, TcKey};
 use std::fmt::Debug;
 use uom::lib::collections::HashMap;
@@ -82,14 +80,14 @@ impl Eq for AbstractExpressionType {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StreamTypeKeys {
     /// Key to the AbstractPacingType of the streams expression
-    pub exp_pacing: TcKey,
+    pub(crate) exp_pacing: TcKey,
     /// First element is the key to the AbstractPacingType of the spawn expression
     /// Second element is the key to the AbstractExpressionType of the spawn condition
-    pub spawn: (TcKey, TcKey),
+    pub(crate) spawn: (TcKey, TcKey),
     /// The key to the AbstractExpressionType of the filter expression
-    pub filter: TcKey,
+    pub(crate) filter: TcKey,
     /// The key to the AbstractExpressionType of the close expression
-    pub close: TcKey,
+    pub(crate) close: TcKey,
 }
 
 #[derive(Debug)]
@@ -179,7 +177,7 @@ impl std::ops::BitOr for ActivationCondition {
     }
 }
 impl ActivationCondition {
-    fn flatten(self) -> Self {
+    pub fn flatten(self) -> Self {
         match self {
             ActivationCondition::Conjunction(mut v) | ActivationCondition::Disjunction(mut v) if v.len() == 1 => {
                 v.remove(0)
@@ -188,12 +186,12 @@ impl ActivationCondition {
         }
     }
 
-    pub(crate) fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
+    fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
         use ExpressionKind::*;
         match &ast_expr.kind {
             LoadConstant(c) => match c {
-                Constant::BasicConstant(cl) | Constant::InlinedConstant(cl, _) => match cl {
-                    ConstantLiteral::Bool(b) => {
+                Constant::Basic(lit) | Constant::Inlined(Inlined { lit, .. }) => match lit {
+                    Literal::Bool(b) => {
                         if *b {
                             Ok(ActivationCondition::True)
                         } else {
@@ -512,7 +510,7 @@ impl Freq {
         }
     }
 
-    pub(crate) fn conjunction(&self, other: &Freq) -> Freq {
+    fn conjunction(&self, other: &Freq) -> Freq {
         let (numer_left, denom_left) = match self {
             Freq::Any => return *other,
             Freq::Fixed(f) => (*f.get::<hertz>().numer(), *f.get::<hertz>().denom()),
@@ -603,10 +601,7 @@ impl PrintableVariant for AbstractExpressionType {
 }
 
 impl AbstractPacingType {
-    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(
-        ac: &Ac,
-        hir: &Hir<M>,
-    ) -> Result<(Self, Span), PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode + IrExprTrait>(ac: &Ac, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
         Ok(match ac {
             Ac::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
             Ac::Expr(eid) => {
@@ -654,12 +649,12 @@ impl Constructable for AbstractExpressionType {
 
         match self {
             Self::Any => Ok(Expression {
-                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(true))),
+                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
                 eid: ExprId(u32::max_value()),
                 span: Span::Unknown,
             }),
             Self::AnyClose => Ok(Expression {
-                kind: ExpressionKind::LoadConstant(Constant::BasicConstant(ConstantLiteral::Bool(false))),
+                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
                 eid: ExprId(u32::max_value()),
                 span: Span::Unknown,
             }),
@@ -679,7 +674,7 @@ impl std::fmt::Display for AbstractExpressionType {
 }
 
 impl ConcretePacingType {
-    pub(crate) fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    pub fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
             ConcretePacingType::FixedPeriodic(freq) => {
@@ -698,7 +693,7 @@ impl ConcretePacingType {
         }
     }
 
-    pub(crate) fn from_ac<M: HirMode + IrExprTrait + 'static>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode + IrExprTrait>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
         match ac {
             Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
             Ac::Expr(eid) => {

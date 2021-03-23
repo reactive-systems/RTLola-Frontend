@@ -1,4 +1,4 @@
-use crate::hir::expression::{ArithLogOp, Constant, ConstantLiteral, Expression};
+use crate::hir::{FnExprKind, Inlined, WidenExprKind, expression::{ArithLogOp, Constant, Expression, Literal}};
 use crate::hir::{StreamAccessKind, StreamReference};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ impl Expression {
                 )
             }
             LoadConstant(c) => format!("{}", c),
-            Function { name, args, .. } => {
+            Function(FnExprKind { name, args, .. }) => {
                 format!("{}({})", name, args.iter().map(|e| e.pretty_string(names)).join(", "))
             }
             Tuple(elems) => format!("({})", elems.iter().map(|e| e.pretty_string(names)).join(", ")),
@@ -53,7 +53,7 @@ impl Expression {
             Default { expr, default } => {
                 format!("{}.default({})", expr.pretty_string(names), default.pretty_string(names))
             }
-            Widen(e, ty) => format!("{}({})", ty, e.pretty_string(names)),
+            Widen(WidenExprKind { expr: e, ty }) => format!("{}({})", ty, e.pretty_string(names)),
             TupleAccess(e, idx) => format!("{}.{}", e.pretty_string(names), idx),
             ParameterAccess(sref, idx) => format!("Param({}, {})", names[&sref], idx),
         }
@@ -65,7 +65,9 @@ impl Display for Expression {
         use crate::hir::expression::ExpressionKind::*;
         match &self.kind {
             LoadConstant(c) => write!(f, "{}", c),
-            Function { name, args, .. } => write!(f, "{}({})", name, args.iter().map(|e| format!("{}", e)).join(", ")),
+            Function(FnExprKind { name, args, .. }) => {
+                write!(f, "{}({})", name, args.iter().map(|e| format!("{}", e)).join(", "))
+            }
             Tuple(elems) => write!(f, "({})", elems.iter().map(|e| format!("{}", e)).join(", ")),
             Ite { condition, consequence, alternative, .. } => {
                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
@@ -78,7 +80,7 @@ impl Display for Expression {
                 }
             }
             Default { expr, default } => write!(f, "{}.default({})", expr, default),
-            Widen(e, ty) => write!(f, "{}({})", ty, e),
+            Widen(WidenExprKind { expr: e, ty }) => write!(f, "{}({})", ty, e),
             TupleAccess(e, idx) => write!(f, "{}.{}", e, idx),
             ParameterAccess(sref, idx) => write!(f, "Param(ref: {}, idx: {})", sref, idx),
             StreamAccess(sref, kind, params) => {
@@ -99,15 +101,15 @@ impl Display for Expression {
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let lit = match self {
-            Constant::InlinedConstant(c, _) => c,
-            Constant::BasicConstant(c) => c,
+            Constant::Inlined(Inlined { lit, .. }) => lit,
+            Constant::Basic(c) => c,
         };
         match lit {
-            ConstantLiteral::SInt(v) => write!(f, "{}", v),
-            ConstantLiteral::Integer(v) => write!(f, "{}", v),
-            ConstantLiteral::Float(v) => write!(f, "{}", v),
-            ConstantLiteral::Bool(v) => write!(f, "{}", v),
-            ConstantLiteral::Str(v) => write!(f, "{}", v),
+            Literal::SInt(v) => write!(f, "{}", v),
+            Literal::Integer(v) => write!(f, "{}", v),
+            Literal::Float(v) => write!(f, "{}", v),
+            Literal::Bool(v) => write!(f, "{}", v),
+            Literal::Str(v) => write!(f, "{}", v),
         }
     }
 }

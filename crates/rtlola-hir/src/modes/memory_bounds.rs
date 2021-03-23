@@ -1,8 +1,6 @@
 use num::abs;
 
-use crate::modes::{
-    dependencies::EdgeWeight, ordering::StreamLayers, CompleteMode, MemBound, MemBoundMode, MemBoundTrait, OrderedMode,
-};
+use crate::modes::{dependencies::EdgeWeight, MemBound, MemBoundTrait};
 
 use crate::hir::{Hir, SRef};
 use crate::modes::{DepAnaTrait, HirMode};
@@ -29,13 +27,6 @@ impl MemorizationBound {
         }
     }
 
-    /// Produces the memory bound.  If it is unbounded, the default value will be returned.
-    pub fn unwrap_or(self, dft: u16) -> u16 {
-        match self {
-            MemorizationBound::Bounded(b) => b,
-            MemorizationBound::Unbounded => dft,
-        }
-    }
     /// Produces `Some(v)` if the memory bound is finite and `v` and `None` if it is unbounded.
     pub fn as_opt(self) -> Option<u16> {
         match self {
@@ -58,72 +49,9 @@ impl PartialOrd for MemorizationBound {
     }
 }
 
-/// The size of a specific value in bytes.
-#[derive(Debug, Clone, Copy)]
-pub struct ValSize(pub u32); // Needs to be reasonable large for compound types.
-
-impl From<u8> for ValSize {
-    fn from(val: u8) -> ValSize {
-        ValSize(u32::from(val))
-    }
-}
-
-impl std::ops::Add for ValSize {
-    type Output = ValSize;
-    fn add(self, rhs: ValSize) -> ValSize {
-        ValSize(self.0 + rhs.0)
-    }
-}
-
-impl Hir<MemBoundMode> {
-    pub fn finalize(self) -> Hir<CompleteMode> {
-        let mode = CompleteMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: self.mode.types,
-            layers: self.mode.layers,
-            memory: self.mode.memory,
-        };
-
-        Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        }
-    }
-}
-
 impl MemBoundTrait for MemBound {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.memory_bound_per_stream[&sr]
-    }
-}
-
-pub(crate) type LayerRepresentation = HashMap<SRef, StreamLayers>;
-impl Hir<OrderedMode> {
-    pub fn compute_memory_bounds(self) -> Hir<MemBoundMode> {
-        //TODO: forward config argument
-        let memory = MemBound::analyze(&self, false);
-
-        let mode = MemBoundMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: self.mode.types,
-            layers: self.mode.layers,
-            memory,
-        };
-
-        Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            mode,
-        }
     }
 }
 
@@ -132,7 +60,7 @@ impl MemBound {
     const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
     pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
     where
-        M: HirMode + 'static + DepAnaTrait,
+        M: HirMode + DepAnaTrait,
     {
         // Assign streams to default value
         let mut memory_bounds = spec
