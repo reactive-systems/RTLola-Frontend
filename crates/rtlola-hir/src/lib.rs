@@ -2,6 +2,7 @@
 
 pub mod hir;
 mod modes;
+mod stdlib;
 pub mod type_check;
 
 pub use hir::RtLolaHir;
