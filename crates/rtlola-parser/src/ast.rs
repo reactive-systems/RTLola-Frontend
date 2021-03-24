@@ -6,9 +6,10 @@ Every node in the abstract syntax tree is assigned a unique id and stores the ma
 mod conversion;
 mod print;
 
+use std::rc::Rc;
+
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
-use std::rc::Rc;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the AST node, the span in the input specification file, and declaration specific components.
 #[derive(Debug, Default, Clone)]
@@ -271,19 +272,35 @@ pub struct Type {
 
 impl Type {
     pub(crate) fn new_simple(id: NodeId, name: String, span: Span) -> Type {
-        Type { id, kind: TypeKind::Simple(name), span }
+        Type {
+            id,
+            kind: TypeKind::Simple(name),
+            span,
+        }
     }
 
     pub(crate) fn new_tuple(id: NodeId, tuple: Vec<Type>, span: Span) -> Type {
-        Type { id, kind: TypeKind::Tuple(tuple), span }
+        Type {
+            id,
+            kind: TypeKind::Tuple(tuple),
+            span,
+        }
     }
 
     pub(crate) fn new_optional(id: NodeId, name: Type, span: Span) -> Type {
-        Type { id, kind: TypeKind::Optional(name.into()), span }
+        Type {
+            id,
+            kind: TypeKind::Optional(name.into()),
+            span,
+        }
     }
 
     pub(crate) fn new_inferred(id: NodeId) -> Type {
-        Type { id, kind: TypeKind::Inferred, span: Span::Unknown }
+        Type {
+            id,
+            kind: TypeKind::Inferred,
+            span: Span::Unknown,
+        }
     }
 }
 
@@ -450,19 +467,35 @@ pub struct Literal {
 
 impl Literal {
     pub(crate) fn new_bool(id: NodeId, val: bool, span: Span) -> Literal {
-        Literal { id, kind: LitKind::Bool(val), span }
+        Literal {
+            id,
+            kind: LitKind::Bool(val),
+            span,
+        }
     }
 
     pub(crate) fn new_numeric(id: NodeId, val: &str, unit: Option<String>, span: Span) -> Literal {
-        Literal { id, kind: LitKind::Numeric(val.to_string(), unit), span }
+        Literal {
+            id,
+            kind: LitKind::Numeric(val.to_string(), unit),
+            span,
+        }
     }
 
     pub(crate) fn new_str(id: NodeId, val: &str, span: Span) -> Literal {
-        Literal { id, kind: LitKind::Str(val.to_string()), span }
+        Literal {
+            id,
+            kind: LitKind::Str(val.to_string()),
+            span,
+        }
     }
 
     pub(crate) fn new_raw_str(id: NodeId, val: &str, span: Span) -> Literal {
-        Literal { id, kind: LitKind::RawStr(val.to_string()), span }
+        Literal {
+            id,
+            kind: LitKind::RawStr(val.to_string()),
+            span,
+        }
     }
 }
 
@@ -558,7 +591,10 @@ impl FunctionName {
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
         Self {
             name: Ident::new(name, Span::Unknown),
-            arg_names: arg_names.iter().map(|o| o.clone().map(|s| Ident::new(s, Span::Unknown))).collect(),
+            arg_names: arg_names
+                .iter()
+                .map(|o| o.clone().map(|s| Ident::new(s, Span::Unknown)))
+                .collect(),
         }
     }
 }

@@ -1,13 +1,15 @@
+use std::cmp::max;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+
+use itertools::Itertools;
+use rtlola_reporting::{Diagnostic, Span};
+use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
+
 use super::*;
 use crate::hir::{AnnotatedType, StreamReference};
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{Emittable, TypeError};
-use itertools::Itertools;
-use rtlola_reporting::{Diagnostic, Span};
-use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
-use std::cmp::max;
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone)]
 pub(crate) enum ValueErrorKind {
@@ -97,7 +99,10 @@ impl Variant for AbstractValueType {
             (Option, Option) => Ok((Option, 1)),
             (Option, _) | (_, Option) => Err(TypeClash(lhs.variant, rhs.variant)),
         }?;
-        Ok(Partial { variant: new_var, least_arity: min_arity })
+        Ok(Partial {
+            variant: new_var,
+            least_arity: min_arity,
+        })
     }
 
     fn arity(&self) -> Arity {
@@ -163,14 +168,16 @@ impl ConcreteValueType {
             AnnotatedType::UInt(w) if *w <= 32 => Ok(ConcreteValueType::UInteger32),
             AnnotatedType::UInt(w) if *w <= 64 => Ok(ConcreteValueType::UInteger64),
             AnnotatedType::UInt(_) => Err(AnnotationTooWide(at.clone())),
-            AnnotatedType::Tuple(children) => children
-                .iter()
-                .map(ConcreteValueType::from_annotated_type)
-                .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
-                .map(ConcreteValueType::Tuple),
+            AnnotatedType::Tuple(children) => {
+                children
+                    .iter()
+                    .map(ConcreteValueType::from_annotated_type)
+                    .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
+                    .map(ConcreteValueType::Tuple)
+            },
             AnnotatedType::Option(child) => {
                 ConcreteValueType::from_annotated_type(child).map(|child| ConcreteValueType::Option(Box::new(child)))
-            }
+            },
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
 
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
@@ -213,7 +220,7 @@ impl Display for ConcreteValueType {
             ConcreteValueType::Float64 => write!(f, "Float64"),
             ConcreteValueType::Tuple(children) => {
                 write!(f, "({})", children.iter().map(|c| c.to_string()).join(", "))
-            }
+            },
             ConcreteValueType::TString => write!(f, "String"),
             ConcreteValueType::Byte => write!(f, "Byte"),
             ConcreteValueType::Option(c) => write!(f, "Option<{}>", c),
@@ -224,21 +231,52 @@ impl Display for ConcreteValueType {
 impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
     fn from(err: TcErr<AbstractValueType>) -> Self {
         match err {
-            TcErr::KeyEquation(key1, key2, err) => TypeError { kind: err, key1: Some(key1), key2: Some(key2) },
-            TcErr::Bound(key1, key2, err) => TypeError { kind: err, key1: Some(key1), key2 },
-            TcErr::ChildAccessOutOfBound(key, value_ty, index) => {
-                TypeError { kind: ValueErrorKind::AccessOutOfBound(value_ty, index), key1: Some(key), key2: None }
-            }
-            TcErr::ArityMismatch { key, variant, inferred_arity, reported_arity } => TypeError {
-                kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
-                key1: Some(key),
-                key2: None,
+            TcErr::KeyEquation(key1, key2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key1),
+                    key2: Some(key2),
+                }
             },
-            TcErr::Construction(key, _, err) => TypeError { kind: err, key1: Some(key), key2: None },
-            TcErr::ChildConstruction(key, idx, parent, err) => TypeError {
-                kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
-                key1: Some(key),
-                key2: None,
+            TcErr::Bound(key1, key2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key1),
+                    key2,
+                }
+            },
+            TcErr::ChildAccessOutOfBound(key, value_ty, index) => {
+                TypeError {
+                    kind: ValueErrorKind::AccessOutOfBound(value_ty, index),
+                    key1: Some(key),
+                    key2: None,
+                }
+            },
+            TcErr::ArityMismatch {
+                key,
+                variant,
+                inferred_arity,
+                reported_arity,
+            } => {
+                TypeError {
+                    kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
+                    key1: Some(key),
+                    key2: None,
+                }
+            },
+            TcErr::Construction(key, _, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key),
+                    key2: None,
+                }
+            },
+            TcErr::ChildConstruction(key, idx, parent, err) => {
+                TypeError {
+                    kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
+                    key1: Some(key),
+                    key2: None,
+                }
             },
         }
     }
@@ -265,7 +303,7 @@ impl Emittable for ValueErrorKind {
                 .maybe_add_span_with_label(span1, Some(&format!("found {} here", ty1)), true)
                 .maybe_add_span_with_label(span2, Some(&format!("found {} here", ty2)), false)
                 .emit()
-            }
+            },
             ValueErrorKind::TupleSize(size1, size2) => {
                 let span1 = key1.and_then(|k| spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| spans.get(&k).cloned());
@@ -279,76 +317,102 @@ impl Emittable for ValueErrorKind {
                 .maybe_add_span_with_label(span1, Some(&format!("found Tuple of size {} here", size1)), true)
                 .maybe_add_span_with_label(span2, Some(&format!("found Tuple of size {} here", size2)), false)
                 .emit()
-            }
-            ValueErrorKind::ReificationTooWide(ty) => Diagnostic::error(
-                handler,
-                &format!("In value type analysis:\nType {} is too wide to be concretized", ty),
-            )
-            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            .emit(),
+            },
+            ValueErrorKind::ReificationTooWide(ty) => {
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nType {} is too wide to be concretized", ty),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit()
+            },
             ValueErrorKind::CannotReify(ty) => {
-                Diagnostic::error(handler, &format!("In value type analysis:\nType {} cannot be concretized", ty))
-                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                    .add_note("Help: Consider an explicit type annotation.")
-                    .emit()
-            }
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nType {} cannot be concretized", ty),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .add_note("Help: Consider an explicit type annotation.")
+                .emit()
+            },
             ValueErrorKind::AnnotationTooWide(ty) => {
-                Diagnostic::error(handler, &format!("In value type analysis:\nAnnotated Type {} is too wide", ty))
-                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                    .emit()
-            }
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nAnnotated Type {} is too wide", ty),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit()
+            },
             ValueErrorKind::AnnotationInvalid(ty) => {
-                Diagnostic::error(handler, &format!("In value type analysis:\nUnknown annotated type: {}", ty))
-                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                    .add_note("Help: Consider an explicit type annotation.")
-                    .emit()
-            }
-            ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => Diagnostic::error(
-                handler,
-                "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
-            )
-            .maybe_add_span_with_label(
-                key1.and_then(|k| spans.get(&k).cloned()),
-                Some(&format!("Found offset with duration {} here", dur)),
-                true,
-            )
-            .maybe_add_span_with_label(
-                key2.and_then(|k| spans.get(&k).cloned()),
-                Some(&format!("Target stream with frequency {} is found here", freq)),
-                false,
-            )
-            .emit(),
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nUnknown annotated type: {}", ty),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .add_note("Help: Consider an explicit type annotation.")
+                .emit()
+            },
+            ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => {
+                Diagnostic::error(
+                    handler,
+                    "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
+                )
+                .maybe_add_span_with_label(
+                    key1.and_then(|k| spans.get(&k).cloned()),
+                    Some(&format!("Found offset with duration {} here", dur)),
+                    true,
+                )
+                .maybe_add_span_with_label(
+                    key2.and_then(|k| spans.get(&k).cloned()),
+                    Some(&format!("Target stream with frequency {} is found here", freq)),
+                    false,
+                )
+                .emit()
+            },
 
-            ValueErrorKind::ExactTypeMismatch(inferred, expected) => Diagnostic::error(
-                handler,
-                &format!("In value type analysis:\nInferred type {} but expected {}.", inferred, expected),
-            )
-            .maybe_add_span_with_label(
-                key1.and_then(|k| spans.get(&k).cloned()),
-                Some(&format!("Expected {} here", expected)),
-                true,
-            )
-            .maybe_add_span_with_label(
-                key2.and_then(|k| spans.get(&k).cloned()),
-                Some(&format!("But inferred {} here", inferred)),
-                false,
-            )
-            .emit(),
-            ValueErrorKind::AccessOutOfBound(ty, idx) => Diagnostic::error(
-                handler,
-                &format!("In value type analysis:\nChild at index {} does not exists in type {}", idx - 1, ty),
-            )
-            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            .emit(),
-            ValueErrorKind::ArityMismatch(ty, inferred, expected) => Diagnostic::error(
-                handler,
-                &format!(
-                    "In value type analysis:\nExpected type {} to have {} children but inferred {}",
-                    ty, expected, inferred
-                ),
-            )
-            .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            .emit(),
+            ValueErrorKind::ExactTypeMismatch(inferred, expected) => {
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "In value type analysis:\nInferred type {} but expected {}.",
+                        inferred, expected
+                    ),
+                )
+                .maybe_add_span_with_label(
+                    key1.and_then(|k| spans.get(&k).cloned()),
+                    Some(&format!("Expected {} here", expected)),
+                    true,
+                )
+                .maybe_add_span_with_label(
+                    key2.and_then(|k| spans.get(&k).cloned()),
+                    Some(&format!("But inferred {} here", inferred)),
+                    false,
+                )
+                .emit()
+            },
+            ValueErrorKind::AccessOutOfBound(ty, idx) => {
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "In value type analysis:\nChild at index {} does not exists in type {}",
+                        idx - 1,
+                        ty
+                    ),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit()
+            },
+            ValueErrorKind::ArityMismatch(ty, inferred, expected) => {
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "In value type analysis:\nExpected type {} to have {} children but inferred {}",
+                        ty, expected, inferred
+                    ),
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                .emit()
+            },
             ValueErrorKind::ChildConstruction(child_err, parent, idx) => {
                 let reason = match child_err.as_ref() {
                     ValueErrorKind::ReificationTooWide(ty) => format!("Type {} is too wide to be concretized", ty),
@@ -364,7 +428,7 @@ impl Emittable for ValueErrorKind {
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .emit()
-            }
+            },
         }
     }
 }

@@ -1,12 +1,14 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+use rtlola_reporting::{Handler, Span};
+use rusttyc::TcKey;
+
 use crate::hir::{ExprId, Hir, StreamReference};
 use crate::modes::{HirMode, Typed};
 use crate::type_check::pacing_ast_climber::PacingTypeChecker;
 use crate::type_check::value_ast_climber::ValueTypeChecker;
 use crate::type_check::{ConcreteStreamPacing, ConcreteValueType, StreamType};
-use rtlola_reporting::{Handler, Span};
-use rusttyc::TcKey;
-use std::cmp::Ordering;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct LolaTypeChecker<'a, M>
@@ -43,7 +45,11 @@ pub(crate) struct TypeError<K: Emittable> {
 
 impl<E: Emittable> From<E> for TypeError<E> {
     fn from(kind: E) -> Self {
-        TypeError { kind, key1: None, key2: None }
+        TypeError {
+            kind,
+            key1: None,
+            key2: None,
+        }
     }
 }
 
@@ -97,13 +103,13 @@ where
             match id {
                 NodeId::SRef(sref) => {
                     stream_map.insert(*sref, st);
-                }
+                },
                 NodeId::Expr(id) => {
                     expression_map.insert(*id, st);
-                }
+                },
                 NodeId::Param(id, sref) => {
                     parameters.insert((*sref, *id), st.value_ty);
-                }
+                },
             }
         });
 
@@ -147,7 +153,7 @@ where
             Err(e) => {
                 TypeError::from(e).emit(self.handler, &[&ctx.key_span], &self.names);
                 return None;
-            }
+            },
         };
 
         for err in ValueTypeChecker::<M>::check_explicit_bounds(ctx.annotated_checks.clone(), &tt) {
@@ -157,7 +163,11 @@ where
             return None;
         }
 
-        let result_map = ctx.node_key.into_iter().map(|(node, key)| (node, tt[&key].clone())).collect();
+        let result_map = ctx
+            .node_key
+            .into_iter()
+            .map(|(node, key)| (node, tt[&key].clone()))
+            .collect();
         Some(result_map)
     }
 }
@@ -175,13 +185,15 @@ impl PartialOrd for NodeId {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use reporting::Handler;
+    use rtlola_parser::ast::RtLolaAst;
+
     use crate::hir::RTLolaHIR;
     use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::type_check::rtltc::LolaTypeChecker;
-    use reporting::Handler;
-    use rtlola_parser::ast::RtLolaAst;
-    use std::path::PathBuf;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());

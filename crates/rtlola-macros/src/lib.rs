@@ -90,24 +90,28 @@ fn generate_blanket(
     inner_fn_name: &Ident,
     content: &[TraitItem],
 ) -> TokenStream {
-    let content = content.iter().filter_map(|c| match c {
-        TraitItem::Method(m) => Some(m),
-        _ => None,
+    let content = content.iter().filter_map(|c| {
+        match c {
+            TraitItem::Method(m) => Some(m),
+            _ => None,
+        }
     });
     let sig = content.clone().map(|c| &c.sig);
     let args = content.clone().cloned().map(|c| c.sig.inputs).map(|args| {
         let mut ret = Punctuated::<Ident, Token![,]>::new();
         for (arg, opt_p) in args.into_pairs().map(Pair::into_tuple) {
             match arg {
-                FnArg::Receiver(_) => {} // Skip receiver (self etc)
-                FnArg::Typed(PatType { pat, .. }) => match *pat {
-                    Pat::Ident(PatIdent { ident, .. }) => {
-                        ret.push_value(ident);
-                        if let Some(p) = opt_p {
-                            ret.push_punct(p);
-                        }
+                FnArg::Receiver(_) => {}, // Skip receiver (self etc)
+                FnArg::Typed(PatType { pat, .. }) => {
+                    match *pat {
+                        Pat::Ident(PatIdent { ident, .. }) => {
+                            ret.push_value(ident);
+                            if let Some(p) = opt_p {
+                                ret.push_punct(p);
+                            }
+                        },
+                        _ => panic!("Inner WTF"),
                     }
-                    _ => panic!("Inner WTF"),
                 },
             }
         }
@@ -183,6 +187,6 @@ fn extract_path(nm: &NestedMeta) -> &Path {
         NestedMeta::Meta(Meta::Path(p)) => p,
         NestedMeta::Meta(_) | NestedMeta::Lit(_) => {
             panic!("extends_mode needs two arguments: the subsumed mode and a field refering to one.")
-        }
+        },
     }
 }

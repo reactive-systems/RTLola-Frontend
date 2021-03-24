@@ -2,13 +2,23 @@
 extern crate rtlola_macros;
 
 fn main() {
-    let hir_a = Hir { mode: ModeA { a: A {} } };
+    let hir_a = Hir {
+        mode: ModeA { a: A {} },
+    };
     hir_a.a(3);
-    let hir_b = Hir { mode: ModeB { a: A {}, b: B {} } };
+    let hir_b = Hir {
+        mode: ModeB { a: A {}, b: B {} },
+    };
     hir_b.a(5);
     hir_b.b();
 
-    let hir_c = Hir { mode: ModeC { a: A {}, b: B {}, c: C {} } };
+    let hir_c = Hir {
+        mode: ModeC {
+            a: A {},
+            b: B {},
+            c: C {},
+        },
+    };
     hir_c.a(5);
     hir_c.b();
     hir_c.c();

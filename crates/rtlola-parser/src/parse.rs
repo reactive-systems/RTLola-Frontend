@@ -1,8 +1,9 @@
 //! This module contains the parser for the Lola Language.
 
-use super::ast::*;
-use crate::ast::Literal;
-use crate::ParserConfig;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::str::FromStr;
+
 use lazy_static::lazy_static;
 use num::rational::Rational64 as Rational;
 use num::traits::Pow;
@@ -12,9 +13,10 @@ use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use pest_derive::Parser;
 use rtlola_reporting::{Handler, Span};
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::str::FromStr;
+
+use super::ast::*;
+use crate::ast::Literal;
+use crate::ParserConfig;
 
 #[derive(Parser)]
 #[grammar = "lola.pest"]
@@ -55,7 +57,12 @@ lazy_static! {
 
 impl<'a> RTLolaParser<'a> {
     pub(crate) fn new(handler: &'a Handler, config: ParserConfig) -> Self {
-        RTLolaParser { spec: RtLolaAst::new(), handler, config, node_id: RefCell::new(NodeId::new(0)) }
+        RTLolaParser {
+            spec: RtLolaAst::new(),
+            handler,
+            config,
+            node_id: RefCell::new(NodeId::new(0)),
+        }
     }
 
     /**
@@ -76,28 +83,28 @@ impl<'a> RTLolaParser<'a> {
                 Rule::ImportStmt => {
                     let import = self.parse_import(pair);
                     self.spec.imports.push(import);
-                }
+                },
                 Rule::ConstantStream => {
                     let constant = self.parse_constant(pair);
                     self.spec.constants.push(Rc::new(constant));
-                }
+                },
                 Rule::InputStream => {
                     let inputs = self.parse_inputs(pair);
                     self.spec.inputs.extend(inputs.into_iter().map(Rc::new));
-                }
+                },
                 Rule::OutputStream => {
                     let output = self.parse_output(pair);
                     self.spec.outputs.push(Rc::new(output));
-                }
+                },
                 Rule::Trigger => {
                     let trigger = self.parse_trigger(pair);
                     self.spec.trigger.push(Rc::new(trigger));
-                }
+                },
                 Rule::TypeDecl => {
                     let type_decl = self.parse_type_declaration(pair);
                     self.spec.type_declarations.push(type_decl);
-                }
-                Rule::EOI => {}
+                },
+                Rule::EOI => {},
                 _ => unreachable!(),
             }
         }
@@ -115,7 +122,11 @@ impl<'a> RTLolaParser<'a> {
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner();
         let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
-        Import { name, id: self.next_id(), span }
+        Import {
+            name,
+            id: self.next_id(),
+            span,
+        }
     }
 
     /**
@@ -133,7 +144,13 @@ impl<'a> RTLolaParser<'a> {
         let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
         let ty = self.parse_type(pairs.next().expect("mismatch between grammar and AST"));
         let literal = self.parse_literal(pairs.next().expect("mismatch between grammar and AST"));
-        Constant { id: self.next_id(), name, ty: Some(ty), literal, span }
+        Constant {
+            id: self.next_id(),
+            name,
+            ty: Some(ty),
+            literal,
+            span,
+        }
     }
 
     /**
@@ -213,9 +230,17 @@ impl<'a> RTLolaParser<'a> {
             let span: Span = pair.as_span().into();
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            ActivationCondition { expr: Some(expr), id: self.next_id(), span }
+            ActivationCondition {
+                expr: Some(expr),
+                id: self.next_id(),
+                span,
+            }
         } else {
-            ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
+            ActivationCondition {
+                expr: None,
+                id: self.next_id(),
+                span: Span::Unknown,
+            }
         };
 
         let spawn = if let Rule::SpawnDecl = pair.as_rule() {
@@ -271,7 +296,13 @@ impl<'a> RTLolaParser<'a> {
             } else {
                 Type::new_inferred(self.next_id())
             };
-            params.push(Parameter { name, ty, param_idx: ix, id: self.next_id(), span });
+            params.push(Parameter {
+                name,
+                ty,
+                param_idx: ix,
+                id: self.next_id(),
+                span,
+            });
         }
         params
     }
@@ -287,12 +318,24 @@ impl<'a> RTLolaParser<'a> {
                 let span: Span = pair.as_span().into();
                 let expr = self.build_expression_ast(pair.into_inner());
                 next_pair = spawn_children.next();
-                ActivationCondition { expr: Some(expr), id: self.next_id(), span }
+                ActivationCondition {
+                    expr: Some(expr),
+                    id: self.next_id(),
+                    span,
+                }
             } else {
-                ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
+                ActivationCondition {
+                    expr: None,
+                    id: self.next_id(),
+                    span: Span::Unknown,
+                }
             }
         } else {
-            ActivationCondition { expr: None, id: self.next_id(), span: Span::Unknown }
+            ActivationCondition {
+                expr: None,
+                id: self.next_id(),
+                span: Span::Unknown,
+            }
         };
 
         let target = if let Some(pair) = next_pair.clone() {
@@ -328,7 +371,14 @@ impl<'a> RTLolaParser<'a> {
                 Some("found spawn condition here"),
             );
         }
-        SpawnSpec { target, pacing, condition, is_if, id: self.next_id(), span: span_inv }
+        SpawnSpec {
+            target,
+            pacing,
+            condition,
+            is_if,
+            id: self.next_id(),
+            span: span_inv,
+        }
     }
 
     fn parse_filter_spec(&self, ext_pair: Pair<'_, Rule>) -> FilterSpec {
@@ -341,7 +391,11 @@ impl<'a> RTLolaParser<'a> {
             Rule::Expr => self.build_expression_ast(first_child.into_inner()),
             _ => unreachable!(),
         };
-        FilterSpec { target, id: self.next_id(), span: span_ext }
+        FilterSpec {
+            target,
+            id: self.next_id(),
+            span: span_ext,
+        }
     }
 
     fn parse_close_spec(&self, close_pair: Pair<'_, Rule>) -> CloseSpec {
@@ -354,7 +408,11 @@ impl<'a> RTLolaParser<'a> {
             Rule::Expr => self.build_expression_ast(first_child.into_inner()),
             _ => unreachable!(),
         };
-        CloseSpec { target, id: self.next_id(), span: span_close }
+        CloseSpec {
+            target,
+            id: self.next_id(),
+            span: span_close,
+        }
     }
 
     /**
@@ -386,7 +444,13 @@ impl<'a> RTLolaParser<'a> {
             message = Some(pair.as_str().to_string());
         }
 
-        Trigger { id: self.next_id(), name, expression, message, span }
+        Trigger {
+            id: self.next_id(),
+            name,
+            expression,
+            message,
+            span,
+        }
     }
 
     /**
@@ -420,7 +484,12 @@ impl<'a> RTLolaParser<'a> {
             }));
         }
 
-        TypeDeclaration { name: Some(name), span, id: self.next_id(), fields }
+        TypeDeclaration {
+            name: Some(name),
+            span,
+            id: self.next_id(),
+            fields,
+        }
     }
 
     /**
@@ -435,15 +504,17 @@ impl<'a> RTLolaParser<'a> {
             match pair.as_rule() {
                 Rule::Ident => {
                     return Type::new_simple(self.next_id(), pair.as_str().to_string(), pair.as_span().into());
-                }
+                },
                 Rule::Type => tuple.push(self.parse_type(pair)),
                 Rule::Optional => {
                     let span = pair.as_span();
-                    let inner =
-                        pair.into_inner().next().expect("mismatch between grammar and AST: first argument is a type");
+                    let inner = pair
+                        .into_inner()
+                        .next()
+                        .expect("mismatch between grammar and AST: first argument is a type");
                     let inner_ty = Type::new_simple(self.next_id(), inner.as_str().to_string(), inner.as_span().into());
                     return Type::new_optional(self.next_id(), inner_ty, span.into());
-                }
+                },
                 _ => unreachable!("{:?} is not a type, ensured by grammar", pair.as_rule()),
             }
         }
@@ -461,11 +532,11 @@ impl<'a> RTLolaParser<'a> {
             Rule::String => {
                 let str_rep = inner.as_str();
                 Literal::new_str(self.next_id(), str_rep, inner.as_span().into())
-            }
+            },
             Rule::RawString => {
                 let str_rep = inner.as_str();
                 Literal::new_raw_str(self.next_id(), str_rep, inner.as_span().into())
-            }
+            },
             Rule::NumberLiteral => {
                 let span = inner.as_span();
                 let mut pairs = inner.into_inner();
@@ -478,7 +549,7 @@ impl<'a> RTLolaParser<'a> {
                 };
 
                 Literal::new_numeric(self.next_id(), str_rep, unit, span.into())
-            }
+            },
             Rule::True => Literal::new_bool(self.next_id(), true, inner.as_span().into()),
             Rule::False => Literal::new_bool(self.next_id(), false, inner.as_span().into()),
             _ => unreachable!(),
@@ -487,7 +558,10 @@ impl<'a> RTLolaParser<'a> {
 
     #[allow(clippy::vec_box)]
     fn parse_vec_of_expressions(&self, pairs: Pairs<'_, Rule>) -> Vec<Box<Expression>> {
-        pairs.map(|expr| self.build_expression_ast(expr.into_inner())).map(Box::new).collect()
+        pairs
+            .map(|expr| self.build_expression_ast(expr.into_inner()))
+            .map(Box::new)
+            .collect()
     }
 
     fn parse_vec_of_types(&self, pairs: Pairs<'_, Rule>) -> Vec<Type> {
@@ -503,7 +577,7 @@ impl<'a> RTLolaParser<'a> {
                 let params = self.parse_vec_of_types(next.into_inner());
                 next = children.next().expect("Mismatch between AST and parser");
                 params
-            }
+            },
             Rule::FunctionArgs => Vec::new(),
             _ => unreachable!(),
         };
@@ -523,7 +597,10 @@ impl<'a> RTLolaParser<'a> {
             }
             args.push(self.build_expression_ast(pair.into_inner()).into());
         }
-        let name = FunctionName { name: fun_name, arg_names };
+        let name = FunctionName {
+            name: fun_name,
+            arg_names,
+        };
         Expression::new(self.next_id(), ExpressionKind::Function(name, type_params, args), span)
     }
 
@@ -757,9 +834,19 @@ impl<'a> RTLolaParser<'a> {
         match pair.as_rule() {
             // Map function from `Pair` to AST data structure `Expression`
             Rule::Literal => {
-                Expression::new(self.next_id(), ExpressionKind::Lit(self.parse_literal(pair)), span.into())
-            }
-            Rule::Ident => Expression::new(self.next_id(), ExpressionKind::Ident(self.parse_ident(&pair)), span.into()),
+                Expression::new(
+                    self.next_id(),
+                    ExpressionKind::Lit(self.parse_literal(pair)),
+                    span.into(),
+                )
+            },
+            Rule::Ident => {
+                Expression::new(
+                    self.next_id(),
+                    ExpressionKind::Ident(self.parse_ident(&pair)),
+                    span.into(),
+                )
+            },
             Rule::ParenthesizedExpression => {
                 let mut inner = pair.into_inner();
                 let opp = inner.next().expect(
@@ -771,8 +858,9 @@ impl<'a> RTLolaParser<'a> {
                     None
                 };
 
-                let inner_expression =
-                    inner.next().expect("Rule::ParenthesizedExpression has a token for the contained expression");
+                let inner_expression = inner
+                    .next()
+                    .expect("Rule::ParenthesizedExpression has a token for the contained expression");
 
                 let closing = inner.next().expect(
                     "Rule::ParenthesizedExpression has a token for the (potentialy missing) closing parenthesis",
@@ -792,7 +880,7 @@ impl<'a> RTLolaParser<'a> {
                     ),
                     span.into(),
                 )
-            }
+            },
             Rule::UnaryExpr => {
                 // First child is the operator, second the operand.
                 let mut children = pair.into_inner();
@@ -806,8 +894,12 @@ impl<'a> RTLolaParser<'a> {
                     Rule::BitNot => UnOp::BitNot,
                     _ => unreachable!(),
                 };
-                Expression::new(self.next_id(), ExpressionKind::Unary(operator, Box::new(operand)), span.into())
-            }
+                Expression::new(
+                    self.next_id(),
+                    ExpressionKind::Unary(operator, Box::new(operand)),
+                    span.into(),
+                )
+            },
             Rule::TernaryExpr => {
                 let mut children = self.parse_vec_of_expressions(pair.into_inner());
                 assert_eq!(children.len(), 3, "A ternary expression needs exactly three children.");
@@ -816,12 +908,12 @@ impl<'a> RTLolaParser<'a> {
                     ExpressionKind::Ite(children.remove(0), children.remove(0), children.remove(0)),
                     span.into(),
                 )
-            }
+            },
             Rule::Tuple => {
                 let elements = self.parse_vec_of_expressions(pair.into_inner());
                 assert!(elements.len() != 1, "Tuples may not have exactly one element.");
                 Expression::new(self.next_id(), ExpressionKind::Tuple(elements), span.into())
-            }
+            },
             Rule::Expr => self.build_expression_ast(pair.into_inner()),
             Rule::FunctionExpr => self.build_function_expression(pair, span.into()),
             Rule::IntegerLiteral => {
@@ -831,14 +923,15 @@ impl<'a> RTLolaParser<'a> {
                     ExpressionKind::Lit(Literal::new_numeric(self.next_id(), pair.as_str(), None, span.clone())),
                     span,
                 )
-            }
+            },
             Rule::MissingExpression => {
                 let span = span.into();
                 Expression::new(self.next_id(), ExpressionKind::MissingExpression, span)
-            }
+            },
             _ => unreachable!("Unexpected rule when parsing expression ast: {:?}", pair.as_rule()),
         }
     }
+
     pub(crate) fn parse_rational(repr: &str) -> Result<Rational, String> {
         // precondition: repr is a valid floating point literal
         debug_assert!(repr.parse::<f64>().is_ok());
@@ -873,8 +966,11 @@ impl<'a> RTLolaParser<'a> {
             let exp = match exp.to_i16() {
                 Some(i) => i,
                 None => {
-                    return Err(format!("parsing rational '{}' failed: e exponent {} does not fit into i16", repr, exp))
-                }
+                    return Err(format!(
+                        "parsing rational '{}' failed: e exponent {} does not fit into i16",
+                        repr, exp
+                    ))
+                },
             };
             let factor = BigInt::from_u8(10).unwrap().pow(exp.abs() as u16);
             if exp.is_negative() {
@@ -886,7 +982,12 @@ impl<'a> RTLolaParser<'a> {
 
         let p = match (r.numer().to_i64(), r.denom().to_i64()) {
             (Some(n), Some(d)) => (n, d),
-            _ => return Err(format!("parsing rational failed: rational {} does not fit into Rational64", r)),
+            _ => {
+                return Err(format!(
+                    "parsing rational failed: rational {} does not fit into Rational64",
+                    r
+                ))
+            },
         };
         Ok(Rational::from(p))
     }
@@ -895,9 +996,11 @@ impl<'a> RTLolaParser<'a> {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
-    use pest::{consumes_to, parses_to};
     use std::path::PathBuf;
+
+    use pest::{consumes_to, parses_to};
+
+    use super::*;
 
     fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
         // Todo: Make more robust, e.g. against changes in whitespace.
@@ -939,7 +1042,10 @@ mod tests {
         let spec = "constant five : Int := 5";
         let handler = Handler::new(PathBuf::new(), spec.into());
         let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
-        let pair = LolaParser::parse(Rule::ConstantStream, spec).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let pair = LolaParser::parse(Rule::ConstantStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.parse_constant(pair);
         assert_eq!(format!("{}", ast), "constant five: Int := 5")
     }
@@ -949,7 +1055,10 @@ mod tests {
         let spec = "constant fiveoh: Double := 5.0";
         let handler = Handler::new(PathBuf::new(), spec.into());
         let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
-        let pair = LolaParser::parse(Rule::ConstantStream, spec).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let pair = LolaParser::parse(Rule::ConstantStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.parse_constant(pair);
         assert_eq!(format!("{}", ast), "constant fiveoh: Double := 5.0")
     }
@@ -976,7 +1085,10 @@ mod tests {
         let spec = "input a: Int, b: Int, c: Bool";
         let handler = Handler::new(PathBuf::new(), spec.into());
         let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
-        let pair = LolaParser::parse(Rule::InputStream, spec).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let pair = LolaParser::parse(Rule::InputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let inputs = parser.parse_inputs(pair);
         assert_eq!(inputs.len(), 3);
         assert_eq!(format!("{}", inputs[0]), "input a: Int");
@@ -1025,7 +1137,10 @@ mod tests {
         let spec = "output out: Int := in + 1";
         let handler = Handler::new(PathBuf::new(), spec.into());
         let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
-        let pair = LolaParser::parse(Rule::OutputStream, spec).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.parse_output(pair);
         assert_eq!(format!("{}", ast), spec)
     }
@@ -1055,7 +1170,10 @@ mod tests {
         let spec = "trigger in ≠ out \"some message\"";
         let handler = Handler::new(PathBuf::new(), spec.into());
         let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
-        let pair = LolaParser::parse(Rule::Trigger, spec).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let pair = LolaParser::parse(Rule::Trigger, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.parse_trigger(pair);
         assert_eq!(format!("{}", ast), "trigger in ≠ out \"some message\"")
     }
@@ -1064,7 +1182,10 @@ mod tests {
     fn parse_expression() {
         let content = "in + 1";
         let handler = Handler::new(PathBuf::new(), content.into());
-        let expr = LolaParser::parse(Rule::Expr, content).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let expr = LolaParser::parse(Rule::Expr, content)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
         let ast = parser.build_expression_ast(expr.into_inner());
         assert_eq!(format!("{}", ast), content)
@@ -1075,7 +1196,10 @@ mod tests {
         let content = "(a ∨ b ∧ c)";
         let handler = Handler::new(PathBuf::new(), content.into());
         let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
-        let expr = LolaParser::parse(Rule::Expr, content).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let expr = LolaParser::parse(Rule::Expr, content)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.build_expression_ast(expr.into_inner());
         assert_eq!(format!("{}", ast), content)
     }
@@ -1085,7 +1209,10 @@ mod tests {
         let content = "(a ∨ b ∧ c";
         let handler = Handler::new(PathBuf::new(), content.into());
         let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
-        let expr = LolaParser::parse(Rule::Expr, content).unwrap_or_else(|e| panic!("{}", e)).next().unwrap();
+        let expr = LolaParser::parse(Rule::Expr, content)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
         let ast = parser.build_expression_ast(expr.into_inner());
         assert_eq!(format!("{}", ast), content)
     }

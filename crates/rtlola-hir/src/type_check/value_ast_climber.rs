@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::time::Duration;
+
+use rtlola_reporting::Span;
+use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
+
 use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
     SRef, StreamAccessKind, Trigger, WidenExprKind, WindowReference,
@@ -7,10 +13,6 @@ use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::value_types::{AbstractValueType, ValueErrorKind};
 use crate::type_check::{ConcreteStreamPacing, ConcreteValueType};
-use rtlola_reporting::Span;
-use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
-use std::collections::HashMap;
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Variable(String);
@@ -91,10 +93,12 @@ where
         bound: &AnnotatedType,
         conflict_key: Option<TcKey>,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        let concrete_type = ConcreteValueType::from_annotated_type(bound).map_err(|reason| TypeError {
-            kind: reason,
-            key1: Some(target),
-            key2: None,
+        let concrete_type = ConcreteValueType::from_annotated_type(bound).map_err(|reason| {
+            TypeError {
+                kind: reason,
+                key1: Some(target),
+                key2: None,
+            }
         })?;
         self.annotated_checks.insert(target, (concrete_type, conflict_key));
         Ok(())
@@ -106,28 +110,45 @@ where
         annotated_type: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
         match annotated_type {
-            AnnotatedType::String => self.tyc.impose(target.concretizes_explicit(AbstractValueType::String))?,
-            AnnotatedType::Int(x) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::SInteger(*x)))?,
-            AnnotatedType::Float(f) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Float(*f)))?,
-            AnnotatedType::UInt(u) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::UInteger(*u)))?,
+            AnnotatedType::String => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::String))?
+            },
+            AnnotatedType::Int(x) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SInteger(*x)))?
+            },
+            AnnotatedType::Float(f) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Float(*f)))?
+            },
+            AnnotatedType::UInt(u) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::UInteger(*u)))?
+            },
             AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
             AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
             AnnotatedType::Option(op) => {
-                self.tyc.impose(target.concretizes_explicit(AbstractValueType::Option))?;
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Option))?;
                 let child_key = self.tyc.get_child_key(target, 0)?;
                 self.concretizes_annotated_type(child_key, op.as_ref())?
-            }
+            },
             AnnotatedType::Tuple(children) => {
-                self.tyc.impose(target.concretizes_explicit(AbstractValueType::Tuple(children.len())))?;
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Tuple(children.len())))?;
                 for (ix, child) in children.iter().enumerate() {
                     let child_key = self.tyc.get_child_key(target, ix)?;
                     self.concretizes_annotated_type(child_key, child)?;
                 }
-            }
-            AnnotatedType::Numeric => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
+            },
+            AnnotatedType::Numeric => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
+            },
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
-            }
+            },
         }
         Ok(())
     }
@@ -143,7 +164,10 @@ where
     }
 
     pub(crate) fn input_infer(&mut self, input: &Input) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let term_key: TcKey = *self.node_key.get(&NodeId::SRef(input.sr)).expect("Added in constructor");
+        let term_key: TcKey = *self
+            .node_key
+            .get(&NodeId::SRef(input.sr))
+            .expect("Added in constructor");
 
         self.handle_annotated_type(term_key, &input.annotated_type, None)?;
 
@@ -178,7 +202,7 @@ where
                     0 => unreachable!("ensured by pacing type checker"),
                     1 => {
                         self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
-                    }
+                    },
                     _ => {
                         self.tyc.impose(
                             spawn_target_key.concretizes_explicit(AbstractValueType::Tuple(param_types.len())),
@@ -189,7 +213,7 @@ where
                             self.tyc.impose(child.equate_with(*p))?;
                         }
                         self.tyc.impose(parameter_tuple.equate_with(spawn_target_key))?;
-                    }
+                    },
                 }
             }
             if let Some(cond) = opt_cond {
@@ -241,7 +265,9 @@ where
 
         let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
         let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].expression_pacing.to_abstract_freq();
+        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)]
+            .expression_pacing
+            .to_abstract_freq();
         //special case: period of current output > offset
         // && offset is multiple of target stream (no optional needed)
         if let Ok(Periodic(target_freq)) = target_ratio {
@@ -249,7 +275,8 @@ where
             //dbg!(&freq, &target_freq);
             if let Ok(true) = target_freq.is_multiple_of(&freq) {
                 //dbg!("frequencies compatible");
-                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                self.tyc
+                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                 self.tyc.impose(target_key.equate_with(inner_key))?;
             } else {
@@ -286,11 +313,11 @@ where
                     Constant::Inlined(Inlined { lit, ty: anno_ty }) => {
                         self.handle_annotated_type(term_key, anno_ty, None)?;
                         lit
-                    }
+                    },
                 };
                 let literal_type = self.match_const_literal(cons_lit);
                 self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
-            }
+            },
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
                 if sr.is_input() {
@@ -325,17 +352,17 @@ where
                 match kind {
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
-                    }
+                    },
                     StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
                         let (target, aggr) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr)
-                            }
+                            },
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr)
-                            }
+                            },
                         };
                         let target_key = *self
                             .node_key
@@ -346,77 +373,93 @@ where
                         match aggr.op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
                             WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
-                            }
+                            },
                             //Count: Any -> uint
                             WindowOperation::Count => {
-                                self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Any))?;
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::UInteger(1)))?;
-                            }
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Any))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::UInteger(1)))?;
+                            },
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
                             WindowOperation::Integral => {
-                                self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
                                 if aggr.wait {
-                                    self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                                    self.tyc.impose(inner_key.concretizes_explicit(AbstractValueType::Float(1)))?;
+                                    self.tyc
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Float(1)))?;
                                 } else {
                                     //self.tyc.impose(term_key.concretizes(ex_key))?;
-                                    self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Float(1)))?;
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Float(1)))?;
                                 }
-                            }
+                            },
                             //Σ and Π :T <T:Num> -> T
                             WindowOperation::Sum | WindowOperation::Product => {
-                                self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
                                 if aggr.wait {
-                                    self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(inner_key.equate_with(target_key))?;
                                 } else {
                                     self.tyc.impose(term_key.concretizes(target_key))?;
                                 }
-                            }
+                            },
                             //bool -> bool
                             WindowOperation::Conjunction | WindowOperation::Disjunction => {
-                                self.tyc.impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            }
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                            },
                         }
-                    }
+                    },
                     StreamAccessKind::Hold => {
-                        self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(target_key.equate_with(inner_key))?;
-                    }
-                    StreamAccessKind::Offset(off) => match off {
-                        Offset::PastDiscrete(_) => {
-                            self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                            self.tyc.impose(target_key.equate_with(inner_key))?;
-                        }
-                        Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
-                            panic!("future offsets are not supported")
-                        }
+                    },
+                    StreamAccessKind::Offset(off) => {
+                        match off {
+                            Offset::PastDiscrete(_) => {
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                self.tyc.impose(target_key.equate_with(inner_key))?;
+                            },
+                            Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
+                                panic!("future offsets are not supported")
+                            },
 
-                        Offset::PastRealTime(d) => {
-                            debug_assert!(false, "real-time offsets are not supported yet");
-                            let tk = *target_key;
-                            self.handle_realtime_offset(*sr, d, term_key, tk)?;
+                            Offset::PastRealTime(d) => {
+                                debug_assert!(false, "real-time offsets are not supported yet");
+                                let tk = *target_key;
+                                self.handle_realtime_offset(*sr, d, term_key, tk)?;
+                            },
                         }
                     },
                 };
-            }
+            },
             ExpressionKind::Default { expr, default } => {
                 let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
                 let def_key = self.expression_infer(&*default, None)?; // Y
-                self.tyc.impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
+                self.tyc
+                    .impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
                 self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
-            }
+            },
             ExpressionKind::ArithLog(op, expr_v) => {
                 use crate::hir::ArithLogOp;
                 let arg_keys: Result<Vec<TcKey>, TypeError<ValueErrorKind>> =
@@ -439,20 +482,25 @@ where
                             | ArithLogOp::BitAnd
                             | ArithLogOp::BitOr
                             | ArithLogOp::BitXor => {
-                                self.tyc.impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                self.tyc.impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
                                 self.tyc.impose(term_key.equate_with(right_key))?;
-                            }
+                            },
                             // Bool x Bool -> Bool
                             ArithLogOp::And | ArithLogOp::Or => {
-                                self.tyc.impose(left_key.concretizes_explicit(AbstractValueType::Bool))?;
-                                self.tyc.impose(right_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Bool))?;
 
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            }
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                            },
                             // Any x Any -> Bool COMPARATORS
                             ArithLogOp::Eq
                             | ArithLogOp::Lt
@@ -462,13 +510,14 @@ where
                             | ArithLogOp::Gt => {
                                 self.tyc.impose(left_key.equate_with(right_key))?;
 
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            }
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                            },
                             ArithLogOp::Not | ArithLogOp::Neg | ArithLogOp::BitNot => {
                                 unreachable!("unary operator cannot have 2 arguments")
-                            }
+                            },
                         }
-                    }
+                    },
                     1 => {
                         let arg_key = arg_keys[0];
                         match op {
@@ -476,48 +525,56 @@ where
                             ArithLogOp::Not => {
                                 self.tyc.impose(arg_key.concretizes_explicit(AbstractValueType::Bool))?;
 
-                                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            }
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                            },
                             //Num -> Num
                             ArithLogOp::Neg | ArithLogOp::BitNot => {
-                                self.tyc.impose(arg_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(arg_key.concretizes_explicit(AbstractValueType::Numeric))?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
-                            }
+                            },
                             _ => unreachable!("All other operators have 2 given arguments"),
                         }
-                    }
+                    },
                     _ => unreachable!(),
                 }
-            }
-            ExpressionKind::Ite { condition, consequence, alternative } => {
+            },
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
                 // Bool for condition - check given in the second argument
                 self.expression_infer(&*condition, Some(AbstractValueType::Bool))?;
                 let cons_key = self.expression_infer(&*consequence, None)?; // X
                 let alt_key = self.expression_infer(&*alternative, None)?; // X
                                                                            //Bool x T x T -> T
                 self.tyc.impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
-            }
+            },
 
             ExpressionKind::Tuple(vec) => {
                 let key_vec = vec
                     .iter()
                     .map(|ex| self.expression_infer(ex, None))
                     .collect::<Result<Vec<TcKey>, TypeError<ValueErrorKind>>>()?;
-                self.tyc.impose(term_key.concretizes_explicit(AbstractValueType::Tuple(vec.len())))?;
+                self.tyc
+                    .impose(term_key.concretizes_explicit(AbstractValueType::Tuple(vec.len())))?;
                 for (n, child_key_inferred) in key_vec.iter().enumerate() {
                     let n_key_given = self.tyc.get_child_key(term_key, n)?;
                     self.tyc.impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
-            }
+            },
 
             ExpressionKind::TupleAccess(expr, idx) => {
                 let ex_key = self.expression_infer(expr, None)?;
-                self.tyc.impose(ex_key.concretizes_explicit(AbstractValueType::AnyTuple))?;
+                self.tyc
+                    .impose(ex_key.concretizes_explicit(AbstractValueType::AnyTuple))?;
 
                 let accessed_child = self.tyc.get_child_key(ex_key, *idx)?;
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
-            }
+            },
 
             ExpressionKind::Widen(WidenExprKind { expr: inner, ty }) => {
                 let inner_expr_key = self.expression_infer(inner, None)?;
@@ -535,7 +592,7 @@ where
                 self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
                 self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
                 self.tyc.impose(term_key.equate_with(internal_key))?;
-            }
+            },
             ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
                 // check for name in context
 
@@ -582,14 +639,17 @@ where
                 let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
 
                 self.tyc.impose(term_key.concretizes(return_type))?;
-            }
+            },
             ExpressionKind::ParameterAccess(current_stream, ix) => {
-                let output: &Output =
-                    self.hir.outputs().find(|o| o.sr == *current_stream).expect("Expect valid stream reference");
+                let output: &Output = self
+                    .hir
+                    .outputs()
+                    .find(|o| o.sr == *current_stream)
+                    .expect("Expect valid stream reference");
                 let par_key = self.tyc.get_var_key(&Variable::for_parameter(output, *ix));
                 //dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
-            }
+            },
         };
 
         Ok(term_key)
@@ -610,7 +670,7 @@ where
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
-            }
+            },
         }
     }
 
@@ -638,16 +698,18 @@ where
 
 #[cfg(test)]
 mod value_type_tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    use reporting::Handler;
+    use rtlola_parser::ast::RtLolaAst;
+
     use crate::common_ir::StreamReference;
     use crate::hir::RTLolaHIR;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::NodeId;
     use crate::type_check::value_types::ConcreteValueType;
     use crate::type_check::LolaTypeChecker;
-    use reporting::Handler;
-    use rtlola_parser::ast::RtLolaAst;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
 
     struct TestBox {
         hir: RTLolaHIR<BaseMode>,
@@ -1260,7 +1322,10 @@ output o_9: Bool @i_0 := true  && true";
         let out_id = tb.output("out");
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Option(ConcreteValueType::Integer8.into()));
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Option(ConcreteValueType::Integer8.into())
+        );
     }
 
     #[test]

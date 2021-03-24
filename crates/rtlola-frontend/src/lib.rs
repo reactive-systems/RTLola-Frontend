@@ -24,8 +24,9 @@ use rtlola_parser::ParserConfig;
 mod tests;
 
 // Re-export
-pub use crate::mir::RTLolaMIR;
 pub(crate) use rtlola_hir::hir::RtLolaHir as Hir;
+
+pub use crate::mir::RTLolaMIR;
 
 // Replace by more elaborate interface.
 /**

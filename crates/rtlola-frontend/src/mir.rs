@@ -5,14 +5,16 @@ This module describes the high level intermediate representation of a specificat
 mod print;
 mod schedule;
 
-use crate::mir::schedule::Schedule;
+use std::convert::TryInto;
+use std::time::Duration;
+
 use num::traits::Inv;
 use rtlola_hir::hir::*;
 use rtlola_parser::ast::WindowOperation; // Re-export needed for IR
-use std::convert::TryInto;
-use std::time::Duration;
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
+
+use crate::mir::schedule::Schedule;
 
 pub(crate) type Mir = RTLolaMIR;
 
@@ -207,12 +209,18 @@ impl TimeDrivenStream {
     pub fn period(&self) -> UOM_Time {
         UOM_Time::new::<uom::si::time::second>(self.frequency.get::<uom::si::frequency::hertz>().inv())
     }
+
     pub fn frequency(&self) -> UOM_Frequency {
         self.frequency
     }
+
     pub fn period_in_duration(&self) -> Duration {
         Duration::from_nanos(
-            self.period().get::<nanosecond>().to_integer().try_into().expect("Period [ns] too large for u64!"),
+            self.period()
+                .get::<nanosecond>()
+                .to_integer()
+                .try_into()
+                .expect("Period [ns] too large for u64!"),
         )
     }
 }
@@ -407,15 +415,19 @@ impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
         self.layer.spawn_layer()
     }
+
     fn eval_layer(&self) -> Layer {
         self.layer.evaluation_layer()
     }
+
     fn is_input(&self) -> bool {
         false
     }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
+
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
     }
@@ -425,15 +437,19 @@ impl Stream for InputStream {
     fn spawn_layer(&self) -> Layer {
         self.layer.spawn_layer()
     }
+
     fn eval_layer(&self) -> Layer {
         self.layer.evaluation_layer()
     }
+
     fn is_input(&self) -> bool {
         true
     }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
+
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
     }
@@ -549,8 +565,10 @@ impl RTLolaMIR {
         // b) For each potential layer
         for i in 0..=max_layer {
             // c) Find streams that would be in it.
-            let in_layer_i: Vec<OutputReference> =
-                streams_with_layers.iter().filter_map(|(l, r)| if *l == i { Some(*r) } else { None }).collect();
+            let in_layer_i: Vec<OutputReference> = streams_with_layers
+                .iter()
+                .filter_map(|(l, r)| if *l == i { Some(*r) } else { None })
+                .collect();
             if in_layer_i.is_empty() {
                 // d) If there is none, skip this layer
                 continue;
@@ -587,7 +605,7 @@ impl Type {
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
-            }
+            },
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function(_, _) => None,
         }
@@ -606,6 +624,7 @@ impl From<u8> for ValSize {
 
 impl std::ops::Add for ValSize {
     type Output = ValSize;
+
     fn add(self, rhs: ValSize) -> ValSize {
         ValSize(self.0 + rhs.0)
     }

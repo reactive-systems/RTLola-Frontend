@@ -22,11 +22,16 @@ impl ParserConfig {
         let mut spec = String::new();
         file.read_to_string(&mut spec)?;
         drop(file);
-        Ok(ParserConfig { path: Some(path_to_spec), spec })
+        Ok(ParserConfig {
+            path: Some(path_to_spec),
+            spec,
+        })
     }
+
     pub fn for_string(spec: String) -> Self {
         ParserConfig { path: None, spec }
     }
+
     pub fn parse(self) -> Result<RtLolaAst, String> {
         parse(self)
     }
@@ -51,7 +56,7 @@ pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        }
+        },
     };
     Ok(spec)
 }
@@ -61,7 +66,7 @@ pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLola
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        }
+        },
     };
     Ok(spec)
 }

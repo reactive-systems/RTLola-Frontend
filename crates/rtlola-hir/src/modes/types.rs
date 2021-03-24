@@ -6,12 +6,18 @@ impl TypedTrait for Typed {
     fn stream_type(&self, sr: SRef) -> HirType {
         self.get_type_for_stream(sr)
     }
+
     fn is_periodic(&self, sr: SRef) -> bool {
-        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::FixedPeriodic(_))
+        matches!(
+            self.get_type_for_stream(sr).pacing_ty,
+            ConcretePacingType::FixedPeriodic(_)
+        )
     }
+
     fn is_event(&self, sr: SRef) -> bool {
         matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
     }
+
     fn expr_type(&self, eid: ExprId) -> HirType {
         self.get_type_for_expr(eid)
     }

@@ -1,10 +1,12 @@
-use super::WindowReference;
-use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
+use std::fmt::Debug;
+use std::time::Duration;
+
 use itertools::Either;
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::Span;
-use std::fmt::Debug;
-use std::time::Duration;
+
+use super::WindowReference;
+use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub(crate) u32);
@@ -24,35 +26,52 @@ impl Expression {
     pub fn id(&self) -> ExprId {
         self.eid
     }
+
     pub fn span(&self) -> Span {
         self.span.clone()
     }
+
     pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
         match &self.kind {
             ExpressionKind::ArithLog(_, children)
             | ExpressionKind::Tuple(children)
             | ExpressionKind::Function(FnExprKind { args: children, .. }) => {
                 children.iter().flat_map(|c| c.get_sync_accesses()).collect()
-            }
-            ExpressionKind::StreamAccess(target, kind, children) => match kind {
-                StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
-                    vec![*target].into_iter().chain(children.iter().flat_map(|c| c.get_sync_accesses())).collect()
-                }
-                _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
             },
-            ExpressionKind::Ite { condition, consequence, alternative } => condition
-                .as_ref()
-                .get_sync_accesses()
-                .into_iter()
-                .chain(consequence.as_ref().get_sync_accesses())
-                .chain(alternative.as_ref().get_sync_accesses())
-                .collect(),
+            ExpressionKind::StreamAccess(target, kind, children) => {
+                match kind {
+                    StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
+                        vec![*target]
+                            .into_iter()
+                            .chain(children.iter().flat_map(|c| c.get_sync_accesses()))
+                            .collect()
+                    },
+                    _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
+                }
+            },
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                condition
+                    .as_ref()
+                    .get_sync_accesses()
+                    .into_iter()
+                    .chain(consequence.as_ref().get_sync_accesses())
+                    .chain(alternative.as_ref().get_sync_accesses())
+                    .collect()
+            },
             ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(WidenExprKind { expr: child, .. }) => {
                 child.as_ref().get_sync_accesses()
-            }
+            },
             ExpressionKind::Default { expr, default } => {
-                expr.as_ref().get_sync_accesses().into_iter().chain(default.as_ref().get_sync_accesses()).collect()
-            }
+                expr.as_ref()
+                    .get_sync_accesses()
+                    .into_iter()
+                    .chain(default.as_ref().get_sync_accesses())
+                    .collect()
+            },
             _ => vec![],
         }
     }
@@ -225,9 +244,11 @@ impl WindowAggregation for SlidingAggr {
     fn wait_until_full(&self) -> bool {
         self.wait
     }
+
     fn operation(&self) -> WindowOperation {
         self.op
     }
+
     fn duration(&self) -> Either<Duration, usize> {
         Either::Left(self.duration)
     }
@@ -246,9 +267,11 @@ impl WindowAggregation for DiscreteAggr {
     fn wait_until_full(&self) -> bool {
         self.wait
     }
+
     fn operation(&self) -> WindowOperation {
         self.op
     }
+
     fn duration(&self) -> Either<Duration, usize> {
         Either::Right(self.duration)
     }
@@ -272,6 +295,7 @@ impl<A: WindowAggregation> Window<A> {
     pub fn reference(&self) -> WindowReference {
         self.reference
     }
+
     pub fn id(&self) -> ExprId {
         self.eid
     }
@@ -292,30 +316,46 @@ impl ValueEq for ExpressionKind {
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
-            }
+            },
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2 && kind == kind2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
-            }
+            },
             (
-                Ite { condition: c1, consequence: c2, alternative: c3 },
-                Ite { condition: b1, consequence: b2, alternative: b3 },
+                Ite {
+                    condition: c1,
+                    consequence: c2,
+                    alternative: c3,
+                },
+                Ite {
+                    condition: b1,
+                    consequence: b2,
+                    alternative: b3,
+                },
             ) => c1.value_eq(&b1) && c2.value_eq(&b2) && c3.value_eq(&b3),
             (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2)),
             (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2),
             (
                 Function(FnExprKind { name, args, type_param }),
-                Function(FnExprKind { name: name2, args: args2, type_param: type_param2 }),
+                Function(FnExprKind {
+                    name: name2,
+                    args: args2,
+                    type_param: type_param2,
+                }),
             ) => {
                 name == name2
                     && type_param == type_param2
                     && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
-            }
+            },
             (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
                 t1 == t2 && inner.value_eq(&inner2)
-            }
-            (Default { expr, default }, Default { expr: expr2, default: default2 }) => {
-                expr.value_eq(&expr2) && default.value_eq(&default2)
-            }
+            },
+            (
+                Default { expr, default },
+                Default {
+                    expr: expr2,
+                    default: default2,
+                },
+            ) => expr.value_eq(&expr2) && default.value_eq(&default2),
             _ => false,
         }
     }

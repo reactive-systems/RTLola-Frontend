@@ -1,10 +1,11 @@
+use std::collections::HashMap;
+use std::convert::TryFrom;
+
 use num::abs;
 
 use crate::hir::{Hir, SRef};
 use crate::modes::dependencies::EdgeWeight;
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
-use std::collections::HashMap;
-use std::convert::TryFrom;
 
 /// This enum indicates how much memory is required to store a stream.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -22,7 +23,7 @@ impl MemorizationBound {
             MemorizationBound::Bounded(b) => b,
             MemorizationBound::Unbounded => {
                 unreachable!("Called `MemorizationBound::unwrap()` on an `Unbounded` value.")
-            }
+            },
         }
     }
 
@@ -41,6 +42,7 @@ pub enum MemBoundErr {}
 impl PartialOrd for MemorizationBound {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;
+
         use MemorizationBound::*;
         match (self, other) {
             (Unbounded, Unbounded) => None,
@@ -60,6 +62,7 @@ impl MemBoundTrait for MemBound {
 impl MemBound {
     const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
     const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
+
     pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
     where
         M: HirMode + DepAnaTrait,
@@ -67,7 +70,16 @@ impl MemBound {
         // Assign streams to default value
         let mut memory_bounds = spec
             .all_streams()
-            .map(|sr| (sr, if dynamic { Self::DYNAMIC_DEFAULT_VALUE } else { Self::STATIC_DEFAULT_VALUE }))
+            .map(|sr| {
+                (
+                    sr,
+                    if dynamic {
+                        Self::DYNAMIC_DEFAULT_VALUE
+                    } else {
+                        Self::STATIC_DEFAULT_VALUE
+                    },
+                )
+            })
             .collect::<HashMap<SRef, MemorizationBound>>();
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
@@ -76,9 +88,15 @@ impl MemBound {
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
-            *cur_mem_bound = if *cur_mem_bound > cur_edge_bound { *cur_mem_bound } else { cur_edge_bound };
+            *cur_mem_bound = if *cur_mem_bound > cur_edge_bound {
+                *cur_mem_bound
+            } else {
+                cur_edge_bound
+            };
         });
-        MemBound { memory_bound_per_stream: memory_bounds }
+        MemBound {
+            memory_bound_per_stream: memory_bounds,
+        }
     }
 
     fn edge_weight_to_memory_bound(w: &EdgeWeight, dynamic: bool) -> MemorizationBound {
@@ -89,7 +107,7 @@ impl MemBound {
                 } else {
                     MemorizationBound::Bounded(u16::try_from(abs(*o) + if dynamic { 0 } else { 1 }).unwrap())
                 }
-            }
+            },
             EdgeWeight::Hold => MemorizationBound::Bounded(1),
             EdgeWeight::Aggr(_) => {
                 if dynamic {
@@ -97,7 +115,7 @@ impl MemBound {
                 } else {
                     Self::STATIC_DEFAULT_VALUE
                 }
-            }
+            },
             EdgeWeight::Spawn(w) => Self::edge_weight_to_memory_bound(w, dynamic),
             EdgeWeight::Filter(w) => Self::edge_weight_to_memory_bound(w, dynamic),
             EdgeWeight::Close(w) => Self::edge_weight_to_memory_bound(w, dynamic),
@@ -107,12 +125,14 @@ impl MemBound {
 
 #[cfg(test)]
 mod dynaminc_memory_bound_tests {
+    use std::path::PathBuf;
+
+    use rtlola_reporting::Handler;
+
     use super::*;
     use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
-    use rtlola_reporting::Handler;
-    use std::path::PathBuf;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
@@ -135,8 +155,9 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(0)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -149,8 +170,9 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn hold_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.hold().defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -163,8 +185,9 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn offset_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -177,8 +200,9 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn sliding_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(0)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -191,8 +215,9 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(0)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -228,10 +253,14 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
-                .into_iter()
-                .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::OutRef(0)),
+            ("c", SRef::OutRef(1)),
+            ("d", SRef::OutRef(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(3)),
@@ -274,10 +303,14 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn parameter_nested_lookup_implicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::InRef(1)), ("c", SRef::OutRef(0)), ("d", SRef::OutRef(1))]
-                .into_iter()
-                .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(0)),
+            ("d", SRef::OutRef(1)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(0)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
@@ -315,12 +348,14 @@ mod dynaminc_memory_bound_tests {
 
 #[cfg(test)]
 mod static_memory_bound_tests {
+    use std::path::PathBuf;
+
+    use rtlola_reporting::Handler;
+
     use super::*;
     use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
-    use rtlola_reporting::Handler;
-    use std::path::PathBuf;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
@@ -343,8 +378,9 @@ mod static_memory_bound_tests {
     #[test]
     fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
@@ -357,8 +393,9 @@ mod static_memory_bound_tests {
     #[test]
     fn hold_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.hold().defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
@@ -371,8 +408,9 @@ mod static_memory_bound_tests {
     #[test]
     fn offset_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(2)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
@@ -385,8 +423,9 @@ mod static_memory_bound_tests {
     #[test]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
@@ -399,8 +438,9 @@ mod static_memory_bound_tests {
     #[test]
     fn sliding_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),
@@ -436,10 +476,14 @@ mod static_memory_bound_tests {
     #[test]
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0)), ("c", SRef::OutRef(1)), ("d", SRef::OutRef(2))]
-                .into_iter()
-                .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::OutRef(0)),
+            ("c", SRef::OutRef(1)),
+            ("d", SRef::OutRef(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(2)),
             (sname_to_sref["b"], MemorizationBound::Bounded(4)),
@@ -482,10 +526,14 @@ mod static_memory_bound_tests {
     #[test]
     fn parameter_nested_lookup_implicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
-        let sname_to_sref =
-            vec![("a", SRef::InRef(0)), ("b", SRef::InRef(1)), ("c", SRef::OutRef(0)), ("d", SRef::OutRef(1))]
-                .into_iter()
-                .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![
+            ("a", SRef::InRef(0)),
+            ("b", SRef::InRef(1)),
+            ("c", SRef::OutRef(0)),
+            ("d", SRef::OutRef(1)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
             (sname_to_sref["a"], MemorizationBound::Bounded(1)),
             (sname_to_sref["b"], MemorizationBound::Bounded(1)),

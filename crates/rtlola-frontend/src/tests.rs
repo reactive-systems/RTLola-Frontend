@@ -176,8 +176,10 @@ fn fuzzed_tuple_access_on_steriods() {
 
 #[test]
 fn min_max() {
-    assert!(parse("import math\n input a: Int32\n input b: Int32\n output min_max := min<Int32>(max<Int32>(a,b), b)")
-        .is_ok());
+    assert!(
+        parse("import math\n input a: Int32\n input b: Int32\n output min_max := min<Int32>(max<Int32>(a,b), b)")
+            .is_ok()
+    );
 }
 
 #[test]

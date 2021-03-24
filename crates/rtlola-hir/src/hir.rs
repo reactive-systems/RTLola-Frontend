@@ -7,11 +7,10 @@ The module occurs in different modes, adding different information to the interm
 mod expression;
 mod print;
 
-use crate::modes::HirMode;
-use crate::stdlib::FuncDecl;
-use rtlola_reporting::Span;
 use std::collections::HashMap;
 use std::time::Duration;
+
+use rtlola_reporting::Span;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use crate::hir::expression::*;
@@ -19,9 +18,11 @@ pub use crate::modes::ast_conversion::{SpawnDef, TransformationErr};
 pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight};
 pub use crate::modes::memory_bounds::MemorizationBound;
 pub use crate::modes::ordering::{Layer, StreamLayers};
+use crate::modes::HirMode;
 pub use crate::modes::{
     BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
 };
+use crate::stdlib::FuncDecl;
 pub use crate::type_check::{ConcretePacingType, ConcreteStreamPacing, ConcreteValueType, StreamType};
 
 #[derive(Debug, Clone)]
@@ -69,26 +70,36 @@ impl<M: HirMode> Hir<M> {
             .chain(self.outputs.iter().map(|o| o.sr))
             .chain(self.triggers.iter().map(|t| t.sr))
     }
+
     pub fn get_input_with_name(&self, name: &str) -> Option<&Input> {
         self.inputs.iter().find(|&i| i.name == name)
     }
+
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
         self.outputs.iter().find(|&o| o.name == name)
     }
+
     pub fn output(&self, sref: SRef) -> Option<&Output> {
         self.outputs().find(|o| o.sr == sref)
     }
+
     pub fn input(&self, sref: SRef) -> Option<&Input> {
         self.inputs().find(|i| i.sr == sref)
     }
 
     pub fn window_refs(&self) -> Vec<WRef> {
-        self.expr_maps.sliding_windows.keys().chain(self.expr_maps.discrete_windows.keys()).cloned().collect()
+        self.expr_maps
+            .sliding_windows
+            .keys()
+            .chain(self.expr_maps.discrete_windows.keys())
+            .cloned()
+            .collect()
     }
 
     pub fn sliding_windows(&self) -> Vec<&Window<SlidingAggr>> {
         self.expr_maps.sliding_windows.values().clone().collect()
     }
+
     pub fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>> {
         self.expr_maps.discrete_windows.values().clone().collect()
     }
@@ -102,10 +113,19 @@ impl<M: HirMode> Hir<M> {
     }
 
     pub fn single_sliding(&self, window: WRef) -> Window<SlidingAggr> {
-        *self.sliding_windows().into_iter().find(|w| w.reference == window).unwrap()
+        *self
+            .sliding_windows()
+            .into_iter()
+            .find(|w| w.reference == window)
+            .unwrap()
     }
+
     pub fn single_discrete(&self, window: WRef) -> Window<DiscreteAggr> {
-        *self.discrete_windows().into_iter().find(|w| w.reference == window).unwrap()
+        *self
+            .discrete_windows()
+            .into_iter()
+            .find(|w| w.reference == window)
+            .unwrap()
     }
 
     pub fn windows(&self) -> Vec<WRef> {
@@ -125,7 +145,7 @@ impl<M: HirMode> Hir<M> {
                     let id = tr.expect("Accessing non-existing Trigger").expr_id;
                     self.expression(id)
                 }
-            }
+            },
         }
     }
 
@@ -146,7 +166,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 
@@ -157,17 +177,20 @@ impl<M: HirMode> Hir<M> {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| {
-                        o.instance_template
-                            .spawn
-                            .as_ref()
-                            .map(|st| (st.target.map(|e| self.expression(e)), st.condition.map(|e| self.expression(e))))
+                        o.instance_template.spawn.as_ref().map(|st| {
+                            (
+                                st.target.map(|e| self.expression(e)),
+                                st.condition.map(|e| self.expression(e)),
+                            )
+                        })
                     })
                 } else {
                     None
                 }
-            }
+            },
         }
     }
+
     pub fn filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => None,
@@ -178,9 +201,10 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            }
+            },
         }
     }
+
     pub fn close(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::InRef(_) => None,
@@ -191,7 +215,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 }
@@ -211,7 +235,12 @@ impl ExpressionMaps {
         discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
         func_table: HashMap<String, FuncDecl>,
     ) -> Self {
-        Self { exprid_to_expr, sliding_windows, discrete_windows, func_table }
+        Self {
+            exprid_to_expr,
+            sliding_windows,
+            discrete_windows,
+            func_table,
+        }
     }
 }
 
@@ -232,7 +261,10 @@ pub struct FunctionName {
 
 impl FunctionName {
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
-        Self { name, arg_names: Vec::from(arg_names) }
+        Self {
+            name,
+            arg_names: Vec::from(arg_names),
+        }
     }
 }
 
@@ -253,6 +285,7 @@ impl Input {
     pub fn sr(&self) -> StreamReference {
         self.sr
     }
+
     pub fn span(&self) -> Span {
         self.span.clone()
     }
@@ -283,12 +316,15 @@ impl Output {
     pub fn params(&self) -> impl Iterator<Item = &Parameter> {
         self.params.iter()
     }
+
     pub fn sr(&self) -> StreamReference {
         self.sr
     }
+
     pub fn expression(&self) -> ExprId {
         self.expr_id
     }
+
     pub fn span(&self) -> Span {
         self.span.clone()
     }
@@ -310,6 +346,7 @@ impl Parameter {
     pub fn index(&self) -> usize {
         self.idx
     }
+
     pub fn span(&self) -> Span {
         self.span.clone()
     }
@@ -361,7 +398,13 @@ impl Trigger {
         span: Span,
     ) -> Self {
         let name_str = name.map(|ident| ident.name).unwrap_or_else(String::new);
-        Self { name: name_str, message: msg.unwrap_or_else(String::new), expr_id, sr, span }
+        Self {
+            name: name_str,
+            message: msg.unwrap_or_else(String::new),
+            expr_id,
+            sr,
+            span,
+        }
     }
 
     pub fn sr(&self) -> StreamReference {
@@ -518,6 +561,7 @@ pub enum Offset {
 impl PartialOrd for Offset {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;
+
         use Offset::*;
         match (self, other) {
             (PastDiscrete(_), FutureDiscrete(_))

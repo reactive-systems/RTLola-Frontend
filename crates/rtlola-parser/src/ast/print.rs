@@ -1,7 +1,8 @@
 //! This module contains `Display` implementations for the AST.
 
-use crate::ast::*;
 use std::fmt::{Display, Formatter, Result};
+
+use crate::ast::*;
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
 fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff: &str, join: &str) -> Result {
@@ -53,16 +54,16 @@ impl Display for Output {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
         }
         match self.ty.kind {
-            TypeKind::Inferred => {}
+            TypeKind::Inferred => {},
             _ => {
                 write!(f, ": {}", self.ty)?;
-            }
+            },
         }
         match &self.extend.expr {
-            None => {}
+            None => {},
             Some(expr) => {
                 write!(f, " @ {}", expr)?;
-            }
+            },
         }
         if let Some(spawn) = &self.spawn {
             write!(f, " {}", spawn)?;
@@ -163,29 +164,69 @@ impl Display for Expression {
         match &self.kind {
             ExpressionKind::Lit(l) => write!(f, "{}", l),
             ExpressionKind::Ident(ident) => write!(f, "{}", ident),
-            ExpressionKind::StreamAccess(expr, access) => match access {
-                StreamAccessKind::Sync => write!(f, "{}", expr),
-                StreamAccessKind::Hold => write!(f, "{}.hold()", expr),
-                StreamAccessKind::Optional => write!(f, "{}.get()", expr),
+            ExpressionKind::StreamAccess(expr, access) => {
+                match access {
+                    StreamAccessKind::Sync => write!(f, "{}", expr),
+                    StreamAccessKind::Hold => write!(f, "{}.hold()", expr),
+                    StreamAccessKind::Optional => write!(f, "{}.get()", expr),
+                }
             },
             ExpressionKind::Default(expr, val) => write!(f, "{}.defaults(to: {})", expr, val),
             ExpressionKind::Offset(expr, val) => write!(f, "{}.offset(by: {})", expr, val),
-            ExpressionKind::DiscreteWindowAggregation { expr, duration, wait, aggregation } => match wait {
-                true => write!(f, "{}.aggregate(over_exactly_discrete: {}, using: {})", expr, duration, aggregation),
-                false => write!(f, "{}.aggregate(over_discrete: {}, using: {})", expr, duration, aggregation),
+            ExpressionKind::DiscreteWindowAggregation {
+                expr,
+                duration,
+                wait,
+                aggregation,
+            } => {
+                match wait {
+                    true => {
+                        write!(
+                            f,
+                            "{}.aggregate(over_exactly_discrete: {}, using: {})",
+                            expr, duration, aggregation
+                        )
+                    },
+                    false => {
+                        write!(
+                            f,
+                            "{}.aggregate(over_discrete: {}, using: {})",
+                            expr, duration, aggregation
+                        )
+                    },
+                }
             },
-            ExpressionKind::SlidingWindowAggregation { expr, duration, wait, aggregation } => match wait {
-                true => write!(f, "{}.aggregate(over_exactly: {}, using: {})", expr, duration, aggregation),
-                false => write!(f, "{}.aggregate(over: {}, using: {})", expr, duration, aggregation),
+            ExpressionKind::SlidingWindowAggregation {
+                expr,
+                duration,
+                wait,
+                aggregation,
+            } => {
+                match wait {
+                    true => {
+                        write!(
+                            f,
+                            "{}.aggregate(over_exactly: {}, using: {})",
+                            expr, duration, aggregation
+                        )
+                    },
+                    false => write!(f, "{}.aggregate(over: {}, using: {})", expr, duration, aggregation),
+                }
             },
             ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{} {} {}", lhs, op, rhs),
             ExpressionKind::Unary(operator, operand) => write!(f, "{}{}", operator, operand),
             ExpressionKind::Ite(cond, cons, alt) => {
                 write!(f, "if {} then {} else {}", cond, cons, alt)
-            }
+            },
             ExpressionKind::ParenthesizedExpression(left, expr, right) => {
-                write!(f, "{}{}{}", if left.is_some() { "(" } else { "" }, expr, if right.is_some() { ")" } else { "" })
-            }
+                write!(
+                    f,
+                    "{}{}{}",
+                    if left.is_some() { "(" } else { "" },
+                    expr,
+                    if right.is_some() { ")" } else { "" }
+                )
+            },
             ExpressionKind::MissingExpression => Ok(()),
             ExpressionKind::Tuple(exprs) => write_delim_list(f, exprs, "(", ")", ", "),
             ExpressionKind::Function(name, types, args) => {
@@ -196,13 +237,15 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| match arg_name {
-                        None => format!("{}", arg),
-                        Some(arg_name) => format!("{}: {}", arg_name, arg),
+                    .map(|(arg, arg_name)| {
+                        match arg_name {
+                            None => format!("{}", arg),
+                            Some(arg_name) => format!("{}: {}", arg_name, arg),
+                        }
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
-            }
+            },
             ExpressionKind::Field(expr, ident) => write!(f, "{}.{}", expr, ident),
             ExpressionKind::Method(expr, name, types, args) => {
                 write!(f, "{}.{}", expr, name.name)?;
@@ -212,13 +255,15 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| match arg_name {
-                        None => format!("{}", arg),
-                        Some(arg_name) => format!("{}: {}", arg_name, arg),
+                    .map(|(arg, arg_name)| {
+                        match arg_name {
+                            None => format!("{}", arg),
+                            Some(arg_name) => format!("{}: {}", arg_name, arg),
+                        }
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
-            }
+            },
         }
     }
 }
@@ -229,9 +274,11 @@ impl Display for FunctionName {
         let args: Vec<String> = self
             .arg_names
             .iter()
-            .map(|arg_name| match arg_name {
-                None => String::from("_:"),
-                Some(arg_name) => format!("{}:", arg_name),
+            .map(|arg_name| {
+                match arg_name {
+                    None => String::from("_:"),
+                    Some(arg_name) => format!("{}:", arg_name),
+                }
             })
             .collect();
         write_delim_list(f, &args, "(", ")", "")
@@ -314,7 +361,7 @@ impl Display for Literal {
                     padding += 1;
                 }
                 write!(f, "r{pad}\"{}\"{pad}", s, pad = "#".repeat(padding))
-            }
+            },
         }
     }
 }

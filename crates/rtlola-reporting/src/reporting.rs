@@ -1,12 +1,13 @@
 //! This module contains helper to report messages (warnings/errors)
+use std::fmt::Debug;
+use std::ops::Range;
+use std::path::PathBuf;
+
 use codespan_reporting::diagnostic::{Diagnostic as RepDiagnostic, Label, Severity};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
 use codespan_reporting::term::Config;
-use std::fmt::Debug;
-use std::ops::Range;
-use std::path::PathBuf;
 use uom::lib::sync::RwLock;
 
 /// Represents a location in the source
@@ -22,7 +23,10 @@ pub enum Span {
 }
 impl<'a> From<pest::Span<'a>> for Span {
     fn from(span: pest::Span<'a>) -> Self {
-        Span::Direct { start: span.start(), end: span.end() }
+        Span::Direct {
+            start: span.start(),
+            end: span.end(),
+        }
     }
 }
 impl Into<Range<usize>> for Span {
@@ -39,6 +43,7 @@ impl Span {
             Span::Unknown => false,
         }
     }
+
     pub fn is_unknown(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
@@ -54,6 +59,7 @@ impl Span {
             Span::Unknown => (usize::min_value(), usize::max_value()),
         }
     }
+
     /// Combines two spans to their union
     pub fn union(&self, other: &Self) -> Self {
         if self.is_unknown() {
@@ -65,9 +71,15 @@ impl Span {
         let (start1, end1) = self.get_bounds();
         let (start2, end2) = other.get_bounds();
         if self.is_indirect() || other.is_indirect() {
-            Span::Indirect(Box::new(Span::Direct { start: start1.min(start2), end: end1.max(end2) }))
+            Span::Indirect(Box::new(Span::Direct {
+                start: start1.min(start2),
+                end: end1.max(end2),
+            }))
         } else {
-            Span::Direct { start: start1.min(start2), end: end1.max(end2) }
+            Span::Direct {
+                start: start1.min(start2),
+                end: end1.max(end2),
+            }
         }
     }
 }
@@ -109,6 +121,7 @@ impl Handler {
             config: Config::default(),
         }
     }
+
     pub fn without_file(input_content: String) -> Self {
         Handler {
             error_count: RwLock::new(0),
@@ -123,10 +136,15 @@ impl Handler {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
-            _ => {}
+            _ => {},
         }
-        term::emit((*self.output.write().unwrap()).as_mut(), &self.config, &self.input, diag)
-            .expect("Could not write diagnostic.");
+        term::emit(
+            (*self.output.write().unwrap()).as_mut(),
+            &self.config,
+            &self.input,
+            diag,
+        )
+        .expect("Could not write diagnostic.");
     }
 
     /// Returns true if an error has occurred
@@ -246,7 +264,11 @@ impl<'a> Diagnostic<'a> {
             return self;
         }
         self.has_indirect_span |= span.is_indirect();
-        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
+        let mut rep_label = if primary {
+            Label::primary((), span)
+        } else {
+            Label::secondary((), span)
+        };
         if let Some(l) = label {
             rep_label.message = l.into();
         }
@@ -263,7 +285,11 @@ impl<'a> Diagnostic<'a> {
             Some(s) => s,
         };
         self.has_indirect_span |= span.is_indirect();
-        let mut rep_label = if primary { Label::primary((), span) } else { Label::secondary((), span) };
+        let mut rep_label = if primary {
+            Label::primary((), span)
+        } else {
+            Label::secondary((), span)
+        };
         if let Some(l) = label {
             rep_label.message = l.into();
         }

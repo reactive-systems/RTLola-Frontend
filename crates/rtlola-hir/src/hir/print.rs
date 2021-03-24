@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter, Result};
+
+use itertools::Itertools;
+
 use super::{AnnotatedType, Offset, WindowReference};
 use crate::hir::expression::{ArithLogOp, Constant, Expression, Literal};
 use crate::hir::{FnExprKind, Inlined, StreamAccessKind, StreamReference, WidenExprKind};
-use itertools::Itertools;
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter, Result};
 
 impl Expression {
     /// Produces a prettified string representation of the expression given the names of the streams
@@ -24,34 +26,46 @@ impl Expression {
                         StreamAccessKind::Hold => ".hold()".into(),
                         StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
                             format!(".aggregate(ref: {})", r)
-                        }
+                        },
                         _ => "".into(),
                     }
                 )
-            }
+            },
             LoadConstant(c) => format!("{}", c),
             Function(FnExprKind { name, args, .. }) => {
                 format!("{}({})", name, args.iter().map(|e| e.pretty_string(names)).join(", "))
-            }
+            },
             Tuple(elems) => format!("({})", elems.iter().map(|e| e.pretty_string(names)).join(", ")),
-            Ite { condition, consequence, alternative, .. } => {
+            Ite {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
                 format!(
                     "if {} then {} else {}",
                     condition.pretty_string(names),
                     consequence.pretty_string(names),
                     alternative.pretty_string(names)
                 )
-            }
+            },
             ArithLog(op, args) => {
                 if args.len() == 1 {
                     format!("{}{}", op, args.get(0).unwrap().pretty_string(names))
                 } else {
-                    format!("({})", args.iter().map(|e| e.pretty_string(names)).join(&format!(" {} ", op)))
+                    format!(
+                        "({})",
+                        args.iter().map(|e| e.pretty_string(names)).join(&format!(" {} ", op))
+                    )
                 }
-            }
+            },
             Default { expr, default } => {
-                format!("{}.default({})", expr.pretty_string(names), default.pretty_string(names))
-            }
+                format!(
+                    "{}.default({})",
+                    expr.pretty_string(names),
+                    default.pretty_string(names)
+                )
+            },
             Widen(WidenExprKind { expr: e, ty }) => format!("{}({})", ty, e.pretty_string(names)),
             TupleAccess(e, idx) => format!("{}.{}", e.pretty_string(names), idx),
             ParameterAccess(sref, idx) => format!("Param({}, {})", names[&sref], idx),
@@ -66,33 +80,47 @@ impl Display for Expression {
             LoadConstant(c) => write!(f, "{}", c),
             Function(FnExprKind { name, args, .. }) => {
                 write!(f, "{}({})", name, args.iter().map(|e| format!("{}", e)).join(", "))
-            }
+            },
             Tuple(elems) => write!(f, "({})", elems.iter().map(|e| format!("{}", e)).join(", ")),
-            Ite { condition, consequence, alternative, .. } => {
+            Ite {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
-            }
+            },
             ArithLog(op, args) => {
                 if args.len() == 1 {
                     write!(f, "{}{}", op, args.get(0).unwrap())
                 } else {
-                    write!(f, "({})", args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op)))
+                    write!(
+                        f,
+                        "({})",
+                        args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op))
+                    )
                 }
-            }
+            },
             Default { expr, default } => write!(f, "{}.default({})", expr, default),
             Widen(WidenExprKind { expr: e, ty }) => write!(f, "{}({})", ty, e),
             TupleAccess(e, idx) => write!(f, "{}.{}", e, idx),
             ParameterAccess(sref, idx) => write!(f, "Param(ref: {}, idx: {})", sref, idx),
             StreamAccess(sref, kind, params) => {
-                write!(f, "Stream(ref: {}, params: ({}))", sref, params.iter().map(|e| format!("{}", e)).join(", "))?;
+                write!(
+                    f,
+                    "Stream(ref: {}, params: ({}))",
+                    sref,
+                    params.iter().map(|e| format!("{}", e)).join(", ")
+                )?;
                 match kind {
                     StreamAccessKind::Offset(o) => write!(f, ".offset(by: {})", o),
                     StreamAccessKind::Hold => write!(f, ".hold()"),
                     StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
                         write!(f, ".aggregate(ref: {})", r)
-                    }
+                    },
                     _ => Ok(()),
                 }
-            }
+            },
         }
     }
 }

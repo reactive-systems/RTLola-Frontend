@@ -1,7 +1,7 @@
-use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, StreamAccessKind, Type};
 use std::fmt::{Display, Formatter, Result};
 
 use super::{FloatTy, IntTy, UIntTy};
+use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, StreamAccessKind, Type};
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -12,22 +12,29 @@ impl Display for Expression {
                 if let Type::Function(arg_tys, res) = &self.ty {
                     let zipped: Vec<(&Type, &Expression)> = arg_tys.iter().zip(args.iter()).collect();
                     if let Some((last, prefix)) = zipped.split_last() {
-                        prefix.iter().fold(Ok(()), |accu, (t, a)| accu.and_then(|()| write!(f, "{}: {}, ", a, t)))?;
+                        prefix
+                            .iter()
+                            .fold(Ok(()), |accu, (t, a)| accu.and_then(|()| write!(f, "{}: {}, ", a, t)))?;
                         write!(f, "{}: {}", last.1, last.0)?;
                     }
                     write!(f, ") -> {}", res)
                 } else {
                     unreachable!("The type of a function needs to be a function.")
                 }
-            }
+            },
             ExpressionKind::Convert { expr } => write!(f, "cast<{},{}>({})", expr.ty, self.ty, expr),
             ExpressionKind::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
-            ExpressionKind::Ite { condition, consequence, alternative, .. } => {
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
                 write!(f, "if {} then {} else {}", condition, consequence, alternative)
-            }
+            },
             ExpressionKind::ArithLog(op, args) => {
                 write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", self.ty), ",")
-            }
+            },
             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
             ExpressionKind::StreamAccess(sr, access, para) => {
                 assert!(para.is_empty());
@@ -37,7 +44,7 @@ impl Display for Expression {
                     StreamAccessKind::Offset(offset) => write!(f, "{}.offset({})", sr, offset),
                     StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
                 }
-            }
+            },
             ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
         }
     }

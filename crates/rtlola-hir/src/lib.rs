@@ -4,8 +4,6 @@ mod stdlib;
 pub mod type_check;
 
 use hir::Hir;
-use rtlola_parser::RtLolaAst;
-
 pub use hir::RtLolaHir;
 use modes::ast_conversion::TransformationErr;
 use modes::dependencies::DependencyErr;
@@ -13,6 +11,7 @@ use modes::memory_bounds::MemBoundErr;
 use modes::ordering::OrderErr;
 use modes::CompletionErr;
 pub use modes::{BaseMode, CompleteMode};
+use rtlola_parser::RtLolaAst;
 use rtlola_reporting::Handler;
 
 pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, TransformationErr> {

@@ -1,11 +1,13 @@
 //! This module provides naming analysis for a given Lola AST.
 
-use crate::hir::AnnotatedType;
-use crate::stdlib::FuncDecl;
-use rtlola_parser::ast::{Ident, NodeId, *};
-use rtlola_reporting::{Diagnostic, Handler, Span};
 use std::collections::HashMap;
 use std::rc::Rc;
+
+use rtlola_parser::ast::{Ident, NodeId, *};
+use rtlola_reporting::{Diagnostic, Handler, Span};
+
+use crate::hir::AnnotatedType;
+use crate::stdlib::FuncDecl;
 
 // These MUST all be lowercase
 // TODO add an static assertion for this
@@ -52,7 +54,9 @@ impl<'b> NamingAnalysis<'b> {
     /// * declaration already exists in current scope
     fn add_decl_for(&mut self, decl: Declaration) {
         assert!(!decl.is_type());
-        let name = decl.get_name().expect("added declarations are guaranteed to have a name");
+        let name = decl
+            .get_name()
+            .expect("added declarations are guaranteed to have a name");
 
         let span = decl.get_span().expect("all user defined declarations have a `Span`");
 
@@ -95,12 +99,14 @@ impl<'b> NamingAnalysis<'b> {
                         Some("not found in this scope"),
                     );
                 }
-            }
-            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
-                self.check_type(ty);
-            }),
+            },
+            TypeKind::Tuple(elements) => {
+                elements.iter().for_each(|ty| {
+                    self.check_type(ty);
+                })
+            },
             TypeKind::Optional(ty) => self.check_type(ty),
-            TypeKind::Inferred => {}
+            TypeKind::Inferred => {},
         }
     }
 
@@ -114,7 +120,10 @@ impl<'b> NamingAnalysis<'b> {
             if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&param.name.name) {
                 Diagnostic::error(
                     self.handler,
-                    &format!("identifier `{}` is use more than once in this paramater list", param.name.name),
+                    &format!(
+                        "identifier `{}` is use more than once in this paramater list",
+                        param.name.name
+                    ),
                 )
                 .add_span_with_label(
                     param.name.span.clone(),
@@ -145,11 +154,13 @@ impl<'b> NamingAnalysis<'b> {
             match import.name.name.as_str() {
                 "math" => self.fun_declarations.add_all_fun_decl(stdlib::math_module()),
                 "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
-                n => self.handler.error_with_span(
-                    &format!("unresolved import `{}`", n),
-                    import.name.span.clone(),
-                    Some(&format!("no `{}` in the root", n)),
-                ),
+                n => {
+                    self.handler.error_with_span(
+                        &format!("unresolved import `{}`", n),
+                        import.name.span.clone(),
+                        Some(&format!("no `{}` in the root", n)),
+                    )
+                },
             }
         }
 
@@ -192,18 +203,21 @@ impl<'b> NamingAnalysis<'b> {
         for trigger in &spec.trigger {
             if let Some(ident) = &trigger.name {
                 if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&ident.name) {
-                    Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", ident.name))
-                        .add_span_with_label(
-                            ident.span.clone(),
-                            Some(&format!("`{}` redefined here", ident.name)),
-                            true,
-                        )
-                        .maybe_add_span_with_label(
-                            decl.get_span(),
-                            Some(&format!("previous definition of the value `{}` here", ident.name)),
-                            false,
-                        )
-                        .emit();
+                    Diagnostic::error(
+                        self.handler,
+                        &format!("the name `{}` is defined multiple times", ident.name),
+                    )
+                    .add_span_with_label(
+                        ident.span.clone(),
+                        Some(&format!("`{}` redefined here", ident.name)),
+                        true,
+                    )
+                    .maybe_add_span_with_label(
+                        decl.get_span(),
+                        Some(&format!("previous definition of the value `{}` here", ident.name)),
+                        false,
+                    )
+                    .emit();
                 }
                 let mut found = false;
                 for previous_entry in &trigger_names {
@@ -307,49 +321,49 @@ impl<'b> NamingAnalysis<'b> {
         match &expression.kind {
             Ident(ident) => {
                 self.check_ident(expression, ident);
-            }
+            },
             StreamAccess(expr, _) => self.check_expression(expr),
             Offset(expr, _) => {
                 self.check_expression(expr);
-            }
+            },
             DiscreteWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            }
+            },
             SlidingWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            }
+            },
             Binary(_, left, right) => {
                 self.check_expression(left);
                 self.check_expression(right);
-            }
-            Lit(_) | MissingExpression => {}
+            },
+            Lit(_) | MissingExpression => {},
             Ite(condition, if_case, else_case) => {
                 self.check_expression(condition);
                 self.check_expression(if_case);
                 self.check_expression(else_case);
-            }
+            },
             ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => {
                 self.check_expression(expr);
-            }
+            },
             Tuple(exprs) => {
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
             Function(name, types, exprs) => {
                 self.check_function(expression, name);
                 types.iter().for_each(|ty| self.check_type(ty));
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
             Default(accessed, default) => {
                 self.check_expression(accessed);
                 self.check_expression(default);
-            }
+            },
             Method(expr, _, types, args) => {
                 self.check_expression(expr);
                 types.iter().for_each(|ty| self.check_type(ty));
                 args.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
         }
     }
 }
@@ -362,7 +376,9 @@ pub(crate) struct ScopedDecl {
 
 impl ScopedDecl {
     fn new() -> Self {
-        ScopedDecl { scopes: vec![HashMap::new()] }
+        ScopedDecl {
+            scopes: vec![HashMap::new()],
+        }
     }
 
     fn push(&mut self) {
@@ -384,7 +400,12 @@ impl ScopedDecl {
     }
 
     fn get_decl_in_current_scope_for(&self, name: &str) -> Option<Declaration> {
-        match self.scopes.last().expect("It appears that we popped the global context.").get(name) {
+        match self
+            .scopes
+            .last()
+            .expect("It appears that we popped the global context.")
+            .get(name)
+        {
             Some(decl) => Some(decl.clone()),
             None => None,
         }
@@ -392,7 +413,10 @@ impl ScopedDecl {
 
     fn add_decl_for(&mut self, name: &str, decl: Declaration) {
         assert!(self.scopes.last().is_some());
-        self.scopes.last_mut().expect("It appears that we popped the global context.").insert(name.to_string(), decl);
+        self.scopes
+            .last_mut()
+            .expect("It appears that we popped the global context.")
+            .insert(name.to_string(), decl);
     }
 
     pub(crate) fn add_fun_decl(&mut self, fun: &FuncDecl) {
@@ -465,9 +489,10 @@ impl Declaration {
 #[cfg(test)]
 mod tests {
 
+    use std::path::PathBuf;
+
     use super::*;
     use crate::parse::parse;
-    use std::path::PathBuf;
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
@@ -490,14 +515,19 @@ mod tests {
 
     #[test]
     fn primitive_types_are_a_known() {
-        for ty in &["Int8", "Int16", "Int32", "Int64", "Float32", "Float64", "Bool", "String"] {
+        for ty in &[
+            "Int8", "Int16", "Int32", "Int64", "Float32", "Float64", "Bool", "String",
+        ] {
             assert_eq!(0, number_of_naming_errors(&format!("output test: {} := 3", ty)))
         }
     }
 
     #[test]
     fn duplicate_names_at_the_same_level_are_reported() {
-        assert_eq!(1, number_of_naming_errors("output test: String := 3\noutput test: String := 3"))
+        assert_eq!(
+            1,
+            number_of_naming_errors("output test: String := 3\noutput test: String := 3")
+        )
     }
 
     #[test]
@@ -560,7 +590,10 @@ mod tests {
     #[test]
     fn missing_expression() {
         // should not produce an error as we want to be able to handle incomplete specs in analysis
-        assert_eq!(0, number_of_naming_errors("input x: Bool\noutput y: Bool := \ntrigger (y || x)"))
+        assert_eq!(
+            0,
+            number_of_naming_errors("input x: Bool\noutput y: Bool := \ntrigger (y || x)")
+        )
     }
 
     #[test]

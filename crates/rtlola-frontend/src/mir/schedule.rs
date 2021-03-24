@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
-use crate::mir::{OutputReference, RTLolaMIR, Stream};
 use std::time::Duration;
 
 use num::rational::Rational64 as Rational;
 use num::{One, ToPrimitive};
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
+
+use crate::mir::{OutputReference, RTLolaMIR, Stream};
 
 /**
 A deadline used inside the hyper-period of a `Schedule`.
@@ -69,7 +70,10 @@ impl Schedule {
         Self::sort_deadlines(ir, &mut deadlines);
 
         let hyper_period = Duration::from_nanos(hyper_period.get::<nanosecond>().to_integer().to_u64().unwrap());
-        Ok(Schedule { deadlines, hyper_period })
+        Ok(Schedule {
+            deadlines,
+            hyper_period,
+        })
     }
 
     /// Determines the max amount of time the process can wait between successive checks for
@@ -152,13 +156,17 @@ impl Schedule {
             let pause = gcd.get::<nanosecond>() * (empty_counter + 1);
             let pause = Duration::from_nanos(pause.to_integer() as u64);
             empty_counter = 0;
-            let deadline = Deadline { pause, due: step.clone() };
+            let deadline = Deadline {
+                pause,
+                due: step.clone(),
+            };
             deadlines.push(deadline);
         }
         // There cannot be some gcd periods left at the end of the hyper period.
         assert!(empty_counter == 0);
         deadlines
     }
+
     fn sort_deadlines(ir: &RTLolaMIR, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| ir.outputs[*s].eval_layer());
@@ -194,11 +202,12 @@ mod math {
 
 #[cfg(test)]
 mod tests {
+    use num::{FromPrimitive, ToPrimitive};
+
     use super::math::*;
     use super::*;
     use crate::mir::RTLolaMIR;
     use crate::FrontendConfig;
-    use num::{FromPrimitive, ToPrimitive};
 
     macro_rules! rat {
         ($i:expr) => {
