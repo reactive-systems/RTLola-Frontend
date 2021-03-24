@@ -1,7 +1,7 @@
 use super::{Ordered, OrderedTrait, TypedTrait};
 use crate::hir::{Hir, SRef};
 use crate::modes::dependencies::ExtendedDepGraph;
-use crate::modes::{DepAnaTrait, DependencyGraph, HirMode, IrExprTrait};
+use crate::modes::{DepAnaTrait, DependencyGraph, HirMode};
 use petgraph::algo::is_cyclic_directed;
 use petgraph::Outgoing;
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ impl Layer {
 impl Ordered {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Ordered
     where
-        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
+        M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Compute Evaluation Layers
         let graph = spec.graph().without_negative_offset_edges();
@@ -70,7 +70,7 @@ impl Ordered {
 
     fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
     where
-        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
+        M: HirMode + DepAnaTrait + TypedTrait,
     {
         debug_assert!(!is_cyclic_directed(&graph), "This should be already checked in the dependency analysis.");
         let spawn_graph = graph.without_negative_offset_edges().only_spawn_edges();
@@ -172,7 +172,7 @@ impl Ordered {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modes::IrExprMode;
+    use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
     use rtlola_reporting::Handler;
@@ -185,7 +185,7 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
             .unwrap()
             .build_dependency_graph()
             .unwrap()

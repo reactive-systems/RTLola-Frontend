@@ -2,7 +2,7 @@ use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
     SRef, StreamAccessKind, Trigger, WidenExprKind, WindowReference,
 };
-use crate::modes::{HirMode, IrExprTrait};
+use crate::modes::HirMode;
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::value_types::{AbstractValueType, ValueErrorKind};
@@ -25,7 +25,7 @@ impl Variable {
 
 pub(crate) struct ValueTypeChecker<'a, M>
 where
-    M: IrExprTrait + HirMode,
+    M: HirMode,
 {
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
     pub(crate) node_key: HashMap<NodeId, TcKey>,
@@ -37,7 +37,7 @@ where
 
 impl<'a, M> ValueTypeChecker<'a, M>
 where
-    M: IrExprTrait + HirMode,
+    M: HirMode,
 {
     pub(crate) fn new(hir: &'a Hir<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
         let mut tyc = TypeChecker::new();
@@ -640,7 +640,7 @@ where
 mod value_type_tests {
     use crate::common_ir::StreamReference;
     use crate::hir::RTLolaHIR;
-    use crate::modes::IrExprMode;
+    use crate::modes::BaseMode;
     use crate::type_check::rtltc::NodeId;
     use crate::type_check::value_types::ConcreteValueType;
     use crate::type_check::LolaTypeChecker;
@@ -650,7 +650,7 @@ mod value_type_tests {
     use std::path::PathBuf;
 
     struct TestBox {
-        hir: RTLolaHIR<IrExprMode>,
+        hir: RTLolaHIR<BaseMode>,
         handler: Handler,
     }
 
@@ -670,12 +670,9 @@ mod value_type_tests {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
-        let hir = crate::hir::RTLolaHIR::<IrExprMode>::transform_expressions(
-            ast,
-            &handler,
-            &crate::FrontendConfig::default(),
-        )
-        .unwrap();
+        let hir =
+            crate::hir::RTLolaHIR::<BaseMode>::transform_expressions(ast, &handler, &crate::FrontendConfig::default())
+                .unwrap();
         //let mut dec = na.check(&spec);
         assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
         TestBox { hir, handler }

@@ -105,7 +105,7 @@ impl MemBound {
 #[cfg(test)]
 mod dynaminc_memory_bound_tests {
     use super::*;
-    use crate::modes::IrExprMode;
+    use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
     use rtlola_reporting::Handler;
@@ -114,7 +114,7 @@ mod dynaminc_memory_bound_tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
             .unwrap()
             .build_dependency_graph()
             .unwrap()
@@ -313,7 +313,7 @@ mod dynaminc_memory_bound_tests {
 #[cfg(test)]
 mod static_memory_bound_tests {
     use super::*;
-    use crate::modes::IrExprMode;
+    use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
     use rtlola_reporting::Handler;
@@ -322,7 +322,7 @@ mod static_memory_bound_tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExprMode>::from_ast(ast, &handler, &config)
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
             .unwrap()
             .build_dependency_graph()
             .unwrap()

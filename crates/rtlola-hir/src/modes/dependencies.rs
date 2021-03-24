@@ -2,7 +2,7 @@ use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{
     Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, StreamReference, WRef, WidenExprKind,
 };
-use crate::modes::{HirMode, IrExprTrait};
+use crate::modes::HirMode;
 use petgraph::algo::{has_path_connecting, is_cyclic_directed};
 use petgraph::graph::NodeIndex;
 pub use petgraph::stable_graph::StableGraph;
@@ -50,7 +50,7 @@ pub(crate) trait ExtendedDepGraph {
 
     fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
     where
-        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
+        M: HirMode + DepAnaTrait + TypedTrait,
         Self: Sized;
 }
 
@@ -89,7 +89,7 @@ impl ExtendedDepGraph for DependencyGraph {
 
     fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
     where
-        M: IrExprTrait + HirMode + DepAnaTrait + TypedTrait,
+        M: HirMode + DepAnaTrait + TypedTrait,
         Self: Sized,
     {
         // remove edges and nodes, so mapping does not change
@@ -176,7 +176,7 @@ type Result<T> = std::result::Result<T, DependencyErr>;
 impl DepAna {
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna>
     where
-        M: IrExprTrait + HirMode,
+        M: HirMode,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
@@ -327,7 +327,7 @@ impl DepAna {
 
     fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>
     where
-        M: IrExprTrait + HirMode,
+        M: HirMode,
     {
         match &expr.kind {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
@@ -388,7 +388,7 @@ impl DepAna {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modes::IrExprMode;
+    use crate::modes::BaseMode;
     use crate::parse::parse;
     use crate::FrontendConfig;
     use rtlola_reporting::Handler;
@@ -408,7 +408,7 @@ mod tests {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<IrExprMode>::transform_expressions(ast, &handler, &config).unwrap();
+        let hir = Hir::<BaseMode>::transform_expressions(ast, &handler, &config).unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (

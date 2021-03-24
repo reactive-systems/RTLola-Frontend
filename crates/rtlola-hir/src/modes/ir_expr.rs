@@ -1,13 +1,12 @@
 mod naming;
 
-use super::{IrExprMode, IrExprTrait};
+use super::BaseMode;
 use crate::hir::{
     Ac, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression, ExpressionKind,
-    FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output, Parameter, SRef, SlidingAggr,
-    SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output, Parameter, SRef,
+    SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
 use crate::modes::ir_expr::naming::{Declaration, NamingAnalysis};
-use crate::modes::{HirMode, IrExpr};
 use crate::stdlib::FuncDecl;
 use rtlola_parser::ast;
 use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RTLolaAst, SpawnSpec, StreamAccessKind, Type};
@@ -17,7 +16,7 @@ use std::convert::TryInto;
 use std::rc::Rc;
 use std::time::Duration;
 
-impl Hir<IrExprMode> {
+impl Hir<BaseMode> {
     pub(crate) fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
         let mut naming_analyzer = NamingAnalysis::new(&handler);
         let decl_table = naming_analyzer.check(&ast);
@@ -48,119 +47,7 @@ impl Hir<IrExprMode> {
     }
 }
 
-impl IrExprTrait for IrExpr {
-    fn window_refs(&self) -> Vec<WRef> {
-        self.sliding_windows.keys().chain(self.discrete_windows.keys()).cloned().collect()
-    }
-
-    fn sliding_windows(&self) -> Vec<&Window<SlidingAggr>> {
-        self.sliding_windows.values().clone().collect()
-    }
-    fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>> {
-        self.discrete_windows.values().clone().collect()
-    }
-
-    fn expression(&self, id: ExprId) -> &Expression {
-        &self.exprid_to_expr[&id]
-    }
-
-    fn func_declaration(&self, func_name: &str) -> &FuncDecl {
-        &self.func_table[func_name]
-    }
-}
-
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
-
-impl<M> Hir<M>
-where
-    M: IrExprTrait + HirMode,
-{
-    pub fn windows(&self) -> Vec<WRef> {
-        self.window_refs()
-    }
-
-    pub fn expr(&self, sr: SRef) -> &Expression {
-        match sr {
-            SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
-            SRef::OutRef(o) => {
-                if o < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    let id = output.expect("Accessing non-existing Output-Stream").expr_id;
-                    self.mode.expression(id)
-                } else {
-                    let tr = self.triggers.iter().find(|tr| tr.sr == sr);
-                    let id = tr.expect("Accessing non-existing Trigger").expr_id;
-                    self.mode.expression(id)
-                }
-            }
-        }
-    }
-
-    pub fn act_cond(&self, sr: SRef) -> Option<&Expression> {
-        match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
-                if o < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
-                        match ac {
-                            Ac::Expr(e) => Some(self.mode.expression(*e)),
-                            Ac::Frequency { .. } => None, //May change return type
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
-        match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
-                if o < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| {
-                        o.instance_template.spawn.as_ref().map(|st| {
-                            (st.target.map(|e| self.mode.expression(e)), st.condition.map(|e| self.mode.expression(e)))
-                        })
-                    })
-                } else {
-                    None
-                }
-            }
-        }
-    }
-    pub fn filter(&self, sr: SRef) -> Option<&Expression> {
-        match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
-                if o < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.filter.map(|e| self.mode.expression(e)))
-                } else {
-                    None
-                }
-            }
-        }
-    }
-    pub fn close(&self, sr: SRef) -> Option<&Expression> {
-        match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
-                if o < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.close.map(|e| self.mode.expression(e)))
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum TransformationErr {
@@ -195,7 +82,7 @@ impl ExpressionTransformer {
         stream_by_name: HashMap<String, SRef>,
         ast: RTLolaAst,
         func_table: HashMap<String, FuncDecl>,
-    ) -> Result<Hir<IrExprMode>, TransformationErr> {
+    ) -> Result<Hir<BaseMode>, TransformationErr> {
         ExpressionTransformer {
             sliding_windows: vec![],
             discrete_windows: vec![],
@@ -210,7 +97,7 @@ impl ExpressionTransformer {
         mut self,
         ast: RTLolaAst,
         func_table: HashMap<String, FuncDecl>,
-    ) -> Result<Hir<IrExprMode>, TransformationErr> {
+    ) -> Result<Hir<BaseMode>, TransformationErr> {
         let RTLolaAst {
             imports: _,   // todo
             constants: _, //handled through naming analysis
@@ -282,8 +169,9 @@ impl ExpressionTransformer {
         let ExpressionTransformer { sliding_windows, discrete_windows, .. } = self;
         let sliding_windows = sliding_windows.into_iter().map(|w| (w.reference, w)).collect();
         let discrete_windows = discrete_windows.into_iter().map(|w| (w.reference, w)).collect();
+        let expr_maps = ExpressionMaps::new(exprid_to_expr, sliding_windows, discrete_windows, func_table);
 
-        let new_mode = IrExprMode { ir_expr: IrExpr { exprid_to_expr, sliding_windows, discrete_windows, func_table } };
+        let new_mode = BaseMode {};
 
         Ok(Hir {
             next_input_ref: hir_inputs.len(),
@@ -291,6 +179,7 @@ impl ExpressionTransformer {
             next_output_ref: hir_outputs.len(),
             outputs: hir_outputs,
             triggers: hir_triggers,
+            expr_maps,
             mode: new_mode,
         })
     }
@@ -732,12 +621,12 @@ mod tests {
     use rtlola_parser::ast::WindowOperation;
     use std::path::PathBuf;
 
-    fn obtain_expressions(spec: &str) -> Hir<IrExprMode> {
+    fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let config = FrontendConfig::default();
         let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let replaced: Hir<IrExprMode> =
-            Hir::<IrExprMode>::transform_expressions(ast, &handler, &config).expect("Expected valid spec");
+        let replaced: Hir<BaseMode> =
+            Hir::<BaseMode>::transform_expressions(ast, &handler, &config).expect("Expected valid spec");
         replaced
     }
 

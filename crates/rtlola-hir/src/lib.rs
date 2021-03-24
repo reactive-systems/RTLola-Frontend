@@ -10,17 +10,16 @@ pub use hir::RtLolaHir;
 pub use modes::dependencies::DependencyErr;
 pub use modes::ir_expr::TransformationErr;
 pub use modes::{
-    CompleteMode, DepAnaMode, DepAnaTrait, HirStage, IrExprMode, IrExprTrait, MemBoundMode, MemBoundTrait, OrderedMode,
-    OrderedTrait,
+    BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
 };
 use rtlola_reporting::Handler;
 
-pub fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Hir<IrExprMode>, TransformationErr> {
-    Hir::<IrExprMode>::from_ast(ast, handler)
+pub fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, TransformationErr> {
+    Hir::<BaseMode>::from_ast(ast, handler)
 }
 
 pub fn fully_analyzed(ast: RTLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, HirErr> {
-    Ok(Hir::<IrExprMode>::from_ast(ast, handler)?
+    Ok(Hir::<BaseMode>::from_ast(ast, handler)?
         .analyze_dependencies(handler)?
         .check_types(handler)?
         .determine_evaluation_order(handler)?

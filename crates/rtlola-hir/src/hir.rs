@@ -8,8 +8,11 @@ mod expression;
 mod print;
 
 pub use crate::hir::expression::*;
+use crate::modes::ir_expr::SpawnDef;
 use crate::modes::HirMode;
+use crate::stdlib::FuncDecl;
 use rtlola_reporting::Span;
+use std::collections::HashMap;
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
@@ -20,6 +23,7 @@ pub struct RtLolaHir<M: HirMode> {
     pub(crate) triggers: Vec<Trigger>,
     pub(crate) next_input_ref: usize,
     pub(crate) next_output_ref: usize,
+    pub(crate) expr_maps: ExpressionMaps,
     pub(crate) mode: M,
 }
 
@@ -68,6 +72,138 @@ impl<M: HirMode> Hir<M> {
     }
     pub fn input(&self, sref: SRef) -> Option<&Input> {
         self.inputs().find(|i| i.sr == sref)
+    }
+
+    pub fn window_refs(&self) -> Vec<WRef> {
+        self.expr_maps.sliding_windows.keys().chain(self.expr_maps.discrete_windows.keys()).cloned().collect()
+    }
+
+    pub fn sliding_windows(&self) -> Vec<&Window<SlidingAggr>> {
+        self.expr_maps.sliding_windows.values().clone().collect()
+    }
+    pub fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>> {
+        self.expr_maps.discrete_windows.values().clone().collect()
+    }
+
+    pub fn expression(&self, id: ExprId) -> &Expression {
+        &self.expr_maps.exprid_to_expr[&id]
+    }
+
+    pub fn func_declaration(&self, func_name: &str) -> &FuncDecl {
+        &self.expr_maps.func_table[func_name]
+    }
+
+    pub fn single_sliding(&self, window: WRef) -> Window<SlidingAggr> {
+        *self.sliding_windows().into_iter().find(|w| w.reference == window).unwrap()
+    }
+    pub fn single_discrete(&self, window: WRef) -> Window<DiscreteAggr> {
+        *self.discrete_windows().into_iter().find(|w| w.reference == window).unwrap()
+    }
+
+    pub fn windows(&self) -> Vec<WRef> {
+        self.window_refs()
+    }
+
+    pub fn expr(&self, sr: SRef) -> &Expression {
+        match sr {
+            SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    let id = output.expect("Accessing non-existing Output-Stream").expr_id;
+                    self.expression(id)
+                } else {
+                    let tr = self.triggers.iter().find(|tr| tr.sr == sr);
+                    let id = tr.expect("Accessing non-existing Trigger").expr_id;
+                    self.expression(id)
+                }
+            }
+        }
+    }
+
+    pub fn act_cond(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => None,
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
+                        match ac {
+                            Ac::Expr(e) => Some(self.expression(*e)),
+                            Ac::Frequency { .. } => None, //May change return type
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
+        match sr {
+            SRef::InRef(_) => None,
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| {
+                        o.instance_template
+                            .spawn
+                            .as_ref()
+                            .map(|st| (st.target.map(|e| self.expression(e)), st.condition.map(|e| self.expression(e))))
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+    pub fn filter(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => None,
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| o.instance_template.filter.map(|e| self.expression(e)))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+    pub fn close(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::InRef(_) => None,
+            SRef::OutRef(o) => {
+                if o < self.outputs.len() {
+                    let output = self.outputs.iter().find(|o| o.sr == sr);
+                    output.and_then(|o| o.instance_template.close.map(|e| self.expression(e)))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExpressionMaps {
+    exprid_to_expr: HashMap<ExprId, Expression>,
+    sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
+    discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+    func_table: HashMap<String, FuncDecl>,
+}
+
+impl ExpressionMaps {
+    pub(crate) fn new(
+        exprid_to_expr: HashMap<ExprId, Expression>,
+        sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
+        discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+        func_table: HashMap<String, FuncDecl>,
+    ) -> Self {
+        Self { exprid_to_expr, sliding_windows, discrete_windows, func_table }
     }
 }
 

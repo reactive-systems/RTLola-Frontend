@@ -1,7 +1,7 @@
 use crate::hir::{
     Ac, Constant, ExprId, Expression, ExpressionKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, ValueEq,
 };
-use crate::modes::{HirMode, IrExprTrait};
+use crate::modes::HirMode;
 use crate::type_check::rtltc::{Emittable, TypeError};
 use crate::type_check::ConcretePacingType;
 use itertools::Itertools;
@@ -595,7 +595,7 @@ impl PrintableVariant for AbstractExpressionType {
 }
 
 impl AbstractPacingType {
-    pub(crate) fn from_ac<M: HirMode + IrExprTrait>(ac: &Ac, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
         Ok(match ac {
             Ac::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
             Ac::Expr(eid) => {
@@ -687,7 +687,7 @@ impl ConcretePacingType {
         }
     }
 
-    pub(crate) fn from_ac<M: HirMode + IrExprTrait>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
+    pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
         match ac {
             Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
             Ac::Expr(eid) => {

@@ -6,10 +6,9 @@ pub(crate) mod types;
 
 use self::dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Windowdependencies};
 use self::types::HirType;
-use crate::hir::{DiscreteAggr, ExprId, Expression, Hir, SRef, SlidingAggr, WRef, Window};
+use crate::hir::{ExprId, Hir, SRef, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
-use crate::stdlib::FuncDecl;
 use crate::type_check::{ConcreteValueType, StreamType};
 use rtlola_reporting::Handler;
 use std::collections::HashMap;
@@ -22,53 +21,28 @@ pub trait HirStage: Sized {
     fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error>;
 }
 
-#[derive(Clone, Debug)]
-pub struct IrExpr {
-    exprid_to_expr: HashMap<ExprId, Expression>,
-    sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
-    discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
-    func_table: HashMap<String, FuncDecl>,
-}
-
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[derive(Clone, Debug, HirMode)]
-pub struct IrExprMode {
-    ir_expr: IrExpr,
-}
+pub struct BaseMode {}
 
-#[mode_functionality]
-pub trait IrExprTrait {
-    fn window_refs(&self) -> Vec<WRef>;
-    fn sliding_windows(&self) -> Vec<&Window<SlidingAggr>>;
-    fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>>;
-    fn single_sliding(&self, window: WRef) -> Window<SlidingAggr> {
-        *self.sliding_windows().into_iter().find(|w| w.reference == window).unwrap()
-    }
-    fn single_discrete(&self, window: WRef) -> Window<DiscreteAggr> {
-        *self.discrete_windows().into_iter().find(|w| w.reference == window).unwrap()
-    }
-    fn expression(&self, id: ExprId) -> &Expression;
-    fn func_declaration(&self, func_name: &str) -> &FuncDecl;
-}
-
-impl HirStage for Hir<IrExprMode> {
+impl HirStage for Hir<BaseMode> {
     type Error = DependencyErr;
     type NextStage = DepAnaMode;
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let dependencies = DepAna::analyze(&self)?;
-        let mode = DepAnaMode { ir_expr: self.mode.ir_expr, dependencies };
+        let mode = DepAnaMode { dependencies };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
             mode,
         })
     }
 }
 
-impl Hir<IrExprMode> {
+impl Hir<BaseMode> {
     pub fn analyze_dependencies(self, handler: &Handler) -> Result<Hir<DepAnaMode>, DependencyErr> {
         self.progress(handler)
     }
@@ -85,11 +59,9 @@ pub struct DepAna {
     graph: DependencyGraph,
 }
 
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[derive(Debug, Clone, HirMode)]
 pub struct DepAnaMode {
-    ir_expr: IrExpr,
     dependencies: DepAna,
 }
 
@@ -116,13 +88,14 @@ impl HirStage for Hir<DepAnaMode> {
     fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let tts = crate::type_check::type_check(&self, handler)?;
 
-        let mode = TypedMode { ir_expr: self.mode.ir_expr, dependencies: self.mode.dependencies, types: tts };
+        let mode = TypedMode { dependencies: self.mode.dependencies, types: tts };
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
             mode,
         })
     }
@@ -134,12 +107,10 @@ impl Hir<DepAnaMode> {
     }
 }
 
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[derive(Debug, Clone, HirMode)]
 pub struct TypedMode {
-    ir_expr: IrExpr,
     dependencies: DepAna,
     types: Typed,
 }
@@ -177,12 +148,7 @@ impl HirStage for Hir<TypedMode> {
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let order = Ordered::analyze(&self);
 
-        let mode = OrderedMode {
-            ir_expr: self.mode.ir_expr,
-            dependencies: self.mode.dependencies,
-            types: self.mode.types,
-            layers: order,
-        };
+        let mode = OrderedMode { dependencies: self.mode.dependencies, types: self.mode.types, layers: order };
 
         Ok(Hir {
             inputs: self.inputs,
@@ -190,6 +156,7 @@ impl HirStage for Hir<TypedMode> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
             mode,
         })
     }
@@ -206,13 +173,11 @@ pub struct Ordered {
     event_layers: HashMap<SRef, StreamLayers>,
     periodic_layers: HashMap<SRef, StreamLayers>,
 }
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
 #[derive(Debug, Clone, HirMode)]
 pub struct OrderedMode {
-    ir_expr: IrExpr,
     dependencies: DepAna,
     types: Typed,
     layers: Ordered,
@@ -229,7 +194,6 @@ impl HirStage for Hir<OrderedMode> {
         let memory = MemBound::analyze(&self, false);
 
         let mode = MemBoundMode {
-            ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
             layers: self.mode.layers,
@@ -242,6 +206,7 @@ impl HirStage for Hir<OrderedMode> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
             mode,
         })
     }
@@ -258,14 +223,12 @@ pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
 }
 
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
 #[covers_functionality(MemBoundTrait, memory)]
 #[derive(Debug, Clone, HirMode)]
 pub struct MemBoundMode {
-    ir_expr: IrExpr,
     dependencies: DepAna,
     types: Typed,
     layers: Ordered,
@@ -280,7 +243,6 @@ impl HirStage for Hir<MemBoundMode> {
     type NextStage = CompleteMode;
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let mode = CompleteMode {
-            ir_expr: self.mode.ir_expr,
             dependencies: self.mode.dependencies,
             types: self.mode.types,
             layers: self.mode.layers,
@@ -293,6 +255,7 @@ impl HirStage for Hir<MemBoundMode> {
             triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
             mode,
         })
     }
@@ -303,14 +266,12 @@ impl Hir<MemBoundMode> {
         self.progress(handler)
     }
 }
-#[covers_functionality(IrExprTrait, ir_expr)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
 #[covers_functionality(MemBoundTrait, memory)]
 #[derive(Debug, Clone, HirMode)]
 pub struct CompleteMode {
-    ir_expr: IrExpr,
     dependencies: DepAna,
     types: Typed,
     layers: Ordered,
