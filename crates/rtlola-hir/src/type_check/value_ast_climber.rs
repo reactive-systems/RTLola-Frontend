@@ -328,11 +328,11 @@ where
                     }
                     StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
                         let (target, aggr) = match wref {
-                            WindowReference::SlidingRef(_) => {
+                            WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr)
                             }
-                            WindowReference::DiscreteRef(_) => {
+                            WindowReference::Discrete(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr)
                             }

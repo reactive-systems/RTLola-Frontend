@@ -263,8 +263,8 @@ impl AnnotatedType {
 /// Allows for referencing a window instance.
 #[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowReference {
-    SlidingRef(usize),
-    DiscreteRef(usize),
+    Sliding(usize),
+    Discrete(usize),
 }
 
 pub(crate) type WRef = WindowReference;
@@ -273,8 +273,8 @@ impl WindowReference {
     /// Provides access to the index inside the reference.
     pub fn idx(self) -> usize {
         match self {
-            WindowReference::SlidingRef(u) => u,
-            WindowReference::DiscreteRef(u) => u,
+            WindowReference::Sliding(u) => u,
+            WindowReference::Discrete(u) => u,
         }
     }
 }

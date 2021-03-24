@@ -498,7 +498,7 @@ impl ExpressionTransformer {
             ast::ExpressionKind::DiscreteWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
-                let wref = WRef::DiscreteRef(idx);
+                let wref = WRef::Discrete(idx);
                 let duration = (*duration)
                     .parse_discrete_duration()
                     .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
@@ -510,12 +510,12 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.discrete_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::DiscreteRef(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::Discrete(idx)), Vec::new())
             }
             ast::ExpressionKind::SlidingWindowAggregation { expr: w_expr, duration, wait, aggregation: win_op } => {
                 let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
-                let wref = WRef::SlidingRef(idx);
+                let wref = WRef::Sliding(idx);
                 let duration = Self::parse_duration_from_expr(&*duration)
                     .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
                 let window = Window {
@@ -526,7 +526,7 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.sliding_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::SlidingRef(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), Vec::new())
             }
             ast::ExpressionKind::Binary(op, left, right) => {
                 use crate::hir::ArithLogOp::*;
@@ -809,7 +809,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
-        let wref = WRef::SlidingRef(0);
+        let wref = WRef::Sliding(0);
         assert!(matches!(
             expr.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::SlidingRef(0)), _)

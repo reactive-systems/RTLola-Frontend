@@ -155,8 +155,8 @@ impl Display for Offset {
 impl Display for WindowReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            WindowReference::SlidingRef(u) => write!(f, "SlidingWin({})", u),
-            WindowReference::DiscreteRef(u) => write!(f, "DiscreteWin({})", u),
+            WindowReference::Sliding(u) => write!(f, "SlidingWin({})", u),
+            WindowReference::Discrete(u) => write!(f, "DiscreteWin({})", u),
         }
     }
 }

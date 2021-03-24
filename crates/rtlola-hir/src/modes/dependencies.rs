@@ -758,15 +758,15 @@ mod tests {
         .collect();
         let aggregates = vec![
             (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![(sname_to_sref["a"], WRef::SlidingRef(0))]),
-            (sname_to_sref["c"], vec![(sname_to_sref["b"], WRef::SlidingRef(1))]),
+            (sname_to_sref["b"], vec![(sname_to_sref["a"], WRef::Sliding(0))]),
+            (sname_to_sref["c"], vec![(sname_to_sref["b"], WRef::Sliding(1))]),
             (sname_to_sref["d"], vec![]),
         ]
         .into_iter()
         .collect();
         let aggregated_by = vec![
-            (sname_to_sref["a"], vec![(sname_to_sref["b"], WRef::SlidingRef(0))]),
-            (sname_to_sref["b"], vec![(sname_to_sref["c"], WRef::SlidingRef(1))]),
+            (sname_to_sref["a"], vec![(sname_to_sref["b"], WRef::Sliding(0))]),
+            (sname_to_sref["b"], vec![(sname_to_sref["c"], WRef::Sliding(1))]),
             (sname_to_sref["c"], vec![]),
             (sname_to_sref["d"], vec![]),
         ]
