@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 pub trait HirMode {}
 
-trait HirStage: Sized {
+pub trait HirStage: Sized {
     type Error;
     type NextStage: HirMode;
     fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error>;
@@ -65,6 +65,12 @@ impl HirStage for Hir<IrExprMode> {
             next_input_ref: self.next_input_ref,
             mode,
         })
+    }
+}
+
+impl Hir<IrExprMode> {
+    pub fn analyze_dependencies(self, handler: &Handler) -> Result<Hir<DepAnaMode>, DependencyErr> {
+        self.progress(handler)
     }
 }
 
@@ -119,6 +125,12 @@ impl HirStage for Hir<DepAnaMode> {
             next_input_ref: self.next_input_ref,
             mode,
         })
+    }
+}
+
+impl Hir<DepAnaMode> {
+    pub fn check_types(self, handler: &Handler) -> Result<Hir<TypedMode>, String> {
+        self.progress(handler)
     }
 }
 
@@ -183,6 +195,12 @@ impl HirStage for Hir<TypedMode> {
     }
 }
 
+impl Hir<TypedMode> {
+    pub fn determine_evaluation_order(self, handler: &Handler) -> Result<Hir<OrderedMode>, ()> {
+        self.progress(handler)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ordered {
     event_layers: HashMap<SRef, StreamLayers>,
@@ -229,6 +247,12 @@ impl HirStage for Hir<OrderedMode> {
     }
 }
 
+impl Hir<OrderedMode> {
+    pub fn determine_memory_bounds(self, handler: &Handler) -> Result<Hir<MemBoundMode>, ()> {
+        self.progress(handler)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
@@ -271,6 +295,12 @@ impl HirStage for Hir<MemBoundMode> {
             next_input_ref: self.next_input_ref,
             mode,
         })
+    }
+}
+
+impl Hir<MemBoundMode> {
+    pub fn finalize(self, handler: &Handler) -> Result<Hir<CompleteMode>, ()> {
+        self.progress(handler)
     }
 }
 #[covers_functionality(IrExprTrait, ir_expr)]

@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 impl Hir<IrExprMode> {
-    pub(crate) fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Self, TransformationError> {
+    pub(crate) fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
         let mut naming_analyzer = NamingAnalysis::new(&handler);
         let decl_table = naming_analyzer.check(&ast);
         let func_table: HashMap<String, FuncDecl> = decl_table
@@ -163,7 +163,7 @@ where
 }
 
 #[derive(Debug)]
-pub enum TransformationError {
+pub enum TransformationErr {
     InvalidIdentRef(FunctionName),
     InvalidRefExpr(String),
     ConstantWithoutType(Span),
@@ -195,7 +195,7 @@ impl ExpressionTransformer {
         stream_by_name: HashMap<String, SRef>,
         ast: RTLolaAst,
         func_table: HashMap<String, FuncDecl>,
-    ) -> Result<Hir<IrExprMode>, TransformationError> {
+    ) -> Result<Hir<IrExprMode>, TransformationErr> {
         ExpressionTransformer {
             sliding_windows: vec![],
             discrete_windows: vec![],
@@ -210,7 +210,7 @@ impl ExpressionTransformer {
         mut self,
         ast: RTLolaAst,
         func_table: HashMap<String, FuncDecl>,
-    ) -> Result<Hir<IrExprMode>, TransformationError> {
+    ) -> Result<Hir<IrExprMode>, TransformationErr> {
         let RTLolaAst {
             imports: _,   // todo
             constants: _, //handled through naming analysis
@@ -271,13 +271,13 @@ impl ExpressionTransformer {
             .map(|(ix, i)| {
                 Ok(Input {
                     annotated_type: Self::annotated_type(&i.ty)
-                        .ok_or_else(|| TransformationError::MissingInputType(i.span.clone()))?,
+                        .ok_or_else(|| TransformationErr::MissingInputType(i.span.clone()))?,
                     name: i.name.name.clone(),
                     sr: SRef::InRef(ix),
                     span: i.span.clone(),
                 })
             })
-            .collect::<Result<Vec<_>, TransformationError>>()?;
+            .collect::<Result<Vec<_>, TransformationErr>>()?;
 
         let ExpressionTransformer { sliding_windows, discrete_windows, .. } = self;
         let sliding_windows = sliding_windows.into_iter().map(|w| (w.reference, w)).collect();
@@ -348,25 +348,25 @@ impl ExpressionTransformer {
         &mut self,
         expr: &ast::Expression,
         current_output: SRef,
-    ) -> Result<(SRef, Vec<Expression>), TransformationError> {
+    ) -> Result<(SRef, Vec<Expression>), TransformationErr> {
         match &expr.kind {
             ast::ExpressionKind::Ident(_) => match &self.decl_table[&expr.id] {
                 Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                 Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
-                _ => Err(TransformationError::InvalidRefExpr(String::from("Non-identifier transformed to SRef"))),
+                _ => Err(TransformationErr::InvalidRefExpr(String::from("Non-identifier transformed to SRef"))),
             },
             ast::ExpressionKind::Function(name, _, args) => match &self.decl_table[&expr.id] {
                 Declaration::ParamOut(o) => Ok((
                     self.stream_by_name[&o.name.name],
                     args.iter().map(|e| self.transform_expression(*e.clone(), current_output)).collect::<Result<
                         Vec<_>,
-                        TransformationError,
+                        TransformationErr,
                     >>(
                     )?,
                 )),
-                _ => Err(TransformationError::InvalidIdentRef(name.clone())),
+                _ => Err(TransformationErr::InvalidIdentRef(name.clone())),
             },
-            _ => Err(TransformationError::InvalidRefExpr(format!("{:?}", expr.kind))),
+            _ => Err(TransformationErr::InvalidRefExpr(format!("{:?}", expr.kind))),
         }
     }
 
@@ -376,28 +376,28 @@ impl ExpressionTransformer {
         ExprId(ret)
     }
 
-    fn transform_literal(&self, lit: &AstLiteral) -> Result<Literal, TransformationError> {
+    fn transform_literal(&self, lit: &AstLiteral) -> Result<Literal, TransformationErr> {
         Ok(match &lit.kind {
             ast::LitKind::Bool(b) => Literal::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => Literal::Str(s.clone()),
             ast::LitKind::Numeric(num_str, postfix) => {
                 match postfix {
-                    Some(s) if !s.is_empty() => return Err(TransformationError::InvalidLiteral(lit.span.clone())),
+                    Some(s) if !s.is_empty() => return Err(TransformationErr::InvalidLiteral(lit.span.clone())),
                     _ => {}
                 }
 
                 if num_str.contains('.') {
                     // Floating Point
                     Literal::Float(
-                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                        num_str.parse().map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
                     )
                 } else if num_str.starts_with('-') {
                     Literal::SInt(
-                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                        num_str.parse().map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
                     )
                 } else {
                     Literal::Integer(
-                        num_str.parse().map_err(|_| TransformationError::NonNumericInLiteral(lit.span.clone()))?,
+                        num_str.parse().map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
                     )
                 }
             }
@@ -409,10 +409,10 @@ impl ExpressionTransformer {
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         ac_expr: ast::Expression,
         current: SRef,
-    ) -> Result<Ac, TransformationError> {
+    ) -> Result<Ac, TransformationErr> {
         if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                let val = ac_expr.parse_freqspec().map_err(TransformationError::InvalidAc)?;
+                let val = ac_expr.parse_freqspec().map_err(TransformationErr::InvalidAc)?;
                 return Ok(Ac::Frequency { span: ac_expr.span.clone(), value: val });
             }
         }
@@ -423,7 +423,7 @@ impl ExpressionTransformer {
         &mut self,
         ast_expression: ast::Expression,
         current_output: SRef,
-    ) -> Result<Expression, TransformationError> {
+    ) -> Result<Expression, TransformationErr> {
         let new_id = self.next_exp_id();
         let span = ast_expression.span;
         let kind: ExpressionKind = match ast_expression.kind {
@@ -441,9 +441,9 @@ impl ExpressionTransformer {
                     ExpressionKind::StreamAccess(sr, IRAccess::Sync, Vec::new())
                 }
                 Declaration::Const(c) => {
-                    let ty = c.ty.as_ref().ok_or_else(|| TransformationError::ConstantWithoutType(span.clone()))?;
-                    let annotated_type = Self::annotated_type(ty)
-                        .ok_or_else(|| TransformationError::ConstantWithoutType(span.clone()))?;
+                    let ty = c.ty.as_ref().ok_or_else(|| TransformationErr::ConstantWithoutType(span.clone()))?;
+                    let annotated_type =
+                        Self::annotated_type(ty).ok_or_else(|| TransformationErr::ConstantWithoutType(span.clone()))?;
                     ExpressionKind::LoadConstant(HirConstant::Inlined(Inlined {
                         lit: self.transform_literal(&c.literal)?,
                         ty: annotated_type,
@@ -473,7 +473,7 @@ impl ExpressionTransformer {
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time = offset
                             .to_uom_time()
-                            .ok_or_else(|| TransformationError::InvalidRealtimeOffset(span.clone()))?;
+                            .ok_or_else(|| TransformationErr::InvalidRealtimeOffset(span.clone()))?;
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
                         let time = offset_uom_time.get::<nanosecond>();
@@ -501,7 +501,7 @@ impl ExpressionTransformer {
                 let wref = WRef::DiscreteRef(idx);
                 let duration = (*duration)
                     .parse_discrete_duration()
-                    .map_err(|e| TransformationError::InvalidDuration(e, span.clone()))?;
+                    .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
                 let window = Window {
                     target: sref,
                     caller: current_output,
@@ -517,7 +517,7 @@ impl ExpressionTransformer {
                 let idx = self.sliding_windows.len();
                 let wref = WRef::SlidingRef(idx);
                 let duration = Self::parse_duration_from_expr(&*duration)
-                    .map_err(|e| TransformationError::InvalidDuration(e, span.clone()))?;
+                    .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
                 let window = Window {
                     target: sref,
                     caller: current_output,
@@ -578,12 +578,12 @@ impl ExpressionTransformer {
             ast::ExpressionKind::ParenthesizedExpression(_, inner, _) => {
                 return self.transform_expression(*inner, current_output);
             }
-            ast::ExpressionKind::MissingExpression => return Err(TransformationError::MissingExpr(span)),
+            ast::ExpressionKind::MissingExpression => return Err(TransformationErr::MissingExpr(span)),
             ast::ExpressionKind::Tuple(inner) => ExpressionKind::Tuple(
                 inner
                     .into_iter()
                     .map(|ex| self.transform_expression(*ex, current_output))
-                    .collect::<Result<Vec<_>, TransformationError>>()?,
+                    .collect::<Result<Vec<_>, TransformationErr>>()?,
             ),
             ast::ExpressionKind::Field(inner_exp, ident) => {
                 let num: usize = ident.name.parse().expect("checked in AST verifier");
@@ -591,29 +591,29 @@ impl ExpressionTransformer {
                 ExpressionKind::TupleAccess(inner, num)
             }
             ast::ExpressionKind::Method(_base, _name, _types, _params) => {
-                return Err(TransformationError::MethodAccess);
+                return Err(TransformationErr::MethodAccess);
             }
             ast::ExpressionKind::Function(name, type_param, args) => {
                 let decl = self
                     .decl_table
                     .get(&ast_expression.id)
-                    .ok_or_else(|| TransformationError::UnknownFunction(span.clone()))?;
+                    .ok_or_else(|| TransformationErr::UnknownFunction(span.clone()))?;
                 match decl {
                     Declaration::Func(_) => {
                         let name = name.name.name;
                         let args: Vec<Expression> = args
                             .into_iter()
                             .map(|ex| self.transform_expression(*ex, current_output))
-                            .collect::<Result<Vec<_>, TransformationError>>()?;
+                            .collect::<Result<Vec<_>, TransformationErr>>()?;
 
                         if name.starts_with("widen") {
                             let widen_arg =
-                                args.get(0).ok_or_else(|| TransformationError::MissingWidenArg(span.clone()))?;
+                                args.get(0).ok_or_else(|| TransformationErr::MissingWidenArg(span.clone()))?;
                             ExpressionKind::Widen(WidenExprKind {
                                 expr: Box::new(widen_arg.clone()),
                                 ty: match type_param.get(0) {
                                     Some(t) => Self::annotated_type(t).ok_or_else(|| {
-                                        TransformationError::InvalidTypeArgument(t.clone(), span.clone())
+                                        TransformationErr::InvalidTypeArgument(t.clone(), span.clone())
                                     })?,
                                     None => todo!("error case"),
                                 },
@@ -626,9 +626,9 @@ impl ExpressionTransformer {
                                     .into_iter()
                                     .map(|t| {
                                         Self::annotated_type(&t)
-                                            .ok_or_else(|| TransformationError::InvalidTypeArgument(t, span.clone()))
+                                            .ok_or_else(|| TransformationErr::InvalidTypeArgument(t, span.clone()))
                                     })
-                                    .collect::<Result<Vec<_>, TransformationError>>()?,
+                                    .collect::<Result<Vec<_>, TransformationErr>>()?,
                             })
                         }
                     }
@@ -638,10 +638,10 @@ impl ExpressionTransformer {
                             IRAccess::Sync,
                             args.into_iter()
                                 .map(|ex| self.transform_expression(*ex, current_output))
-                                .collect::<Result<Vec<_>, TransformationError>>()?,
+                                .collect::<Result<Vec<_>, TransformationErr>>()?,
                         )
                     }
-                    _ => return Err(TransformationError::UnknownFunction(span)),
+                    _ => return Err(TransformationErr::UnknownFunction(span)),
                 }
             }
         };
@@ -678,7 +678,7 @@ impl ExpressionTransformer {
         close_spec: Option<ast::CloseSpec>,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         current_output: SRef,
-    ) -> Result<InstanceTemplate, TransformationError> {
+    ) -> Result<InstanceTemplate, TransformationErr> {
         Ok(InstanceTemplate {
             spawn: spawn_spec.map_or(Ok(None), |spawn_spec| {
                 let SpawnSpec { target, pacing, condition, is_if, .. } = spawn_spec;

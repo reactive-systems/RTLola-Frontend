@@ -258,11 +258,6 @@ impl AnnotatedType {
 
         types
     }
-
-    pub fn is_primitive(&self) -> bool {
-        use crate::hir::AnnotatedType::*;
-        matches!(self, Bool | Int(_) | UInt(_) | Float(_) | String | Bytes)
-    }
 }
 
 /// Allows for referencing a window instance.
@@ -276,7 +271,7 @@ pub(crate) type WRef = WindowReference;
 
 impl WindowReference {
     /// Provides access to the index inside the reference.
-    pub(crate) fn idx(self) -> usize {
+    pub fn idx(self) -> usize {
         match self {
             WindowReference::SlidingRef(u) => u,
             WindowReference::DiscreteRef(u) => u,
@@ -302,7 +297,7 @@ pub(crate) type SRef = StreamReference;
 
 impl StreamReference {
     /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
-    pub(crate) fn out_ix(&self) -> usize {
+    pub fn out_ix(&self) -> usize {
         match self {
             StreamReference::InRef(_) => unreachable!(),
             StreamReference::OutRef(ix) => *ix,
@@ -310,7 +305,7 @@ impl StreamReference {
     }
 
     /// Returns the index inside the reference if it is an input reference.  Panics otherwise.
-    pub(crate) fn in_ix(&self) -> usize {
+    pub fn in_ix(&self) -> usize {
         match self {
             StreamReference::OutRef(_) => unreachable!(),
             StreamReference::InRef(ix) => *ix,
@@ -318,7 +313,7 @@ impl StreamReference {
     }
 
     /// Returns the index inside the reference disregarding whether it is an input or output reference.
-    pub(crate) fn ix_unchecked(&self) -> usize {
+    pub fn ix_unchecked(&self) -> usize {
         match self {
             StreamReference::InRef(ix) | StreamReference::OutRef(ix) => *ix,
         }
