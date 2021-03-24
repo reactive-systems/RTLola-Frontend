@@ -166,8 +166,7 @@ impl Schedule {
     }
 }
 mod math {
-    use num::integer::gcd as num_gcd;
-    use num::integer::lcm as num_lcm;
+    use num::integer::{gcd as num_gcd, lcm as num_lcm};
     use num::rational::Rational64 as Rational;
 
     pub(crate) fn rational_gcd(a: Rational, b: Rational) -> Rational {
@@ -199,8 +198,7 @@ mod tests {
     use super::*;
     use crate::mir::RTLolaMIR;
     use crate::FrontendConfig;
-    use num::FromPrimitive;
-    use num::ToPrimitive;
+    use num::{FromPrimitive, ToPrimitive};
 
     macro_rules! rat {
         ($i:expr) => {

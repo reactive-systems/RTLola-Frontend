@@ -1,10 +1,12 @@
+pub(crate) mod ast_conversion;
 pub(crate) mod dependencies;
-pub(crate) mod ir_expr;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
 pub(crate) mod types;
 
 use self::dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Windowdependencies};
+use self::memory_bounds::MemBoundErr;
+use self::ordering::OrderErr;
 use self::types::HirType;
 use crate::hir::{ExprId, Hir, SRef, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
@@ -143,7 +145,7 @@ pub trait TypedTrait {
 }
 
 impl HirStage for Hir<TypedMode> {
-    type Error = ();
+    type Error = OrderErr;
     type NextStage = OrderedMode;
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let order = Ordered::analyze(&self);
@@ -163,7 +165,7 @@ impl HirStage for Hir<TypedMode> {
 }
 
 impl Hir<TypedMode> {
-    pub fn determine_evaluation_order(self, handler: &Handler) -> Result<Hir<OrderedMode>, ()> {
+    pub fn determine_evaluation_order(self, handler: &Handler) -> Result<Hir<OrderedMode>, OrderErr> {
         self.progress(handler)
     }
 }
@@ -188,7 +190,7 @@ pub trait OrderedTrait {
 }
 
 impl HirStage for Hir<OrderedMode> {
-    type Error = ();
+    type Error = MemBoundErr;
     type NextStage = MemBoundMode;
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let memory = MemBound::analyze(&self, false);
@@ -213,7 +215,7 @@ impl HirStage for Hir<OrderedMode> {
 }
 
 impl Hir<OrderedMode> {
-    pub fn determine_memory_bounds(self, handler: &Handler) -> Result<Hir<MemBoundMode>, ()> {
+    pub fn determine_memory_bounds(self, handler: &Handler) -> Result<Hir<MemBoundMode>, MemBoundErr> {
         self.progress(handler)
     }
 }
@@ -239,7 +241,7 @@ pub trait MemBoundTrait {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 impl HirStage for Hir<MemBoundMode> {
-    type Error = ();
+    type Error = CompletionErr;
     type NextStage = CompleteMode;
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let mode = CompleteMode {
@@ -261,8 +263,11 @@ impl HirStage for Hir<MemBoundMode> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum CompletionErr {}
+
 impl Hir<MemBoundMode> {
-    pub fn finalize(self, handler: &Handler) -> Result<Hir<CompleteMode>, ()> {
+    pub fn finalize(self, handler: &Handler) -> Result<Hir<CompleteMode>, CompletionErr> {
         self.progress(handler)
     }
 }

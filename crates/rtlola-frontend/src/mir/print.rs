@@ -1,5 +1,7 @@
-use super::*;
+use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, StreamAccessKind, Type};
 use std::fmt::{Display, Formatter, Result};
+
+use super::{FloatTy, IntTy, UIntTy};
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -95,6 +97,37 @@ impl Display for Type {
             Type::Bytes => write!(f, "Bytes"),
             Type::Option(inner) => write!(f, "Option<{}>", inner),
             Type::Bool => write!(f, "Bool"),
+        }
+    }
+}
+
+impl Display for IntTy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            IntTy::Int8 => write!(f, "8"),
+            IntTy::Int16 => write!(f, "16"),
+            IntTy::Int32 => write!(f, "32"),
+            IntTy::Int64 => write!(f, "64"),
+        }
+    }
+}
+
+impl Display for UIntTy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            UIntTy::UInt8 => write!(f, "8"),
+            UIntTy::UInt16 => write!(f, "16"),
+            UIntTy::UInt32 => write!(f, "32"),
+            UIntTy::UInt64 => write!(f, "64"),
+        }
+    }
+}
+
+impl Display for FloatTy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            FloatTy::Float32 => write!(f, "32"),
+            FloatTy::Float64 => write!(f, "64"),
         }
     }
 }

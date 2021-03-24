@@ -797,7 +797,7 @@ mod tests {
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use reporting::{Handler, Span};
-    use rtlola_parser::ast::RTLolaAst;
+    use rtlola_parser::ast::RtLolaAst;
     use std::path::PathBuf;
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
@@ -824,7 +824,7 @@ mod tests {
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
         let handler = reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
+        let ast: RtLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };

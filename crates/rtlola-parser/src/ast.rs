@@ -12,7 +12,7 @@ use std::rc::Rc;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the AST node, the span in the input specification file, and declaration specific components.
 #[derive(Debug, Default, Clone)]
-pub struct RTLolaAst {
+pub struct RtLolaAst {
     /// The imports of additional modules
     pub imports: Vec<Import>,
     /// The constant stream declarations
@@ -27,9 +27,9 @@ pub struct RTLolaAst {
     pub type_declarations: Vec<TypeDeclaration>,
 }
 
-impl RTLolaAst {
-    pub(crate) fn new() -> RTLolaAst {
-        RTLolaAst {
+impl RtLolaAst {
+    pub(crate) fn new() -> RtLolaAst {
+        RtLolaAst {
             imports: Vec::new(),
             constants: Vec::new(),
             inputs: Vec::new(),

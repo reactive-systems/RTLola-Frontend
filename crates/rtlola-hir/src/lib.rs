@@ -4,21 +4,22 @@ mod stdlib;
 pub mod type_check;
 
 use hir::Hir;
-use rtlola_parser::RTLolaAst;
+use rtlola_parser::RtLolaAst;
 
 pub use hir::RtLolaHir;
-pub use modes::dependencies::DependencyErr;
-pub use modes::ir_expr::TransformationErr;
-pub use modes::{
-    BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
-};
+use modes::ast_conversion::TransformationErr;
+use modes::dependencies::DependencyErr;
+use modes::memory_bounds::MemBoundErr;
+use modes::ordering::OrderErr;
+use modes::CompletionErr;
+pub use modes::{BaseMode, CompleteMode};
 use rtlola_reporting::Handler;
 
-pub fn from_ast(ast: RTLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, TransformationErr> {
+pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, TransformationErr> {
     Hir::<BaseMode>::from_ast(ast, handler)
 }
 
-pub fn fully_analyzed(ast: RTLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, HirErr> {
+pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, HirErr> {
     Ok(Hir::<BaseMode>::from_ast(ast, handler)?
         .analyze_dependencies(handler)?
         .check_types(handler)?
@@ -27,6 +28,7 @@ pub fn fully_analyzed(ast: RTLolaAst, handler: &Handler) -> Result<Hir<CompleteM
         .finalize(handler)?)
 }
 
+#[derive(Debug, Clone)]
 pub enum HirErr {
     Ast(TransformationErr),
     Dependency(DependencyErr),
@@ -42,6 +44,24 @@ impl From<TransformationErr> for HirErr {
 impl From<DependencyErr> for HirErr {
     fn from(e: DependencyErr) -> Self {
         Self::Dependency(e)
+    }
+}
+
+impl From<OrderErr> for HirErr {
+    fn from(_e: OrderErr) -> Self {
+        panic!("a non-descript error should never surface to the public interface")
+    }
+}
+
+impl From<MemBoundErr> for HirErr {
+    fn from(_e: MemBoundErr) -> Self {
+        panic!("a non-descript error should never surface to the public interface")
+    }
+}
+
+impl From<CompletionErr> for HirErr {
+    fn from(_e: CompletionErr) -> Self {
+        panic!("a non-descript error should never surface to the public interface")
     }
 }
 

@@ -22,7 +22,7 @@ struct LolaParser;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RTLolaParser<'a> {
-    spec: RTLolaAst,
+    spec: RtLolaAst,
     handler: &'a Handler,
     config: ParserConfig,
     node_id: RefCell<NodeId>,
@@ -55,18 +55,18 @@ lazy_static! {
 
 impl<'a> RTLolaParser<'a> {
     pub(crate) fn new(handler: &'a Handler, config: ParserConfig) -> Self {
-        RTLolaParser { spec: RTLolaAst::new(), handler, config, node_id: RefCell::new(NodeId::new(0)) }
+        RTLolaParser { spec: RtLolaAst::new(), handler, config, node_id: RefCell::new(NodeId::new(0)) }
     }
 
     /**
      * Transforms a textual representation of a Lola specification into
      * an AST representation.
      */
-    pub(crate) fn parse(handler: &'_ Handler, config: ParserConfig) -> Result<RTLolaAst, pest::error::Error<Rule>> {
+    pub(crate) fn parse(handler: &'_ Handler, config: ParserConfig) -> Result<RtLolaAst, pest::error::Error<Rule>> {
         RTLolaParser::new(handler, config).parse_spec()
     }
 
-    pub(crate) fn parse_spec(mut self) -> Result<RTLolaAst, pest::error::Error<Rule>> {
+    pub(crate) fn parse_spec(mut self) -> Result<RtLolaAst, pest::error::Error<Rule>> {
         let mut pairs = LolaParser::parse(Rule::Spec, &self.config.spec)?;
         assert!(pairs.clone().count() == 1, "Spec must not be empty.");
         let spec_pair = pairs.next().unwrap();
@@ -899,7 +899,7 @@ mod tests {
     use pest::{consumes_to, parses_to};
     use std::path::PathBuf;
 
-    fn cmp_ast_spec(ast: &RTLolaAst, spec: &str) -> bool {
+    fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
         // Todo: Make more robust, e.g. against changes in whitespace.
         assert_eq!(format!("{}", ast), spec);
         true

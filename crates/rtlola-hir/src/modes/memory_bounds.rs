@@ -35,6 +35,9 @@ impl MemorizationBound {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum MemBoundErr {}
+
 impl PartialOrd for MemorizationBound {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;

@@ -138,7 +138,7 @@ impl<'b> NamingAnalysis<'b> {
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
-    pub(crate) fn check(&mut self, spec: &RTLolaAst) -> DeclarationTable {
+    pub(crate) fn check(&mut self, spec: &RtLolaAst) -> DeclarationTable {
         use crate::stdlib;
         self.fun_declarations.add_all_fun_decl(stdlib::implicit_module());
         for import in &spec.imports {
@@ -187,7 +187,7 @@ impl<'b> NamingAnalysis<'b> {
     }
 
     /// Checks that if the trigger has a name, it is unique
-    fn check_triggers(&mut self, spec: &RTLolaAst) {
+    fn check_triggers(&mut self, spec: &RtLolaAst) {
         let mut trigger_names: Vec<(&String, &Trigger)> = Vec::new();
         for trigger in &spec.trigger {
             if let Some(ident) = &trigger.name {
@@ -238,7 +238,7 @@ impl<'b> NamingAnalysis<'b> {
         }
     }
 
-    fn check_outputs(&mut self, spec: &RTLolaAst) {
+    fn check_outputs(&mut self, spec: &RtLolaAst) {
         // recurse into expressions and check them
         for output in &spec.outputs {
             self.declarations.push();

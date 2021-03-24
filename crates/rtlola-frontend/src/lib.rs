@@ -15,17 +15,17 @@
 
 mod lowering;
 pub mod mir;
-mod stdlib;
 
 use mir::Mir;
-use rtlola_hir::hir::modes::{CompleteMode, IrExprMode};
+use rtlola_hir::{CompleteMode, HirErr};
+use rtlola_parser::ParserConfig;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export
 pub use crate::mir::RTLolaMIR;
-pub(crate) use rtlola_hir::hir::RTLolaHir as Hir;
+pub(crate) use rtlola_hir::hir::RtLolaHir as Hir;
 
 // Replace by more elaborate interface.
 /**
@@ -35,12 +35,9 @@ The string passed in as `spec_str` should be the content of the file specified b
 The filename is only used for printing locations.
 See the `FrontendConfig` documentation on more information about the parser options.
 */
-pub fn parse(filename: &str, spec_str: &str, config: rtlola_parser::FrontendConfig) -> Result<RTLolaMIR, String> {
-    let hir = parse_to_hir(filename, spec_str, config);
-    match hir {
-        Err(_) => Err("Analysis failed due to errors in the specification".to_string()),
-        Ok(hir) => Ok(Mir::from_hir(hir)),
-    }
+pub fn parse(config: ParserConfig) -> Result<RTLolaMIR, FrontEndErr> {
+    let hir = parse_to_hir(config)?;
+    Ok(Mir::from_hir(hir))
 }
 
 /**
@@ -50,25 +47,29 @@ The string passed in as `spec_str` should be the content of the file specified b
 The filename is only used for printing locations.
 See the `FrontendConfig` documentation on more information about the parser options.
 */
-pub(crate) fn parse_to_hir(
-    filename: &str,
-    spec_str: &str,
-    config: rtlola_parser::FrontendConfig,
-) -> Result<Hir<CompleteMode>, String> {
-    let spec = rtlola_parser::parse(filename, spec_str, config)?;
+pub(crate) fn parse_to_hir(cfg: ParserConfig) -> Result<Hir<CompleteMode>, FrontEndErr> {
+    let handler = if let Some(path) = &cfg.path() {
+        rtlola_reporting::Handler::new(path.clone(), String::from(cfg.spec()))
+    } else {
+        rtlola_reporting::Handler::without_file(String::from(cfg.spec()))
+    };
+    let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
 
-    let handler = rtlola_reporting::Handler::new(std::path::PathBuf::from(filename), spec_str.into());
+    Ok(rtlola_hir::fully_analyzed(spec, &handler)?)
+}
 
-    Ok(Hir::<IrExprMode>::transform_expressions(spec, &handler, &config)
-        .map_err(|e| format!("error in expression transformation: {:?}", e))?
-        .build_dependency_graph()
-        .map_err(|e| format!("error in dependency analysis: {:?}", e))?
-        .type_check(&handler)?
-        .build_evaluation_order()
-        .compute_memory_bounds()
-        .finalize())
-    // let analysis_result = analysis::analyze(&spec, &handler, config);
-    // analysis_result
-    //     .map(|report| hir::RTLolaHIR::<FullInformationHirMode>::new(&spec, &report))
-    //     .map_err(|_| "Analysis failed due to errors in the specification".to_string())
+#[derive(Debug, Clone)]
+pub enum FrontEndErr {
+    Parser(String),
+    Analysis(HirErr),
+}
+impl From<String> for FrontEndErr {
+    fn from(s: String) -> FrontEndErr {
+        Self::Parser(s)
+    }
+}
+impl From<HirErr> for FrontEndErr {
+    fn from(e: HirErr) -> FrontEndErr {
+        Self::Analysis(e)
+    }
 }

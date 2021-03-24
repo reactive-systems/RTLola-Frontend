@@ -5,7 +5,7 @@ use crate::hir::{
 use crate::modes::HirMode;
 use petgraph::algo::{has_path_connecting, is_cyclic_directed};
 use petgraph::graph::NodeIndex;
-pub use petgraph::stable_graph::StableGraph;
+use petgraph::stable_graph::StableGraph;
 use petgraph::Outgoing;
 use std::collections::HashMap;
 use std::convert::TryFrom;

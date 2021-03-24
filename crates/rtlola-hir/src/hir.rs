@@ -7,14 +7,22 @@ The module occurs in different modes, adding different information to the interm
 mod expression;
 mod print;
 
-pub use crate::hir::expression::*;
-use crate::modes::ir_expr::SpawnDef;
 use crate::modes::HirMode;
 use crate::stdlib::FuncDecl;
 use rtlola_reporting::Span;
 use std::collections::HashMap;
 use std::time::Duration;
 use uom::si::rational64::Frequency as UOM_Frequency;
+
+pub use crate::hir::expression::*;
+pub use crate::modes::ast_conversion::{SpawnDef, TransformationErr};
+pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight};
+pub use crate::modes::memory_bounds::MemorizationBound;
+pub use crate::modes::ordering::{Layer, StreamLayers};
+pub use crate::modes::{
+    BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
+};
+pub use crate::type_check::{ConcretePacingType, ConcreteStreamPacing, ConcreteValueType, StreamType};
 
 #[derive(Debug, Clone)]
 pub struct RtLolaHir<M: HirMode> {

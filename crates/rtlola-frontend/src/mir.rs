@@ -2,24 +2,33 @@
 This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
 */
 
-pub use rtlola_hir::common_ir::*;
-
 mod print;
 mod schedule;
 
-pub use crate::mir::schedule::{Deadline, Schedule};
-pub use rtlola_hir::common_ir::{Layer, StreamReference, WindowReference};
-use rtlola_hir::common_ir::SRef;
-pub use rtlola_hir::ty::{Activation, FloatTy, IntTy, UIntTy, ValueTy};
-pub use rtlola_parser::ast::WindowOperation; // Re-export needed for IR
-
+use crate::mir::schedule::Schedule;
 use num::traits::Inv;
-use std::{convert::TryInto, time::Duration};
-use uom::si::rational64::Frequency as UOM_Frequency;
-use uom::si::rational64::Time as UOM_Time;
+use rtlola_hir::hir::*;
+use rtlola_parser::ast::WindowOperation; // Re-export needed for IR
+use std::convert::TryInto;
+use std::time::Duration;
+use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
 pub(crate) type Mir = RTLolaMIR;
+
+/// A trait for any kind of stream.
+pub trait Stream {
+    // Returns the spawn laying in which the stream is created.
+    fn spawn_layer(&self) -> Layer;
+    /// Returns the evaluation laying in which the stream resides.
+    fn eval_layer(&self) -> Layer;
+    /// Indicates whether or not the stream is an input stream.
+    fn is_input(&self) -> bool;
+    /// Indicates how many values need to be memorized.
+    fn values_to_memorize(&self) -> MemorizationBound;
+    /// Produces a stream references referring to the stream.
+    fn as_stream_ref(&self) -> StreamReference;
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RTLolaMIR {
@@ -58,21 +67,48 @@ pub enum Type {
     Tuple(Vec<Type>),
     /// An optional value type, e.g., resulting from accessing a stream with offset -1
     Option(Box<Type>),
-    /// A type describing a function containing its argument types and return type. Resolve ambiguities in polymorphic functions and operations.
+    /// A type describing a function containing its argument types and return type. Monomorphized.
     Function(Vec<Type>, Box<Type>),
 }
 
-impl From<&ValueTy> for Type {
-    fn from(ty: &ValueTy) -> Type {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntTy {
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UIntTy {
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloatTy {
+    Float32,
+    Float64,
+}
+
+impl From<ConcreteValueType> for Type {
+    fn from(ty: ConcreteValueType) -> Type {
         match ty {
-            ValueTy::Bool => Type::Bool,
-            ValueTy::Int(i) => Type::Int(*i),
-            ValueTy::UInt(u) => Type::UInt(*u),
-            ValueTy::Float(f) => Type::Float(*f),
-            ValueTy::String => Type::String,
-            ValueTy::Bytes => Type::Bytes,
-            ValueTy::Tuple(t) => Type::Tuple(t.iter().map(|e| e.into()).collect()),
-            ValueTy::Option(o) => Type::Option(Box::new(o.as_ref().into())),
+            ConcreteValueType::Integer8 => Type::Int(IntTy::Int8),
+            ConcreteValueType::Integer16 => Type::Int(IntTy::Int16),
+            ConcreteValueType::Integer32 => Type::Int(IntTy::Int32),
+            ConcreteValueType::Integer64 => Type::Int(IntTy::Int64),
+            ConcreteValueType::UInteger8 => Type::UInt(UIntTy::UInt8),
+            ConcreteValueType::UInteger16 => Type::UInt(UIntTy::UInt16),
+            ConcreteValueType::UInteger32 => Type::UInt(UIntTy::UInt32),
+            ConcreteValueType::UInteger64 => Type::UInt(UIntTy::UInt64),
+            ConcreteValueType::Float32 => Type::Float(FloatTy::Float32),
+            ConcreteValueType::Float64 => Type::Float(FloatTy::Float64),
+            ConcreteValueType::Tuple(t) => Type::Tuple(t.iter().map(|e| Type::from(e.clone())).collect()),
+            ConcreteValueType::TString => Type::String,
+            ConcreteValueType::Byte => Type::Bytes,
+            ConcreteValueType::Option(o) => Type::Option(Box::new(Type::from(*o))),
             _ => unreachable!("cannot lower `ValueTy` {}", ty),
         }
     }
@@ -86,7 +122,7 @@ pub struct InputStream {
     /// The type of the stream.
     pub ty: Type,
     /// The List of streams that access the current stream. (non-transitive)
-    pub acccessed_by: Vec<SRef>,
+    pub acccessed_by: Vec<StreamReference>,
     /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     // *was:* pub dependent_windows: Vec<WindowReference>,
@@ -110,9 +146,9 @@ pub struct OutputStream {
     /// The stream expression
     pub expr: Expression,
     /// The List of streams that are accessed by the stream expression, spawn expression, filter expression, close expression. (non-transitive)
-    pub acccesses: Vec<SRef>,
+    pub acccesses: Vec<StreamReference>,
     /// The List of streams that access the current stream. (non-transitive)
-    pub acccessed_by: Vec<SRef>,
+    pub acccessed_by: Vec<StreamReference>,
     /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// The amount of memory required for this stream.
@@ -149,7 +185,7 @@ pub struct InstanceTemplate {
 // Representation of the spawn template, containing the spawn expressions
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTemplate {
-    // TODO Review: Maybe another representation might be better, e.g., Vec<Expressions> or even Vec<SRef>
+    // TODO Review: Maybe another representation might be better, e.g., Vec<Expressions> or even Vec<StreamRef>
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Expression,
     /// The activation condition describing when a new instance is created.
@@ -473,8 +509,8 @@ impl RTLolaMIR {
     /// Returns a discrete Window instance for a given WindowReference in the specification
     pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
         match window {
-            WindowReference::DiscreteRef(x) => &self.discrete_windows[x],
-            WindowReference::SlidingRef(_) => panic!("wrong type of window reference passed to getter"),
+            WindowReference::Discrete(x) => &self.discrete_windows[x],
+            WindowReference::Sliding(_) => panic!("wrong type of window reference passed to getter"),
         }
     }
 
@@ -537,17 +573,16 @@ impl Type {
     pub fn size(&self) -> Option<ValSize> {
         match self {
             Type::Bool => Some(ValSize(1)),
-            Type::Int(IntTy::I8) => Some(ValSize(1)),
-            Type::Int(IntTy::I16) => Some(ValSize(2)),
-            Type::Int(IntTy::I32) => Some(ValSize(4)),
-            Type::Int(IntTy::I64) => Some(ValSize(8)),
-            Type::UInt(UIntTy::U8) => Some(ValSize(1)),
-            Type::UInt(UIntTy::U16) => Some(ValSize(2)),
-            Type::UInt(UIntTy::U32) => Some(ValSize(4)),
-            Type::UInt(UIntTy::U64) => Some(ValSize(8)),
-            Type::Float(FloatTy::F16) => Some(ValSize(2)),
-            Type::Float(FloatTy::F32) => Some(ValSize(4)),
-            Type::Float(FloatTy::F64) => Some(ValSize(8)),
+            Type::Int(IntTy::Int8) => Some(ValSize(1)),
+            Type::Int(IntTy::Int16) => Some(ValSize(2)),
+            Type::Int(IntTy::Int32) => Some(ValSize(4)),
+            Type::Int(IntTy::Int64) => Some(ValSize(8)),
+            Type::UInt(UIntTy::UInt8) => Some(ValSize(1)),
+            Type::UInt(UIntTy::UInt16) => Some(ValSize(2)),
+            Type::UInt(UIntTy::UInt32) => Some(ValSize(4)),
+            Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
+            Type::Float(FloatTy::Float32) => Some(ValSize(4)),
+            Type::Float(FloatTy::Float64) => Some(ValSize(8)),
             Type::Option(_) => unimplemented!("Size of option not determined, yet."),
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
@@ -556,5 +591,22 @@ impl Type {
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function(_, _) => None,
         }
+    }
+}
+
+/// The size of a specific value in bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct ValSize(pub u32); // Needs to be reasonable large for compound types.
+
+impl From<u8> for ValSize {
+    fn from(val: u8) -> ValSize {
+        ValSize(u32::from(val))
+    }
+}
+
+impl std::ops::Add for ValSize {
+    type Output = ValSize;
+    fn add(self, rhs: ValSize) -> ValSize {
+        ValSize(self.0 + rhs.0)
     }
 }

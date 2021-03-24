@@ -15,6 +15,8 @@ impl OrderedTrait for Ordered {
         // todo!("Is there a better way to decide if the stream is periodic or event-based?")
     }
 }
+#[derive(Debug, Clone)]
+pub enum OrderErr {}
 
 /// Representation of an evaluation layer
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]

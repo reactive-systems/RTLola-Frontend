@@ -1,10 +1,10 @@
-use rtlola_hir::hir::{modes::CompleteMode, Hir};
+use rtlola_hir::{CompleteMode, RtLolaHir};
 
 use crate::mir::Mir;
 // use rtlola_hir::common_ir::SRef;
 
 impl Mir {
-    pub(crate) fn from_hir(_hir: Hir<CompleteMode>) -> Mir {
+    pub(crate) fn from_hir(_hir: RtLolaHir<CompleteMode>) -> Mir {
         //         let Hir { inputs, outputs, triggers, mode, .. } = &self;
         //         let inputs = inputs
         //             .iter()

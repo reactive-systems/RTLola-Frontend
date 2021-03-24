@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 // Public exports
 pub mod ast;
-pub use ast::RTLolaAst;
+pub use ast::RtLolaAst;
+use rtlola_reporting::Handler;
 
 #[derive(Debug, Clone)]
 pub struct ParserConfig {
@@ -26,18 +27,36 @@ impl ParserConfig {
     pub fn for_string(spec: String) -> Self {
         ParserConfig { path: None, spec }
     }
-    pub fn parse(self) -> Result<RTLolaAst, String> {
+    pub fn parse(self) -> Result<RtLolaAst, String> {
         parse(self)
+    }
+
+    pub fn path(&self) -> &Option<PathBuf> {
+        &self.path
+    }
+
+    pub fn spec(&self) -> &str {
+        &self.spec
     }
 }
 
-pub fn parse(cfg: ParserConfig) -> Result<RTLolaAst, String> {
+pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
     let handler = if let Some(path) = &cfg.path {
         rtlola_reporting::Handler::new(path.clone(), cfg.spec.clone())
     } else {
         rtlola_reporting::Handler::without_file(cfg.spec.clone())
     };
 
+    let spec = match crate::parse::RTLolaParser::parse(&handler, cfg) {
+        Ok(spec) => spec,
+        Err(e) => {
+            return Err(format!("error: invalid syntax:\n{}", e));
+        }
+    };
+    Ok(spec)
+}
+
+pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLolaAst, String> {
     let spec = match crate::parse::RTLolaParser::parse(&handler, cfg) {
         Ok(spec) => spec,
         Err(e) => {

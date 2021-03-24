@@ -362,7 +362,7 @@ impl Display for Import {
     }
 }
 
-impl Display for RTLolaAst {
+impl Display for RtLolaAst {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         for import in &self.imports {
             writeln!(f, "{}", import)?;

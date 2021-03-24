@@ -180,12 +180,12 @@ mod tests {
     use crate::parse::parse;
     use crate::type_check::rtltc::LolaTypeChecker;
     use reporting::Handler;
-    use rtlola_parser::ast::RTLolaAst;
+    use rtlola_parser::ast::RtLolaAst;
     use std::path::PathBuf;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst = match parse(spec, &handler, crate::FrontendConfig::default()) {
+        let ast: RtLolaAst = match parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };

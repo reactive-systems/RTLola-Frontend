@@ -645,7 +645,7 @@ mod value_type_tests {
     use crate::type_check::value_types::ConcreteValueType;
     use crate::type_check::LolaTypeChecker;
     use reporting::Handler;
-    use rtlola_parser::ast::RTLolaAst;
+    use rtlola_parser::ast::RtLolaAst;
     use std::collections::HashMap;
     use std::path::PathBuf;
 
@@ -666,7 +666,7 @@ mod value_type_tests {
 
     fn setup_hir(spec: &str) -> TestBox {
         let handler = reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RTLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
+        let ast: RtLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
