@@ -34,9 +34,9 @@ pub(crate) type Mir = RtLolaMir;
 
 /// A trait for any kind of stream.
 pub trait Stream {
-    // Reports the evaluation layer of the spawn condition of the stream.
+    /// Reports the evaluation layer of the spawn condition of the stream.
     fn spawn_layer(&self) -> Layer;
-    // Reports the evaluation layer of the stream.
+    /// Reports the evaluation layer of the stream.
     fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
@@ -46,6 +46,7 @@ pub trait Stream {
     fn as_stream_ref(&self) -> StreamReference;
 }
 
+/// The root data structure representing the Mir of an RTLola specification.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtLolaMir {
     /// Contains all input streams.
@@ -92,7 +93,7 @@ pub enum Type {
         ret: Box<Type>,
     },
 }
-
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntTy {
     /// Represents an 8-bit integer.
@@ -104,7 +105,7 @@ pub enum IntTy {
     /// Represents a 64-bit integer.
     Int64,
 }
-
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UIntTy {
     /// Represents an 8-bit unsigned integer.
@@ -116,6 +117,8 @@ pub enum UIntTy {
     /// Represents a 64-bit unsigned integer.
     UInt64,
 }
+
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatTy {
     /// Represents a 32-bit floating point number.
@@ -174,60 +177,60 @@ pub struct OutputStream {
     pub name: String,
     /// The type of the stream.
     pub ty: Type,
-    /// The template containing, the spawn, filter, and close conditions
+    /// Information on the spawn and parametrization behavior of this stream if appropriate
     pub instance_template: Option<InstanceTemplate>,
     /// The stream expression
     pub expr: Expression,
-    /// The List of streams that are accessed by the stream expression, spawn expression, filter expression, close expression. (non-transitive)
+    /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
     pub acccesses: Vec<StreamReference>,
-    /// The List of streams that access the current stream. (non-transitive)
+    /// The collection of streams that access the current stream non-transitively
     pub acccessed_by: Vec<StreamReference>,
-    /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
+    /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
-    /// The amount of memory required for this stream.
+    /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
-    /// Indicates in which evaluation layer the stream is.  
+    /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
-    /// The reference pointing to this stream.
+    /// The reference refering to this stream
     pub reference: StreamReference,
 }
 
+/// A type alias for references to triggers.
 pub type TriggerReference = usize;
-/// Wrapper for output streams that are actually triggers.  Provides additional information specific to triggers.
+/// Wrapper for output streams that are in-fact triggers.  Provides additional information specific to triggers.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Trigger {
     /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
     pub message: String,
-    /// A reference to the output stream representing the trigger.
+    /// A reference to the output stream representing this trigger.
     pub reference: StreamReference,
-    /// The index of the trigger.
+    /// The reference refering to this stream
     pub trigger_reference: TriggerReference,
 }
 
-// Representation of the instance template, containing the spawn, filter, and close expressions
+/// Information on the spawn and parametrization behavior of a stream
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstanceTemplate {
-    /// The invoke condition of the parametrized stream.
+    /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
-    /// The extend condition of the parametrized stream.
+    /// The condition under which the stream is not supposed to be evaluated
     pub filter: Expression,
-    /// The termination condition of the parametrized stream.
+    /// The condition under which the stream is supposed to be closed
     pub close: Expression,
 }
 
-// Representation of the spawn template, containing the spawn expressions
+/// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTemplate {
-    // TODO Review: Maybe another representation might be better, e.g., Vec<Expressions> or even Vec<StreamRef>
-    /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
+    /// The `target` expression needs to be evaluated whenever the stream with this SpawnTemplate is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
     pub target: Expression,
-    /// The activation condition describing when a new instance is created.
+    /// The timing of when a new instance _could_ be created assuming the spawn condition evaluates to true.
     pub pacing: ActivationCondition,
-    /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
+    /// The spawn condition.  If the condition evaluates to true, the stream will not be spawned.
     pub condition: Expression,
 }
 
-/// Wrapper for output streams providing additional information specific to timedriven streams.
+/// Wrapper for output streams providing additional information specific to time-driven streams.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TimeDrivenStream {
     /// A reference to the stream that is specified.
@@ -237,14 +240,17 @@ pub struct TimeDrivenStream {
 }
 
 impl TimeDrivenStream {
+    /// Returns the evaluation period, i.e., the multiplicative inverse of [TimeDrivenStream::frequency].
     pub fn period(&self) -> UOM_Time {
         UOM_Time::new::<uom::si::time::second>(self.frequency.get::<uom::si::frequency::hertz>().inv())
     }
 
+    /// Returns the evaluation frequency.
     pub fn frequency(&self) -> UOM_Frequency {
         self.frequency
     }
 
+    /// Returns the evaluation period, i.e., the multiplicative inverse of [TimeDrivenStream::frequency], as [Duration].
     pub fn period_in_duration(&self) -> Duration {
         Duration::from_nanos(
             self.period()
@@ -259,177 +265,195 @@ impl TimeDrivenStream {
 /// Wrapper for output streams providing additional information specific to event-based streams.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct EventDrivenStream {
-    /// A reference to the stream that is specified.
+    /// A reference to the stream that is specified
     pub reference: StreamReference,
-    // The activation contaion of an event-based stream.
+    /// The activation condition of an event-based stream
     pub ac: ActivationCondition,
 }
 
-/// Representation of the activation condition of an event-based stream
+/// Representation of the activation condition of event-based entities such as streams or spawn conditions
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ActivationCondition {
-    /**
-    When all of the activation conditions is true.
-    */
+    /// Activate when all entries of the [Vec] are true.
     Conjunction(Vec<Self>),
-    /**
-    When one of the activation conditions is true.
-    */
+    /// Activate when at least one entry of the [Vec] is true.
     Disjunction(Vec<Self>),
-    /**
-    Whenever the specified stream produces a new value.
-    */
+    /// Activate when the referenced stream is evaluated.
     Stream(StreamReference),
-    /**
-    Whenever an event-based stream produces a new value.
-    */
+    /// Activate
     True,
 }
 
-/// Represents an expression.
+/// Represents an expression
 #[derive(Debug, PartialEq, Clone)]
 pub struct Expression {
-    /// The kind of expression.
+    /// The kind and all kind-specific information of the expression
     pub kind: ExpressionKind,
-    /// The type of the expression.
+    /// The type of the expression
     pub ty: Type,
 }
 
-/// The expressions of the IR.
+/// This enum contains all possible kinds of expressions and their relevant information.
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExpressionKind {
-    /// Loading a constant
+    /// Load a constant value
     LoadConstant(Constant),
-    /// Applying arithmetic or logic operation and its monomorphic type
-    /// Arguments never need to be coerced, @see `Expression::Convert`.
+    /// Apply an arithmetic or logic operation.  The function is monomorphized.
+    ///
+    /// *Note:* Arguments never need to be coerced.
     /// Unary: 1st argument -> operand
     /// Binary: 1st argument -> lhs, 2nd argument -> rhs
     /// n-ary: kth argument -> kth operand
     ArithLog(ArithLogOp, Vec<Expression>),
-    /// Accessing another stream
-    StreamAccess(StreamReference, StreamAccessKind, Vec<Expression>),
-    /// A window expression over a duration
-    /// An if-then-else expression
+    /// Access another stream
+    StreamAccess {
+        /// The target stream to be accessed
+        target: StreamReference,
+        /// The parameters of the specific stream instance that is accessed.  
+        ///
+        /// If the stream behind `target` is not parametrized, this collection is empty.
+        parameters: Vec<Expression>,
+        /// The kind of access
+        access_kind: StreamAccessKind,
+    },
+    /// A conditional (if-then-else) expression
     Ite {
+        /// The condition under which either `consequence` or `alternative` is selected.
         condition: Box<Expression>,
+        /// The consequence should be evaluated and returned if the condition evaluates to true.
         consequence: Box<Expression>,
+        /// The alternative should be evaluated and returned if the condition evaluates to false.
         alternative: Box<Expression>,
     },
     /// A tuple expression
     Tuple(Vec<Expression>),
-    /// Represents an access to a specific tuple element.  The second argument indicates the index of the accessed element while the first produces the accessed tuple.
+    /// Represents a tuple projections, i.e., it accesses a specific tuple element.  
+    // The expression produces a tuple and the `usize` is the index of the accessed element.  This value is constant.
     TupleAccess(Box<Expression>, usize),
-    /// A function call with its monomorphic type
-    /// Arguments never need to be coerced, @see `Expression::Convert`.
+    /// Represents a function call.  The function is monomorphized.
+    ///
+    /// *Note:* Arguments never need to be coerced.
+    /// Unary: 1st argument -> operand
+    /// Binary: 1st argument -> lhs, 2nd argument -> rhs
+    /// n-ary: kth argument -> kth operand
     Function(String, Vec<Expression>),
     /// Converting a value to a different type
+    ///
+    /// The result type is indicated in the expression with the `Convert` kind.  
     Convert {
-        /// The expression that produces a value of type `from` which should be converted to `to`.
+        /// The expression that produces a value.  The type of the expression indicates the source of the conversion.
         expr: Box<Expression>,
     },
-    /// Transforms an optional value into a "normal" one
+    /// Transforms an optional value into a definitive one
     Default {
         /// The expression that results in an optional value.
         expr: Box<Expression>,
-        /// An infallible expression providing a default value of `expr` evaluates to `None`.
+        /// An infallible expression providing the default value if `expr` fails to produce a value.
         default: Box<Expression>,
     },
 }
 
 /// Represents a constant value of a certain kind.
+///
+/// *Note* the type of the constant might be more general than the type of the constant.  For example, `Constant::UInt(3u64)` represents an RTLola UInt8 constant.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Constant {
+    #[allow(missing_docs)]
     Str(String),
+    #[allow(missing_docs)]
     Bool(bool),
+    #[allow(missing_docs)]
     UInt(u64),
+    #[allow(missing_docs)]
     Int(i64),
+    #[allow(missing_docs)]
     Float(f64),
 }
 
-/// Contains all arithmetical and logical operations.
+/// Arithmetical and logical operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArithLogOp {
-    /// The `!` operator for logical inversion
+    /// Logic negation (!)
     Not,
-    /// The `-` operator for negation
+    /// Arithmetic negation (-)
     Neg,
-    /// The `+` operator (addition)
+    /// Arithmetic addition (+)
     Add,
-    /// The `-` operator (subtraction)
+    /// Arithmetic subtraction (-)
     Sub,
-    /// The `*` operator (multiplication)
+    /// Arithmetic multiplication (*)
     Mul,
-    /// The `/` operator (division)
+    /// Arithmetic division (/)
     Div,
-    /// The `%` operator (modulus)
+    /// Arithmetic modulation (%)
     Rem,
-    /// The `**` operator (power)
+    /// Arithmetic exponentiation (**)
     Pow,
-    /// The `&&` operator (logical and)
+    /// Logic conjunction/multiplication (&&)
     And,
-    /// The `||` operator (logical or)
+    /// Logic disjunction/addition (||)
     Or,
-    /// The `^` operator (bitwise xor)
+    /// Bit-wise xor (^)
     BitXor,
-    /// The `&` operator (bitwise and)
+    /// Bit-wise conjunction/multiplication (&)
     BitAnd,
-    /// The `|` operator (bitwise or)
+    /// Bit-wise disjunction/addition (|)
     BitOr,
-    /// The `~` operator for one's complement
+    /// Bit-wise negation / One's complement (~)
     BitNot,
-    /// The `<<` operator (shift left)
+    /// Bit-wise left-shift (<<)
     Shl,
-    /// The `>>` operator (shift right)
+    /// Bit-wise right-shift (>>)
     Shr,
-    /// The `==` operator (equality)
+    /// Semantic Equality (==)
     Eq,
-    /// The `<` operator (less than)
+    /// Less-than comparison (<)
     Lt,
-    /// The `<=` operator (less than or equal to)
+    /// Less-than-or-equal comparison (<=)
     Le,
-    /// The `!=` operator (not equal to)
+    /// Semantic Inequality (!=)
     Ne,
-    /// The `>=` operator (greater than or equal to)
+    /// Greater-than-or-equal comparison (>=)
     Ge,
-    /// The `>` operator (greater than)
+    /// Greater-than comparison (>)
     Gt,
 }
 
-/// Represents an instance of a sliding window.
+/// Represents an instance of a discrete window
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DiscreteWindow {
-    /// The stream whose values will be aggregated.
+    /// The stream whose values will be aggregated
     pub target: StreamReference,
-    /// The stream calling and evaluating this window.
+    /// The stream in which expression this window occurs
     pub caller: StreamReference,
-    /// The duration over which the window aggregates.
-    pub duration: u32,
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
-    pub wait: bool,
-    /// The aggregation operation.
-    pub op: WindowOperation,
-    /// A reference to this sliding window.
-    pub reference: WindowReference,
-    /// The type of value the window produces.
-    pub ty: Type,
-}
-
-/// Represents an instance of a sliding window.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SlidingWindow {
-    /// The stream whose values will be aggregated.
-    pub target: StreamReference,
-    /// The stream calling and evaluating this window.
-    pub caller: StreamReference,
-    /// The duration over which the window aggregates.
+    /// The duration over which the window aggregates
     pub duration: Duration,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
-    /// The aggregation operation.
+    /// The aggregation operation
     pub op: WindowOperation,
-    /// A reference to this sliding window.
+    /// A reference to this discrete window
     pub reference: WindowReference,
-    /// The type of value the window produces.
+    /// The type of value the window produces
+    pub ty: Type,
+}
+
+/// Represents an instance of a sliding window
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SlidingWindow {
+    /// The stream whose values will be aggregated
+    pub target: StreamReference,
+    /// The stream in which expression this window occurs
+    pub caller: StreamReference,
+    /// The duration over which the window aggregates
+    pub duration: Duration,
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once
+    pub wait: bool,
+    /// The aggregation operation
+    pub op: WindowOperation,
+    /// A reference to this sliding window
+    pub reference: WindowReference,
+    /// The type of value the window produces
     pub ty: Type,
 }
 
@@ -479,18 +503,21 @@ impl Stream for InputStream {
 }
 
 impl RtLolaMir {
-    /// Returns a `Vec` containing a reference for each input stream in the specification.
-    pub fn input_refs(&self) -> Vec<InputReference> {
-        (0..self.inputs.len()).collect()
+    /// Returns a collection containing a reference to each input stream in the specification.
+    pub fn input_refs(&self) -> impl Iterator<Item = InputReference> {
+        0..self.inputs.len()
     }
 
-    /// Returns a `Vec` containing a reference for each output stream in the specification.
-    pub fn output_refs(&self) -> Vec<OutputReference> {
-        (0..self.outputs.len()).collect()
+    /// Returns a collection containing a reference to each output stream in the specification.
+    pub fn output_refs(&self) -> impl Iterator<Item = OutputReference> {
+        0..self.outputs.len()
     }
 
     /// Provides mutable access to an input stream.
-    pub fn get_in_mut(&mut self, reference: StreamReference) -> &mut InputStream {
+    ///
+    /// # Panic
+    /// Panics if `reference` is a [StreamReference::OutRef].
+    pub fn input_mut(&mut self, reference: StreamReference) -> &mut InputStream {
         match reference {
             StreamReference::InRef(ix) => &mut self.inputs[ix],
             StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
@@ -498,7 +525,10 @@ impl RtLolaMir {
     }
 
     /// Provides immutable access to an input stream.
-    pub fn get_in(&self, reference: StreamReference) -> &InputStream {
+    ///
+    /// # Panic
+    /// Panics if `reference` is a [StreamReference::OutRef].
+    pub fn input(&self, reference: StreamReference) -> &InputStream {
         match reference {
             StreamReference::InRef(ix) => &self.inputs[ix],
             StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
@@ -506,7 +536,10 @@ impl RtLolaMir {
     }
 
     /// Provides mutable access to an output stream.
-    pub fn get_out_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
+    ///
+    /// # Panic
+    /// Panics if `reference` is a [StreamReference::InRef].
+    pub fn output_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
         match reference {
             StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
             StreamReference::OutRef(ix) => &mut self.outputs[ix],
@@ -514,51 +547,61 @@ impl RtLolaMir {
     }
 
     /// Provides immutable access to an output stream.
-    pub fn get_out(&self, reference: StreamReference) -> &OutputStream {
+    ///
+    /// # Panic
+    /// Panics if `reference` is a [StreamReference::InRef].
+    pub fn output(&self, reference: StreamReference) -> &OutputStream {
         match reference {
             StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
             StreamReference::OutRef(ix) => &self.outputs[ix],
         }
     }
 
-    /// Returns a `Vec` containing a reference for each stream in the specification.
-    pub fn all_streams(&self) -> Vec<StreamReference> {
+    /// Produces an iterator over all stream references.
+    pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> {
         self.input_refs()
-            .iter()
-            .map(|ix| StreamReference::InRef(*ix))
-            .chain(self.output_refs().iter().map(|ix| StreamReference::OutRef(*ix)))
-            .collect()
+            .map(StreamReference::InRef)
+            .chain(self.output_refs().map(StreamReference::OutRef))
     }
 
-    /// Returns a `Vec` containing a reference to an output stream representing a trigger in the specification.
-    pub fn get_triggers(&self) -> Vec<&OutputStream> {
-        self.triggers.iter().map(|t| self.get_out(t.reference)).collect()
+    /// Provides a collection of all output streams representing a trigger.
+    pub fn all_triggers(&self) -> Vec<&OutputStream> {
+        self.triggers.iter().map(|t| self.output(t.reference)).collect()
     }
 
-    /// Returns a `Vec` containing a reference for each event-driven output stream in the specification.
-    pub fn get_event_driven(&self) -> Vec<&OutputStream> {
-        self.event_driven.iter().map(|t| self.get_out(t.reference)).collect()
+    /// Provides a collection of all event-driven output streams.
+    pub fn all_event_driven(&self) -> Vec<&OutputStream> {
+        self.event_driven.iter().map(|t| self.output(t.reference)).collect()
     }
 
-    /// Returns a `Vec` containing a reference for each time-driven output stream in the specification.
-    pub fn get_time_driven(&self) -> Vec<&OutputStream> {
-        self.time_driven.iter().map(|t| self.get_out(t.reference)).collect()
+    /// Provides a collection of all time-driven output streams.
+    pub fn all_time_driven(&self) -> Vec<&OutputStream> {
+        self.time_driven.iter().map(|t| self.output(t.reference)).collect()
     }
 
-    /// Returns a discrete Window instance for a given WindowReference in the specification
-    pub fn get_discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
+    /// Provides immutable access to a discrete window.
+    ///
+    /// # Panic
+    /// Panics if `window` is a [WindowReference::Sliding].
+    pub fn discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
         match window {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
             WindowReference::Sliding(_) => panic!("wrong type of window reference passed to getter"),
         }
     }
 
-    /// Returns a sliding window instance for a given WindowReference in the specification
-    pub fn get_window(&self, window: WindowReference) -> &SlidingWindow {
-        &self.sliding_windows[window.idx()]
+    /// Provides immutable access to a sliding window.
+    ///
+    /// # Panic
+    /// Panics if `window` is a [WindowReference::Discrete].
+    pub fn sliding_window(&self, window: WindowReference) -> &SlidingWindow {
+        match window {
+            WindowReference::Sliding(x) => &self.sliding_windows[x],
+            WindowReference::Discrete(_) => panic!("wrong type of window reference passed to getter"),
+        }
     }
 
-    /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` a stream in the layer.
+    /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` an output stream in the layer.
     pub fn get_event_driven_layers(&self) -> Vec<Vec<OutputReference>> {
         if self.event_driven.is_empty() {
             return vec![];
@@ -569,7 +612,7 @@ impl RtLolaMir {
             .event_driven
             .iter()
             .map(|s| s.reference)
-            .map(|r| (self.get_out(r).eval_layer().into(), r.out_ix()))
+            .map(|r| (self.output(r).eval_layer().into(), r.out_ix()))
             .collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
@@ -603,7 +646,10 @@ impl RtLolaMir {
         layers
     }
 
-    /// Computes a schedule for all time-driven streams.
+    /// Attempts to compute a schedule for all time-driven streams.
+    ///
+    /// # Fail
+    /// Fails if the resulting schedule would require at least 10^7 deadlines.
     pub fn compute_schedule(&self) -> Result<Schedule, String> {
         Schedule::from(self)
     }
@@ -611,6 +657,10 @@ impl RtLolaMir {
 
 impl Type {
     /// Indicates how many bytes a type requires to be stored in memory.
+    ///
+    /// Recursive types yield the sum of their sub-type sizes, unsized types panic, and functions do not have a size, so they produce `None`.
+    /// # Panics
+    /// Panics if the type is an instance of [Type::Option], [Type::String], or [Type::Bytes] because their size is undetermined.
     pub fn size(&self) -> Option<ValSize> {
         match self {
             Type::Bool => Some(ValSize(1)),
@@ -630,14 +680,14 @@ impl Type {
                 Some(ValSize(size))
             },
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
-            Type::Function(_, _) => None,
+            Type::Function { .. } => None,
         }
     }
 }
 
 /// The size of a specific value in bytes.
 #[derive(Debug, Clone, Copy)]
-pub struct ValSize(pub u32); // Needs to be reasonable large for compound types.
+pub struct ValSize(pub u32); // Needs to be reasonably large for compound types.
 
 impl From<u8> for ValSize {
     fn from(val: u8) -> ValSize {

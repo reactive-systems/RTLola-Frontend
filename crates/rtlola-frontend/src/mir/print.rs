@@ -9,7 +9,11 @@ impl Display for Expression {
             ExpressionKind::LoadConstant(c) => write!(f, "{}", c),
             ExpressionKind::Function(name, args) => {
                 write!(f, "{}(", name)?;
-                if let Type::Function(arg_tys, res) = &self.ty {
+                if let Type::Function {
+                    args: arg_tys,
+                    ret: res,
+                } = &self.ty
+                {
                     let zipped: Vec<(&Type, &Expression)> = arg_tys.iter().zip(args.iter()).collect();
                     if let Some((last, prefix)) = zipped.split_last() {
                         prefix
@@ -36,7 +40,11 @@ impl Display for Expression {
                 write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", self.ty), ",")
             },
             ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
-            ExpressionKind::StreamAccess(sr, access, para) => {
+            ExpressionKind::StreamAccess {
+                target: sr,
+                access_kind: access,
+                parameters: para,
+            } => {
                 assert!(para.is_empty());
                 match access {
                     StreamAccessKind::Sync => write!(f, "{}", sr),
@@ -98,7 +106,7 @@ impl Display for Type {
             Type::Float(_) => write!(f, "Float{}", self.size().expect("Floats are sized.").0 * 8),
             Type::UInt(_) => write!(f, "UInt{}", self.size().expect("UInts are sized.").0 * 8),
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
-            Type::Function(args, res) => write_delim_list(f, args, "(", &format!(") -> {}", res), ","),
+            Type::Function { args, ret} => write_delim_list(f, args, "(", &format!(") -> {}", ret), ","),
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),

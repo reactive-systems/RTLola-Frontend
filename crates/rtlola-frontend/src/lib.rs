@@ -34,13 +34,14 @@ mod lowering;
 pub mod mir;
 
 use mir::Mir;
+use rtlola_hir::hir::TransformationErr;
 use rtlola_hir::{BaseMode, CompleteMode, HirErr};
 use rtlola_parser::{ParserConfig, RtLolaAst};
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use rtlola_hir::hir::{RtLolaHir as Hir, RtLolaHir};
+pub(crate) use rtlola_hir::hir::RtLolaHir as Hir;
 use rtlola_reporting::Handler;
 
 pub use crate::mir::RtLolaMir;
@@ -53,7 +54,7 @@ pub use crate::mir::RtLolaMir;
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
 pub fn parse(config: ParserConfig) -> Result<RtLolaMir, FrontEndErr> {
-    let hir = parse_to_hir(config)?;
+    let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
 }
 
@@ -82,7 +83,7 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<Hir<BaseMode>, FrontEndErr
     let handler = create_handler(&cfg);
     let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
 
-    Ok(rtlola_hir::fully_analyzed(spec, &handler)?)
+    Ok(rtlola_hir::from_ast(spec, &handler)?)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaAst].
@@ -93,7 +94,7 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<Hir<BaseMode>, FrontEndErr
 /// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]).
 pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, FrontEndErr> {
     let handler = create_handler(&cfg);
-    let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
+    Ok(rtlola_parser::parse_with_handler(cfg, &handler)?)
 }
 
 fn create_handler(cfg: &ParserConfig) -> Handler {
@@ -122,5 +123,11 @@ impl From<String> for FrontEndErr {
 impl From<HirErr> for FrontEndErr {
     fn from(e: HirErr) -> FrontEndErr {
         Self::Analysis(e)
+    }
+}
+
+impl From<TransformationErr> for FrontEndErr {
+    fn from(e: TransformationErr) -> FrontEndErr {
+        Self::Analysis(HirErr::from(e))
     }
 }
