@@ -127,23 +127,23 @@ impl MemBound {
 mod dynaminc_memory_bound_tests {
     use std::path::PathBuf;
 
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
     use super::*;
     use crate::modes::BaseMode;
-    use crate::parse::parse;
-    use crate::FrontendConfig;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let handler = Handler::new(PathBuf::new(), spec.into());
-        let config = FrontendConfig::default();
-        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
+        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
+            .unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
             .unwrap()
-            .build_dependency_graph()
+            .analyze_dependencies(&handler)
             .unwrap()
-            .type_check(&handler)
+            .check_types(&handler)
             .unwrap()
-            .build_evaluation_order();
+            .determine_evaluation_order(&handler)
+            .unwrap();
         let bounds = MemBound::analyze(&hir, true);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
@@ -350,23 +350,23 @@ mod dynaminc_memory_bound_tests {
 mod static_memory_bound_tests {
     use std::path::PathBuf;
 
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
     use super::*;
     use crate::modes::BaseMode;
-    use crate::parse::parse;
-    use crate::FrontendConfig;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let handler = Handler::new(PathBuf::new(), spec.into());
-        let config = FrontendConfig::default();
-        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
+        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
+            .unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
             .unwrap()
-            .build_dependency_graph()
+            .analyze_dependencies(&handler)
             .unwrap()
-            .type_check(&handler)
+            .check_types(&handler)
             .unwrap()
-            .build_evaluation_order();
+            .determine_evaluation_order(&handler)
+            .unwrap();
         let bounds = MemBound::analyze(&hir, false);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {

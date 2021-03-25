@@ -197,25 +197,24 @@ impl Ordered {
 mod tests {
     use std::path::PathBuf;
 
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
     use super::*;
     use crate::modes::BaseMode;
-    use crate::parse::parse;
-    use crate::FrontendConfig;
     fn check_eval_order_for_spec(
         spec: &str,
         ref_event_layers: HashMap<SRef, StreamLayers>,
         ref_periodic_layers: HashMap<SRef, StreamLayers>,
     ) {
         let handler = Handler::new(PathBuf::new(), spec.into());
-        let config = FrontendConfig::default();
-        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler, &config)
+        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
+            .unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
             .unwrap()
-            .build_dependency_graph()
+            .analyze_dependencies(&handler)
             .unwrap()
-            .type_check(&handler)
+            .check_types(&handler)
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered {

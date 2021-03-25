@@ -7,37 +7,42 @@ use petgraph::stable_graph::StableGraph;
 use petgraph::Outgoing;
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
-use crate::hir::{
-    Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, StreamReference, WRef, WidenExprKind,
-};
+use crate::hir::{Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, WRef, WidenExprKind};
 use crate::modes::HirMode;
 
-/// Contains information regarding the dependency between two streams which occurs due to a lookup expression.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub(crate) struct Dependency {
-    /// The target of the lookup.
-    pub(crate) stream: StreamReference,
-    /// The offset of the lookup.
-    pub(crate) offsets: Vec<Offset>,
-}
-
+/// Represents the Dependency Graph
+///
+/// The dependency graph represents all dependecies between streams.
+/// For this, the graph contains a node for each node in the specification and an edge from `source` to `target`, iff the stream `source` uses an stream value of `target`.
+/// The weight of each nodes is the stream reference representing the stream. The weight of the edges is the [kind](EdgeWeight) of the lookup.
+pub type DependencyGraph = StableGraph<SRef, EdgeWeight>;
+/// Represents the weights of the edges in the dependency graph
 #[derive(Hash, Clone, Debug, PartialEq, Eq)]
 pub enum EdgeWeight {
+    /// Offset weigth
     Offset(i32),
+    /// Window weigth
     Aggr(WRef),
+    /// Sample and hold weigth
     Hold,
+    /// Represents the edge weight of lookups appearing in the spawn condition
     Spawn(Box<EdgeWeight>),
+    /// Represents the edge weight of lookups appearing in the filter condition
     Filter(Box<EdgeWeight>),
+    /// Represents the edge weight of lookups appearing in the close condition
     Close(Box<EdgeWeight>),
 }
 
+/// Represents all dependencies between streams
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
+/// Represents all dependencies between streams in which a window lookup is used
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
-pub type DependencyGraph = StableGraph<SRef, EdgeWeight>;
 
 pub(crate) trait ExtendedDepGraph {
+    /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
     fn without_negative_offset_edges(&self) -> Self;
 
+    /// Returns `true`, iff the edge weight `e` is a negative offset lookup
     fn has_negative_offset(e: &EdgeWeight) -> bool {
         match e {
             EdgeWeight::Offset(o) if *o < 0 => true,
@@ -47,9 +52,18 @@ pub(crate) trait ExtendedDepGraph {
             _ => false,
         }
     }
+
+    /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a lookup that are used in the close condition are deleted
     fn without_close_edges(&self) -> Self;
+
+    /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
     fn only_spawn_edges(&self) -> Self;
 
+    /// Returns two new [dependency graphs](DependencyGraph), one containing the streams with an event-based pacing type and one with a periodic pacing type
+    ///
+    /// This function returns two new [dependency graphs](DependencyGraph):
+    /// The first graph consists of all streams with an event-based pacing type. Additionally, it only contains the edges between two event-based streams.
+    /// The second graph consists of all streams with a periodic pacing type. Additionally, it only contains the edges between two periodic streams.
     fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
     where
         M: HirMode + DepAnaTrait + TypedTrait,
@@ -176,14 +190,22 @@ impl DepAnaTrait for DepAna {
     }
 }
 
+/// Represents the error of the dependency analysis
 #[derive(Debug, Clone, Copy)]
 pub enum DependencyErr {
+    /// Represents the error that the well-formedness condition is not satisfied.
+    ///
+    /// This error indicates that the given specification is not well-formed, i.e., the dependency graph contains a non-negative cycle.
     WellFormedNess,
 }
 
 type Result<T> = std::result::Result<T, DependencyErr>;
 
 impl DepAna {
+    /// Returns the result of the dependency analysis
+    ///
+    /// This function analyzes the dependencies of the given `spec`. It returns an [DependencyErr] if the specification is not well-formed.
+    /// Otherwise, the function returns the dependencies in the specification, including the dependency graph.
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna>
     where
         M: HirMode,
@@ -428,12 +450,11 @@ impl DepAna {
 mod tests {
     use std::path::PathBuf;
 
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
     use super::*;
     use crate::modes::BaseMode;
-    use crate::parse::parse;
-    use crate::FrontendConfig;
 
     fn check_graph_for_spec(
         spec: &str,
@@ -447,9 +468,9 @@ mod tests {
         )>,
     ) {
         let handler = Handler::new(PathBuf::new(), spec.into());
-        let config = FrontendConfig::default();
-        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::transform_expressions(ast, &handler, &config).unwrap();
+        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
+            .unwrap_or_else(|e| panic!("{}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast, &handler).unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (
