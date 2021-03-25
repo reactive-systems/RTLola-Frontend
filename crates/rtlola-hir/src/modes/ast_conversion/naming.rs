@@ -9,15 +9,24 @@ use rtlola_reporting::{Diagnostic, Handler, Span};
 use crate::hir::AnnotatedType;
 use crate::stdlib::FuncDecl;
 
-// These MUST all be lowercase
+/// Static vec of all Lola keywords, used to check for name conflicts. These MUST all be lowercase.
 // TODO add an static assertion for this
 pub(crate) const KEYWORDS: [&str; 24] = [
     "input", "output", "trigger", "import", "type", "self", "include", "spawn", "filter", "close", "with", "unless",
     "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
 ];
 
+/// The [DeclarationTable] maps a NodeId of an AST node to a [Declaration],
+/// which holds a pointer to origin of the struct used at this AST Node.
 pub(crate) type DeclarationTable = HashMap<NodeId, Declaration>;
 
+/// [NamingAnalysis] performs a complete AST walk and checks for validity of all used identifiers.
+/// # Procedure
+/// Checks the following properties:
+/// - Identifiers do not collide with keywords
+/// - identifiers are unique in there matching scope
+/// - used identifiers have valid definition
+/// - all type annotations describe a valid type
 #[derive(Debug)]
 pub struct NamingAnalysis<'b> {
     declarations: ScopedDecl,
@@ -28,6 +37,7 @@ pub struct NamingAnalysis<'b> {
 }
 
 impl<'b> NamingAnalysis<'b> {
+    /// Constructs a new [NamingAnalysis] to perform checks on all identifiers. Use [check](NamingAnalysis::check) to start.
     pub fn new(handler: &'b Handler) -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
@@ -278,6 +288,7 @@ impl<'b> NamingAnalysis<'b> {
         }
     }
 
+    /// Checks that each used identifiers has a declaration in the current or higher scope.
     fn check_ident(&mut self, expression: &Expression, ident: &Ident) {
         if let Some(decl) = self.declarations.get_decl_for(&ident.name) {
             assert!(!decl.is_type());
@@ -292,6 +303,7 @@ impl<'b> NamingAnalysis<'b> {
         }
     }
 
+    /// Checks that each used function identifier has a declaration in the current scope or higher scope.
     fn check_function(&mut self, expression: &Expression, name: &FunctionName) {
         let str_repr = name.to_string();
         if let Some(decl) = self.fun_declarations.get_decl_for(str_repr.as_str()) {
@@ -406,6 +418,7 @@ impl ScopedDecl {
         }
     }
 
+    /// Adds a new declaration to the scope. Requires MANUEL check for duplicate definitions.
     fn add_decl_for(&mut self, name: &str, decl: Declaration) {
         assert!(self.scopes.last().is_some());
         self.scopes
@@ -414,6 +427,7 @@ impl ScopedDecl {
             .insert(name.to_string(), decl);
     }
 
+    /// Adds a new function declaration to the scope. Requires MANUEL check for duplicate definitions.
     pub(crate) fn add_fun_decl(&mut self, fun: &FuncDecl) {
         assert!(self.scopes.last().is_some());
         let name = fun.name.name.clone();
@@ -423,11 +437,13 @@ impl ScopedDecl {
             .insert(name, Declaration::Func(Rc::new(fun.clone())));
     }
 
+    /// Adds all function declaration. See [add_fun_decl].
     pub(crate) fn add_all_fun_decl(&mut self, fns: Vec<&FuncDecl>) {
         fns.into_iter().for_each(|d| self.add_fun_decl(d));
     }
 }
 
+/// A [Declaration] unifies all possible elements which introduce new valid identifiers.
 #[derive(Debug, Clone)]
 pub(crate) enum Declaration {
     Const(Rc<Constant>),
@@ -487,13 +503,13 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::parse::parse;
+    use rtlola_parser::{parse_with_handler, ParserConfig};
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
         let handler = Handler::new(PathBuf::new(), content.into());
-        let ast = parse(content, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
-        let mut naming_analyzer = NamingAnalysis::new(&handler, FrontendConfig::default());
+        let ast = parse_with_handler(ParserConfig::for_string(content.to_string()), &handler).unwrap_or_else(|e| panic!("{}", e));
+        let mut naming_analyzer = NamingAnalysis::new(&handler);
         naming_analyzer.check(&ast);
         handler.emitted_errors()
     }
