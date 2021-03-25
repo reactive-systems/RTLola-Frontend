@@ -438,7 +438,6 @@ pub enum Offset {
 
 /// Supported time unit for real time expressions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
 pub enum TimeUnit {
     Nanosecond,
     Microsecond,
@@ -584,19 +583,6 @@ pub struct FunctionName {
     A list containing an element for each argument, containing the name if it is a named argument or else `None`.
     */
     pub arg_names: Vec<Option<Ident>>,
-}
-
-impl FunctionName {
-    #[allow(dead_code)]
-    pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
-        Self {
-            name: Ident::new(name, Span::Unknown),
-            arg_names: arg_names
-                .iter()
-                .map(|o| o.clone().map(|s| Ident::new(s, Span::Unknown)))
-                .collect(),
-        }
-    }
 }
 
 impl FunctionName {

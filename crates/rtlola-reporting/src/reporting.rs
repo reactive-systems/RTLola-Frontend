@@ -224,7 +224,6 @@ pub struct Diagnostic<'a> {
 
 impl<'a> Diagnostic<'a> {
     /// Creates a new warning with the message `message`
-    #[allow(dead_code)]
     pub fn warning(handler: &'a Handler, message: &str) -> Self {
         Diagnostic {
             handler,
@@ -298,7 +297,6 @@ impl<'a> Diagnostic<'a> {
     }
 
     /// Adds a note to the bottom of the diagnostic.
-    #[allow(dead_code)]
     pub fn add_note(mut self, note: &str) -> Self {
         self.diag.notes.push(note.into());
         self

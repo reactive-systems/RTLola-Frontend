@@ -1014,7 +1014,6 @@ mod tests {
             .unwrap_or_else(|e| panic!("{}", e));
     }
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn parse_constant() {
         parses_to! {
@@ -1105,7 +1104,6 @@ mod tests {
         cmp_ast_spec(&ast, spec);
     }
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn parse_output() {
         parses_to! {
@@ -1145,7 +1143,6 @@ mod tests {
         assert_eq!(format!("{}", ast), spec)
     }
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn parse_trigger() {
         parses_to! {
@@ -1418,7 +1415,6 @@ mod tests {
         cmp_ast_spec(&ast, spec);
     }
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn parse_precedence_not_regression() {
         parses_to! {

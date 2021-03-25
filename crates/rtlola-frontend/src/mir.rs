@@ -280,11 +280,8 @@ pub enum ExpressionKind {
     /// A window expression over a duration
     /// An if-then-else expression
     Ite {
-        #[allow(missing_docs)]
         condition: Box<Expression>,
-        #[allow(missing_docs)]
         consequence: Box<Expression>,
-        #[allow(missing_docs)]
         alternative: Box<Expression>,
     },
     /// A tuple expression
@@ -311,15 +308,10 @@ pub enum ExpressionKind {
 /// Represents a constant value of a certain kind.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Constant {
-    #[allow(missing_docs)]
     Str(String),
-    #[allow(missing_docs)]
     Bool(bool),
-    #[allow(missing_docs)]
     UInt(u64),
-    #[allow(missing_docs)]
     Int(i64),
-    #[allow(missing_docs)]
     Float(f64),
 }
 
