@@ -14,7 +14,7 @@
 pub mod hir;
 mod modes;
 mod stdlib;
-pub mod type_check;
+mod type_check;
 
 use hir::Hir;
 pub use hir::RtLolaHir;
