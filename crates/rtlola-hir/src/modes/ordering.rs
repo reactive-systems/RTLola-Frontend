@@ -14,16 +14,18 @@ impl OrderedTrait for Ordered {
             Some(layer) => *layer,
             None => self.periodic_layers[&sr],
         }
-        // todo!("Is there a better way to decide if the stream is periodic or event-based?")
     }
 }
-#[derive(Debug, Clone)]
+
+/// Represents the error occuring during the evaluation order determination
+#[derive(Debug, Clone, Copy)]
 pub enum OrderErr {}
 
-/// Representation of an evaluation layer
+/// Represents a layer indicating the position when an expression can be evaluated
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct Layer(usize);
-/// Representation of the position when a stream is computed. For this, each stream has a spawn and an evaluation layer
+
+/// Wrapper to collect the layer when a stream instance is spawned and evaluated
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub struct StreamLayers {
     spawn: Layer,
@@ -31,6 +33,7 @@ pub struct StreamLayers {
 }
 
 impl StreamLayers {
+    /// Produces the wrapper [StreamLayers] for a given spawn and evaluation layer
     pub(crate) fn new(spawn_layer: Layer, evaluation_layer: Layer) -> StreamLayers {
         StreamLayers {
             spawn: spawn_layer,
@@ -38,10 +41,12 @@ impl StreamLayers {
         }
     }
 
+    /// Returns the layer when a stream is spawned
     pub fn spawn_layer(&self) -> Layer {
         self.spawn
     }
 
+    /// Returns the layer when a new stream value is produced
     pub fn evaluation_layer(&self) -> Layer {
         self.evaluation
     }
@@ -53,25 +58,29 @@ impl Into<usize> for Layer {
 }
 
 impl Layer {
+    /// Produces a [Layer]
     pub fn new(layer: usize) -> Self {
         Layer(layer)
     }
 
+    /// Returns the [Layer] as `usize`
     pub fn inner(self) -> usize {
         self.0
     }
 }
 
 impl Ordered {
+    /// Returns the spawn and evaluation layer of each stream
+    ///
+    /// This function analyzes the `spec` and returns the spawn and evaluation layer of each stream.
+    /// The analysis splits the dependency graph into two subgraphs: one with the event-based streams and one with the periodic streams.
+    /// From these two graphs, it computed the spawn and evaluation layer for event-based and periodic streams separately.
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Ordered
     where
         M: HirMode + DepAnaTrait + TypedTrait,
     {
-        // Compute Evaluation Layers
-        let graph = spec.graph().without_negative_offset_edges();
-        let graph = graph.without_close_edges();
         // split graph in periodic and event-based
-        let (event_graph, periodic_graph) = graph.split_graph(spec);
+        let (event_graph, periodic_graph) = spec.graph().split_graph(spec);
         let event_layers = Self::compute_layers(spec, &event_graph, true);
         let periodic_layers = Self::compute_layers(spec, &periodic_graph, false);
         Ordered {
@@ -80,6 +89,12 @@ impl Ordered {
         }
     }
 
+    /// Returns the spawn and evaluation layer of for either each event-based stream or periodic stream
+    ///
+    /// This function splits the dependency graph into two subgraphs and returns the spawn and evaluation layer of each stream.
+    /// The first graph only contains the lookups occurring in the spawn part of the stream template.
+    /// The analysis computes from this graph the spawn layers of each stream.
+    /// The function computes from the second graph the evaluation layers of each stream.
     fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
     where
         M: HirMode + DepAnaTrait + TypedTrait,
@@ -88,6 +103,7 @@ impl Ordered {
             !is_cyclic_directed(&graph),
             "This should be already checked in the dependency analysis."
         );
+        let graph = graph.without_negative_offset_edges().without_close_edges();
         let spawn_graph = graph.without_negative_offset_edges().only_spawn_edges();
         let mut evaluation_layers = if is_event {
             spec.inputs()

@@ -28,15 +28,16 @@ impl TypedTrait for Typed {
 }
 
 impl Typed {
-    /// For a given StreamReference, lookup the corresponding StreamType.
+    /// Returns for a given StreamReference the corresponding [StreamType].
     pub fn get_type_for_stream(&self, sref: SRef) -> StreamType {
         self.stream_types[&sref].clone()
     }
 
-    /// For a given Expression Id, lookup the corresponding StreamType.
+    /// Returns for a given [Id of an expression](ExprId) the corresponding [StreamType].
     pub fn get_type_for_expr(&self, exprid: ExprId) -> StreamType {
         self.expression_types[&exprid].clone()
     }
 }
 
+/// Represents the type of a stream in the [RtLolaHir]
 pub(crate) type HirType = StreamType;

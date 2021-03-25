@@ -64,7 +64,7 @@ pub(crate) trait ExtendedDepGraph {
     /// This function returns two new [dependency graphs](DependencyGraph):
     /// The first graph consists of all streams with an event-based pacing type. Additionally, it only contains the edges between two event-based streams.
     /// The second graph consists of all streams with a periodic pacing type. Additionally, it only contains the edges between two periodic streams.
-    fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
+    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
     where
         M: HirMode + DepAnaTrait + TypedTrait,
         Self: Sized;
@@ -103,7 +103,7 @@ impl ExtendedDepGraph for DependencyGraph {
         working_graph
     }
 
-    fn split_graph<M>(self, spec: &Hir<M>) -> (Self, Self)
+    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
     where
         M: HirMode + DepAnaTrait + TypedTrait,
         Self: Sized,
