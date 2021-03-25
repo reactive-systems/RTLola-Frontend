@@ -126,59 +126,19 @@ where
         Ok(Typed::new(stream_map, expression_map, parameters))
     }
 
-    fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
+    /// starts the value type infer part with the [PacingTypeChecker].
+    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
         let ptc = PacingTypeChecker::new(&self.hir, &self.names);
         ptc.type_check(self.handler)
     }
 
-    fn value_type_infer(
+    /// starts the value type infer part with the [ValueTypeChecker].
+    pub(crate) fn value_type_infer(
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Option<HashMap<NodeId, ConcreteValueType>> {
-        let mut ctx = ValueTypeChecker::new(&self.hir, pacing_tt);
-        for input in self.hir.inputs() {
-            if let Err(e) = ctx.input_infer(input) {
-                e.emit(self.handler, &[&ctx.key_span], &self.names)
-            }
-        }
-
-        for output in self.hir.outputs() {
-            if let Err(e) = ctx.output_infer(output) {
-                e.emit(self.handler, &[&ctx.key_span], &self.names)
-            }
-        }
-
-        for trigger in self.hir.triggers() {
-            if let Err(e) = ctx.trigger_infer(trigger) {
-                e.emit(self.handler, &[&ctx.key_span], &self.names)
-            }
-        }
-
-        if self.handler.contains_error() {
-            return None;
-        }
-
-        let tt = match ctx.tyc.clone().type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(self.handler, &[&ctx.key_span], &self.names);
-                return None;
-            },
-        };
-
-        for err in ValueTypeChecker::<M>::check_explicit_bounds(ctx.annotated_checks.clone(), &tt) {
-            err.emit(self.handler, &[&ctx.key_span], &self.names);
-        }
-        if self.handler.contains_error() {
-            return None;
-        }
-
-        let result_map = ctx
-            .node_key
-            .into_iter()
-            .map(|(node, key)| (node, tt[&key].clone()))
-            .collect();
-        Some(result_map)
+        let mut ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
+        ctx.type_check(self.handler)
     }
 }
 
@@ -198,21 +158,20 @@ mod tests {
     use std::path::PathBuf;
 
     use rtlola_parser::ast::RtLolaAst;
-    use rtlola_parser::{parse, parse_with_handler, ParserConfig};
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
-    use crate::hir::Hir;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::LolaTypeChecker;
+    use crate::hir::RtLolaHir;
 
-    fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
+    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec), &handler) {
+        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
-        let hir =
-            crate::hir::RTLolaHIR::<BaseMode>::from_ast(ast, &handler, &crate::FrontendConfig::default()).unwrap();
+        let hir = crate::from_ast(ast, &handler).unwrap();
         (hir, handler)
     }
 
