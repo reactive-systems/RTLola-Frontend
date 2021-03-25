@@ -12,12 +12,14 @@ use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 pub enum MemorizationBound {
     /// The required memory might exceed any bound.
     Unbounded,
-    /// No less then the contained amount of stream entries does ever need to be stored.
+    /// Only the contained amount of stream entries need to be stored.
     Bounded(u16),
 }
 
 impl MemorizationBound {
-    /// Produces the memory bound.  Panics if it is unbounded.
+    /// Returns the unwraped memory bound
+    ///
+    /// This function returns the bound of an [MemorizationBound::Bounded] as `u16`. The function panics, if it is called on a [MemorizationBound::Unbounded] value.
     pub fn unwrap(self) -> u16 {
         match self {
             MemorizationBound::Bounded(b) => b,
@@ -27,7 +29,9 @@ impl MemorizationBound {
         }
     }
 
-    /// Produces `Some(v)` if the memory bound is finite and `v` and `None` if it is unbounded.
+    /// Returns the unwraped memory bound as an optional
+    ///
+    /// This function returns `Some(v)` if the memory is bounded and `v` and `None` if it is unbounded.
     pub fn as_opt(self) -> Option<u16> {
         match self {
             MemorizationBound::Bounded(b) => Some(b),
@@ -36,7 +40,8 @@ impl MemorizationBound {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Represents the error of the memory bound analysis
+#[derive(Debug, Clone, Copy)]
 pub enum MemBoundErr {}
 
 impl PartialOrd for MemorizationBound {
@@ -63,6 +68,11 @@ impl MemBound {
     const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
     const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
 
+    /// Returns the result of the memory analysis
+    ///
+    /// This function returns for each stream in `spec` the required memory. It differentiates with the `dynamic` flag between a dynamic and a static memory computation.
+    /// The dynamic memory computation starts with a memory-bound of 0 and increases the bound only if a value is used in at least one other evaluation cycle, i.e., if synchronous lookups only access a stream with an offset of 0, then this value does not need to be store in the global memory and the bound for this stream is 0.
+    /// The static memory computation assumes that each value is stored in the global memory, so the starting value of each stream is 1.
     pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
     where
         M: HirMode + DepAnaTrait,
