@@ -12,7 +12,7 @@ use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub(crate) u32);
 
-/// Representation of an expression in the [RtLolaHir]
+/// Representation of an expression in the [RtLolaHir](crate::hir::RtLolaHir).
 ///
 /// An expression contains its kind, its id and its position in the specification.
 #[derive(Debug, Clone)]
@@ -91,14 +91,14 @@ impl ValueEq for Expression {
     }
 }
 
-/// The kinds of an [Expression] of the [RtLolaHir].
+/// The kinds of an [Expression] of the [RtLolaHir](crate::hir::RtLolaHir).
 #[derive(Debug, Clone)]
 pub enum ExpressionKind {
     /// Loading a [Constant]
     LoadConstant(Constant),
     /// Applying arithmetic or logic operation
     ///
-    /// The first argument contains the operator of type [ArithLogOp], the second arguments contains the arguments of the operation, which are [Expressions]. The vectors is structured as:
+    /// The first argument contains the operator of type [ArithLogOp], the second arguments contains the arguments of the operation, which are [Expressions](Expression). The vectors is structured as:
     /// Unary: 1st argument -> operand
     /// Binary: 1st argument -> lhs, 2nd argument -> rhs
     /// n-ary: kth argument -> kth operand
@@ -201,11 +201,11 @@ impl PartialEq for Literal {
 
 impl Eq for Literal {}
 
-/// Represents a constant in the [ExpressionKind] enum of the [RtLolaHir]
+/// Represents a constant in the [ExpressionKind] enum of the [RtLolaHir](crate::hir::RtLolaHir).
 ///
-/// The [RtLolaHir] differentiates between two types of constants:
-/// * Constant expressions that are declared with a name and a [AnnotatedType], which are inline in [Hir::from_ast]
-/// * Constant expressions occuring in an stream expression
+/// The [RtLolaHir](crate::hir::RtLolaHir) differentiates between two types of constants:
+/// * Constant expressions that are declared with a name and a [Type](rtlola_parser::ast::Type), which are inline in [crate::from_ast]
+/// * Constant expressions occurring in an stream expression
 ///
 /// Example:
 /// constant a: Int8 := 5
@@ -215,7 +215,7 @@ impl Eq for Literal {}
 ///            inlined    basic
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Constant {
-    /// Basic constants occuring in stream expressions
+    /// Basic constants occurring in stream expressions
     Basic(Literal),
     /// Inlined values of constant streams that are declared in the specification
     Inlined(Inlined),
@@ -229,7 +229,7 @@ pub struct Inlined {
     /// The type of the constant
     pub(crate) ty: AnnotatedType,
 }
-/// Represenation of the different stream accesses
+/// Representation of the different stream accesses
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
@@ -303,7 +303,7 @@ pub enum ArithLogOp {
 pub trait WindowAggregation: Debug + Copy {
     /// Returns wheter or not the first aggregated value will be produced immediately or wheter the window waits
     ///
-    /// The function returns `true` if the windows waits until the [duration] has passed at least once. Otherwise the function returns `false`.
+    /// The function returns `true` if the windows waits until the [Duration] has passed at least once. Otherwise the function returns `false`.
     fn wait_until_full(&self) -> bool;
     /// Returns the [WindowOperation] of the sliding or discrete window
     fn operation(&self) -> WindowOperation;

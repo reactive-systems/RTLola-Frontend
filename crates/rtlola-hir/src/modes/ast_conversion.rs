@@ -54,7 +54,7 @@ impl Hir<BaseMode> {
 /// The Hir Spawn Condition is defined by a pair of two expressions.
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
-/// A [TransformationeErr] describes the kind off error raised during the Ast to Hir conversion.
+/// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.
 #[derive(Debug, Clone)]
 pub enum TransformationErr {
     /// A function was found when a stream was expected.
