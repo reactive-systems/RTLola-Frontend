@@ -140,6 +140,7 @@ impl Display for FloatTy {
 }
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
+/// Uses the formatter.
 pub(crate) fn write_delim_list<T: Display>(
     f: &mut Formatter<'_>,
     v: &[T],

@@ -86,6 +86,7 @@ pub(crate) struct StreamTypeKeys {
     pub(crate) close: TcKey,
 }
 
+/// Reference for stream  template during pacing type inference, used in error reporting.
 #[derive(Debug)]
 pub(crate) struct InferredTemplates {
     pub(crate) spawn: Option<(ConcretePacingType, Expression)>,
@@ -93,6 +94,7 @@ pub(crate) struct InferredTemplates {
     pub(crate) close: Option<Expression>,
 }
 
+/// The [PacingErrorKind] helps to distinguish errors during reporting.
 #[derive(Debug)]
 pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
@@ -173,6 +175,10 @@ impl std::ops::BitOr for ActivationCondition {
     }
 }
 impl ActivationCondition {
+    /// Flattens the [ActivationCondition] if the Conjunction/Disjunction contains only a single element. Does nothing otherwise.
+    /// # Example
+    ///  Conjunction(a).flatten() => a
+    ///  Disjunction(a,b).flatten() => Disjunction(a,b)
     pub fn flatten(self) -> Self {
         match self {
             ActivationCondition::Conjunction(mut v) | ActivationCondition::Disjunction(mut v) if v.len() == 1 => {
@@ -263,6 +269,7 @@ impl ActivationCondition {
         }
     }
 
+    /// Print function for [ActivationCondition]. Used for error reporting prints.
     pub fn to_string(&self, stream_names: &HashMap<StreamReference, &str>) -> String {
         use ActivationCondition::*;
         match self {
@@ -547,6 +554,7 @@ impl std::fmt::Display for Freq {
 }
 
 impl Freq {
+    /// Checks if there exists an k ∈ ℕ s.t. self =  k * other.
     pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, PacingErrorKind> {
         let lhs = match self {
             Freq::Fixed(f) => f,
@@ -668,6 +676,7 @@ impl PrintableVariant for AbstractExpressionType {
 }
 
 impl AbstractPacingType {
+    /// Transforms a given [Ac] (annotated in the [Hir]) into an abstract pacing type.
     pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
         Ok(match ac {
             Ac::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
@@ -754,6 +763,7 @@ impl std::fmt::Display for AbstractExpressionType {
 }
 
 impl ConcretePacingType {
+    /// Pretty print function for [ConcretePacingType].
     pub fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
@@ -767,6 +777,7 @@ impl ConcretePacingType {
         }
     }
 
+    /// Tries to convert a concrete pacing into a frequency.
     pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
         match self {
             ConcretePacingType::FixedPeriodic(f) => Ok(AbstractPacingType::Periodic(Freq::Fixed(*f))),
@@ -775,6 +786,7 @@ impl ConcretePacingType {
         }
     }
 
+    /// Transforms a given [Ac] (annotated in the [Hir]) into a pacing type.
     pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
         match ac {
             Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),

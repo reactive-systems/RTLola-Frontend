@@ -16,22 +16,34 @@ use crate::type_check::pacing_types::{
 use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::{ConcretePacingType, ConcreteStreamPacing};
 
+/// A [Variable] is linked to a reusable [TcKey] in the RustTyc Type Checker.
+/// e.g. used to reference stream-variables occurring in multiple places.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
+/// The [PacingTypeChecker] is sued to infer the evaluation rate, as well as close, filter and spawn types for all
+/// streams and expressions in the given [Hir].
 pub(crate) struct PacingTypeChecker<'a, M>
 where
     M: HirMode,
 {
+    /// The [Hir] to check.
     pub(crate) hir: &'a Hir<M>,
+    /// The RustTyc [TypeChecker] used to infer the pacing type.
     pub(crate) pacing_tyc: TypeChecker<AbstractPacingType, Variable>,
+    /// A second RustTyc [TypeChecker] instance to infer expression types, e.g. for the close and filter expression.
     pub(crate) expression_tyc: TypeChecker<AbstractExpressionType, Variable>,
+    /// Lookup table for stream keys
     pub(crate) node_key: HashMap<NodeId, StreamTypeKeys>,
+    /// Maps a RustTyc key to the corresponding span for error reporting.
     pub(crate) pacing_key_span: HashMap<TcKey, Span>,
+    /// Maps a RustTyc key to the corresponding span of expression keys for error reporting.
     pub(crate) expression_key_span: HashMap<TcKey, Span>,
+    /// Lookup table for the name of a given stream.
     pub(crate) names: &'a HashMap<StreamReference, &'a str>,
+    /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcretePacingType, TcKey)>,
 }
 
@@ -39,6 +51,8 @@ impl<'a, M> PacingTypeChecker<'a, M>
 where
     M: HirMode + 'static,
 {
+    /// Creates a new [ValueTypeChecker]. `names`table can be generated from the `Hir`.
+    /// Inits all internal hash maps.
     pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
         let pacing_tyc = TypeChecker::new();
@@ -759,6 +773,7 @@ where
         errors
     }
 
+    /// The callable function to start the inference. Used by [LolaTypeChecker].
     pub(crate) fn type_check(mut self, handler: &Handler) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
         for input in self.hir.inputs() {
             if let Err(e) = self.input_infer(input) {
@@ -872,18 +887,20 @@ mod tests {
 
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
-    use reporting::{Handler, Span};
     use rtlola_parser::ast::RtLolaAst;
+    use rtlola_reporting::{Handler, Span};
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
 
-    use crate::common_ir::{StreamAccessKind, StreamReference};
-    use crate::hir::expression::{ArithLogOp, Constant, ExprId, Expression, ExpressionKind, Literal, ValueEq};
-    use crate::hir::RTLolaHIR;
+    use crate::hir::{
+        ArithLogOp, Constant, ExprId, Expression, ExpressionKind, Literal, StreamAccessKind, StreamReference,
+        ValueEq,RtLolaHir,
+    };
     use crate::modes::BaseMode;
-    use crate::type_check::pacing_types::{ActivationCondition, ConcretePacingType};
-    use crate::type_check::rtltc::NodeId;
-    use crate::type_check::LolaTypeChecker;
+    use crate::type_check::pacing_types::ActivationCondition;
+    use crate::type_check::rtltc::{LolaTypeChecker, NodeId};
+    use crate::type_check::ConcretePacingType;
+    use rtlola_parser::ParserConfig;
 
     macro_rules! assert_value_eq {
         ($left:expr, $right:expr) => {{
@@ -905,14 +922,14 @@ mod tests {
         }};
     }
 
-    fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
-        let handler = reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
+    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
+        let handler = Handler::new(PathBuf::from("test"), spec.into());
+        let ast: RtLolaAst = match rtlola_parser::parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
         let hir =
-            crate::hir::RTLolaHIR::<BaseMode>::from_ast(ast, &handler, &crate::FrontendConfig::default()).unwrap();
+            crate::from_ast(ast, &handler).unwrap();
         (hir, handler)
     }
 
@@ -923,14 +940,14 @@ mod tests {
         return handler.emitted_errors();
     }
 
-    fn get_sr_for_name(hir: &RTLolaHIR<BaseMode>, name: &str) -> StreamReference {
+    fn get_sr_for_name(hir: &RtLolaHir<BaseMode>, name: &str) -> StreamReference {
         if let Some(i) = hir.get_input_with_name(name) {
             i.sr
         } else {
             hir.get_output_with_name(name).unwrap().sr
         }
     }
-    fn get_node_for_name(hir: &RTLolaHIR<BaseMode>, name: &str) -> NodeId {
+    fn get_node_for_name(hir: &RtLolaHir<BaseMode>, name: &str) -> NodeId {
         NodeId::SRef(get_sr_for_name(hir, name))
     }
 

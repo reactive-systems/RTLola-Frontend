@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use rtlola_reporting::Span;
+use rtlola_reporting::{Handler, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
-    SRef, StreamAccessKind, Trigger, WidenExprKind, WindowReference,
+    SRef, StreamAccessKind, StreamReference, Trigger, WidenExprKind, WindowReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::Freq;
@@ -14,34 +14,52 @@ use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::value_types::{AbstractValueType, ValueErrorKind};
 use crate::type_check::{ConcreteStreamPacing, ConcreteValueType};
 
+/// A [Variable] is linked to a reusable [TcKey] in the RustTyc Type Checker.
+/// e.g. used to reference stream-variables or parameter.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Variable(String);
 
 impl rusttyc::TcVar for Variable {}
 
 impl Variable {
+    /// Constructs the correct Variable for a Parameter, given the [Output] and the parameter `ìdx`.
     fn for_parameter(output: &Output, idx: usize) -> Self {
         Variable(output.name.clone() + "_" + &output.params[idx].name.clone())
     }
 }
 
+/// The [ValueTypeChecker] is used to infer the value type (e.g. Int32, Bool, Float64) for all expressions and streams.
 pub(crate) struct ValueTypeChecker<'a, M>
 where
     M: HirMode,
 {
+    /// The internal instance of a rusttyc [Typechecker].
     pub(crate) tyc: TypeChecker<AbstractValueType, Variable>,
+    /// Maps a [NodeId] to a rusttyc TcKey. Allows referring to a TcKey for any given Hir node.
     pub(crate) node_key: HashMap<NodeId, TcKey>,
+    /// Maps a TcKey to the Hir node span it represents. Used for error reporting.
     pub(crate) key_span: HashMap<TcKey, Span>,
+    /// The input Hir.
     pub(crate) hir: &'a Hir<M>,
+    /// The result of the pacing type analysis. Needed to determine the correct type of a realtime offset expression.
     pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
+    /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcreteValueType, Option<TcKey>)>,
+    /// Lookup table for the name of a given stream.
+    pub(crate) names: &'a HashMap<StreamReference, &'a str>,
 }
 
 impl<'a, M> ValueTypeChecker<'a, M>
 where
     M: HirMode,
 {
-    pub(crate) fn new(hir: &'a Hir<M>, pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>) -> Self {
+    /// Creates a new [ValueTypeChecker], requires a pacing type table given by [type_check](crate::type_check::PacingTypeChecker::type_check).
+    /// `names` maps each stream reference to the name of the stream  referenced
+    pub(crate) fn new(
+        hir: &'a Hir<M>,
+        names: &'a HashMap<StreamReference, &'a str>,
+        pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
+    ) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = HashMap::new();
         let mut key_span = HashMap::new();
@@ -74,7 +92,54 @@ where
             hir,
             pacing_tt,
             annotated_checks,
+            names,
         }
+    }
+
+    pub(crate) fn type_check(mut self, handler: &Handler) -> Option<HashMap<NodeId, ConcreteValueType>> {
+        for input in self.hir.inputs() {
+            if let Err(e) = self.input_infer(input) {
+                e.emit(handler, &[&self.key_span], &self.names)
+            }
+        }
+
+        for output in self.hir.outputs() {
+            if let Err(e) = self.output_infer(output) {
+                e.emit(handler, &[&self.key_span], &self.names)
+            }
+        }
+
+        for trigger in self.hir.triggers() {
+            if let Err(e) = self.trigger_infer(trigger) {
+                e.emit(handler, &[&self.key_span], &self.names)
+            }
+        }
+
+        if handler.contains_error() {
+            return None;
+        }
+
+        let tt = match self.tyc.clone().type_check() {
+            Ok(t) => t,
+            Err(e) => {
+                TypeError::from(e).emit(handler, &[&self.key_span], &self.names);
+                return None;
+            },
+        };
+
+        for err in Self::check_explicit_bounds(self.annotated_checks.clone(), &tt) {
+            err.emit(handler, &[&self.key_span], &self.names);
+        }
+        if handler.contains_error() {
+            return None;
+        }
+
+        let result_map = self
+            .node_key
+            .into_iter()
+            .map(|(node, key)| (node, tt[&key].clone()))
+            .collect();
+        Some(result_map)
     }
 
     fn match_const_literal(&self, lit: &Literal) -> AbstractValueType {
@@ -163,6 +228,7 @@ where
         self.bind_to_annotated_type(target, a_ty, conflict)
     }
 
+    /// Handles the annotated type for given [Input] stream.
     pub(crate) fn input_infer(&mut self, input: &Input) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let term_key: TcKey = *self
             .node_key
@@ -174,6 +240,12 @@ where
         Ok(term_key)
     }
 
+    /// Infers the type for a single [Output] stream.
+    /// Performs check order:
+    /// 1: Generates keys and checks for all parameters
+    /// 2: Checks spawn condition and equates values with parameters
+    /// 3: Analyse close and filter expressions
+    /// 4: Check stream expression and sets expression type as stream value type
     pub(crate) fn output_infer(&mut self, out: &Output) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let out_key = *self.node_key.get(&NodeId::SRef(out.sr)).expect("Added in constructor");
 
@@ -237,6 +309,7 @@ where
         Ok(out_key)
     }
 
+    /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
         let expression_key = self.expression_infer(&self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
@@ -244,6 +317,8 @@ where
         Ok(tr_key)
     }
 
+    /// Helper function for real time offsets.
+    /// Checks if the offset is a multiple of the target stream frequency and try to convert it to a relative discrete offset.
     fn handle_realtime_offset(
         &mut self,
         target_ref: SRef,
@@ -701,18 +776,20 @@ mod value_type_tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use reporting::Handler;
     use rtlola_parser::ast::RtLolaAst;
+    use rtlola_reporting::Handler;
 
-    use crate::common_ir::StreamReference;
-    use crate::hir::RTLolaHIR;
+    use crate::hir::StreamReference;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::NodeId;
-    use crate::type_check::value_types::ConcreteValueType;
-    use crate::type_check::LolaTypeChecker;
+    use crate::type_check::ConcreteValueType;
+    use crate::type_check::rtltc::LolaTypeChecker;
+    use crate::hir::RtLolaHir;
+    use rtlola_parser::{parse_with_handler, ParserConfig};
+
 
     struct TestBox {
-        hir: RTLolaHIR<BaseMode>,
+        hir: RtLolaHir<BaseMode>,
         handler: Handler,
     }
 
@@ -727,14 +804,12 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let handler = reporting::Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match crate::parse::parse(spec, &handler, crate::FrontendConfig::default()) {
+        let handler = Handler::new(PathBuf::from("test"), spec.into());
+        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
             Ok(s) => s,
             Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
         };
-        let hir =
-            crate::hir::RTLolaHIR::<BaseMode>::transform_expressions(ast, &handler, &crate::FrontendConfig::default())
-                .unwrap();
+        let hir = crate::from_ast(ast, &handler).unwrap();
         //let mut dec = na.check(&spec);
         assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
         TestBox { hir, handler }

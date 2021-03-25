@@ -11,18 +11,26 @@ use crate::hir::{AnnotatedType, StreamReference};
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{Emittable, TypeError};
 
+/// The error kind for all custom errors during the value type check.
 #[derive(Debug, Clone)]
 pub(crate) enum ValueErrorKind {
+    /// two conflicting types
     TypeClash(AbstractValueType, AbstractValueType),
+    /// an error for tuple access/size
     TupleSize(usize, usize),
+    /// exceeding the upper type bound
     ReificationTooWide(AbstractValueType),
+    /// type not constrained enough
     CannotReify(AbstractValueType),
+    /// annotated type exceeds the upper bound
     AnnotationTooWide(AnnotatedType),
+    /// type not allowed as annotation
     AnnotationInvalid(AnnotatedType),
     ///target freq, Offset
     IncompatibleRealTimeOffset(Freq, i64),
     /// Inferred, Expected
     ExactTypeMismatch(ConcreteValueType, ConcreteValueType),
+    /// invalid child access for given type
     AccessOutOfBound(AbstractValueType, usize),
     /// Type, inferred, reported
     ArityMismatch(AbstractValueType, usize, usize),
@@ -30,6 +38,7 @@ pub(crate) enum ValueErrorKind {
     ChildConstruction(Box<Self>, AbstractValueType, usize),
 }
 
+/// The [AbstractValueType] is used during inference and represents a value within the type latticec
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum AbstractValueType {
     Any,
@@ -149,6 +158,7 @@ impl Constructable for AbstractValueType {
 }
 
 impl ConcreteValueType {
+    /// Generates a concrete type value for an annotated type.
     pub(crate) fn from_annotated_type(at: &AnnotatedType) -> Result<Self, ValueErrorKind> {
         use ValueErrorKind::*;
         match at {
