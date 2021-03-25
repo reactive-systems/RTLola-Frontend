@@ -8,7 +8,7 @@ use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
 use codespan_reporting::term::Config;
-use uom::lib::sync::RwLock;
+use std::sync::RwLock;
 
 /// Represents a location in the source
 // Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy

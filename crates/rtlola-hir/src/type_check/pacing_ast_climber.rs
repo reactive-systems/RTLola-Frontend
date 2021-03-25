@@ -372,8 +372,8 @@ where
                             .exp_pacing
                             .concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)),
                     )?;
-                },
-                Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {},
+                }
+                Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {}
             }
         }
         Ok(())
@@ -385,7 +385,7 @@ where
         match &exp.kind {
             ExpressionKind::LoadConstant(_) | ExpressionKind::ParameterAccess(_, _) => {
                 //constants have arbitrary pacing type
-            },
+            }
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
                 match kind {
@@ -394,12 +394,14 @@ where
                         self.impose_more_concrete(term_keys, stream_key)?;
 
                         //Check that arguments are equal to spawn target if parameterized
-                        let target = self.hir.spawn(*sref).and_then(|(t, _)| t).map(|target| {
-                            match &target.kind {
+                        let target = self
+                            .hir
+                            .spawn(*sref)
+                            .and_then(|(t, _)| t)
+                            .map(|target| match &target.kind {
                                 ExpressionKind::Tuple(s) => s.clone(),
                                 _ => vec![target.clone()],
-                            }
-                        });
+                            });
 
                         if let Some(spawn_args) = target {
                             if spawn_args.len() != args.len()
@@ -424,42 +426,40 @@ where
                                 .into());
                             }
                         }
-                    },
-                    StreamAccessKind::Hold => {},
+                    }
+                    StreamAccessKind::Hold => {}
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
                             .impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
-                    },
+                    }
                 };
 
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.impose_more_concrete(term_keys, arg_key)?;
                 }
-            },
+            }
             ExpressionKind::Default { expr, default } => {
                 let ex_key = self.expression_infer(&*expr)?;
                 let def_key = self.expression_infer(&*default)?;
 
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
-            },
-            ExpressionKind::ArithLog(_, args) => {
-                match args.len() {
-                    2 => {
-                        let left_key = self.expression_infer(&args[0])?;
-                        let right_key = self.expression_infer(&args[1])?;
+            }
+            ExpressionKind::ArithLog(_, args) => match args.len() {
+                2 => {
+                    let left_key = self.expression_infer(&args[0])?;
+                    let right_key = self.expression_infer(&args[1])?;
 
-                        self.impose_more_concrete(term_keys, left_key)?;
-                        self.impose_more_concrete(term_keys, right_key)?;
-                    },
-                    1 => {
-                        let ex_key = self.expression_infer(&args[0])?;
-                        self.impose_more_concrete(term_keys, ex_key)?;
-                    },
-                    _ => unreachable!(),
+                    self.impose_more_concrete(term_keys, left_key)?;
+                    self.impose_more_concrete(term_keys, right_key)?;
                 }
+                1 => {
+                    let ex_key = self.expression_infer(&args[0])?;
+                    self.impose_more_concrete(term_keys, ex_key)?;
+                }
+                _ => unreachable!(),
             },
             ExpressionKind::Ite {
                 condition,
@@ -473,27 +473,27 @@ where
                 self.impose_more_concrete(term_keys, cond_key)?;
                 self.impose_more_concrete(term_keys, cons_key)?;
                 self.impose_more_concrete(term_keys, alt_key)?;
-            },
+            }
             ExpressionKind::Tuple(elements) => {
                 for e in elements {
                     let ele_keys = self.expression_infer(e)?;
                     self.impose_more_concrete(term_keys, ele_keys)?;
                 }
-            },
+            }
             ExpressionKind::Function(FnExprKind { args, .. }) => {
                 for arg in args {
                     let arg_key = self.expression_infer(&*arg)?;
                     self.impose_more_concrete(term_keys, arg_key)?;
                 }
-            },
+            }
             ExpressionKind::TupleAccess(t, _) => {
                 let exp_key = self.expression_infer(&*t)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
-            },
+            }
             ExpressionKind::Widen(hir::WidenExprKind { expr: inner, .. }) => {
                 let exp_key = self.expression_infer(&*inner)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
-            },
+            }
         };
         self.node_key.insert(NodeId::Expr(exp.eid), term_keys);
         self.add_span_to_stream_key(term_keys, exp.span.clone());
@@ -554,11 +554,11 @@ where
             match ct {
                 ConcretePacingType::Periodic => {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(output.span.clone()).into());
-                },
+                }
                 ConcretePacingType::Constant => {
                     errors.push(PacingErrorKind::NeverEval(output.span.clone()).into());
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -620,11 +620,9 @@ where
                     let span = template
                         .pacing
                         .as_ref()
-                        .map(|ac| {
-                            match ac {
-                                Ac::Frequency { span, .. } => span.clone(),
-                                Ac::Expr(id) => hir.expression(*id).span.clone(),
-                            }
+                        .map(|ac| match ac {
+                            Ac::Frequency { span, .. } => span.clone(),
+                            Ac::Expr(id) => hir.expression(*id).span.clone(),
                         })
                         .or_else(|| template.target.map(|id| hir.expression(id).span.clone()))
                         .or_else(|| template.condition.map(|id| hir.expression(id).span.clone()))
@@ -815,7 +813,7 @@ where
                     &self.names,
                 );
                 return None;
-            },
+            }
         };
         let exp_tt = match self.expression_tyc.type_check() {
             Ok(t) => t,
@@ -826,7 +824,7 @@ where
                     &self.names,
                 );
                 return None;
-            },
+            }
         };
 
         if handler.contains_error() {
@@ -893,8 +891,8 @@ mod tests {
     use uom::si::rational64::Frequency as UOM_Frequency;
 
     use crate::hir::{
-        ArithLogOp, Constant, ExprId, Expression, ExpressionKind, Literal, StreamAccessKind, StreamReference,
-        ValueEq,RtLolaHir,
+        ArithLogOp, Constant, ExprId, Expression, ExpressionKind, Literal, RtLolaHir, StreamAccessKind,
+        StreamReference, ValueEq,
     };
     use crate::modes::BaseMode;
     use crate::type_check::pacing_types::ActivationCondition;
@@ -917,19 +915,19 @@ mod tests {
                             &*left_val, &*right_val
                         )
                     }
-                },
+                }
             }
         }};
     }
 
     fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match rtlola_parser::parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
-            Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
-        };
-        let hir =
-            crate::from_ast(ast, &handler).unwrap();
+        let ast: RtLolaAst =
+            match rtlola_parser::parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
+                Ok(s) => s,
+                Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+            };
+        let hir = crate::from_ast(ast, &handler).unwrap();
         (hir, handler)
     }
 

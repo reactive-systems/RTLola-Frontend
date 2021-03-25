@@ -7,7 +7,7 @@ mod value_types;
 use rtlola_reporting::Handler;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use self::pacing_types::ActivationCondition;
+pub use self::pacing_types::ActivationCondition;
 use crate::hir::{Expression, Hir};
 use crate::modes::{HirMode, Typed};
 use crate::type_check::rtltc::LolaTypeChecker;

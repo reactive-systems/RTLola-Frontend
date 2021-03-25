@@ -21,9 +21,12 @@ pub use crate::modes::ordering::{Layer, StreamLayers};
 use crate::modes::HirMode;
 pub use crate::modes::{
     BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
+    TypedTrait,
 };
 use crate::stdlib::FuncDecl;
-pub use crate::type_check::{ConcretePacingType, ConcreteStreamPacing, ConcreteValueType, StreamType};
+pub use crate::type_check::{
+    ActivationCondition, ConcretePacingType, ConcreteStreamPacing, ConcreteValueType, StreamType,
+};
 
 #[derive(Debug, Clone)]
 pub struct RtLolaHir<M: HirMode> {
@@ -145,7 +148,7 @@ impl<M: HirMode> Hir<M> {
                     let id = tr.expect("Accessing non-existing Trigger").expr_id;
                     self.expression(id)
                 }
-            },
+            }
         }
     }
 
@@ -166,7 +169,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
@@ -187,7 +190,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
@@ -201,7 +204,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
@@ -215,7 +218,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 }

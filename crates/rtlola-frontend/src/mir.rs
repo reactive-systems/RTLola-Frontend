@@ -427,7 +427,7 @@ pub struct DiscreteWindow {
     /// The stream in which expression this window occurs
     pub caller: StreamReference,
     /// The duration over which the window aggregates
-    pub duration: Duration,
+    pub duration: usize,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
     /// The aggregation operation
@@ -678,7 +678,7 @@ impl Type {
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
-            },
+            }
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function { .. } => None,
         }

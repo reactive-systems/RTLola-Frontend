@@ -8,5 +8,4 @@ edition = "2018"
 
 [dependencies]
 codespan-reporting = "0.9.5" # Error Reporting
-uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
-pest = "2.1"         
+pest = "2.1"
