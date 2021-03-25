@@ -8,29 +8,37 @@ use rtlola_reporting::Span;
 use super::WindowReference;
 use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
 
+/// Representation of the Id of an [Expression]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ExprId(pub(crate) u32);
 
-/// Represents an expression.
+/// Representation of an expression in the [RtLolaHir]
+///
+/// An expression contains its kind, its id and its position in the specification.
 #[derive(Debug, Clone)]
 pub struct Expression {
-    /// The kind of expression.
+    /// The kind of the expression
     pub kind: ExpressionKind,
-
+    /// The [ExprId] of the expression
     pub(crate) eid: ExprId,
-
+    /// The position of the expression in the specification
     pub(crate) span: Span,
 }
 
 impl Expression {
+    /// Returns the [ExprId]] of the [Expression]
     pub fn id(&self) -> ExprId {
         self.eid
     }
 
+    /// Returns the [Span] of the [Expression] identifying its position in the specification.
     pub fn span(&self) -> Span {
         self.span.clone()
     }
 
+    /// Returns all stream that are synchronous accesses
+    ///
+    /// This function iterates over the [Expression] and retruns a vector of [StreamReference] identifying each stream that is synchronous accessed with its unique ID.
     pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
         match &self.kind {
             ExpressionKind::ArithLog(_, children)
@@ -83,62 +91,91 @@ impl ValueEq for Expression {
     }
 }
 
-/// The expressions of the IR.
+/// The kinds of an [Expression] of the [RtLolaHir].
 #[derive(Debug, Clone)]
 pub enum ExpressionKind {
-    /// Loading a constant
+    /// Loading a [Constant]
     LoadConstant(Constant),
-    /// Applying arithmetic or logic operation and its monomorphic type
-    /// Arguments never need to be coerced, @see `Expression::Convert`.
+    /// Applying arithmetic or logic operation
+    ///
+    /// The first argument contains the operator of type [ArithLogOp], the second arguments contains the arguments of the operation, which are [Expressions]. The vectors is structured as:
     /// Unary: 1st argument -> operand
     /// Binary: 1st argument -> lhs, 2nd argument -> rhs
     /// n-ary: kth argument -> kth operand
     ArithLog(ArithLogOp, Vec<Expression>),
     /// Accessing another stream
-    /// The Expression vector contains the arguments for a parametrized stream access
+    ///
+    /// A stream access has the following arguments:
+    /// * the [StreamReference] of the stream that is accessed
+    /// * the [StreamAccessKind] of the stream access, e.g. an offset access
+    /// * the argmuents for parametrized stream accesses. This vector is empty if the stream that is accessed is not parametrized.
     StreamAccess(SRef, StreamAccessKind, Vec<Expression>),
-    /// Accessing the n'th parameter of this parameterized stream
+    /// Accessing the n'th parameter of a parameterized stream
+    ///
+    /// This kind represents the access of a parameterized stream. For this, we use the folloing arguments:
+    /// * the first argument contains the [StreamReference] of the parametrized stream that is accessed
+    /// * the second argument contains the index of the parameter.
     ParameterAccess(SRef, usize),
     /// An if-then-else expression
+    ///
+    /// If the condition evaluates to true, the consequence is executed otherwise the alternative. All arguments are an [Expression].
     Ite {
+        /// The condition of the if-then-else expression.
         condition: Box<Expression>,
+        /// The consequence of the if-then-else expression.
         consequence: Box<Expression>,
+        /// The alternative of the if-then-else expression.
         alternative: Box<Expression>,
     },
-    /// A tuple expression
+    /// A tuple expression.
     Tuple(Vec<Expression>),
-    /// Represents an access to a specific tuple element.  The second argument indicates the index of the accessed element while the first produces the accessed tuple.
+    /// Represents an access to a tuple element
+    ///
+    /// The second argument indicates the index of the accessed element, while the first produces the accessed tuple.
     TupleAccess(Box<Expression>, usize),
     /// A function call with its monomorphic type
-    /// Arguments never need to be coerced, @see `Expression::Convert`.
-    //Function(String, Vec<Expression>),
     Function(FnExprKind),
+    /// A function call to widen the type of an [Expression]
     Widen(WidenExprKind),
-    /// Transforms an optional value into a "normal" one
+    /// Represents the transformation of an optional value into a "normal" one
     Default {
-        /// The expression that results in an optional value.
+        /// The expression that results in an optional value
         expr: Box<Expression>,
-        /// An infallible expression providing a default value of `expr` evaluates to `None`.
+        /// An infallible expression providing a default value of `expr` evaluates to `None`
         default: Box<Expression>,
     },
 }
 
+/// Representation of an function call
+//
+/// The struction contains all information for a function call in the [ExpressionKind] enum.
 #[derive(Debug, Clone)]
 pub struct FnExprKind {
+    /// The name of the function.
     pub name: String,
+    /// The arguments of the function call.
+    /// Arguments never need to be coerced, @see `Expression::Convert`.
     pub args: Vec<Expression>,
+    /// The type annoatation of the
     pub(crate) type_param: Vec<AnnotatedType>,
 }
 
+/// Representation of the function call to widen the type of an [Expression]
+///
+/// The struction contains all information to widen an [Expression] in the [ExpressionKind] enum.
 #[derive(Debug, Clone)]
 pub struct WidenExprKind {
+    /// The [Expression] on which the function is called
     pub expr: Box<Expression>,
+    /// The new type of `expr`
     pub(crate) ty: AnnotatedType,
 }
 /// Represents a constant value of a certain kind.
 #[derive(Debug, Clone)]
 pub enum Literal {
+    /// String constant
     Str(String),
+    /// Boolean constant
     Bool(bool),
     /// Integer constant with unknown sign
     Integer(i64),
@@ -164,16 +201,53 @@ impl PartialEq for Literal {
 
 impl Eq for Literal {}
 
+/// Represents a constant in the [ExpressionKind] enum of the [RtLolaHir]
+///
+/// The [RtLolaHir] differentiates between two types of constants:
+/// * Constant expressions that are declared with a name and a [AnnotatedType], which are inline in [Hir::from_ast]
+/// * Constant expressions occuring in an stream expression
+///
+/// Example:
+/// constant a: Int8 := 5
+/// output out := a    +    5
+///               ^         ^
+///               |         |
+///            inlined    basic
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum Constant {
+    /// Basic constants occuring in stream expressions
     Basic(Literal),
+    /// Inlined values of constant streams that are declared in the specification
     Inlined(Inlined),
 }
 
+/// Represents inlined constant values from constant streams
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct Inlined {
+    /// The value of the constant
     pub lit: Literal,
+    /// The type of the constant
     pub(crate) ty: AnnotatedType,
+}
+/// Represenation of the different stream accesses
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StreamAccessKind {
+    /// Represents the synchronous access
+    Sync,
+    /// Represents the access to a (discrete window)[DiscreteAggr]
+    ///
+    /// The argument contains the reference to the (discrete window)[DiscreteAggr] whose value is used in the [Expression].
+    DiscreteWindow(WRef),
+    /// Represents the access to a (sliding window)[SlidingAggr]
+    ///
+    /// The argument contains the reference to the (sliding window)[SlidingAggr] whose value is used in the [Expression].
+    SlidingWindow(WRef),
+    /// Representation of sample and hold accesses
+    Hold,
+    /// Representation of offset accesses
+    ///
+    /// The argument contains the [Offset] of the stream access.
+    Offset(Offset),
 }
 
 /// Contains all arithmetical and logical operations.
@@ -225,18 +299,32 @@ pub enum ArithLogOp {
     Gt,
 }
 
+/// Functionality of [sliding window](SlidingAggr) and [discrete window](DiscreteAggr) aggregations
 pub trait WindowAggregation: Debug + Copy {
+    /// Returns wheter or not the first aggregated value will be produced immediately or wheter the window waits
+    ///
+    /// The function returns `true` if the windows waits until the [duration] has passed at least once. Otherwise the function returns `false`.
     fn wait_until_full(&self) -> bool;
+    /// Returns the [WindowOperation] of the sliding or discrete window
     fn operation(&self) -> WindowOperation;
+    /// Returns the duration of the window
+    ///
+    /// The function returns the duration of a [sliding window](SlidingAggr) or the number of values used for a [discrete window](DiscreteAggr).
     fn duration(&self) -> Either<Duration, usize>;
 }
 
+/// Represents a sliding window aggregation
+///
+/// The struct contains all information that is specific for a sliding window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
 #[derive(Clone, Debug, Copy)]
 pub struct SlidingAggr {
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
-    /// The aggregation operation.
+    /// The aggregation operation
     pub op: WindowOperation,
+    /// The duration of the window
+    ///
+    /// The duration of a sliding window is a time span.
     pub duration: Duration,
 }
 
@@ -253,13 +341,19 @@ impl WindowAggregation for SlidingAggr {
         Either::Left(self.duration)
     }
 }
+/// Represents a discrete window aggregation
+///
+/// The struct contains all information that is specific for a discrete window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
 
 #[derive(Clone, Debug, Copy)]
 pub struct DiscreteAggr {
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
-    /// The aggregation operation.
+    /// The aggregation operation
     pub op: WindowOperation,
+    /// The duration of the window
+    ///
+    /// The duration of a discrete window is a discrete number of values.
     pub duration: usize,
 }
 
@@ -277,25 +371,38 @@ impl WindowAggregation for DiscreteAggr {
     }
 }
 
+/// Represents an instance of sliding or a discrete window aggregation
+///
+/// The generatic `Aggr` defines if the instance is a slinding window or a discrete window.
+/// The field `aggr` contains the data that is specific for a discrete of sliding window.
+/// The other data is used for a discrete and a sliding window.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Window<Aggr: WindowAggregation> {
-    /// The stream whose values will be aggregated.
+    /// The stream whose values will be aggregated
     pub target: SRef,
-    /// The stream calling and evaluating this window.
+    /// The stream calling and evaluating this window
     pub caller: SRef,
-    /// The duration over which the window aggregates.
+    /// The data that differentiates a sliding and a discrete window
+    ///
+    /// This field can either has the type [SlidingAggr] or [DiscreteAggr].
     pub aggr: Aggr,
-    /// A reference to this sliding window.
+    /// The reference of this window.
     pub(crate) reference: WRef,
-    /// The Id of the expression in which this window is accessed. NOT the id of the window.
+    /// The Id of the expression in which this window is accessed
+    ///
+    /// This field contains the Id of the expression that uses the produced value. It is NOT the id of the window.
     pub(crate) eid: ExprId,
 }
 
 impl<A: WindowAggregation> Window<A> {
+    /// Returns the reference of the window
     pub fn reference(&self) -> WindowReference {
         self.reference
     }
 
+    /// Returns the Id of the expression in which this window is accessed
+    ///
+    /// The return value contains the Id of the expression that uses the produced value. This value is NOT the id of the window.
     pub fn id(&self) -> ExprId {
         self.eid
     }
@@ -359,13 +466,4 @@ impl ValueEq for ExpressionKind {
             _ => false,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum StreamAccessKind {
-    Sync,
-    DiscreteWindow(WRef),
-    SlidingWindow(WRef),
-    Hold,
-    Offset(Offset),
 }
