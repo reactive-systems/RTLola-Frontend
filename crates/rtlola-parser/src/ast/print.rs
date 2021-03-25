@@ -417,8 +417,8 @@ impl Display for RtLolaAst {
     }
 }
 
-impl std::fmt::Display for NodeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Display for NodeId {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "{}", self.0)
     }
 }
