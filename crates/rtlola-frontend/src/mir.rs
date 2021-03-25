@@ -16,7 +16,7 @@ use uom::si::time::nanosecond;
 
 use crate::mir::schedule::Schedule;
 
-pub(crate) type Mir = RTLolaMIR;
+pub(crate) type Mir = RtLolaMir;
 
 /// A trait for any kind of stream.
 pub trait Stream {
@@ -33,7 +33,7 @@ pub trait Stream {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RTLolaMIR {
+pub struct RtLolaMir {
     /// All input streams.
     pub inputs: Vec<InputStream>,
     /// All output streams with the bare minimum of information.
@@ -447,7 +447,7 @@ impl Stream for InputStream {
     }
 }
 
-impl RTLolaMIR {
+impl RtLolaMir {
     /// Returns a `Vec` containing a reference for each input stream in the specification.
     pub fn input_refs(&self) -> Vec<InputReference> {
         (0..self.inputs.len()).collect()

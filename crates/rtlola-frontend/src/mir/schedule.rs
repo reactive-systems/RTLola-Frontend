@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::time::Duration;
 
 use num::rational::Rational64 as Rational;
@@ -7,59 +5,56 @@ use num::{One, ToPrimitive};
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
-use crate::mir::{OutputReference, RTLolaMIR, Stream};
+use crate::mir::{OutputReference, RtLolaMir, Stream};
 
-/**
-A deadline used inside the hyper-period of a `Schedule`.
-*/
+/// This struct represents a single deadline inside a [Schedule].
+///
+/// All deadlines are meant to lie within a hyper-period, i.e., they represent a family of points in time rather than
+/// a single one.  The deadline contains information on what streams need to be evaluated when due.
+///
+/// # Example
+/// See example of [Schedule::deadlines].
 #[derive(Debug, Clone)]
 pub struct Deadline {
-    /**
-    The pause between this evaluation and the next deadline.
-    */
+    /// The time delay between the current deadline and the next.
     pub pause: Duration,
-    /**
-    All output streams that need to be computed at this deadline.
-    */
+    /// The set of streams affected by this deadline.
     pub due: Vec<OutputReference>,
 }
 
-/**
-A schedule for the periodic streams.
-
-The schedule is represented as a hyper-period, which describes the period of the combined period streams, and a list of deadlines within a hyper-period.
-*/
+///
+/// A schedule for the periodic streams.
+///
+/// The schedule is a sequence of deadlines and describes a single hyper-period.  Hence, the sequences is meant to repeat afterwards.
 #[derive(Debug, Clone)]
 pub struct Schedule {
-    #[rustfmt::skip]
-    /**
-    The `hyper_period` is the shortest duration, after which all periodic streams start a new period at the same time.
-
-    It is therefore the least common multiple of all periods.  
-    Example:  
-    streams: (c @ 2000ms), (b @ 1000ms), (a @ 500ms)  
-    Hyper period: 2000ms
-    */
+    /// The `hyper_period` is the duration after which the schedule is meant to repeat.
+    ///
+    /// It is therefore the least common multiple of all periods.  
+    /// # Example:  
+    /// If there are three streams, one running at 0.5Hz, one with 1Hz, and one with 2Hz.  The hyper-period then is 2000ms.
     pub hyper_period: Duration,
-    #[rustfmt::skip]
-    /**
-    The deadlines inside the hyper-period.
 
-    Deadlines represent points in time, at which at least one periodic stream gets updated.  
-    Each deadline knows which streams need to be computed and how much time there is until the next deadline (or the end of the hyper-period).  
-    The first deadline is at the start of the hyper-period.  
-    There are only entries for deadlines before the completion of a hyper-period because at this point we start a new hyper-period with time 0ms.
-
-    Example:  
-    streams: (b @ 1500ms), (a @ 1000ms)  
-    Hyper period: 3000ms  
-    Deadlines ([a,b] --1000ms-->) ([a] --500ms-->) ([b] --500ms-->) ([a] --1000ms-->)
-    */
+    /// A sequence of deadlines within a hyperperiod.
+    ///
+    /// Deadlines represent points in time at which periodic stream needs to be updated.  Deadlines may not be empty.
+    /// The first deadline is due [Deadline::pause] time units after the start of the schedule.  Subsequent deadlines are due [Deadline::pause]
+    /// time units after their predecessor.
+    ///
+    /// # Example:  
+    /// Assume there are two periodic streams, `a` running at 1Hz and `b` running at 2Hz.  The deadlines are thus {`b`} at time 500ms and {`a`, `b`}
+    /// 500ms later.  Then, the schedule repeats.
+    ///
+    /// # See Also
+    /// * [Deadline]
     pub deadlines: Vec<Deadline>,
 }
 
 impl Schedule {
-    pub(crate) fn from(ir: &RTLolaMIR) -> Result<Schedule, String> {
+    /// Initiates the computation of a [Schedule] for the given Mir.
+    /// # Fail
+    /// Fails if the resulting schedule would require at least 10^7 deadlines.
+    pub(crate) fn from(ir: &RtLolaMir) -> Result<Schedule, String> {
         let periods: Vec<UOM_Time> = ir.time_driven.iter().map(|s| s.period()).collect();
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
@@ -76,7 +71,7 @@ impl Schedule {
         })
     }
 
-    /// Determines the max amount of time the process can wait between successive checks for
+    /// Determines the maximal amount of time the process can wait between successive checks for
     /// due deadlines without missing one.
     fn find_extend_period(rates: &[UOM_Time]) -> UOM_Time {
         assert!(!rates.is_empty());
@@ -124,7 +119,7 @@ impl Schedule {
     /// Result: `[[a] [b] [] [c]]`
     /// Meaning: `a` starts being scheduled after one gcd, `b` after two gcds, `c` after 4 gcds.
     fn build_extend_steps(
-        ir: &RTLolaMIR,
+        ir: &RtLolaMir,
         gcd: UOM_Time,
         hyper_period: UOM_Time,
     ) -> Result<Vec<Vec<OutputReference>>, String> {
@@ -145,6 +140,14 @@ impl Schedule {
         Ok(extend_steps)
     }
 
+    /// Transforms `extend_steps` into a sequence of [Deadline]s.  
+    ///
+    /// `gcd` represents the minimal time step possible between two consecutive deadlines. Each entry in `extend_steps`
+    /// represents a minimal time step in the schedule.  The resulting Deadlines summarize these entries without containing
+    /// gaps.  So for every deadline, [Deadline::due] will contain at least one entry.
+    ///
+    /// # Panics
+    /// Panics if the last entry/-ies of `extend_steps` are empty.
     fn condense_deadlines(gcd: UOM_Time, extend_steps: Vec<Vec<OutputReference>>) -> Vec<Deadline> {
         let mut empty_counter = 0;
         let mut deadlines: Vec<Deadline> = vec![];
@@ -167,7 +170,7 @@ impl Schedule {
         deadlines
     }
 
-    fn sort_deadlines(ir: &RTLolaMIR, deadlines: &mut Vec<Deadline>) {
+    fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| ir.outputs[*s].eval_layer());
         }
@@ -206,8 +209,8 @@ mod tests {
 
     use super::math::*;
     use super::*;
-    use crate::mir::RTLolaMIR;
-    use crate::FrontendConfig;
+    use crate::mir::RtLolaMir;
+    use crate::ParserConfig;
 
     macro_rules! rat {
         ($i:expr) => {
@@ -233,8 +236,9 @@ mod tests {
         assert_eq!(rational_lcm(rat!(2, 3), rat!(1, 8)), rat!(2));
     }
 
-    fn to_ir(spec: &str) -> RTLolaMIR {
-        crate::parse("stdin", spec, FrontendConfig::default()).expect("spec was invalid")
+    fn to_ir(spec: &str) -> RtLolaMir {
+        let cfg = ParserConfig::for_string(String::from(spec));
+        crate::parse(cfg).expect("spec was invalid")
     }
 
     /// Divides two durations. If `rhs` is not a divider of `lhs`, a warning is emitted and the

@@ -1,8 +1,9 @@
 //! End-to-end tests of the RTLola frontend
 use super::*;
 
-fn parse(spec: &str) -> Result<RTLolaMIR, String> {
-    super::parse("stdin", spec, FrontendConfig::default())
+fn parse(spec: &str) -> Result<RtLolaMir, String> {
+    let cfg = ParserConfig::for_string(String::from(spec));
+    crate::parse(cfg).map_err(|e| format!("parsing failed with the following error:\n{:?}", e))
 }
 
 #[test]
