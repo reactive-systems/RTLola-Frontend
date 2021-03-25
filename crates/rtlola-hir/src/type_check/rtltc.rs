@@ -10,22 +10,29 @@ use crate::type_check::pacing_ast_climber::PacingTypeChecker;
 use crate::type_check::value_ast_climber::ValueTypeChecker;
 use crate::type_check::{ConcreteStreamPacing, ConcreteValueType, StreamType};
 
+/// The [LolaTypeChecker] used to infer and check the RTLola type system for a given `Hir`.
 #[derive(Clone, Debug)]
 pub struct LolaTypeChecker<'a, M>
 where
     M: HirMode,
 {
+    /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
+    /// The given [Handler] used for exact error reporting.
     pub(crate) handler: &'a Handler,
+    /// A stream nme lookup table, generated for the input `Hir`.
     pub(crate) names: HashMap<StreamReference, &'a str>,
 }
 
+/// Wrapper enum to unify streams, expressions and parameter during inference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NodeId {
     SRef(StreamReference),
     Expr(ExprId),
     Param(usize, StreamReference),
 }
+
+/// Emittable is implemented for all type checker errors and is used for generic error printing.
 pub(crate) trait Emittable {
     fn emit(
         self,
@@ -68,6 +75,7 @@ impl<'a, M> LolaTypeChecker<'a, M>
 where
     M: HirMode + 'static,
 {
+    /// Constructs a new [LolaTypeChecker] given a `Hir`and `Handler`. Names table is constructed during call.
     pub(crate) fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
         let names: HashMap<StreamReference, &str> = hir
             .inputs()
@@ -77,6 +85,8 @@ where
         LolaTypeChecker { hir, handler, names }
     }
 
+    /// Performs the complete type check procedure and a new HirMode or an error string.
+    /// Detailed error information is emitted by the [Handler].
     pub(crate) fn check(&mut self) -> Result<Typed, String> {
         let pacing_tt = match self.pacing_type_infer() {
             Some(tt) => tt,
@@ -187,17 +197,17 @@ impl PartialOrd for NodeId {
 mod tests {
     use std::path::PathBuf;
 
-    use reporting::Handler;
     use rtlola_parser::ast::RtLolaAst;
+    use rtlola_parser::{parse, parse_with_handler, ParserConfig};
+    use rtlola_reporting::Handler;
 
-    use crate::hir::RTLolaHIR;
+    use crate::hir::Hir;
     use crate::modes::BaseMode;
-    use crate::parse::parse;
     use crate::type_check::rtltc::LolaTypeChecker;
 
     fn setup_ast(spec: &str) -> (RTLolaHIR<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse(spec, &handler, crate::FrontendConfig::default()) {
+        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec), &handler) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
