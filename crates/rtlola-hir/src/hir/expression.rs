@@ -316,7 +316,7 @@ pub trait WindowAggregation: Debug + Copy {
 /// Represents a sliding window aggregation
 ///
 /// The struct contains all information that is specific for a sliding window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub struct SlidingAggr {
     /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
@@ -345,7 +345,7 @@ impl WindowAggregation for SlidingAggr {
 ///
 /// The struct contains all information that is specific for a discrete window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub struct DiscreteAggr {
     /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
