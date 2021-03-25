@@ -4,6 +4,7 @@ use crate::mir::Mir;
 // use rtlola_hir::common_ir::SRef;
 
 impl Mir {
+    /// Generates an Mir from a complete Hir.
     pub(crate) fn from_hir(_hir: RtLolaHir<CompleteMode>) -> Mir {
         //         let Hir { inputs, outputs, triggers, mode, .. } = &self;
         //         let inputs = inputs

@@ -1,6 +1,20 @@
-/*!
-This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
-*/
+//! This module covers the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
+//!
+//! The [RtLolaMir] is specifically designed to allow convenient navigation and access to data.  Hence, it is perfect for working _with_ the specification
+//! rather than work _on_ it.  
+//!
+//! # Most Notable Structs and Enums
+//! * [RtLolaMir] is the root data structure representing the specification.
+//! * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
+//! * [StreamReference] used for referencing streams within the Mir.
+//! * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
+//! * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+//!
+//! # See Also
+//! * [crate] for an overview regarding different representations.
+//! * [crate::parse] to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
+//! * [RtLolaHir] for a data strucute designed for working _on_it.
+//! * [rtlola_parser::RtLolaAst], which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod print;
 mod schedule;
@@ -20,13 +34,13 @@ pub(crate) type Mir = RtLolaMir;
 
 /// A trait for any kind of stream.
 pub trait Stream {
-    // Returns the spawn laying in which the stream is created.
+    // Reports the evaluation layer of the spawn condition of the stream.
     fn spawn_layer(&self) -> Layer;
-    /// Returns the evaluation laying in which the stream resides.
+    // Reports the evaluation layer of the stream.
     fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
-    /// Indicates how many values need to be memorized.
+    /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
     fn as_stream_ref(&self) -> StreamReference;
@@ -34,63 +48,79 @@ pub trait Stream {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtLolaMir {
-    /// All input streams.
+    /// Contains all input streams.
     pub inputs: Vec<InputStream>,
-    /// All output streams with the bare minimum of information.
+    /// Contains all output streams including all triggers.  They only contain the information relevant for every single kind of output stream.  Refer to [RtLolaMir::time_driven], [RtLolaMir::event_driven],
+    /// and [RtLolaMir::triggers] for more information.
     pub outputs: Vec<OutputStream>,
-    /// References to all time-driven streams.
+    /// References and pacing information of all time-driven streams.
     pub time_driven: Vec<TimeDrivenStream>,
-    /// References to all event-driven streams.
+    /// References and pacing information of all event-driven streams.
     pub event_driven: Vec<EventDrivenStream>,
     /// A collection of all discrete windows.
     pub discrete_windows: Vec<DiscreteWindow>,
     /// A collection of all sliding windows.
     pub sliding_windows: Vec<SlidingWindow>,
-    /// A collection of triggers
+    /// References and message information of all triggers.
     pub triggers: Vec<Trigger>,
 }
 
-/// Represents a value type. Stream types are no longer relevant.
+/// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    /// A binary type
+    /// A boolean type
     Bool,
-    /// An integer type containing an enum stating its bit-width.
+    /// An integer type of fixed bit-width
     Int(IntTy),
-    /// An unsigned integer type containing an enum stating its bit-width.
+    /// An unsigned integer type of fixed bit-width
     UInt(UIntTy),
-    /// An floating point number type containing an enum stating its bit-width.
+    /// A floating point type of fixed bit-width
     Float(FloatTy),
     /// A unicode string
     String,
-    /// A sequence of 8bit bytes
+    /// A sequence of 8-bit bytes
     Bytes,
-    /// A n-ary tuples where n is the length of the contained vector.
+    /// An n-ary tuples where n is the length of the contained vector
     Tuple(Vec<Type>),
-    /// An optional value type, e.g., resulting from accessing a stream with offset -1
+    /// An optional value type, e.g., resulting from accessing a past value of a stream
     Option(Box<Type>),
-    /// A type describing a function containing its argument types and return type. Monomorphized.
-    Function(Vec<Type>, Box<Type>),
+    /// A type describing a function
+    Function {
+        /// The types of the arguments to the function, monomorphized
+        args: Vec<Type>,
+        /// The monomorphized return type of the function
+        ret: Box<Type>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntTy {
+    /// Represents an 8-bit integer.
     Int8,
+    /// Represents a 16-bit integer.
     Int16,
+    /// Represents a 32-bit integer.
     Int32,
+    /// Represents a 64-bit integer.
     Int64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UIntTy {
+    /// Represents an 8-bit unsigned integer.
     UInt8,
+    /// Represents a 16-bit unsigned integer.
     UInt16,
+    /// Represents a 32-bit unsigned integer.
     UInt32,
+    /// Represents a 64-bit unsigned integer.
     UInt64,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatTy {
+    /// Represents a 32-bit floating point number.
     Float32,
+    /// Represents a 64-bit floating point number.
     Float64,
 }
 
@@ -116,27 +146,28 @@ impl From<ConcreteValueType> for Type {
     }
 }
 
-/// Represents an input stream in an RTLola specification.
+/// Contains all information inherent to an input stream.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct InputStream {
-    /// The name of the stream.
+    /// The name of the stream
     pub name: String,
-    /// The type of the stream.
+    /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
-    /// The List of streams that access the current stream. (non-transitive)
+    /// The collection of streams that access the current stream non-transitively
     pub acccessed_by: Vec<StreamReference>,
-    /// The sliding windows that aggregate this stream. (non-transitive; include discrete sliding windows)
+    /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
-    // *was:* pub dependent_windows: Vec<WindowReference>,
-    /// Indicates in which evaluation layer the stream is.  
+    /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
-    /// The amount of memory required for this stream.
+    /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
-    /// The reference pointing to this stream.
+    /// The reference refering to this stream
     pub reference: StreamReference,
 }
 
-/// Represents an output stream in an RTLola specification.
+/// Contains all information relevant to every kind of output stream.
+///
+/// Refer to [TimeDrivenStream], [EventDrivenStream], and [Trigger], as well as their respective fields in the Mir for additional information.
 #[derive(Debug, PartialEq, Clone)]
 pub struct OutputStream {
     /// The name of the stream.

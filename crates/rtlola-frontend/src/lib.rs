@@ -34,13 +34,14 @@ mod lowering;
 pub mod mir;
 
 use mir::Mir;
-use rtlola_hir::{CompleteMode, HirErr};
+use rtlola_hir::{BaseMode, CompleteMode, HirErr};
 use rtlola_parser::{ParserConfig, RtLolaAst};
 
 #[cfg(test)]
 mod tests;
 
 pub(crate) use rtlola_hir::hir::{RtLolaHir as Hir, RtLolaHir};
+use rtlola_reporting::Handler;
 
 pub use crate::mir::RtLolaMir;
 
