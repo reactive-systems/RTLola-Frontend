@@ -24,7 +24,7 @@ pub(crate) type DeclarationTable = HashMap<NodeId, Declaration>;
 /// # Procedure
 /// Checks the following properties:
 /// - Identifiers do not collide with keywords
-/// - identifiers are unique in there matching scope
+/// - identifiers are unique in their matching scope
 /// - used identifiers have valid definition
 /// - all type annotations describe a valid type
 #[derive(Debug)]

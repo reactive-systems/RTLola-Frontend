@@ -19,6 +19,8 @@ use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
 
 impl Hir<BaseMode> {
+    /// Transforms a [RtLolaAst] into an [Hir]. The `handler` is provided to the [NamingAnalysis] to perform its validity analysis.
+    /// Returns an Hir instance or an [TransformationErr] for error reporting.
     pub(crate) fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
         let mut naming_analyzer = NamingAnalysis::new(&handler);
         let decl_table = naming_analyzer.check(&ast);
@@ -49,23 +51,39 @@ impl Hir<BaseMode> {
     }
 }
 
+/// The Hir Spawn Condition is defined by a pair of two expressions.
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
+/// A [TransformationeErr] describes the kind off error raised during the Ast to Hir conversion.
 #[derive(Debug, Clone)]
 pub enum TransformationErr {
+    /// A function was found when a stream was expected.
     InvalidIdentRef(FunctionName),
+    /// No valid streamrefernce found while it was expected.
     InvalidRefExpr(String),
+    /// A declared constant had no type annotation.
     ConstantWithoutType(Span),
+    /// Could not parse numeric literal.
     NonNumericInLiteral(Span),
+    /// Invalid activation condition.
     InvalidAc(String),
+    /// Offset expression of realtime offset could not be parsed as frequency.
     InvalidRealtimeOffset(Span),
+    /// Window duration could not be parsed into correct type.
     InvalidDuration(String, Span),
+    /// Missing expression cannot be transformed.
     MissingExpr(Span),
+    /// Widen call expects a single type argument.
     MissingWidenArg(Span),
+    /// Annotated type could not be matched.
     InvalidTypeArgument(Type, Span),
+    /// Called functino unknown.
     UnknownFunction(Span),
+    /// Input stream had no type annotation.
     MissingInputType(Span),
+    /// Object method called, currently unimplemented.
     MethodAccess,
+    /// Non duration literal with postfix found.
     InvalidLiteral(Span),
 }
 
@@ -608,6 +626,8 @@ impl ExpressionTransformer {
         })
     }
 
+    /// Converts an expression into the internal representation for a duration
+    /// e.g. parse_duration_from_expr(5Hz) == Duration::from_nanos(200)
     fn parse_duration_from_expr(ast_expression: &ast::Expression) -> Result<Duration, String> {
         use num::traits::Inv;
         use num::ToPrimitive;
@@ -625,6 +645,7 @@ impl ExpressionTransformer {
         Ok(Duration::from_nanos(nanos))
     }
 
+    /// Adds an expression Id and the expression into the hash map and returns the id.
     fn insert_return(exprid_to_expr: &mut HashMap<ExprId, Expression>, expr: Expression) -> ExprId {
         let id = expr.eid;
         exprid_to_expr.insert(id, expr);
@@ -701,16 +722,13 @@ mod tests {
     use rtlola_parser::ast::WindowOperation;
 
     use super::*;
-    use crate::common_ir::StreamAccessKind;
-    use crate::parse::parse;
+    use crate::hir::StreamAccessKind;
+    use rtlola_parser::{ParserConfig, parse_with_handler};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let handler = Handler::new(PathBuf::new(), spec.into());
-        let config = FrontendConfig::default();
-        let ast = parse(spec, &handler, config).unwrap_or_else(|e| panic!("{}", e));
-        let replaced: Hir<BaseMode> =
-            Hir::<BaseMode>::transform_expressions(ast, &handler, &config).expect("Expected valid spec");
-        replaced
+        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler).unwrap_or_else(|e| panic!("{}", e));
+        crate::from_ast(ast, &handler).unwrap()
     }
 
     #[test]
@@ -740,13 +758,13 @@ mod tests {
         let spec = "input o :Int8 output off := o.defaults(to:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Default { .. }));
     }
 
     #[test]
     fn transform_offset() {
-        use crate::common_ir::StreamAccessKind;
+        use crate::hir::StreamAccessKind;
         //TODO do remaining cases
         for (spec, offset) in &[
             ("input o :Int8 output off := o", StreamAccessKind::Sync),
@@ -773,7 +791,7 @@ mod tests {
         ] {
             let ir = obtain_expressions(spec);
             let output_expr_id = ir.outputs[0].expr_id;
-            let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+            let expr = &ir.expression(output_expr_id);
             assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::InRef(0), _, _)));
             if let ExpressionKind::StreamAccess(SRef::InRef(0), result_kind, _) = expr.kind {
                 assert_eq!(result_kind, *offset);
@@ -783,29 +801,32 @@ mod tests {
 
     #[test]
     fn transform_aggr() {
+        use std::time::Duration;
+        use crate::hir::SlidingAggr;
         let spec = "input i:Int8 output o := i.aggregate(over: 1s, using: sum)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr = &ir.expression(output_expr_id);
         let wref = WRef::Sliding(0);
         assert!(matches!(
             expr.kind,
-            ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::SlidingRef(0)), _)
+            ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(WRef::Sliding(0)), _)
         ));
-        let window = &ir.mode.ir_expr.windows[&wref]
-            .clone()
-            .left()
-            .expect("should be a sliding window");
+        let window = ir.single_sliding(WRef::Sliding(0))
+            .clone();
+        let aggr = SlidingAggr {
+            wait: false,
+            op: WindowOperation::Sum,
+            duration: Duration::from_secs(1),
+        };
         assert_eq!(
             window,
-            &SlidingWindow {
+            Window {
                 target: SRef::InRef(0),
                 caller: SRef::OutRef(0),
-                wait: false,
+                aggr,
                 reference: wref,
-                op: WindowOperation::Sum,
                 eid: ExprId(0),
-                duration: Duration::from_secs(1)
             }
         );
     }
@@ -815,7 +836,7 @@ mod tests {
         let spec = "output o(a,b,c) :=  if c then a else b";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Ite { .. }));
         if let ExpressionKind::Ite {
             condition,
@@ -833,11 +854,11 @@ mod tests {
 
     #[test]
     fn parametrized_access() {
-        use crate::common_ir::StreamAccessKind;
+        use crate::hir::StreamAccessKind;
         let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscrete(_)), _)
@@ -855,7 +876,7 @@ mod tests {
         let spec = "output o := (1,2,3)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Tuple(_)));
         if let ExpressionKind::Tuple(v) = &expr.kind {
             assert_eq!(v.len(), 3);
@@ -872,7 +893,7 @@ mod tests {
         let spec = "output o := (1,2,3).1";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::TupleAccess(_, 1)));
     }
 
@@ -882,13 +903,13 @@ mod tests {
         let ir = obtain_expressions(spec);
         assert_eq!(ir.num_triggers(), 1);
         let tr = &ir.triggers[0];
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&tr.expr_id];
+        let expr =  &ir.expr(tr.sr);
         assert!(matches!(expr.kind, ExpressionKind::LoadConstant(_)));
     }
 
     #[test]
     fn input_trigger() {
-        use crate::hir::expression::ArithLogOp;
+        use crate::hir::ArithLogOp;
         let spec = "input a: Int8\n trigger a == 42";
         let ir = obtain_expressions(spec);
         assert_eq!(ir.num_triggers(), 1);
@@ -900,11 +921,11 @@ mod tests {
 
     #[test]
     fn arith_op() {
-        use crate::hir::expression::ArithLogOp;
+        use crate::hir::ArithLogOp;
         let spec = "output o := 3 + 5 ";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Add, _)));
         if let ExpressionKind::ArithLog(_, v) = &expr.kind {
             assert_eq!(v.len(), 2);
@@ -940,12 +961,13 @@ mod tests {
 
     #[test]
     fn functions() {
-        use crate::common_ir::StreamAccessKind;
+        use crate::hir::StreamAccessKind;
         let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
-        assert_eq!(ir.mode.ir_expr.func_table.len(), 1);
+        //check that this functions exists
+        let _ = ir.func_declaration("max");
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr =  &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
             ExpressionKind::StreamAccess(SRef::OutRef(0), StreamAccessKind::Sync, _)
@@ -956,9 +978,10 @@ mod tests {
     fn function_param_default() {
         let spec = "import math output o(a: Int) := sqrt(a) output c := o(1).defaults(to:1)";
         let ir = obtain_expressions(spec);
-        assert_eq!(ir.mode.ir_expr.func_table.len(), 1);
+        //check purely for valid access
+        let _ = ir.func_declaration("sqrt");
         let output_expr_id = ir.outputs[1].expr_id;
-        let expr = &ir.mode.ir_expr.exprid_to_expr[&output_expr_id];
+        let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Default { expr: _, default: _ }));
         if let ExpressionKind::Default { expr: ex, default } = &expr.kind {
             assert!(matches!(default.kind, ExpressionKind::LoadConstant(_)));
