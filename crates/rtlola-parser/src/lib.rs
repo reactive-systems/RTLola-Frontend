@@ -11,6 +11,8 @@
     unused_qualifications
 )]
 
+//! This module provides the functionality needed to parse an RTLola specification into a [RtLolaAst].
+
 mod parse; // Shall not be exposed; use parse function instead.
 
 use std::fs::File;
@@ -23,13 +25,16 @@ pub use ast::RtLolaAst;
 use rtlola_reporting::Handler;
 
 #[derive(Debug, Clone)]
+/// The configuration of the parser.
 pub struct ParserConfig {
-    // Path to spec file.
+    /// The path to the specification file that should be parsed
     path: Option<PathBuf>,
+    /// The specification given as a string
     spec: String,
 }
 
 impl ParserConfig {
+    /// Reads the specification from the given path and creates a new parser configuration for it.
     pub fn from_path(path_to_spec: PathBuf) -> io::Result<Self> {
         let mut file = File::open(&path_to_spec)?;
         let mut spec = String::new();
@@ -41,23 +46,28 @@ impl ParserConfig {
         })
     }
 
+    /// Creates a new parser configuration for the given specification.
     pub fn for_string(spec: String) -> Self {
         ParserConfig { path: None, spec }
     }
 
+    /// Invokes the parser on the specification given in the configuration.
     pub fn parse(self) -> Result<RtLolaAst, String> {
         parse(self)
     }
 
+    /// Returns the path of the specification.
     pub fn path(&self) -> &Option<PathBuf> {
         &self.path
     }
 
+    /// Returns the specification of the configuration.
     pub fn spec(&self) -> &str {
         &self.spec
     }
 }
 
+/// Invokes the parser with the given configuration.
 pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
     let handler = if let Some(path) = &cfg.path {
         rtlola_reporting::Handler::new(path.clone(), cfg.spec.clone())
@@ -69,17 +79,18 @@ pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        },
+        }
     };
     Ok(spec)
 }
 
+/// Invokes the parser with the given configuration and uses the provided [Handler] for error reporting.
 pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLolaAst, String> {
     let spec = match crate::parse::RTLolaParser::parse(&handler, cfg) {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        },
+        }
     };
     Ok(spec)
 }

@@ -99,14 +99,11 @@ impl<'b> NamingAnalysis<'b> {
                         Some("not found in this scope"),
                     );
                 }
-            },
-            TypeKind::Tuple(elements) => {
-                elements.iter().for_each(|ty| {
-                    self.check_type(ty);
-                })
-            },
+            }
+            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
+                self.check_type(ty);
+            }),
             TypeKind::Optional(ty) => self.check_type(ty),
-            TypeKind::Inferred => {},
         }
     }
 
@@ -143,7 +140,7 @@ impl<'b> NamingAnalysis<'b> {
         }
 
         // check the type
-        self.check_type(&param.ty);
+        param.ty.as_ref().map(|t| self.check_type(t));
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
@@ -154,13 +151,11 @@ impl<'b> NamingAnalysis<'b> {
             match import.name.name.as_str() {
                 "math" => self.fun_declarations.add_all_fun_decl(stdlib::math_module()),
                 "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
-                n => {
-                    self.handler.error_with_span(
-                        &format!("unresolved import `{}`", n),
-                        import.name.span.clone(),
-                        Some(&format!("no `{}` in the root", n)),
-                    )
-                },
+                n => self.handler.error_with_span(
+                    &format!("unresolved import `{}`", n),
+                    import.name.span.clone(),
+                    Some(&format!("no `{}` in the root", n)),
+                ),
             }
         }
 
@@ -188,7 +183,7 @@ impl<'b> NamingAnalysis<'b> {
             } else {
                 self.add_decl_for(Declaration::ParamOut(output.clone()))
             }
-            self.check_type(&output.ty);
+            output.ty.as_ref().map(|t| self.check_type(t));
         }
 
         self.check_outputs(&spec);
@@ -321,49 +316,49 @@ impl<'b> NamingAnalysis<'b> {
         match &expression.kind {
             Ident(ident) => {
                 self.check_ident(expression, ident);
-            },
+            }
             StreamAccess(expr, _) => self.check_expression(expr),
             Offset(expr, _) => {
                 self.check_expression(expr);
-            },
+            }
             DiscreteWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            },
+            }
             SlidingWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            },
+            }
             Binary(_, left, right) => {
                 self.check_expression(left);
                 self.check_expression(right);
-            },
-            Lit(_) | MissingExpression => {},
+            }
+            Lit(_) | MissingExpression => {}
             Ite(condition, if_case, else_case) => {
                 self.check_expression(condition);
                 self.check_expression(if_case);
                 self.check_expression(else_case);
-            },
+            }
             ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => {
                 self.check_expression(expr);
-            },
+            }
             Tuple(exprs) => {
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            },
+            }
             Function(name, types, exprs) => {
                 self.check_function(expression, name);
                 types.iter().for_each(|ty| self.check_type(ty));
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            },
+            }
             Default(accessed, default) => {
                 self.check_expression(accessed);
                 self.check_expression(default);
-            },
+            }
             Method(expr, _, types, args) => {
                 self.check_expression(expr);
                 types.iter().for_each(|ty| self.check_type(ty));
                 args.iter().for_each(|expr| self.check_expression(expr));
-            },
+            }
         }
     }
 }

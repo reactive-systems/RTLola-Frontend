@@ -58,21 +58,20 @@ lazy_static! {
 impl<'a> RTLolaParser<'a> {
     pub(crate) fn new(handler: &'a Handler, config: ParserConfig) -> Self {
         RTLolaParser {
-            spec: RtLolaAst::new(),
+            spec: RtLolaAst::empty(),
             handler,
             config,
             node_id: RefCell::new(NodeId::new(0)),
         }
     }
 
-    /**
-     * Transforms a textual representation of a Lola specification into
-     * an AST representation.
-     */
+    /// Transforms a textual representation of a Lola specification into
+    /// an AST representation.
     pub(crate) fn parse(handler: &'_ Handler, config: ParserConfig) -> Result<RtLolaAst, pest::error::Error<Rule>> {
         RTLolaParser::new(handler, config).parse_spec()
     }
 
+    /// Runs the parser on the give spec.
     pub(crate) fn parse_spec(mut self) -> Result<RtLolaAst, pest::error::Error<Rule>> {
         let mut pairs = LolaParser::parse(Rule::Spec, &self.config.spec)?;
         assert!(pairs.clone().count() == 1, "Spec must not be empty.");
@@ -83,28 +82,28 @@ impl<'a> RTLolaParser<'a> {
                 Rule::ImportStmt => {
                     let import = self.parse_import(pair);
                     self.spec.imports.push(import);
-                },
+                }
                 Rule::ConstantStream => {
                     let constant = self.parse_constant(pair);
                     self.spec.constants.push(Rc::new(constant));
-                },
+                }
                 Rule::InputStream => {
                     let inputs = self.parse_inputs(pair);
                     self.spec.inputs.extend(inputs.into_iter().map(Rc::new));
-                },
+                }
                 Rule::OutputStream => {
                     let output = self.parse_output(pair);
                     self.spec.outputs.push(Rc::new(output));
-                },
+                }
                 Rule::Trigger => {
                     let trigger = self.parse_trigger(pair);
                     self.spec.trigger.push(Rc::new(trigger));
-                },
+                }
                 Rule::TypeDecl => {
                     let type_decl = self.parse_type_declaration(pair);
                     self.spec.type_declarations.push(type_decl);
-                },
-                Rule::EOI => {},
+                }
+                Rule::EOI => {}
                 _ => unreachable!(),
             }
         }
@@ -220,9 +219,9 @@ impl<'a> RTLolaParser<'a> {
         let ty = if let Rule::Type = pair.as_rule() {
             let ty = self.parse_type(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
-            ty
+            Some(ty)
         } else {
-            Type::new_inferred(self.next_id())
+            None
         };
 
         // Parse the `@ [Expr]` part of output declaration
@@ -292,9 +291,9 @@ impl<'a> RTLolaParser<'a> {
             let name = self.parse_ident(&decl.next().expect("mismatch between grammar and AST"));
             let ty = if let Some(type_pair) = decl.next() {
                 assert_eq!(Rule::Type, type_pair.as_rule());
-                self.parse_type(type_pair)
+                Some(self.parse_type(type_pair))
             } else {
-                Type::new_inferred(self.next_id())
+                None
             };
             params.push(Parameter {
                 name,
@@ -504,7 +503,7 @@ impl<'a> RTLolaParser<'a> {
             match pair.as_rule() {
                 Rule::Ident => {
                     return Type::new_simple(self.next_id(), pair.as_str().to_string(), pair.as_span().into());
-                },
+                }
                 Rule::Type => tuple.push(self.parse_type(pair)),
                 Rule::Optional => {
                     let span = pair.as_span();
@@ -514,7 +513,7 @@ impl<'a> RTLolaParser<'a> {
                         .expect("mismatch between grammar and AST: first argument is a type");
                     let inner_ty = Type::new_simple(self.next_id(), inner.as_str().to_string(), inner.as_span().into());
                     return Type::new_optional(self.next_id(), inner_ty, span.into());
-                },
+                }
                 _ => unreachable!("{:?} is not a type, ensured by grammar", pair.as_rule()),
             }
         }
@@ -532,11 +531,11 @@ impl<'a> RTLolaParser<'a> {
             Rule::String => {
                 let str_rep = inner.as_str();
                 Literal::new_str(self.next_id(), str_rep, inner.as_span().into())
-            },
+            }
             Rule::RawString => {
                 let str_rep = inner.as_str();
                 Literal::new_raw_str(self.next_id(), str_rep, inner.as_span().into())
-            },
+            }
             Rule::NumberLiteral => {
                 let span = inner.as_span();
                 let mut pairs = inner.into_inner();
@@ -549,7 +548,7 @@ impl<'a> RTLolaParser<'a> {
                 };
 
                 Literal::new_numeric(self.next_id(), str_rep, unit, span.into())
-            },
+            }
             Rule::True => Literal::new_bool(self.next_id(), true, inner.as_span().into()),
             Rule::False => Literal::new_bool(self.next_id(), false, inner.as_span().into()),
             _ => unreachable!(),
@@ -577,7 +576,7 @@ impl<'a> RTLolaParser<'a> {
                 let params = self.parse_vec_of_types(next.into_inner());
                 next = children.next().expect("Mismatch between AST and parser");
                 params
-            },
+            }
             Rule::FunctionArgs => Vec::new(),
             _ => unreachable!(),
         };
@@ -676,7 +675,7 @@ impl<'a> RTLolaParser<'a> {
                             }
                             ExpressionKind::Function(name, types, args) => {
                                 // match for builtin function names and transform them into appropriate AST nodes
-                                let signature = name.as_string();
+                                let signature = name.to_string();
                                 let kind = match signature.as_str() {
                                     "defaults(to:)" => {
                                         assert_eq!(args.len(), 1);
@@ -833,20 +832,16 @@ impl<'a> RTLolaParser<'a> {
         let span = pair.as_span();
         match pair.as_rule() {
             // Map function from `Pair` to AST data structure `Expression`
-            Rule::Literal => {
-                Expression::new(
-                    self.next_id(),
-                    ExpressionKind::Lit(self.parse_literal(pair)),
-                    span.into(),
-                )
-            },
-            Rule::Ident => {
-                Expression::new(
-                    self.next_id(),
-                    ExpressionKind::Ident(self.parse_ident(&pair)),
-                    span.into(),
-                )
-            },
+            Rule::Literal => Expression::new(
+                self.next_id(),
+                ExpressionKind::Lit(self.parse_literal(pair)),
+                span.into(),
+            ),
+            Rule::Ident => Expression::new(
+                self.next_id(),
+                ExpressionKind::Ident(self.parse_ident(&pair)),
+                span.into(),
+            ),
             Rule::ParenthesizedExpression => {
                 let mut inner = pair.into_inner();
                 let opp = inner.next().expect(
@@ -880,7 +875,7 @@ impl<'a> RTLolaParser<'a> {
                     ),
                     span.into(),
                 )
-            },
+            }
             Rule::UnaryExpr => {
                 // First child is the operator, second the operand.
                 let mut children = pair.into_inner();
@@ -899,7 +894,7 @@ impl<'a> RTLolaParser<'a> {
                     ExpressionKind::Unary(operator, Box::new(operand)),
                     span.into(),
                 )
-            },
+            }
             Rule::TernaryExpr => {
                 let mut children = self.parse_vec_of_expressions(pair.into_inner());
                 assert_eq!(children.len(), 3, "A ternary expression needs exactly three children.");
@@ -908,12 +903,12 @@ impl<'a> RTLolaParser<'a> {
                     ExpressionKind::Ite(children.remove(0), children.remove(0), children.remove(0)),
                     span.into(),
                 )
-            },
+            }
             Rule::Tuple => {
                 let elements = self.parse_vec_of_expressions(pair.into_inner());
                 assert!(elements.len() != 1, "Tuples may not have exactly one element.");
                 Expression::new(self.next_id(), ExpressionKind::Tuple(elements), span.into())
-            },
+            }
             Rule::Expr => self.build_expression_ast(pair.into_inner()),
             Rule::FunctionExpr => self.build_function_expression(pair, span.into()),
             Rule::IntegerLiteral => {
@@ -923,11 +918,11 @@ impl<'a> RTLolaParser<'a> {
                     ExpressionKind::Lit(Literal::new_numeric(self.next_id(), pair.as_str(), None, span.clone())),
                     span,
                 )
-            },
+            }
             Rule::MissingExpression => {
                 let span = span.into();
                 Expression::new(self.next_id(), ExpressionKind::MissingExpression, span)
-            },
+            }
             _ => unreachable!("Unexpected rule when parsing expression ast: {:?}", pair.as_rule()),
         }
     }
@@ -970,7 +965,7 @@ impl<'a> RTLolaParser<'a> {
                         "parsing rational '{}' failed: e exponent {} does not fit into i16",
                         repr, exp
                     ))
-                },
+                }
             };
             let factor = BigInt::from_u8(10).unwrap().pow(exp.abs() as u16);
             if exp.is_negative() {
@@ -987,7 +982,7 @@ impl<'a> RTLolaParser<'a> {
                     "parsing rational failed: rational {} does not fit into Rational64",
                     r
                 ))
-            },
+            }
         };
         Ok(Rational::from(p))
     }
@@ -1001,6 +996,14 @@ mod tests {
     use pest::{consumes_to, parses_to};
 
     use super::*;
+
+    fn create_parser<'a>(handler: &'a Handler, spec: &'a str) -> RTLolaParser<'a> {
+        RTLolaParser::new(handler, ParserConfig::for_string(spec.into()))
+    }
+
+    fn parse(spec: &str) -> RtLolaAst {
+        super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{}", e))
+    }
 
     fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
         // Todo: Make more robust, e.g. against changes in whitespace.
@@ -1039,8 +1042,8 @@ mod tests {
     #[test]
     fn parse_constant_ast() {
         let spec = "constant five : Int := 5";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1052,8 +1055,8 @@ mod tests {
     #[test]
     fn parse_constant_double() {
         let spec = "constant fiveoh: Double := 5.0";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1082,8 +1085,8 @@ mod tests {
     #[test]
     fn parse_input_ast() {
         let spec = "input a: Int, b: Int, c: Bool";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
         let pair = LolaParser::parse(Rule::InputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1098,9 +1101,7 @@ mod tests {
     #[test]
     fn build_ast_parameterized_input() {
         let spec = "input in (ab: Int8): Int8\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1133,8 +1134,8 @@ mod tests {
     #[test]
     fn parse_output_ast() {
         let spec = "output out: Int := in + 1";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
         let pair = LolaParser::parse(Rule::OutputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1165,8 +1166,8 @@ mod tests {
     #[test]
     fn parse_trigger_ast() {
         let spec = "trigger in ≠ out \"some message\"";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let parser = RTLolaParser::new(spec, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
         let pair = LolaParser::parse(Rule::Trigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1178,12 +1179,12 @@ mod tests {
     #[test]
     fn parse_expression() {
         let content = "in + 1";
-        let handler = Handler::new(PathBuf::new(), content.into());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
+        let parser = create_parser(&handler, content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
         let ast = parser.build_expression_ast(expr.into_inner());
         assert_eq!(format!("{}", ast), content)
     }
@@ -1191,8 +1192,8 @@ mod tests {
     #[test]
     fn parse_expression_precedence() {
         let content = "(a ∨ b ∧ c)";
-        let handler = Handler::new(PathBuf::new(), content.into());
-        let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
+        let parser = create_parser(&handler, content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1204,8 +1205,8 @@ mod tests {
     #[test]
     fn parse_missing_closing_parenthesis() {
         let content = "(a ∨ b ∧ c";
-        let handler = Handler::new(PathBuf::new(), content.into());
-        let parser = RTLolaParser::new(content, &handler, FrontendConfig::default());
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
+        let parser = create_parser(&handler, content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1217,81 +1218,63 @@ mod tests {
     #[test]
     fn build_simple_ast() {
         let spec = "input in: Int\noutput out: Int := in\ntrigger in ≠ out\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_ast_input() {
         let spec = "input in: Int\ninput in2: Int\ninput in3: (Int, Bool)\ninput in4: Bool\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_parenthesized_expression() {
         let spec = "output s: Bool := (true ∨ true)\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_optional_type() {
         let spec = "output s: Bool? := (false ∨ true)\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_lookup_expression_default() {
         let spec = "output s: Int := s.offset(by: -1).defaults(to: (3 * 4))\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_lookup_expression_hold() {
         let spec = "output s: Int := s.offset(by: -1).hold().defaults(to: 3 * 4)\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_ternary_expression() {
         let spec = "input in: Int\noutput s: Int := if in = 3 then 4 else in + 2\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_function_expression() {
         let spec = "input in: (Int, Bool)\noutput s: Int := nroot(1, sin(1, in))\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger() {
         let spec = "input in: Int\ntrigger in > 5\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1299,45 +1282,35 @@ mod tests {
     fn build_complex_expression() {
         let spec =
             "output s: Double := if !((s.offset(by: -1).defaults(to: (3 * 4)) + -4) = 12) ∨ true = false then 2.0 else 4.1\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_type_declaration() {
         let spec = "type VerifiedUser { name: String }\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_parameter_list() {
         let spec = "output s (a: B, c: D): E := 3\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_termination_spec() {
         let spec = "output s (a: Int): Int close s > 10 := 3\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_tuple_expression() {
         let spec = "input in: (Int, Bool)\noutput s: Int := (1, in.0).1\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1345,8 +1318,7 @@ mod tests {
     fn parse_string() {
         let spec = r#"constant s: String := "a string with \n newline"
 "#;
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1354,64 +1326,56 @@ mod tests {
     fn parse_raw_string() {
         let spec = r##"constant s: String := r#"a raw \ string that " needs padding"#
 "##;
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_import() {
         let spec = "import math\ninput in: UInt8\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_max() {
         let spec = "import math\ninput a: Int32\ninput b: Int32\noutput maxres: Int32 := max<Int32>(a, b)\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_method_call() {
         let spec = "output count := count.offset(-1).default(0) + 1\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_method_call_with_param() {
         let spec = "output count := count.offset<Int8>(-1).default(0) + 1\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_realtime_offset() {
         let spec = "output a := b.offset(by: -1s)\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_future_offset() {
         let spec = "output a := b.offset(by: 1)\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_function_argument_name() {
         let spec = "output a := b.hold().defaults(to: 0)\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1447,61 +1411,51 @@ mod tests {
     #[test]
     fn handle_bom() {
         let spec = "\u{feff}input a: Bool\n";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, "input a: Bool\n");
     }
 
     #[test]
     fn regression71() {
         let spec = "output outputstream := 42 output c := outputstream";
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(spec);
         cmp_ast_spec(&ast, "output outputstream := 42\noutput c := outputstream\n");
     }
 
     #[test]
     fn parse_bitwise() {
         let spec = "output x := 1 ^ 0 & 23123 | 111\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn spawn_no_target() {
         let spec = "output x spawn if true := 5\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_template_spec() {
         let spec = "output x (y: Int8) @ 1Hz spawn with (42) if true filter y = 1337 close false := 5\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn spawn_no_target_no_condition() {
         let spec = "output x spawn := 5\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
+        parser.parse_spec().unwrap_or_else(|e| panic!("{}", e));
         assert_eq!(handler.emitted_errors(), 1);
     }
 
     #[test]
     fn spawn_with_pacing() {
         let spec = "output x spawn @3Hz with (x) if true := 5\n";
-        let throw = |e| panic!("{}", e);
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse(spec, &handler, FrontendConfig::default()).unwrap_or_else(throw);
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 }

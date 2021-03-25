@@ -1,4 +1,4 @@
-/*! This module contains the AST data structures for the RTLola Language.
+/*! This module contains the [RtLolaAst] data structures for the RTLola Language.
 
 Every node in the abstract syntax tree is assigned a unique id and stores the matching span in the specification.
 */
@@ -12,6 +12,18 @@ use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the AST node, the span in the input specification file, and declaration specific components.
+///
+/// # AST Node Kinds
+/// * [Import] represents an import statement for a module.
+/// * [Constant] represents a constant stream.
+/// * [Input] represents an input stream.
+/// * [Output] represents an output stream.
+/// * [Trigger] represents a trigger declaration.
+/// * [TypeDeclaration] captures a user given type declaration.
+///
+/// # Related Datastructures
+/// * A [NodeId] is a unique ID given to every node of the [RtLolaAst]
+/// * A [Span] links an Ast node to its code location.
 #[derive(Debug, Default, Clone)]
 pub struct RtLolaAst {
     /// The imports of additional modules
@@ -29,7 +41,8 @@ pub struct RtLolaAst {
 }
 
 impl RtLolaAst {
-    pub(crate) fn new() -> RtLolaAst {
+    /// Creates a new and empty [RtLolaAst]
+    pub(crate) fn empty() -> RtLolaAst {
         RtLolaAst {
             imports: Vec::new(),
             constants: Vec::new(),
@@ -96,8 +109,8 @@ An AST node representing the declaration of an output stream.
 pub struct Output {
     /// The name of the output stream
     pub name: Ident,
-    /// The value type of the output stream
-    pub ty: Type,
+    /// An optional value type annotation of the output stream
+    pub ty: Option<Type>,
     /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
     pub extend: ActivationCondition,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
@@ -123,8 +136,8 @@ An AST node representing the declaration of a parameter of a parametrized stream
 pub struct Parameter {
     /// The name of the parameter
     pub name: Ident,
-    /// The value type of the parameter
-    pub ty: Type,
+    /// An optional value type annotation of the parameter
+    pub ty: Option<Type>,
     /// The index of this parameter in the output streams paramlist
     pub param_idx: usize,
     /// The ID of the node in the AST
@@ -147,17 +160,17 @@ pub struct ActivationCondition {
 }
 
 /**
-An AST node representing the declaration of an invoke condition of a parametrized stream
+An AST node representing the declaration of a spawn condition of a stream template.
 */
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<Expression>,
-    /// The ActivationCondition describing when a new instance should be created.
+    /// The ActivationCondition describing when a new instance is created.
     pub pacing: ActivationCondition,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
-    /// A flag to describe if the condition is an 'if' or an 'unless' condition.
+    /// A flag to describe if the condition is an `if` or an `unless` condition.
     pub is_if: bool,
     /// The ID of the node in the AST
     pub id: NodeId,
@@ -166,11 +179,11 @@ pub struct SpawnSpec {
 }
 
 /**
-An AST node representing the declaration of an extend condition of a parametrized stream
+An AST node representing the declaration of a filter condition of a stream template
 */
 #[derive(Debug, Clone)]
 pub struct FilterSpec {
-    /// The boolean expression defining the condition, if a parameterized instance is evaluated.
+    /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub target: Expression,
     /// The ID of the node in the AST
     pub id: NodeId,
@@ -179,11 +192,11 @@ pub struct FilterSpec {
 }
 
 /**
-An AST node representing the declaration of a termination condition of a parametrized stream
+An AST node representing the declaration of a close condition of a stream template
 */
 #[derive(Debug, Clone)]
 pub struct CloseSpec {
-    /// The boolean expression defining the condition, if a parameterized instance is terminated.
+    /// The boolean expression defining the condition, if a stream instance is closed.
     pub target: Expression,
     /// The ID of the node in the AST
     pub id: NodeId,
@@ -251,15 +264,13 @@ pub struct Parenthesis {
 }
 
 impl Parenthesis {
+    /// Creates a new Parenthesis
     pub(crate) fn new(id: NodeId, span: Span) -> Parenthesis {
         Parenthesis { id, span }
     }
 }
 
-/**
-An AST node representing the declaration of a value type
-
-*/
+/// An AST node representing the declaration of a value type
 #[derive(Debug, Clone)]
 pub struct Type {
     /// The kind of the Type, e.g., a tuple
@@ -271,6 +282,7 @@ pub struct Type {
 }
 
 impl Type {
+    /// Creates a new non-recursive type like `Int` or `Bool`
     pub(crate) fn new_simple(id: NodeId, name: String, span: Span) -> Type {
         Type {
             id,
@@ -279,6 +291,7 @@ impl Type {
         }
     }
 
+    /// Creates a new tuple type
     pub(crate) fn new_tuple(id: NodeId, tuple: Vec<Type>, span: Span) -> Type {
         Type {
             id,
@@ -287,19 +300,12 @@ impl Type {
         }
     }
 
+    /// Creates a new optional type
     pub(crate) fn new_optional(id: NodeId, name: Type, span: Span) -> Type {
         Type {
             id,
             kind: TypeKind::Optional(name.into()),
             span,
-        }
-    }
-
-    pub(crate) fn new_inferred(id: NodeId) -> Type {
-        Type {
-            id,
-            kind: TypeKind::Inferred,
-            span: Span::Unknown,
         }
     }
 }
@@ -313,8 +319,6 @@ pub enum TypeKind {
     Tuple(Vec<Type>),
     /// An optional type, e.g., `Int?`
     Optional(Box<Type>),
-    /// Should be inferred, i.e., is not annotated
-    Inferred,
 }
 
 /**
@@ -332,6 +336,7 @@ pub struct Expression {
 }
 
 impl Expression {
+    /// Creates a new expression
     pub(crate) fn new(id: NodeId, kind: ExpressionKind, span: Span) -> Expression {
         Expression { id, kind, span }
     }
@@ -437,6 +442,7 @@ pub enum Offset {
 }
 
 /// Supported time unit for real time expressions
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TimeUnit {
     Nanosecond,
@@ -465,6 +471,7 @@ pub struct Literal {
 }
 
 impl Literal {
+    /// Creates a new bool literal
     pub(crate) fn new_bool(id: NodeId, val: bool, span: Span) -> Literal {
         Literal {
             id,
@@ -473,6 +480,7 @@ impl Literal {
         }
     }
 
+    /// Creates a new numeric literal
     pub(crate) fn new_numeric(id: NodeId, val: &str, unit: Option<String>, span: Span) -> Literal {
         Literal {
             id,
@@ -481,6 +489,7 @@ impl Literal {
         }
     }
 
+    /// Creates a new string literal
     pub(crate) fn new_str(id: NodeId, val: &str, span: Span) -> Literal {
         Literal {
             id,
@@ -489,6 +498,7 @@ impl Literal {
         }
     }
 
+    /// Creates a new raw string literal
     pub(crate) fn new_raw_str(id: NodeId, val: &str, span: Span) -> Literal {
         Literal {
             id,
@@ -585,19 +595,18 @@ pub struct FunctionName {
     pub arg_names: Vec<Option<Ident>>,
 }
 
-impl FunctionName {
-    pub fn as_string(&self) -> String {
-        format!("{}", self)
-    }
-}
-
 #[derive(Debug, Clone, Eq)]
+/// This struct represents an identifier in the specification.
+/// For example the name of an [Output] or [Input].
 pub struct Ident {
+    /// The name of the identifier
     pub name: String,
+    /// The span in the specification declaring the identifier
     pub span: Span,
 }
 
 impl Ident {
+    /// Creates a new identifier.
     pub(crate) fn new(name: String, span: Span) -> Ident {
         Ident { name, span }
     }
@@ -617,6 +626,7 @@ impl PartialEq for Ident {
 pub struct NodeId(pub(crate) u32);
 
 impl NodeId {
+    /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
         assert!(x < (u32::max_value() as usize));
         NodeId(x as u32)

@@ -15,7 +15,12 @@ use uom::lib::sync::RwLock;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Span {
     /// Direct code reference through byte offset
-    Direct { start: usize, end: usize },
+    Direct {
+        /// The start of the span in characters absolute to the beginning of the specification.
+        start: usize,
+        /// The end of the span in characters absolute to the beginning of the specification.
+        end: usize,
+    },
     /// Indirect code reference created through ast refactoring
     Indirect(Box<Self>),
     /// An unknown code reference
@@ -36,6 +41,7 @@ impl Into<Range<usize>> for Span {
     }
 }
 impl Span {
+    /// Return true if the span is indirect.
     pub fn is_indirect(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
@@ -43,7 +49,7 @@ impl Span {
             Span::Unknown => false,
         }
     }
-
+    /// Returns true if the span is unknown.
     pub fn is_unknown(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
@@ -52,6 +58,8 @@ impl Span {
         }
     }
 
+    /// Returns the start and end position of the span.
+    /// Note: If the span is unknown returns (usize::min, usize::max)
     fn get_bounds(&self) -> (usize, usize) {
         match self {
             Span::Direct { start: s, end: e } => (*s, *e),
@@ -122,6 +130,7 @@ impl Handler {
         }
     }
 
+    /// Creates a new handler without a path.
     pub fn without_file(input_content: String) -> Self {
         Handler {
             error_count: RwLock::new(0),
@@ -136,7 +145,7 @@ impl Handler {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
-            _ => {},
+            _ => {}
         }
         term::emit(
             (*self.output.write().unwrap()).as_mut(),
@@ -207,7 +216,7 @@ impl Handler {
     }
 }
 
-/// `Diagnostic` a more flexible way to build a diagnostic.
+/// A `Diagnostic` is more flexible way to build and output errors and warnings.
 #[derive(Debug, Clone)]
 pub struct Diagnostic<'a> {
     /// The handler used for emitting the diagnostic

@@ -1,3 +1,5 @@
+//! This module provides error reporting functionality for the frontend.
+
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
     missing_docs,
