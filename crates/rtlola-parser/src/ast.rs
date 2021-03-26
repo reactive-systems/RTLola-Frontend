@@ -1,7 +1,6 @@
-/*! This module contains the [RtLolaAst] data structures for the RTLola Language.
-
-Every node in the abstract syntax tree is assigned a unique id and stores the matching span in the specification.
-*/
+//! This module contains the [RtLolaAst] data structures for the RTLola Language.
+//!
+//! Every node in the abstract syntax tree is assigned a unique id and has a span referencing the node's location in the specification.
 
 mod conversion;
 mod print;
@@ -11,9 +10,9 @@ use std::rc::Rc;
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
-/// Each declaration contains the id of the AST node, the span in the input specification file, and declaration specific components.
+/// Each declaration contains the id of the Ast node, a span, and declaration-specific components.
 ///
-/// # AST Node Kinds
+/// # Ast Node Kinds
 /// * [Import] represents an import statement for a module.
 /// * [Constant] represents a constant stream.
 /// * [Input] represents an input stream.
@@ -21,8 +20,8 @@ use rtlola_reporting::Span;
 /// * [Trigger] represents a trigger declaration.
 /// * [TypeDeclaration] captures a user given type declaration.
 ///
-/// # Related Datastructures
-/// * A [NodeId] is a unique ID given to every node of the [RtLolaAst]
+/// # Related Data Structures
+/// * A [NodeId] is a unique identifier given to every node of the [RtLolaAst]
 /// * A [Span] links an Ast node to its code location.
 #[derive(Debug, Default, Clone)]
 pub struct RtLolaAst {
@@ -54,23 +53,19 @@ impl RtLolaAst {
     }
 }
 
-/**
-An AST node representing the import of a module, which brings additional implemented functionality to a specification.
-The 'math' module, for example, adds pre-defined mathematical functions as the sine or cosine function.
-*/
+/// An Ast node representing the import of a module, which brings additional implemented functionality to a specification.
+/// The 'math' module, for example, adds pre-defined mathematical functions as the sine or cosine function.
 #[derive(Debug, Clone)]
 pub struct Import {
     /// The name of the module
     pub name: Ident,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the module
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a constant.
-*/
+/// An Ast node representing the declaration of a constant.
 #[derive(Debug, Clone)]
 pub struct Constant {
     /// The name of the constant stream
@@ -79,15 +74,13 @@ pub struct Constant {
     pub ty: Option<Type>,
     /// The literal defining the constant
     pub literal: Literal,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the constant stream
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of an input stream.
-*/
+/// An Ast node representing the declaration of an input stream.
 #[derive(Debug, Clone)]
 pub struct Input {
     /// The name of the input stream
@@ -96,15 +89,13 @@ pub struct Input {
     pub ty: Type,
     /// The parameters of a parameterized input stream; The vector is empty in non-parametrized streams.
     pub params: Vec<Rc<Parameter>>,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the input stream
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of an output stream.
-*/
+/// An Ast node representing the declaration of an output stream.
 #[derive(Debug, Clone)]
 pub struct Output {
     /// The name of the output stream
@@ -123,45 +114,39 @@ pub struct Output {
     pub close: Option<CloseSpec>,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
     pub expression: Expression,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the output stream
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a parameter of a parametrized stream.
-*/
+/// An Ast node representing the declaration of a parameter of a parametrized stream.
 #[derive(Debug, Clone)]
 pub struct Parameter {
     /// The name of the parameter
     pub name: Ident,
     /// An optional value type annotation of the parameter
     pub ty: Option<Type>,
-    /// The index of this parameter in the output streams paramlist
+    /// The index of this parameter in the list of parameter of the respective output stream
     pub param_idx: usize,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the parameter
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a activation condition of a stream.
-*/
+/// An Ast node representing the declaration of a activation condition of a stream.
 #[derive(Debug, Clone)]
 pub struct ActivationCondition {
     /// The boolean expression representing the activation condition. For periodic streams this component is assigned to 'None'
     pub expr: Option<Expression>,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the activation condition
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a spawn condition of a stream template.
-*/
+/// An Ast node representing the declaration of a spawn condition of a stream template.
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
@@ -172,41 +157,35 @@ pub struct SpawnSpec {
     pub condition: Option<Expression>,
     /// A flag to describe if the condition is an `if` or an `unless` condition.
     pub is_if: bool,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the invoke declaration
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a filter condition of a stream template
-*/
+/// An Ast node representing the declaration of a filter condition of a stream template
 #[derive(Debug, Clone)]
 pub struct FilterSpec {
     /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub target: Expression,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a close condition of a stream template
-*/
+/// An Ast node representing the declaration of a close condition of a stream template
 #[derive(Debug, Clone)]
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub target: Expression,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a trigger
-*/
+/// An Ast node representing the declaration of a trigger
 #[derive(Debug, Clone)]
 pub struct Trigger {
     /// The optional name of a trigger
@@ -215,15 +194,13 @@ pub struct Trigger {
     pub expression: Expression,
     /// The optional trigger message, which is printed if the monitor raises the trigger
     pub message: Option<String>,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a user-defined type.
-*/
+/// An Ast node representing the declaration of a user-defined type.
 #[allow(clippy::vec_box)]
 #[derive(Debug, Clone)]
 pub struct TypeDeclaration {
@@ -231,33 +208,29 @@ pub struct TypeDeclaration {
     pub name: Option<Ident>,
     /// The components of the new type, e.g. a GPS type might consist of a type for the latitude and for the longitude
     pub fields: Vec<Box<TypeDeclField>>,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the type declaration
     pub span: Span,
 }
 
-/**
-An AST node representing the declaration of a field of a user-defined type.
-*/
+/// An Ast node representing the declaration of a field of a user-defined type.
 #[derive(Debug, Clone)]
 pub struct TypeDeclField {
     /// The type of a field of a user-defined type
     pub ty: Type,
     /// The name of a field of a user-defined type
     pub name: String,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the type declaration
     pub span: Span,
 }
 
-/**
-An AST node representing an opening or closing parenthesis.
-*/
+/// An Ast node representing an opening or closing parenthesis.
 #[derive(Debug, Clone)]
 pub struct Parenthesis {
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
@@ -270,12 +243,12 @@ impl Parenthesis {
     }
 }
 
-/// An AST node representing the declaration of a value type
+/// An Ast node representing the declaration of a value type
 #[derive(Debug, Clone)]
 pub struct Type {
-    /// The kind of the Type, e.g., a tuple
+    /// The kind of the type, e.g., a tuple
     pub kind: TypeKind,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
@@ -310,7 +283,7 @@ impl Type {
     }
 }
 
-/// AST representation of the value type of a stream
+/// Ast representation of the value type of a stream
 #[derive(Debug, Clone)]
 pub enum TypeKind {
     /// A simple type, e.g., `Int`
@@ -321,15 +294,12 @@ pub enum TypeKind {
     Optional(Box<Type>),
 }
 
-/**
-The AST representation of a stream expression
-inspired by <https://doc.rust-lang.org/nightly/nightly-rustc/src/syntax/ast.rs.html>
-*/
+/// The Ast representation of a stream expression
 #[derive(Debug, Clone)]
 pub struct Expression {
     /// The kind of the root expression, e.g., stream access
     pub kind: ExpressionKind,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
@@ -344,7 +314,7 @@ impl Expression {
 
 #[allow(clippy::large_enum_variant, clippy::vec_box)]
 #[derive(Debug, Clone)]
-/// The AST representation of a single expression
+/// The Ast representation of a single expression
 pub enum ExpressionKind {
     /// A literal, e.g., `1`, `"foo"`
     Lit(Literal),
@@ -399,7 +369,7 @@ pub enum ExpressionKind {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-/// The AST representation of the different aggregation functions
+/// The Ast representation of the different aggregation functions
 pub enum WindowOperation {
     /// Aggregation function to count the number of updated values on the accessed stream
     Count,
@@ -417,7 +387,7 @@ pub enum WindowOperation {
     Integral,
     /// Aggregation function to return the conjunction, i.e., the sliding window returns true iff ALL values on the accessed stream inside a window are assigned to true
     Conjunction,
-    /// Aggregation function to return the disjunction, i.e., the sliding window returns true iff AT LEAST ONE value on the accessed stream inside a window is assigned to true
+    /// Aggregation function to return the disjunction, i.e., the sliding window returns true iff AT LEAst ONE value on the accessed stream inside a window is assigned to true
     Disjunction,
 }
 
@@ -457,14 +427,12 @@ pub enum TimeUnit {
     Year,
 }
 
-/**
-An AST node representing the declaration of a literal
-*/
+/// An Ast node representing the declaration of a literal
 #[derive(Debug, Clone)]
 pub struct Literal {
     /// The kind of the literal, e.g., boolean, string, numeric, ...
     pub kind: LitKind,
-    /// The ID of the node in the AST
+    /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
@@ -509,7 +477,7 @@ impl Literal {
 }
 
 #[derive(Debug, Clone)]
-/// The AST representation of literals
+/// The Ast representation of literals
 pub enum LitKind {
     /// A string literal (`"foo"`)
     Str(String),
@@ -522,9 +490,7 @@ pub enum LitKind {
     Bool(bool),
 }
 
-/**
-An AST node representing a binary operator.
-*/
+/// An Ast node representing a binary operator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp {
     /// The `+` operator (addition)
@@ -567,9 +533,7 @@ pub enum BinOp {
     Gt,
 }
 
-/**
-An AST node representing an unary operator.
-*/
+/// An Ast node representing an unary operator.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum UnOp {
     /// The `!` operator for logical inversion
@@ -580,18 +544,12 @@ pub enum UnOp {
     BitNot,
 }
 
-/**
-An AST node representing the name of a called function and also the names of the arguments.
-*/
+/// An Ast node representing the name of a called function and also the names of the arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionName {
-    /**
-    The name of the called function.
-    */
+    /// The name of the function
     pub name: Ident,
-    /**
-    A list containing an element for each argument, containing the name if it is a named argument or else `None`.
-    */
+    /// A list containing the name of each argument.  If the argument is unnamed, it is represented by `None`.
     pub arg_names: Vec<Option<Ident>>,
 }
 
@@ -620,8 +578,8 @@ impl PartialEq for Ident {
     }
 }
 
-/// Every node in the AST gets a unique id, represented by a 32bit unsiged integer.
-/// They are used in the later analysis phases to store information about AST nodes.
+/// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
+/// They are used in the later analysis phases to store information about Ast nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(pub(crate) u32);
 
