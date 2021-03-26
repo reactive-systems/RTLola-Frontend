@@ -1,22 +1,15 @@
 //! The high-level intermediate representation of the RTLola Monitoring Framework
 //!
-//! This crate offers functionality to transform a textual representation of an RTLola specification into an abstract syntax tree.  The Ast is not the most convenient data structure for
-//! modifying or analyzing a specification; there are other options available, outlined below.
+//! This crate offers functionality to transform the abstract syntax tree (See [RtLolaAst]) of an RTLola specification into a high-level intermediate representation.
+//! It contains more convenient methods than the Ast, enables different analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
 //!
-//! # Specification Representations
-//! * [RtLolaAst]: The Ast represents the abstract syntax of the specification.  It is obtained by first parsing the specification into a homogenous tree
-//!  and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
-//!  The only checks performed when creating the Ast concern the correct syntax.
-//! * [https://docs.rs/rtlola_hir/struct.RTLolaHir.html](RtLolaHir): The Hir represents a high-level intermediate representation optimized for analyzability.  It contains more convenient methods than the Ast, enables different
-//!  analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
-//!  Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [https://docs.rs/rtlola_hir/](RTLola Hir Crate).
-//! * [https://docs.rs/rtlola_frontend/struct.RTLolaMir.html](RtLolaMir): The Mir represents a mid-level intermediate representation optimized for external use such as interpretation and compilation.  It contains
-//!  several interconnections enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [https://docs.rs/rtlola_frontend/](RTLola FrontEnd Crate).
-//! As a rule of thumb, if you want to analyze and/or enrich a specification, use the [RtLolaHir].  If you only need a convenient representation of the specification for some devious
-//! activity such as compiling it into something else, the [RtLolaMir] is the way to go.
-//!
-//! # Modules
-//! * [ast] Contains anything related to the [RtLolaAst].
+//! # HIR Modes
+//! * `RtLolaHir<BaseMode>` is the base mode of the Hir. In this state, the hir contains multiple convenience methods to work with the specification.
+//! * `RtLolaHir<DepAnaMode>` additionally features the dependency analysis.
+//! * `RtLolaHir<TypedMode>` annotates the streams with value and pacing type information.
+//! * `RtLolaHir<OrderedMode>` orders the streams into layers of streams which can be evaluated at the same time.
+//! * `RtLolaHir<MemBoundMode>` enriches the streams with their memory requirements.
+//! * `RtLolaHir<CompleteMode>` finalizes the Hir to its fully analyzed state.
 
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
@@ -58,7 +51,7 @@ pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, Tran
 /// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir) and completes all mode transformations.
 ///
 /// The [RtLolaAst] can be obtained by [parse](rtlola_parser::parse)  and its sibling functions.
-/// Analyses a performed sequential in the following order:
+/// Analyses are performed sequentially in the following order:
 /// - [ast conversion](crate::hir::RtLolaHir::<BaseMode>::from_ast)
 /// - Dependency analysis ([see](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order)).
 /// - Type analysis ([see](crate::hir::RtLolaHir::<DepAnaMode>::check_types)):
