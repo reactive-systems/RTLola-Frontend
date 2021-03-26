@@ -132,7 +132,7 @@ ignored:frontend:
     - ./check_ignored_tests_without_comment.sh rtlola-frontend
 
 ####### Use cargo to test the project on stable toolchain #######
-test-reporting:
+test:reporting:
   stage: test
   image: rust:latest
   script:
@@ -141,7 +141,7 @@ test-reporting:
     - rustc --version && cargo --version
     - cargo test -p rtlola-reporting --verbose
 
-test-parser:
+test:parser:
   stage: test
   image: rust:latest
   script:
@@ -150,7 +150,7 @@ test-parser:
     - rustc --version && cargo --version
     - cargo test -p rtlola-parser --verbose
 
-test-macros:
+test:macros:
   stage: test
   image: rust:latest
   script:
@@ -159,7 +159,7 @@ test-macros:
     - rustc --version && cargo --version
     - cargo test -p rtlola-macros --verbose
 
-test-hir:
+test:hir:
   stage: test
   image: rust:latest
   script:
@@ -168,7 +168,7 @@ test-hir:
     - rustc --version && cargo --version
     - cargo test -p rtlola-hir --verbose
 
-test-frontend:
+test:frontend:
   stage: test
   image: rust:latest
   script:
