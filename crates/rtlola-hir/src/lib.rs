@@ -27,10 +27,25 @@ pub use modes::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 use rtlola_reporting::Handler;
 
+/// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir).
+///
+/// For a given specification the [parse](rtlola_parser::parse) function parses the input into the [RtLolaAst].
+/// The [RtLolaHir](crate::hir::RtLolaHir) is the result of the first transformation and is used for all following analyses and transformations.
 pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, TransformationErr> {
     Hir::<BaseMode>::from_ast(ast, handler)
 }
 
+/// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir) and completes all mode transformations.
+///
+/// The [RtLolaAst] can be obtained by [parse](rtlola_parser::parse)  and its sibling functions.
+/// Analyses a performed sequential in the following order:
+/// - [ast conversion](crate::hir::RtLolaHir::<BaseMode>::from_ast)
+/// - Dependency analysis ([see](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order)).
+/// - Type analysis ([see](crate::hir::RtLolaHir::<DepAnaMode>::check_types)):
+/// - Layer analysis ([see](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order)):
+/// - Memory analysis ([see](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
+///
+/// This function returns the fully analysed [RtLolaHir](crate::hir::RtLolaHir)  which can be lowered into the [Mir](rtlola-frontend::Mir).
 pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, HirErr> {
     Ok(Hir::<BaseMode>::from_ast(ast, handler)?
         .analyze_dependencies(handler)?
@@ -40,10 +55,18 @@ pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteM
         .finalize(handler)?)
 }
 
+/// This [HirErr] is returned by [from_ast] or [fully_analyzed] in the case of an error during the a transformation.
+///
+/// Each variant contains the more detailed error of the transformation stage.
+/// See [TransformationErr], [DependencyErr] and the error emitting by the [Handler].
 #[derive(Debug, Clone)]
 pub enum HirErr {
+    /// Contains an [TransformationErr] occurred during [from_ast].
     Ast(TransformationErr),
+    /// Contains an [DependencyErr] occurred during [Dependency analysis](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order).
     Dependency(DependencyErr),
+    /// Contains an information about an type error, occurred during [Type analysis](crate::hir::RtLolaHir::<DepAnaMode>::check_types).
+    /// For detailed information look at the [Handler] error report.
     Type(String),
 }
 

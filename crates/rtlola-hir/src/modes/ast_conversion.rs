@@ -21,6 +21,12 @@ use crate::stdlib::FuncDecl;
 impl Hir<BaseMode> {
     /// Transforms a [RtLolaAst] into an [Hir]. The `handler` is provided to the [NamingAnalysis] to perform its validity analysis.
     /// Returns an Hir instance or an [TransformationErr] for error reporting.
+    ///
+    /// # Procedure
+    /// - Performs the [NamingAnalysis]
+    /// - Checks for proper expression kinds within all expressions.
+    /// - Ensures no missing expressions and inlines all constant definitions, see [Constant](crate::hir:Constant).
+    /// - Assigns new expression ids to all expressions.
     pub(crate) fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
         let mut naming_analyzer = NamingAnalysis::new(&handler);
         let decl_table = naming_analyzer.check(&ast);
