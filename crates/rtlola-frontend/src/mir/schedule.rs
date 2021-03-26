@@ -35,7 +35,7 @@ pub struct Schedule {
     /// If there are three streams, one running at 0.5Hz, one with 1Hz, and one with 2Hz.  The hyper-period then is 2000ms.
     pub hyper_period: Duration,
 
-    /// A sequence of deadlines within a hyperperiod.
+    /// A sequence of deadlines within a hyper-period.
     ///
     /// Deadlines represent points in time at which periodic stream needs to be updated.  Deadlines may not be empty.
     /// The first deadline is due [Deadline::pause] time units after the start of the schedule.  Subsequent deadlines are due [Deadline::pause]
@@ -92,7 +92,7 @@ impl Schedule {
     /// Takes a vec of gcd-sized intervals. In each interval, there are streams that need
     /// to be scheduled periodically at this point in time.
     /// Example:
-    /// Hyper period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
+    /// Hyper-period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
     /// Input:  `[[a] [b]   []  [c]]`
     /// Output: `[[a] [a,b] [a] [a,b,c]]`
     fn apply_periodicity(steps: &[Vec<OutputReference>]) -> Vec<Vec<OutputReference>> {
@@ -115,7 +115,7 @@ impl Schedule {
 
     /// Build extend steps for each gcd-sized time interval up to the hyper period.
     /// Example:
-    /// Hyper period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
+    /// Hyper-period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
     /// Result: `[[a] [b] [] [c]]`
     /// Meaning: `a` starts being scheduled after one gcd, `b` after two gcds, `c` after 4 gcds.
     fn build_extend_steps(
@@ -165,7 +165,7 @@ impl Schedule {
             };
             deadlines.push(deadline);
         }
-        // There cannot be some gcd periods left at the end of the hyper period.
+        // There cannot be some gcd periods left at the end of the hyper-period.
         assert!(empty_counter == 0);
         deadlines
     }

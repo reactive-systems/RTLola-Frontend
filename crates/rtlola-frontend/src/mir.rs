@@ -2,20 +2,18 @@
 //!
 //! The [RtLolaMir] is specifically designed to allow convenient navigation and access to data.  Hence, it is perfect for working _with_ the specification
 //! rather than work _on_ it.  
-//!
-//! # Most Notable Structs and Enums
-//! * [RtLolaMir] is the root data structure representing the specification.
-//! * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
-//! * [StreamReference] used for referencing streams within the Mir.
-//! * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
-//! * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
-//!
-//! # See Also
-//! * [crate] for an overview regarding different representations.
-//! * [crate::parse] to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-//! * [RtLolaHir] for a data strucute designed for working _on_it.
-//! * [rtlola_parser::RtLolaAst], which is the most basic and down-to-syntax data structure available for RTLola.
-
+/// # Most Notable Structs and Enums
+/// * [RtLolaMir] is the root data structure representing the specification.
+/// * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
+/// * [StreamReference] used for referencing streams within the Mir.
+/// * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
+/// * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+///
+/// # See Also
+/// * [rtlola_frontend](crate) for an overview regarding different representations.
+/// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
+/// * [RtLolaHir] for a data structs designed for working _on_it.
+/// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 mod print;
 mod schedule;
 
@@ -46,7 +44,23 @@ pub trait Stream {
     fn as_stream_ref(&self) -> StreamReference;
 }
 
-/// The root data structure representing the Mir of an RTLola specification.
+/// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
+///
+/// The [RtLolaMir] is specifically designed to allow convenient navigation and access to data.  Hence, it is perfect for working _with_ the specification
+/// rather than work _on_ it.  
+///
+/// # Most Notable Structs and Enums
+/// * [RtLolaMir] is the root data structure representing the specification.
+/// * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
+/// * [StreamReference] used for referencing streams within the Mir.
+/// * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
+/// * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+///
+/// # See Also
+/// * [rtlola_frontend](crate) for an overview regarding different representations.
+/// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
+/// * [RtLolaHir] for a data structs designed for working _on_it.
+/// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtLolaMir {
     /// Contains all input streams.
@@ -164,7 +178,7 @@ pub struct InputStream {
     pub layer: StreamLayers,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
-    /// The reference refering to this stream
+    /// The reference referring to this stream
     pub reference: StreamReference,
 }
 
@@ -191,7 +205,7 @@ pub struct OutputStream {
     pub memory_bound: MemorizationBound,
     /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
-    /// The reference refering to this stream
+    /// The reference referring to this stream
     pub reference: StreamReference,
 }
 
@@ -204,7 +218,7 @@ pub struct Trigger {
     pub message: String,
     /// A reference to the output stream representing this trigger.
     pub reference: StreamReference,
-    /// The reference refering to this stream
+    /// The reference referring to this stream
     pub trigger_reference: TriggerReference,
 }
 
@@ -678,7 +692,7 @@ impl Type {
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
-            }
+            },
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function { .. } => None,
         }

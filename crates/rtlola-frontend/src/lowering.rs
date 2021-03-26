@@ -1,5 +1,3 @@
-use crate::mir;
-use crate::mir::{InstanceTemplate, Mir};
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
@@ -7,7 +5,9 @@ use rtlola_hir::hir::{
     TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
-// use rtlola_hir::common_ir::SRef;
+
+use crate::mir;
+use crate::mir::{InstanceTemplate, Mir};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -132,10 +132,10 @@ impl Mir {
         match ac {
             ActivationCondition::Conjunction(con) => {
                 mir::ActivationCondition::Conjunction(con.iter().map(Self::lower_activation_condition).collect())
-            }
+            },
             ActivationCondition::Disjunction(dis) => {
                 mir::ActivationCondition::Disjunction(dis.iter().map(Self::lower_activation_condition).collect())
-            }
+            },
             ActivationCondition::Stream(sr) => mir::ActivationCondition::Stream(*sr),
             ActivationCondition::True => mir::ActivationCondition::True,
         }
@@ -204,7 +204,7 @@ impl Mir {
             ConcreteValueType::Tuple(elements) => {
                 let elements = elements.iter().map(Self::lower_value_type).collect::<Vec<_>>();
                 mir::Type::Tuple(elements)
-            }
+            },
             ConcreteValueType::TString => mir::Type::String,
             ConcreteValueType::Byte => mir::Type::Bytes,
             ConcreteValueType::Option(v) => mir::Type::Option(Box::new(Self::lower_value_type(v))),
@@ -227,7 +227,7 @@ impl Mir {
         match expr {
             rtlola_hir::hir::ExpressionKind::LoadConstant(constant) => {
                 mir::ExpressionKind::LoadConstant(Self::lower_constant(constant, ty))
-            }
+            },
             rtlola_hir::hir::ExpressionKind::ArithLog(op, args) => {
                 let op = Self::lower_arith_log_op(*op);
                 let args = args
@@ -235,11 +235,13 @@ impl Mir {
                     .map(|arg| Self::lower_expr(hir, arg))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::ArithLog(op, args)
-            }
-            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => mir::ExpressionKind::StreamAccess {
-                target: *sr,
-                access_kind: *kind,
-                parameters: para.iter().map(|p| Self::lower_expr(hir, p)).collect(),
+            },
+            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => {
+                mir::ExpressionKind::StreamAccess {
+                    target: *sr,
+                    access_kind: *kind,
+                    parameters: para.iter().map(|p| Self::lower_expr(hir, p)).collect(),
+                }
             },
             rtlola_hir::hir::ExpressionKind::ParameterAccess(_sr, _para) => unimplemented!(),
             rtlola_hir::hir::ExpressionKind::Ite {
@@ -255,19 +257,19 @@ impl Mir {
                     consequence,
                     alternative,
                 }
-            }
+            },
             rtlola_hir::hir::ExpressionKind::Tuple(elements) => {
                 let elements = elements
                     .iter()
                     .map(|element| Self::lower_expr(hir, element))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::Tuple(elements)
-            }
+            },
             rtlola_hir::hir::ExpressionKind::TupleAccess(tuple, element_pos) => {
                 let tuple = Box::new(Self::lower_expr(hir, tuple));
                 let element_pos = *element_pos;
                 mir::ExpressionKind::TupleAccess(tuple, element_pos)
-            }
+            },
             rtlola_hir::hir::ExpressionKind::Function(kind) => {
                 let FnExprKind { name, args, .. } = kind;
                 let args = args
@@ -275,17 +277,17 @@ impl Mir {
                     .map(|arg| Self::lower_expr(hir, arg))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::Function(name.clone(), args)
-            }
+            },
             rtlola_hir::hir::ExpressionKind::Widen(kind) => {
                 let WidenExprKind { expr, .. } = kind;
                 let expr = Box::new(Self::lower_expr(hir, expr));
                 mir::ExpressionKind::Convert { expr }
-            }
+            },
             rtlola_hir::hir::ExpressionKind::Default { expr, default } => {
                 let expr = Box::new(Self::lower_expr(hir, expr));
                 let default = Box::new(Self::lower_expr(hir, default));
                 mir::ExpressionKind::Default { expr, default }
-            }
+            },
         }
     }
 
@@ -300,10 +302,12 @@ impl Mir {
         match constant {
             rtlola_hir::hir::Literal::Str(s) => mir::Constant::Str(s.clone()),
             rtlola_hir::hir::Literal::Bool(b) => mir::Constant::Bool(*b),
-            rtlola_hir::hir::Literal::Integer(i) => match ty {
-                mir::Type::Int(_) => mir::Constant::Int(*i),
-                mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
-                _ => unreachable!(),
+            rtlola_hir::hir::Literal::Integer(i) => {
+                match ty {
+                    mir::Type::Int(_) => mir::Constant::Int(*i),
+                    mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                    _ => unreachable!(),
+                }
             },
             rtlola_hir::hir::Literal::SInt(i) => {
                 //TODO rewrite to 128 bytes
@@ -312,7 +316,7 @@ impl Mir {
                     mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
                     _ => unreachable!(),
                 }
-            }
+            },
             rtlola_hir::hir::Literal::Float(f) => mir::Constant::Float(*f),
         }
     }
@@ -347,10 +351,12 @@ impl Mir {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::PathBuf;
+
     use rtlola_parser::ParserConfig;
     use rtlola_reporting::Handler;
-    use std::path::PathBuf;
+
+    use super::*;
 
     fn lower_spec(spec: &str) -> (rtlola_hir::RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let handler = Handler::new(PathBuf::new(), spec.into());
