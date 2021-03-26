@@ -22,8 +22,8 @@ impl TypedTrait for Typed {
         self.get_type_for_expr(eid)
     }
 
-    fn get_parameter_type(&self, stream: SRef, idx: usize) -> ConcreteValueType {
-        self.param_types[&(stream, idx)].clone()
+    fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType {
+        self.param_types[&(sr, idx)].clone()
     }
 }
 

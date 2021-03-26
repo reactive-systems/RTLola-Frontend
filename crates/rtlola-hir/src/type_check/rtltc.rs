@@ -123,7 +123,11 @@ where
             }
         });
 
-        Ok(Typed::new(stream_map, expression_map, parameters))
+        Ok(Typed {
+            stream_types: stream_map,
+            expression_types: expression_map,
+            param_types: parameters,
+        })
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].
@@ -161,9 +165,9 @@ mod tests {
     use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
+    use crate::hir::RtLolaHir;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::LolaTypeChecker;
-    use crate::hir::RtLolaHir;
 
     fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
