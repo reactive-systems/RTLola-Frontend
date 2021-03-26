@@ -1,3 +1,23 @@
+//! A parser for RTLola specifications
+//!
+//! This crate offers functionality to transform a textual representation of an RTLola specification into an abstract syntax tree.  The Ast is not the most convenient data structure for
+//! modifying or analyzing a specification; there are other options available, outlined below.
+//!
+//! # Specification Representations
+//! * [RtLolaAst]: The Ast represents the abstract syntax of the specification.  It is obtained by first parsing the specification into a homogenous tree
+//!  and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
+//!  The only checks performed when creating the Ast concern the correct syntax.  See also: [rtlola_parser], [RtLolaAst], and [parse_to_ast].
+//! * [RtLolaHir]: The Hir represents a high-level intermediate representation optimized for analyzability.  It contains more convenient methods than the Ast, enables different
+//!  analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
+//!  Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [rtlola_hir], [rtlola_hir::RtLolaHir], [parse_to_base_hir], and [parse_to_base_hir].
+//! * [RtLolaMir]: The Mir represents a mid-level intermediate representation optimized for external use such as interpretation and compilation.  It contains several interconnections
+//!  enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [RtLolaMir], [parse].
+//! As a rule of thumb, if you want to analyze and/or enrich a specification, use the [RtLolaHir].  If you only need a convenient representation of the specification for some devious
+//! activity such as compiling it into something else, the [RtLolaMir] is the way to go.
+//!
+//! # Modules
+//! * [ast] Contains anything related to the [RtLolaAst].
+
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
     missing_docs,
@@ -79,7 +99,7 @@ pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        }
+        },
     };
     Ok(spec)
 }
@@ -90,7 +110,7 @@ pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLola
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
-        }
+        },
     };
     Ok(spec)
 }
