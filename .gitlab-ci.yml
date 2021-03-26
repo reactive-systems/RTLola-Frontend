@@ -1,84 +1,209 @@
 stages:
-  - check
-  - build
+  - check-format
+  - clippy
+  - check-ignored-tests
   - test
-  - tests
-  - bench
-  - release
+  - test-windows
+  - test-nightly
 
-# Install additional packages, like a C compiler and cmake
-#before_script:
-#- apt-get update -yqq
-#- apt-get install -yqq --no-install-recommends build-essential cmake
+default:
+  before_script:
+    - cd crates
 
-# Use cargo to check the source code formatting
-cargo:check-format:
-  stage: check
+####### Use cargo to check the source code formatting #######
+
+format:reporting:
+  stage: check-format
   image: rustlang/rust:nightly
-  before_script:
+  script:
     - rustup component add rustfmt-preview
-  script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo +nightly fmt --all --verbose -- --check
+    - rustc --version && cargo --version
+    - cargo +nightly fmt -p rtlola-reporting --verbose -- --check
 
-# Use cargo to run clippy (Rust linter)
-cargo:clippy:
-  stage: check
+format:parser:
+  stage: check-format
+  image: rustlang/rust:nightly
+  script:
+    - rustup component add rustfmt-preview
+    - rustc --version && cargo --version
+    - cargo +nightly fmt -p rtlola-parser --verbose -- --check
+
+format:macros:
+  stage: check-format
+  image: rustlang/rust:nightly
+  script:
+    - rustup component add rustfmt-preview
+    - rustc --version && cargo --version
+    - cargo +nightly fmt -p rtlola-macros --verbose -- --check
+
+format:hir:
+  stage: check-format
+  image: rustlang/rust:nightly
+  script:
+    - rustup component add rustfmt-preview
+    - rustc --version && cargo --version
+    - cargo +nightly fmt -p rtlola-hir --verbose -- --check
+
+format:frontend:
+  stage: check-format
+  image: rustlang/rust:nightly
+  script:
+    - rustup component add rustfmt-preview
+    - rustc --version && cargo --version
+    - cargo +nightly fmt -p rtlola-frontend --verbose -- --check
+
+
+####### Use cargo to run clippy (Rust linter) #######
+
+clippy:reporting:
+  stage: clippy
   image: rust:latest
-  before_script:
+  script:
     - rustup component add clippy-preview
-  script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo clippy
+    - rustc --version && cargo --version
+    - cargo clippy -p rtlola-reporting
 
-# Check that every ignored test has an accompanying comment
-check-ignored-tests:
-  stage: check
+clippy:parser:
+  stage: clippy
+  image: rust:latest
+  script:
+    - rustup component add clippy-preview
+    - rustc --version && cargo --version
+    - cargo clippy -p rtlola-parser
+
+clippy:macros:
+  stage: clippy
+  image: rust:latest
+  script:
+    - rustup component add clippy-preview
+    - rustc --version && cargo --version
+    - cargo clippy -p rtlola-macros
+
+clippy:hir:
+  stage: clippy
+  image: rust:latest
+  script:
+    - rustup component add clippy-preview
+    - rustc --version && cargo --version
+    - cargo clippy -p rtlola-hir
+
+clippy:frontend:
+  stage: clippy
+  image: rust:latest
+  script:
+    - rustup component add clippy-preview
+    - rustc --version && cargo --version
+    - cargo clippy -p rtlola-frontend
+
+####### Check that every ignored test has an accompanying comment #######
+ignored:reporting:
+  stage: check-ignored-tests
   image: alpine:latest
-  before_script:
-    - apk update && apk add --no-cache bash
   script:
-    - ./check_ignored_tests_without_comment.sh
-  allow_failure: true
+    - apk update && apk add --no-cache bash
+    - ./check_ignored_tests_without_comment.sh rtlola-reporting
 
-# Use cargo to test the project on stable toolchain
-cargo:test:
+ignored:parser:
+  stage: check-ignored-tests
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_ignored_tests_without_comment.sh rtlola-parser
+
+ignored:macros:
+  stage: check-ignored-tests
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_ignored_tests_without_comment.sh rtlola-macros
+
+ignored:hir:
+  stage: check-ignored-tests
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_ignored_tests_without_comment.sh rtlola-hir
+
+ignored:frontend:
+  stage: check-ignored-tests
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_ignored_tests_without_comment.sh rtlola-frontend
+
+####### Use cargo to test the project on stable toolchain #######
+test-reporting:
   stage: test
   image: rust:latest
-  before_script:
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
-  script:
-    - rustc --version && cargo --version      # Print version info for debugging
-    - cargo test --all --verbose
+    - rustc --version && cargo --version
+    - cargo test -p rtlola-reporting --verbose
 
-# Use cargo to test the project on stable toolchain on windows
-cargo:test:windows:
-  stage: tests
+test-parser:
+  stage: test
+  image: rust:latest
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev
+    - rustc --version && cargo --version
+    - cargo test -p rtlola-parser --verbose
+
+test-macros:
+  stage: test
+  image: rust:latest
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev
+    - rustc --version && cargo --version
+    - cargo test -p rtlola-macros --verbose
+
+test-hir:
+  stage: test
+  image: rust:latest
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev
+    - rustc --version && cargo --version
+    - cargo test -p rtlola-hir --verbose
+
+test-frontend:
+  stage: test
+  image: rust:latest
+  script:
+    - apt-get update -yqq
+    - apt-get install -yqq --no-install-recommends libpcap-dev
+    - rustc --version && cargo --version
+    - cargo test -p rtlola-frontend --verbose
+
+####### Use cargo to test the project on stable toolchain on windows #######
+test:windows:
+  stage: test-windows
   tags:
     - windows
     - rust
   script:
     - rustup update
-    - rustc --version && cargo --version      # Print version info for debugging
+    - rustc --version
+    - cargo --version
     - cargo test --all --verbose
-  allow_failure: true
 
-# Use cargo to test the project on nightly toolchain
+####### Use cargo to test the project on nightly toolchain #######
+
 cargo:test-nightly:
-  stage: test
+  stage: test-nightly
   image: rustlang/rust:nightly
   variables:
     CARGO_INCREMENTAL: 0
     RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
     RUSTDOCFLAGS: "-Cpanic=abort"
-  before_script:
+  script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
     - cargo install grcov
     - cargo install cargo2junit
-  script:
     - rustc --version && cargo --version      # Print version info for debugging
     - cargo build
     - (cargo test -- -Z unstable-options --format json | cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
