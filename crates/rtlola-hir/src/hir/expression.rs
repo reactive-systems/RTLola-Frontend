@@ -371,7 +371,7 @@ impl WindowAggregation for DiscreteAggr {
     }
 }
 
-/// Represents an instance of sliding or a discrete window aggregation
+/// Represents an instance of a sliding or a discrete window aggregation
 ///
 /// The generatic `Aggr` defines if the instance is a slinding window or a discrete window.
 /// The field `aggr` contains the data that is specific for a discrete of sliding window.

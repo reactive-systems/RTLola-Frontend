@@ -45,11 +45,11 @@ impl Hir<BaseMode> {
         let mut stream_by_name = HashMap::new();
 
         for (ix, o) in ast.outputs.iter().enumerate() {
-            let sr = SRef::OutRef(ix);
+            let sr = SRef::Out(ix);
             stream_by_name.insert(o.name.name.clone(), sr);
         }
         for (ix, i) in ast.inputs.iter().enumerate() {
-            let sr = SRef::InRef(ix);
+            let sr = SRef::In(ix);
             stream_by_name.insert(i.name.name.clone(), sr);
         }
         let stream_by_name = stream_by_name;
@@ -135,7 +135,7 @@ impl ExpressionTransformer {
         let mut exprid_to_expr = HashMap::new();
         let mut hir_outputs = vec![];
         for (ix, o) in outputs.into_iter().enumerate() {
-            let sr = SRef::OutRef(ix);
+            let sr = SRef::Out(ix);
             let ast::Output {
                 expression,
                 name,
@@ -182,7 +182,7 @@ impl ExpressionTransformer {
         let hir_outputs = hir_outputs;
         let mut hir_triggers = vec![];
         for (ix, t) in trigger.into_iter().enumerate() {
-            let sr = SRef::OutRef(hir_outputs.len() + ix);
+            let sr = SRef::Out(hir_outputs.len() + ix);
             let ast::Trigger {
                 message,
                 name,
@@ -203,7 +203,7 @@ impl ExpressionTransformer {
                     annotated_type: Self::annotated_type(&i.ty)
                         .ok_or_else(|| TransformationErr::MissingInputType(i.span.clone()))?,
                     name: i.name.name.clone(),
-                    sr: SRef::InRef(ix),
+                    sr: SRef::In(ix),
                     span: i.span.clone(),
                 })
             })
@@ -828,8 +828,8 @@ mod tests {
         assert_eq!(
             window,
             Window {
-                target: SRef::InRef(0),
-                caller: SRef::OutRef(0),
+                target: SRef::In(0),
+                caller: SRef::Out(0),
                 aggr,
                 reference: wref,
                 eid: ExprId(0),
@@ -870,7 +870,7 @@ mod tests {
             ExpressionKind::StreamAccess(_, StreamAccessKind::Offset(Offset::PastDiscrete(_)), _)
         ));
         if let ExpressionKind::StreamAccess(sr, _, v) = &expr.kind {
-            assert_eq!(*sr, SRef::OutRef(0));
+            assert_eq!(*sr, SRef::Out(0));
             assert_eq!(v.len(), 3);
         } else {
             unreachable!()

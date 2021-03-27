@@ -29,22 +29,22 @@ fn foo<M: HirMode + TraitB>(ir: Hir<M>) {
     ir.b()
 }
 
-pub struct Hir<M: HirMode> {
+pub(crate) struct Hir<M: HirMode> {
     mode: M,
 }
 
-pub trait HirMode {}
+pub(crate) trait HirMode {}
 
 #[covers_functionality(TraitA, a)]
 #[derive(HirMode)]
-pub struct ModeA {
+pub(crate) struct ModeA {
     a: A,
 }
 
-pub struct A {}
+pub(crate) struct A {}
 
 #[mode_functionality]
-pub trait TraitA {
+pub(crate) trait TraitA {
     fn a(&self, x: u32);
 }
 
@@ -57,15 +57,15 @@ impl TraitA for A {
 #[covers_functionality(TraitA, a)]
 #[covers_functionality(TraitB, b)]
 #[derive(HirMode)]
-pub struct ModeB {
+pub(crate) struct ModeB {
     a: A,
     b: B,
 }
 
-pub struct B {}
+pub(crate) struct B {}
 
 #[mode_functionality]
-pub trait TraitB {
+pub(crate) trait TraitB {
     fn b(&self);
 }
 
@@ -79,16 +79,16 @@ impl TraitB for B {
 #[covers_functionality(TraitB, b)]
 #[covers_functionality(TraitC, c)]
 #[derive(HirMode)]
-pub struct ModeC {
+pub(crate) struct ModeC {
     a: A,
     b: B,
     c: C,
 }
 
-pub struct C {}
+pub(crate) struct C {}
 
 #[mode_functionality]
-pub trait TraitC {
+pub(crate) trait TraitC {
     fn c(&self);
 }
 

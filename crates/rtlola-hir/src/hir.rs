@@ -1,8 +1,17 @@
-/*!
-This module describes the high level intermediate representation of a specification. This representation is used to transform the specification, e.g. to optimize or to introduce syntactic sugar.
-
-The module occurs in different modes, adding different information to the intermediate representation.
-*/
+//! This module covers the High-Level Intermediate Representation (HIR) of an RTLola specification.
+//!
+//! The [RtLolaHir] is specifically designed to allow for convenient manipulation and analysis.  Hence, it is perfect for working *on* the specification rather than work *with* it.  
+//! # Most Notable Structs and Enums
+//! * [RtLolaMir](https://docs.rs/rtlola_frontend/struct.RtLolaMir.html) is the root data structure representing the specification.
+//! * [Output] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [Input].
+//! * [StreamReference] used for referencing streams within the Mir.
+//! * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+//!
+//! # See Also
+//! * [rtlola_frontend](https://docs.rs/rtlola_frontend) for an overview regarding different representations.
+//! * [from_ast](crate::from_ast) / [fully_analyzed](crate::fully_analyzed) to obtain an [RtLolaHir] for a specification in form of an Ast.
+//! * [RtLolaHir] for a data structs designed for working _on_it.
+//! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod expression;
 mod print;
@@ -28,44 +37,84 @@ pub use crate::type_check::{
     ActivationCondition, ConcretePacingType, ConcreteStreamPacing, ConcreteValueType, StreamType,
 };
 
+/// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
+///
+/// The [RtLolaHir] is specifically designed to allow for convenient manipulation and analysis.  Hence, it is perfect for working *on* the specification rather than work *with* it.  
+///
+/// # Most Notable Structs and Enums
+/// * [RtLolaMir](https://docs.rs/rtlola_frontend/struct.RtLolaMir.html) is the root data structure representing the specification.
+/// * [Output] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [Input].
+/// * [StreamReference] used for referencing streams within the Mir.
+/// * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+///
+/// # Type-State
+/// The Hir follows a type-state pattern.  To this end, it has a type parameter, its HirMode.  The Hir starts in the [BaseMode] and progresses through different stages until reaching [CompleteMode].  
+/// Each stage constitutes another level of refinement and adds functionality.  The functionality can be accesses by importing the respective trait and requiring the mode of the Hir to implement the trait.
+/// The following traits exist.
+/// * [DepAnaTrait] provides access to a dependency graph (see [petgraph](petgraph::stable_graph::StableGraph)) and functions to access immediate neighbors of streams. Obtained via [determine_evaluation_order](RtLolaHir::<TypeMode>::determine_evaluation_order).
+/// * [TypedTrait] provides type information. Obtained via [check_types](crate::hir::RtLolaHir::<DepAnaMode>::check_types).
+/// * [OrderedTrait] provides information regarding the evaluation order of streams. Obtained via [determine_evaluation_order](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order).
+/// * [MemBoundTrait] provides information on how many values of a stream have to be kept in memory at the same time. Obtained via [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds).
+///
+/// Progression through different stages is managed by the [HirStage] trait, in particular [HirStage::progress].
+///
+/// # See Also
+/// * [rtlola_frontend](https://docs.rs/rtlola_frontend) for an overview regarding different representations.
+/// * [from_ast](crate::from_ast) / [fully_analyzed](crate::fully_analyzed) to obtain an [RtLolaHir] for a specification in form of an Ast.
+/// * [RtLolaHir] for a data structs designed for working _on_it.
+/// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 #[derive(Debug, Clone)]
 pub struct RtLolaHir<M: HirMode> {
+    /// Collection of input streams
     pub(crate) inputs: Vec<Input>,
+    /// Collection of output streams
     pub(crate) outputs: Vec<Output>,
+    /// Collection of trigger streams
     pub(crate) triggers: Vec<Trigger>,
+    /// Next free input reference used to create new input streams
     pub(crate) next_input_ref: usize,
+    /// Next free output reference used to create new output streams
     pub(crate) next_output_ref: usize,
+    /// Maps expression ids to their expressions.
     pub(crate) expr_maps: ExpressionMaps,
+    /// The current mode
     pub(crate) mode: M,
 }
 
 pub(crate) type Hir<M> = RtLolaHir<M>;
 
 impl<M: HirMode> Hir<M> {
+    /// Provides access to an iterator over all input streams.
     pub fn inputs(&self) -> impl Iterator<Item = &Input> {
         self.inputs.iter()
     }
 
+    /// Provides access to an iterator over all output streams.
     pub fn outputs(&self) -> impl Iterator<Item = &Output> {
         self.outputs.iter()
     }
 
+    /// Provides access to an iterator over all triggers.
     pub fn triggers(&self) -> impl Iterator<Item = &Trigger> {
         self.triggers.iter()
     }
 
+    /// Yields the number of input streams present in the Hir. Not necessarily equal to the number of input streams in the specification.
     pub fn num_inputs(&self) -> usize {
         self.inputs.len()
     }
 
+    /// Yields the number of output streams present in the Hir.  Not necessarily equal to the number of output streams in the specification.
     pub fn num_outputs(&self) -> usize {
         self.outputs.len()
     }
 
+    /// Yields the number of triggers present in the Hir.  Not necessarily equal to the number of triggers in the specification.
     pub fn num_triggers(&self) -> usize {
         self.triggers.len()
     }
 
+    /// Provides access to an iterator over all streams, i.e., inputs, outputs, and triggers.
     pub fn all_streams(&'_ self) -> impl Iterator<Item = SRef> + '_ {
         self.inputs
             .iter()
@@ -74,22 +123,27 @@ impl<M: HirMode> Hir<M> {
             .chain(self.triggers.iter().map(|t| t.sr))
     }
 
+    /// Retrieves an input stream based on its name.  Fails if no such input stream exists.
     pub fn get_input_with_name(&self, name: &str) -> Option<&Input> {
         self.inputs.iter().find(|&i| i.name == name)
     }
 
+    /// Retrieves an output stream based on its name.  Fails if no such output stream exists.
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
         self.outputs.iter().find(|&o| o.name == name)
     }
 
+    /// Retrieves an output stream based on a stream reference.  Fails if no such stream exists or `sref` is a [StreamReference::In].
     pub fn output(&self, sref: SRef) -> Option<&Output> {
         self.outputs().find(|o| o.sr == sref)
     }
 
+    /// Retrieves an input stream based on a stream reference.  Fails if no such stream exists or `sref` is a [StreamReference::Out].
     pub fn input(&self, sref: SRef) -> Option<&Input> {
         self.inputs().find(|i| i.sr == sref)
     }
 
+    /// Provides access to a collection of references for all windows occurring in the Hir.
     pub fn window_refs(&self) -> Vec<WRef> {
         self.expr_maps
             .sliding_windows
@@ -99,22 +153,36 @@ impl<M: HirMode> Hir<M> {
             .collect()
     }
 
+    /// Provides access to a collection of references for all sliding windows occurring in the Hir.
     pub fn sliding_windows(&self) -> Vec<&Window<SlidingAggr>> {
         self.expr_maps.sliding_windows.values().clone().collect()
     }
 
+    /// Provides access to a collection of references for all discrete windows occurring in the Hir.
     pub fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>> {
         self.expr_maps.discrete_windows.values().clone().collect()
     }
 
+    /// Retrieves an expression for a given expression id.
+    ///
+    /// # Panic
+    /// Panics if the expression does not exist.
     pub fn expression(&self, id: ExprId) -> &Expression {
         &self.expr_maps.exprid_to_expr[&id]
     }
 
+    /// Retrieves a function declaration for a given function name.
+    ///
+    /// # Panic
+    /// Panics if the declaration does not exist.
     pub fn func_declaration(&self, func_name: &str) -> &FuncDecl {
         &self.expr_maps.func_table[func_name]
     }
 
+    /// Retrieves a single sliding window for a given reference.  
+    ///
+    /// # Panic
+    /// Panics if no such window exists.
     pub fn single_sliding(&self, window: WRef) -> Window<SlidingAggr> {
         *self
             .sliding_windows()
@@ -123,6 +191,10 @@ impl<M: HirMode> Hir<M> {
             .unwrap()
     }
 
+    /// Retrieves a single discrete window for a given reference.  
+    ///
+    /// # Panic
+    /// Panics if no such window exists.
     pub fn single_discrete(&self, window: WRef) -> Window<DiscreteAggr> {
         *self
             .discrete_windows()
@@ -131,14 +203,14 @@ impl<M: HirMode> Hir<M> {
             .unwrap()
     }
 
-    pub fn windows(&self) -> Vec<WRef> {
-        self.window_refs()
-    }
-
+    /// Retrieves the stream expression of a particular output stream or trigger.
+    ///
+    /// # Panic
+    /// Panics if the reference is a [StreamReference::In] or the stream does not exist.
     pub fn expr(&self, sr: SRef) -> &Expression {
         match sr {
-            SRef::InRef(_) => unimplemented!("No Expression access for input streams possible"),
-            SRef::OutRef(o) => {
+            SRef::In(_) => unimplemented!("No Expression access for input streams possible"),
+            SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     let id = output.expect("Accessing non-existing Output-Stream").expr_id;
@@ -148,14 +220,18 @@ impl<M: HirMode> Hir<M> {
                     let id = tr.expect("Accessing non-existing Trigger").expr_id;
                     self.expression(id)
                 }
-            }
+            },
         }
     }
 
+    /// Retrieves the expression representing the activation condition of a particular output stream or trigger or `None` for input references.
+    ///
+    /// # Panic
+    /// Panics if the stream does not exist.
     pub fn act_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
@@ -169,14 +245,18 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 
+    /// Retrieves the spawn definition of a particular output stream or trigger or `None` for input references.
+    ///
+    /// # Panic
+    /// Panics if the stream does not exist.
     pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
         match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| {
@@ -190,39 +270,48 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 
+    /// Retrieves the expression representing the filter condition of a particular output stream or trigger or `None` for input references.
+    ///
+    /// # Panic
+    /// Panics if the stream does not exist.
     pub fn filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| o.instance_template.filter.map(|e| self.expression(e)))
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 
+    /// Retrieves the expression representing the close condition of a particular output stream or trigger or `None` for input references.
+    ///
+    /// # Panic
+    /// Panics if the stream does not exist.
     pub fn close(&self, sr: SRef) -> Option<&Expression> {
         match sr {
-            SRef::InRef(_) => None,
-            SRef::OutRef(o) => {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| o.instance_template.close.map(|e| self.expression(e)))
                 } else {
                     None
                 }
-            }
+            },
         }
     }
 }
 
+/// A collection of maps for expression-related lookups, i.e., expressions, functions, and windows.
 #[derive(Clone, Debug)]
 pub(crate) struct ExpressionMaps {
     exprid_to_expr: HashMap<ExprId, Expression>,
@@ -232,6 +321,7 @@ pub(crate) struct ExpressionMaps {
 }
 
 impl ExpressionMaps {
+    /// Creates a new expression map.
     pub(crate) fn new(
         exprid_to_expr: HashMap<ExprId, Expression>,
         sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
@@ -247,22 +337,17 @@ impl ExpressionMaps {
     }
 }
 
-/**
-An AST node representing the name of a called function and also the names of the arguments.
-*/
+/// Represents the name of a function including its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionName {
-    /**
-    The name of the called function.
-    */
+    /// Name of the function
     pub name: String,
-    /**
-    A list containing an element for each argument, containing the name if it is a named argument or else `None`.
-    */
+    /// The names of the arguments.  Each name might be empty.
     pub arg_names: Vec<Option<String>>,
 }
 
 impl FunctionName {
+    /// Creates a new FunctionName.
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
         Self {
             name,
@@ -285,10 +370,12 @@ pub struct Input {
 }
 
 impl Input {
+    /// Yields the reference referring to this input stream.
     pub fn sr(&self) -> StreamReference {
         self.sr
     }
 
+    /// Yields the span referring to a part of the specification from which this stream originated.
     pub fn span(&self) -> Span {
         self.span.clone()
     }
@@ -316,62 +403,78 @@ pub struct Output {
 }
 
 impl Output {
+    /// Returns an iterator over the parameters of this stream.
     pub fn params(&self) -> impl Iterator<Item = &Parameter> {
         self.params.iter()
     }
 
+    /// Yields the reference referring to this input stream.
     pub fn sr(&self) -> StreamReference {
         self.sr
     }
 
+    /// Returns the id of this stream's expression.
     pub fn expression(&self) -> ExprId {
         self.expr_id
     }
 
+    /// Yields the span referring to a part of the specification from which this stream originated.
     pub fn span(&self) -> Span {
         self.span.clone()
     }
 }
 
+/// Represents a single parameter of a parametrized output stream.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Parameter {
     /// The name of this parameter
     pub name: String,
     /// The annotated type of this parameter
     pub(crate) annotated_type: Option<AnnotatedType>,
-    /// The id, index in the parameter vector in the output stream, for this parameter
+    /// The index of this parameter
     pub(crate) idx: usize,
     /// The code span of the parameter
     pub(crate) span: Span,
 }
 
 impl Parameter {
+    /// Yields the index of this parameter.  If the index is 3, then the parameter is the fourth parameter of the respective stream.
     pub fn index(&self) -> usize {
         self.idx
     }
 
+    /// Yields the span referring to a part of the specification where this parameter occurs.
     pub fn span(&self) -> Span {
         self.span.clone()
     }
 }
 
-/// Use to hold either a frequency or an expression for the annotated activation condition
+/// Pacing information for stream; contains either a frequency or a condition on input streams.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Ac {
-    Frequency { span: Span, value: UOM_Frequency },
+    /// The evaluation frequency
+    Frequency {
+        /// A span to the part of the specification containing the frequency
+        span: Span,
+        /// The actual frequency
+        value: UOM_Frequency,
+    },
+    /// The expression which constitutes the condition under which the stream should be evaluated.
     Expr(ExprId),
 }
 
+/// Information regarding the parametrization and spawning behavior of a stream
 #[derive(Debug, Clone)]
 pub(crate) struct InstanceTemplate {
-    /// The invoke condition of the parametrized stream.
+    /// The optional information on the spawning behavior of the stream
     pub(crate) spawn: Option<SpawnTemplate>,
-    /// The extend condition of the parametrized stream.
+    /// The optional filter condition
     pub(crate) filter: Option<ExprId>,
-    /// The termination condition of the parametrized stream.
+    /// The optional closing condition
     pub(crate) close: Option<ExprId>,
 }
 
+/// Information regarding the spawning behavior of a stream
 #[derive(Debug, Clone)]
 pub(crate) struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
@@ -382,17 +485,23 @@ pub(crate) struct SpawnTemplate {
     pub(crate) condition: Option<ExprId>,
 }
 
+/// Represents a trigger of an RTLola specification.
 #[derive(Debug, Clone)]
 pub struct Trigger {
+    /// The synthetic name of a trigger.
     pub name: String,
+    /// The message that will be conveyed when the trigger expression evaluates to true.
     pub message: String,
+    /// The id of the expression belonging to the trigger
     pub(crate) expr_id: ExprId,
+    /// A reference to the stream which represents this trigger.
     pub(crate) sr: SRef,
     /// The code span the trigger represents
     pub(crate) span: Span,
 }
 
 impl Trigger {
+    /// Creates a new trigger.
     pub(crate) fn new(
         name: Option<rtlola_parser::ast::Ident>,
         msg: Option<String>,
@@ -410,21 +519,24 @@ impl Trigger {
         }
     }
 
+    /// Provides the reference of a stream that represents this trigger.
     pub fn sr(&self) -> StreamReference {
         self.sr
     }
 
+    /// Provides access to the trigger condition
     pub fn expression(&self) -> ExprId {
         self.expr_id
     }
 
+    /// The code span referring to the original location of the trigger in the specification.
     pub fn span(&self) -> Span {
         self.span.clone()
     }
 }
 
 /// Represents the annotated given type for constants, input streams, etc.
-/// It is converted from the AST type and an input for the typechecker.
+/// It is converted from the AST type and an input for the type checker.
 /// After typechecking HirType is used to represent all type information.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum AnnotatedType {
@@ -441,6 +553,7 @@ pub(crate) enum AnnotatedType {
 }
 
 impl AnnotatedType {
+    /// Yields a collection of primitive types and their names.
     pub(crate) fn primitive_types() -> Vec<(&'static str, &'static AnnotatedType)> {
         let mut types = vec![];
         types.extend_from_slice(&crate::stdlib::REDUCED_PRIMITIVE_TYPES);
@@ -453,7 +566,9 @@ impl AnnotatedType {
 /// Allows for referencing a window instance.
 #[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowReference {
+    /// Refers to a sliding window
     Sliding(usize),
+    /// Refers to a discrete window
     Discrete(usize),
 }
 
@@ -478,9 +593,9 @@ pub type OutputReference = usize;
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum StreamReference {
     /// References an input stream.
-    InRef(InputReference),
+    In(InputReference),
     /// References an output stream.
-    OutRef(OutputReference),
+    Out(OutputReference),
 }
 
 pub(crate) type SRef = StreamReference;
@@ -489,37 +604,39 @@ impl StreamReference {
     /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
     pub fn out_ix(&self) -> usize {
         match self {
-            StreamReference::InRef(_) => unreachable!(),
-            StreamReference::OutRef(ix) => *ix,
+            StreamReference::In(_) => unreachable!(),
+            StreamReference::Out(ix) => *ix,
         }
     }
 
     /// Returns the index inside the reference if it is an input reference.  Panics otherwise.
     pub fn in_ix(&self) -> usize {
         match self {
-            StreamReference::OutRef(_) => unreachable!(),
-            StreamReference::InRef(ix) => *ix,
+            StreamReference::Out(_) => unreachable!(),
+            StreamReference::In(ix) => *ix,
         }
     }
 
     /// Returns the index inside the reference disregarding whether it is an input or output reference.
     pub fn ix_unchecked(&self) -> usize {
         match self {
-            StreamReference::InRef(ix) | StreamReference::OutRef(ix) => *ix,
+            StreamReference::In(ix) | StreamReference::Out(ix) => *ix,
         }
     }
 
+    /// True if the reference is an instance of [StreamReference::In], false otherwise.
     pub fn is_input(&self) -> bool {
         match self {
-            StreamReference::OutRef(_) => false,
-            StreamReference::InRef(_) => true,
+            StreamReference::Out(_) => false,
+            StreamReference::In(_) => true,
         }
     }
 
+    /// True if the reference is an instance of [StreamReference::Out], false otherwise.
     pub fn is_output(&self) -> bool {
         match self {
-            StreamReference::OutRef(_) => true,
-            StreamReference::InRef(_) => false,
+            StreamReference::Out(_) => true,
+            StreamReference::In(_) => false,
         }
     }
 }
@@ -528,10 +645,10 @@ impl PartialOrd for StreamReference {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::InRef(i), StreamReference::InRef(i2)) => Some(i.cmp(&i2)),
-            (StreamReference::OutRef(o), StreamReference::OutRef(o2)) => Some(o.cmp(&o2)),
-            (StreamReference::InRef(_), StreamReference::OutRef(_)) => Some(Ordering::Less),
-            (StreamReference::OutRef(_), StreamReference::InRef(_)) => Some(Ordering::Greater),
+            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(&i2)),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(&o2)),
+            (StreamReference::In(_), StreamReference::Out(_)) => Some(Ordering::Less),
+            (StreamReference::Out(_), StreamReference::In(_)) => Some(Ordering::Greater),
         }
     }
 }
@@ -540,10 +657,10 @@ impl Ord for StreamReference {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::InRef(i), StreamReference::InRef(i2)) => i.cmp(&i2),
-            (StreamReference::OutRef(o), StreamReference::OutRef(o2)) => o.cmp(&o2),
-            (StreamReference::InRef(_), StreamReference::OutRef(_)) => Ordering::Less,
-            (StreamReference::OutRef(_), StreamReference::InRef(_)) => Ordering::Greater,
+            (StreamReference::In(i), StreamReference::In(i2)) => i.cmp(&i2),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => o.cmp(&o2),
+            (StreamReference::In(_), StreamReference::Out(_)) => Ordering::Less,
+            (StreamReference::Out(_), StreamReference::In(_)) => Ordering::Greater,
         }
     }
 }

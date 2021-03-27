@@ -17,31 +17,31 @@ use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
 
-/// Defines the construct of an [HirMode]
+/// Defines the construct of a mode
 ///
-/// This trait groups all available [HirMode], adding different functionality to the [Hir].
-/// The trait [HirStage] declares the progress function that each [HirMode] needs to implement.
-/// Each [HirMode] implements a separate trait defining the functionality that is added by the new mode, e.g., the [TypedMode] implements the [TypedTrait], providing an interface to get the types of a stream or expression.
-/// With a new [HirMode], a compiler flag derives the functionality of the previous modes.
-/// The [Hir] progesses the following modes:
+/// This trait groups all available mode, adding different functionality to the [RtLolaHir](crate::RtLolaHir).
+/// The trait [HirStage] declares the progress function that each mode needs to implement.
+/// Each mode implements a separate trait defining the functionality that is added by the new mode, e.g., the [TypedMode] implements the [TypedTrait], providing an interface to get the types of a stream or expression.
+/// With a new mode, a compiler flag derives the functionality of the previous modes.
+/// The [RtLolaHir](crate::RtLolaHir) progesses the following modes:
 /// [BaseMode] -> [DepAnaMode] -> [TypedMode] -> [OrderedMode] -> [MemBoundMode] -> [CompleteMode]
 pub trait HirMode {}
 
-/// Defines the functionality to progress one [HirMode] to the next one
+/// Defines the functionality to progress one mode to the next one
 pub trait HirStage: Sized {
     /// Defines the Error type of the `progress` function
     type Error;
 
-    /// Defines the next [HirMode] that is produced by the `progress` function
+    /// Defines the next mode that is produced by the `progress` function
     type NextStage: HirMode;
 
-    /// Returns an [Hir] with additional functionality
+    /// Returns an [RtLolaHir](crate::RtLolaHir) with additional functionality
     fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error>;
 }
 
-/// Represents the first stage in the [Hir]
+/// Represents the first stage in the [RtLolaHir](crate::RtLolaHir)(crate::RtLolaHir)
 ///
-/// This struct represents the [HirMode] that is created with a new [Hir].
+/// This struct represents the mode that is created with a new [RtLolaHir](crate::RtLolaHir)(crate::RtLolaHir).
 /// The mode does not provide any additonal information and is therefore empty.
 #[derive(Clone, Debug, HirMode, Copy)]
 pub struct BaseMode {}
@@ -50,7 +50,6 @@ impl HirStage for Hir<BaseMode> {
     type Error = DependencyErr;
     type NextStage = DepAnaMode;
 
-    /// The functionality is defined in [Hir<BaseMode>::analyze_dependencies]
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let dependencies = DepAna::analyze(&self)?;
 
@@ -69,10 +68,10 @@ impl HirStage for Hir<BaseMode> {
 }
 
 impl Hir<BaseMode> {
-    /// Returns the [Hir] with additional information about the dependencies between streams
+    /// Returns the [RtLolaHir](crate::RtLolaHir) with additional information about the dependencies between streams
     ///
-    /// The function returns the [Hir] after the dependency analysis.
-    /// The new [HirMode] implements the same functionality as the [BaseMode] and additionally contains the dependencies between streams in the specification.
+    /// The function returns the [RtLolaHir](crate::RtLolaHir) after the dependency analysis.
+    /// The new mode implements the same functionality as the [BaseMode] and additionally contains the dependencies between streams in the specification.
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     ///
     /// # Fails
@@ -94,45 +93,45 @@ pub struct DepAna {
     graph: DependencyGraph,
 }
 
-/// Represents the [HirMode] after the dependency analysis
+/// Represents the mode after the dependency analysis
 ///
-/// This struct represents the [HirMode] after the dependency analysis.
-/// Besides this result, this [HirMode] has the same functionality as all the previous [HirModes].
-/// The [DepAnaTrait] defines the new functionality of the [HirMode].
+/// This struct represents the mode after the dependency analysis.
+/// Besides this result, this mode has the same functionality as all the previous modes.
+/// The [DepAnaTrait] defines the new functionality of the mode.
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[derive(Debug, Clone, HirMode)]
 pub struct DepAnaMode {
     dependencies: DepAna,
 }
 
-/// Describes the functionality of an [HirMode] that uses the field with type [DepAna]
+/// Describes the functionality of a mode after analyzing the dependencies
 #[mode_functionality]
 pub trait DepAnaTrait {
     /// Returns all streams that are direct accessed by `who`
     ///
     /// The function returns all streams that are direct accessed by `who`.
-    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and defination, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
     /// Returns all streams that are transitive accessed by `who`
     ///
     /// The function returns all streams that are transitive accessed by `who`.
-    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and defination, the filter condition, or the close condition of 'who' has a stream or window lookup to 'res'.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to 'res'.
     /// Transitive accesses are all accesses appearing in the expressions of the stream itself or indirect by another stream lookup.
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
 
     /// Returns all streams that direct access `who`
     ///
     /// The function returns all streams that direct access `who`.
-    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and defination, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
 
     /// Returns all streams that transitive access `who`
     ///
     /// The function returns all streams that transitive access `who`.
-    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and defination, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Transitive accesses are all accesses appearing in the expressions of the stream itself or indirect by another stream lookup.
     fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef>;
 
@@ -156,7 +155,6 @@ impl HirStage for Hir<DepAnaMode> {
     type Error = String;
     type NextStage = TypedMode;
 
-    /// The functionality is defined in [Hir<BaseMode>::check_types]
     fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let tts = crate::type_check::type_check(&self, handler)?;
 
@@ -178,10 +176,10 @@ impl HirStage for Hir<DepAnaMode> {
 }
 
 impl Hir<DepAnaMode> {
-    /// Returns the [Hir] with the type information for each stream and expression
+    /// Returns the [RtLolaHir](crate::RtLolaHir) with the type information for each stream and expression
     ///
-    /// The function returns the [Hir] after the type analysis.
-    /// The new [HirMode] implements the same functionality as the [DepAnaMode] and additionally holds for each stream and expression its [HirType].
+    /// The function returns the [RtLolaHir](crate::RtLolaHir) after the type analysis.
+    /// The new mode implements the same functionality as the [DepAnaMode] and additionally holds for each stream and expression its [StreamType].
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     ///
     /// # Fails
@@ -199,11 +197,11 @@ pub struct Typed {
     param_types: HashMap<(SRef, usize), ConcreteValueType>,
 }
 
-/// Represents the [HirMode] after the type checker call
+/// Represents the mode after the type checker call
 ///
-/// This struct represents the [HirMode] after the type checker call.
-/// Besides this result, this [HirMode] has the same functionality as all the previous [HirModes].
-/// The [TypedTrait] defines the new functionality of the [HirMode].
+/// This struct represents the mode after the type checker call.
+/// Besides this result, this mode has the same functionality as all the previous modes.
+/// The [TypedTrait] defines the new functionality of the mode.
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[derive(Debug, Clone, HirMode)]
@@ -212,28 +210,42 @@ pub struct TypedMode {
     types: Typed,
 }
 
-/// Describes the functionality of an [HirMode] that uses the field with type [Typed]
+impl Typed {
+    pub(crate) fn new(
+        stream_types: HashMap<SRef, StreamType>,
+        expression_types: HashMap<ExprId, StreamType>,
+        param_types: HashMap<(SRef, usize), ConcreteValueType>,
+    ) -> Self {
+        Typed {
+            stream_types,
+            expression_types,
+            param_types,
+        }
+    }
+}
+
+/// Describes the functionality of a mode after checking and inferring types
 #[mode_functionality]
 pub trait TypedTrait {
-    /// Returns the [HirType] of the given stream
+    /// Returns the [StreamType] of the given stream
     ///
     /// # Panic
-    /// The function panics if the [SRef] is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn stream_type(&self, sr: SRef) -> HirType;
 
     /// Returns true if the given stream has a periodic pacing type
     ///
     /// # Panic
-    /// The function panics if the [SRef] is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn is_periodic(&self, sr: SRef) -> bool;
 
     /// Returns true if the given stream has a event-based pacing type
     ///
     /// # Panic
-    /// The function panics if the [SRef] is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn is_event(&self, sr: SRef) -> bool;
 
-    /// Returns the [HirType] of the given expression
+    /// Returns the [StreamType] of the given expression
     ///
     /// # Panic
     /// The function panics if the [ExprId] is invalid.
@@ -242,7 +254,7 @@ pub trait TypedTrait {
     /// Returns the [ConcreteValueType] of the `idx` parameter of the `sr` stream template
     ///
     /// # Panic
-    /// The function panics if the [SRef] or the index is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) or the index is invalid.
     fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType;
 }
 
@@ -250,7 +262,6 @@ impl HirStage for Hir<TypedMode> {
     type Error = OrderErr;
     type NextStage = OrderedMode;
 
-    /// The functionality is defined in [Hir<BaseMode>::check_types]
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let order = Ordered::analyze(&self);
 
@@ -273,11 +284,7 @@ impl HirStage for Hir<TypedMode> {
 }
 
 impl Hir<TypedMode> {
-    /// Returns the [Hir] with the spawn and evaluation layer of each stream
-    ///
-    /// The function returns the [Hir] after determining the evaluation order.
-    /// The new [HirMode] implements the same functionality as the [TypedMode] and also holds the evaluation and spawn layer for each stream.
-    /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
+    /// Returns the [RtLolaHir](crate::RtLolaHir) with the spawn and evaluation layer of each stream
     ///
     /// # Fails
     /// The function fails if the evaluation order cannot be determined.
@@ -293,11 +300,11 @@ pub struct Ordered {
     periodic_layers: HashMap<SRef, StreamLayers>,
 }
 
-/// Represents the [HirMode] after determining the evaluation order
+/// Represents the mode after determining the evaluation order
 ///
-/// This struct represents the [HirMode] after determining the evaluation order.
-/// Besides this result, this [HirMode] has the same functionality as all the previous [HirModes].
-/// The [OrderedTrait] defines the new functionality of the [HirMode].
+/// This struct represents the mode after determining the evaluation order.
+/// Besides this result, this mode has the same functionality as all the previous modes.
+/// The [OrderedTrait] defines the new functionality of the mode.
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
@@ -308,13 +315,13 @@ pub struct OrderedMode {
     layers: Ordered,
 }
 
-/// Describes the functionality of an [HirMode] that uses the field with type [Ordered]
+/// Describes the functionality of a mode after computing the evaluation order
 #[mode_functionality]
 pub trait OrderedTrait {
     /// Returns the [StreamLayers] of the given stream
     ///
     /// # Panic
-    /// The function panics if the [SRef] is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn stream_layers(&self, sr: SRef) -> StreamLayers;
 }
 
@@ -322,7 +329,6 @@ impl HirStage for Hir<OrderedMode> {
     type Error = MemBoundErr;
     type NextStage = MemBoundMode;
 
-    /// The functionality is defined in [Hir<BaseMode>::check_types]
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let memory = MemBound::analyze(&self, false);
 
@@ -346,11 +352,7 @@ impl HirStage for Hir<OrderedMode> {
 }
 
 impl Hir<OrderedMode> {
-    /// Returns the [Hir] with the memory-bound for each stream
-    ///     
-    /// The function returns the [Hir] after the memory analysis.
-    /// The new [HirMode] implements the same functionality as the [OrderedMode] and additionally holds the memory-bound for each stream.
-    /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
+    /// Returns the [RtLolaHir](crate::RtLolaHir) with the memory-bound for each stream
     ///     
     /// # Fails
     /// The function fails if the memory cannot be determined.
@@ -365,11 +367,11 @@ pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
 }
 
-/// Represents the [HirMode] after the memory analysis
+/// Represents the mode after the memory analysis
 ///
-/// This struct represents the [HirMode] after the memory analysis.
-/// Besides this result, this [HirMode] has the same functionality as all the previous [HirModes].
-/// The [MemBoundTrait] defines the new functionality of the [HirMode].
+/// This struct represents the mode after the memory analysis.
+/// Besides this result, this mode has the same functionality as all the previous modes.
+/// The [MemBoundTrait] defines the new functionality of the mode.
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
@@ -382,13 +384,13 @@ pub struct MemBoundMode {
     memory: MemBound,
 }
 
-/// Describes the functionality of an [HirMode] that uses the field with type [MemBound]
+/// Describes the functionality of a mode after computing the memory bounds
 #[mode_functionality]
 pub trait MemBoundTrait {
     /// Returns the memory bound of the given stream
     ///
     /// # Panic
-    /// The function panics if the [SRef] is invalid.
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 }
 
@@ -396,7 +398,6 @@ impl HirStage for Hir<MemBoundMode> {
     type Error = CompletionErr;
     type NextStage = CompleteMode;
 
-    /// The functionality is defined in [Hir<BaseMode>::finalize]
     fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
         let mode = CompleteMode {
             dependencies: self.mode.dependencies,
@@ -421,20 +422,21 @@ impl HirStage for Hir<MemBoundMode> {
 pub enum CompletionErr {}
 
 impl Hir<MemBoundMode> {
-    /// Returns the [Hir] in the last mode
+    /// Returns the [RtLolaHir](crate::RtLolaHir) in the last mode
     ///
-    /// The function returns the [Hir] in the [CompleteMode].
-    /// This mode indicates that the [Hir] has passed all analyzes and now contains all information.
+    /// The function returns the [RtLolaHir](crate::RtLolaHir) in the [CompleteMode].
+    /// This mode indicates that the [RtLolaHir](crate::RtLolaHir) has passed all analyzes and now contains all information.
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     pub fn finalize(self, handler: &Handler) -> Result<Hir<CompleteMode>, CompletionErr> {
         self.progress(handler)
     }
 }
 
-/// Represents the final [HirMode]
+/// Represents the final mode.
 ///
-/// This struct represents the final [HirMode] and indicates that the [Hir] has passed all analyzes and now contains all information.
-/// This [HirMode] has the same functionality as all the previous [HirModes].
+/// This struct represents the final mode and indicates that the [RtLolaHir](crate::RtLolaHir) has passed all analyzes and now contains all information.
+/// This mode has the same functionality as all the previous modes put together.
+#[covers_functionality(DepAnaTrait, dependencies)]
 #[covers_functionality(TypedTrait, types)]
 #[covers_functionality(OrderedTrait, layers)]
 #[covers_functionality(MemBoundTrait, memory)]

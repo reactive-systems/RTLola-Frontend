@@ -10,6 +10,7 @@
 //! * `RtLolaHir<OrderedMode>` orders the streams into layers of streams which can be evaluated at the same time.
 //! * `RtLolaHir<MemBoundMode>` enriches the streams with their memory requirements.
 //! * `RtLolaHir<CompleteMode>` finalizes the Hir to its fully analyzed state.
+//! Refer to [RtLolaHir] for more details.
 
 #![forbid(unused_must_use)] // disallow discarding errors
 #![warn(
@@ -52,11 +53,11 @@ pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, Tran
 ///
 /// The [RtLolaAst] can be obtained by [parse](rtlola_parser::parse)  and its sibling functions.
 /// Analyses are performed sequentially in the following order:
-/// - [ast conversion](crate::hir::RtLolaHir::<BaseMode>::from_ast)
-/// - Dependency analysis ([see](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order)).
-/// - Type analysis ([see](crate::hir::RtLolaHir::<DepAnaMode>::check_types)):
-/// - Layer analysis ([see](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order)):
-/// - Memory analysis ([see](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
+/// - Initial conversion (see [from_ast](crate::hir::RtLolaHir::<BaseMode>::from_ast))
+/// - Dependency analysis (see [determine_evaluation_order](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order)).
+/// - Type analysis (see [check_types](crate::hir::RtLolaHir::<DepAnaMode>::check_types)):
+/// - Layer analysis (see [determine_evaluation_order](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order)):
+/// - Memory analysis (see [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
 ///
 /// This function returns the fully analysed [RtLolaHir](crate::hir::RtLolaHir)  which can be lowered into the [Mir](rtlola-frontend::Mir).
 pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, HirErr> {

@@ -192,8 +192,8 @@ impl Display for WindowReference {
 impl Display for StreamReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            StreamReference::OutRef(ix) => write!(f, "Out({})", ix),
-            StreamReference::InRef(ix) => write!(f, "In({})", ix),
+            StreamReference::Out(ix) => write!(f, "Out({})", ix),
+            StreamReference::In(ix) => write!(f, "In({})", ix),
         }
     }
 }

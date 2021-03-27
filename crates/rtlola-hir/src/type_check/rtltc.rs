@@ -123,11 +123,7 @@ where
             }
         });
 
-        Ok(Typed {
-            stream_types: stream_map,
-            expression_types: expression_map,
-            param_types: parameters,
-        })
+        Ok(Typed::new(stream_map, expression_map, parameters))
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].
@@ -141,7 +137,7 @@ where
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Option<HashMap<NodeId, ConcreteValueType>> {
-        let mut ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
+        let ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
         ctx.type_check(self.handler)
     }
 }

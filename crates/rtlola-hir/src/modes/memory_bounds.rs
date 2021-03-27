@@ -165,7 +165,7 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -180,7 +180,7 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn hold_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.hold().defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -195,7 +195,7 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn offset_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -210,7 +210,7 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn sliding_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -225,7 +225,7 @@ mod dynaminc_memory_bound_tests {
     #[test]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -241,11 +241,11 @@ mod dynaminc_memory_bound_tests {
     fn offset_lookups() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by:-1).defaults(to: 0)\noutput c: UInt8 := a.offset(by:-2).defaults(to: 0)\noutput d: UInt8 := a.offset(by:-3).defaults(to: 0)\noutput e: UInt8 := a.offset(by:-4).defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::OutRef(0)),
-            ("c", SRef::OutRef(1)),
-            ("d", SRef::OutRef(2)),
-            ("e", SRef::OutRef(3)),
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
+            ("e", SRef::Out(3)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -264,10 +264,10 @@ mod dynaminc_memory_bound_tests {
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::OutRef(0)),
-            ("c", SRef::OutRef(1)),
-            ("d", SRef::OutRef(2)),
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -286,13 +286,13 @@ mod dynaminc_memory_bound_tests {
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 10 := b + 5\noutput e(p)@b spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
-            ("e", SRef::OutRef(2)),
-            ("f", SRef::OutRef(3)),
-            ("g", SRef::OutRef(4)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
+            ("e", SRef::Out(2)),
+            ("f", SRef::Out(3)),
+            ("g", SRef::Out(4)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -314,10 +314,10 @@ mod dynaminc_memory_bound_tests {
     fn parameter_nested_lookup_implicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -335,11 +335,11 @@ mod dynaminc_memory_bound_tests {
     fn parameter_nested_lookup_explicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
-            ("e", SRef::OutRef(2)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
+            ("e", SRef::Out(2)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -388,7 +388,7 @@ mod static_memory_bound_tests {
     #[test]
     fn synchronous_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -403,7 +403,7 @@ mod static_memory_bound_tests {
     #[test]
     fn hold_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.hold().defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -418,7 +418,7 @@ mod static_memory_bound_tests {
     #[test]
     fn offset_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -433,7 +433,7 @@ mod static_memory_bound_tests {
     #[test]
     fn discrete_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -448,7 +448,7 @@ mod static_memory_bound_tests {
     #[test]
     fn sliding_window_lookup() {
         let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over: 1s, using: sum)";
-        let sname_to_sref = vec![("a", SRef::InRef(0)), ("b", SRef::OutRef(0))]
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
@@ -464,11 +464,11 @@ mod static_memory_bound_tests {
     fn offset_lookups() {
         let spec = "input a: UInt8\noutput b: UInt8 := a.offset(by:-1).defaults(to: 0)\noutput c: UInt8 := a.offset(by:-2).defaults(to: 0)\noutput d: UInt8 := a.offset(by:-3).defaults(to: 0)\noutput e: UInt8 := a.offset(by:-4).defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::OutRef(0)),
-            ("c", SRef::OutRef(1)),
-            ("d", SRef::OutRef(2)),
-            ("e", SRef::OutRef(3)),
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
+            ("e", SRef::Out(3)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -487,10 +487,10 @@ mod static_memory_bound_tests {
     fn negative_loop_different_offsets() {
         let spec = "input a: Int8\noutput b: Int8 := a.offset(by: -1).defaults(to: 0) + d.offset(by:-2).defaults(to:0)\noutput c: Int8 := b.offset(by:-3).defaults(to: 0)\noutput d: Int8 := c.offset(by:-4).defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::OutRef(0)),
-            ("c", SRef::OutRef(1)),
-            ("d", SRef::OutRef(2)),
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -509,13 +509,13 @@ mod static_memory_bound_tests {
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 10 := b + 5\noutput e(p)@b spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
-            ("e", SRef::OutRef(2)),
-            ("f", SRef::OutRef(3)),
-            ("g", SRef::OutRef(4)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
+            ("e", SRef::Out(2)),
+            ("f", SRef::Out(3)),
+            ("g", SRef::Out(4)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -537,10 +537,10 @@ mod static_memory_bound_tests {
     fn parameter_nested_lookup_implicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
@@ -558,11 +558,11 @@ mod static_memory_bound_tests {
     fn parameter_nested_lookup_explicit() {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let sname_to_sref = vec![
-            ("a", SRef::InRef(0)),
-            ("b", SRef::InRef(1)),
-            ("c", SRef::OutRef(0)),
-            ("d", SRef::OutRef(1)),
-            ("e", SRef::OutRef(2)),
+            ("a", SRef::In(0)),
+            ("b", SRef::In(1)),
+            ("c", SRef::Out(0)),
+            ("d", SRef::Out(1)),
+            ("e", SRef::Out(2)),
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();

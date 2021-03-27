@@ -1,19 +1,21 @@
 //! This module covers the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
 //!
-//! The [RtLolaMir] is specifically designed to allow convenient navigation and access to data.  Hence, it is perfect for working _with_ the specification
-//! rather than work _on_ it.  
-/// # Most Notable Structs and Enums
-/// * [RtLolaMir] is the root data structure representing the specification.
-/// * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
-/// * [StreamReference] used for referencing streams within the Mir.
-/// * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
-/// * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
-///
-/// # See Also
-/// * [rtlola_frontend](crate) for an overview regarding different representations.
-/// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-/// * [RtLolaHir] for a data structs designed for working _on_it.
-/// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
+//! The [RtLolaMir] is specifically designed to allow convenient navigation and access to data.  Hence, it is perfect for working *with* the specification
+//! rather than work *on* it.  
+//!
+//! # Most Notable Structs and Enums
+//! * [RtLolaMir] is the root data structure representing the specification.
+//! * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
+//! * [StreamReference] used for referencing streams within the Mir.
+//! * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
+//! * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+//!
+//! # See Also
+//! * [rtlola_frontend](crate) for an overview regarding different representations.
+//! * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
+//! * [RtLolaHir] for a data structs designed for working _on_it.
+//! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
+
 mod print;
 mod schedule;
 
@@ -50,7 +52,7 @@ pub trait Stream {
 /// rather than work _on_ it.  
 ///
 /// # Most Notable Structs and Enums
-/// * [RtLolaMir] is the root data structure representing the specification.
+/// * [Stream] is a trait offering several convenient access methods for everything constituting a stream.
 /// * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
 /// * [StreamReference] used for referencing streams within the Mir.
 /// * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
@@ -171,7 +173,7 @@ pub struct InputStream {
     /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
     /// The collection of streams that access the current stream non-transitively
-    pub acccessed_by: Vec<StreamReference>,
+    pub accessed_by: Vec<StreamReference>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
@@ -196,9 +198,9 @@ pub struct OutputStream {
     /// The stream expression
     pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
-    pub acccesses: Vec<StreamReference>,
+    pub accesses: Vec<StreamReference>,
     /// The collection of streams that access the current stream non-transitively
-    pub acccessed_by: Vec<StreamReference>,
+    pub accessed_by: Vec<StreamReference>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -530,52 +532,52 @@ impl RtLolaMir {
     /// Provides mutable access to an input stream.
     ///
     /// # Panic
-    /// Panics if `reference` is a [StreamReference::OutRef].
+    /// Panics if `reference` is a [StreamReference::Out].
     pub fn input_mut(&mut self, reference: StreamReference) -> &mut InputStream {
         match reference {
-            StreamReference::InRef(ix) => &mut self.inputs[ix],
-            StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::In(ix) => &mut self.inputs[ix],
+            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
         }
     }
 
     /// Provides immutable access to an input stream.
     ///
     /// # Panic
-    /// Panics if `reference` is a [StreamReference::OutRef].
+    /// Panics if `reference` is a [StreamReference::Out].
     pub fn input(&self, reference: StreamReference) -> &InputStream {
         match reference {
-            StreamReference::InRef(ix) => &self.inputs[ix],
-            StreamReference::OutRef(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::In(ix) => &self.inputs[ix],
+            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
         }
     }
 
     /// Provides mutable access to an output stream.
     ///
     /// # Panic
-    /// Panics if `reference` is a [StreamReference::InRef].
+    /// Panics if `reference` is a [StreamReference::In].
     pub fn output_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
         match reference {
-            StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
-            StreamReference::OutRef(ix) => &mut self.outputs[ix],
+            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::Out(ix) => &mut self.outputs[ix],
         }
     }
 
     /// Provides immutable access to an output stream.
     ///
     /// # Panic
-    /// Panics if `reference` is a [StreamReference::InRef].
+    /// Panics if `reference` is a [StreamReference::In].
     pub fn output(&self, reference: StreamReference) -> &OutputStream {
         match reference {
-            StreamReference::InRef(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
-            StreamReference::OutRef(ix) => &self.outputs[ix],
+            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::Out(ix) => &self.outputs[ix],
         }
     }
 
     /// Produces an iterator over all stream references.
     pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> {
         self.input_refs()
-            .map(StreamReference::InRef)
-            .chain(self.output_refs().map(StreamReference::OutRef))
+            .map(StreamReference::In)
+            .chain(self.output_refs().map(StreamReference::Out))
     }
 
     /// Provides a collection of all output streams representing a trigger.
