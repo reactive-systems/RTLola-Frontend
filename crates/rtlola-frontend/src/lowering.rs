@@ -358,7 +358,7 @@ mod tests {
 
     use super::*;
 
-    fn lower_spec(spec: &str) -> (rtlola_hir::RtLolaHir<CompleteMode>, mir::RtLolaMir) {
+    fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let handler = Handler::new(PathBuf::new(), spec.into());
         let ast = ParserConfig::for_string(spec.into())
             .parse()
