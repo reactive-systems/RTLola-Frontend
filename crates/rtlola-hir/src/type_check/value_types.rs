@@ -36,6 +36,8 @@ pub(crate) enum ValueErrorKind {
     ArityMismatch(AbstractValueType, usize, usize),
     /// Child Construction Error, Parent Type, Index of Child
     ChildConstruction(Box<Self>, AbstractValueType, usize),
+    /// A function call has more type parameters then needed or expected
+    UnnecessaryTypeParam(Span),
 }
 
 /// The [AbstractValueType] is used during inference and represents a value within the type latticec
@@ -439,6 +441,16 @@ impl Emittable for ValueErrorKind {
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .emit()
             },
+            ValueErrorKind::UnnecessaryTypeParam(span) => {
+                Diagnostic::error(
+                    handler,
+                    &format!(
+                        "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
+                    ),
+                )
+                    .add_span_with_label(span, Some("here"), true)
+                    .emit()
+            }
         }
     }
 }

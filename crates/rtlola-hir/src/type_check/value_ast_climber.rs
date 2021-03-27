@@ -669,6 +669,9 @@ where
                 self.tyc.impose(term_key.equate_with(internal_key))?;
             },
             ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
+                // type_param.len() <= generics.len()
+                // param.len() == args.len()
+
                 // check for name in context
 
                 // Function declaration:
@@ -685,6 +688,9 @@ where
 
                 let fun_decl = self.hir.func_declaration(name);
                 //Generics
+                if type_param.len() > fun_decl.generics.len() {
+                    return Err(ValueErrorKind::UnnecessaryTypeParam(exp.span.clone()).into());
+                }
                 let generics: Vec<TcKey> = fun_decl
                     .generics
                     .iter()
@@ -777,16 +783,13 @@ mod value_type_tests {
     use std::path::PathBuf;
 
     use rtlola_parser::ast::RtLolaAst;
+    use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
-    use crate::hir::StreamReference;
+    use crate::hir::{RtLolaHir, StreamReference};
     use crate::modes::BaseMode;
-    use crate::type_check::rtltc::NodeId;
+    use crate::type_check::rtltc::{LolaTypeChecker, NodeId};
     use crate::type_check::ConcreteValueType;
-    use crate::type_check::rtltc::LolaTypeChecker;
-    use crate::hir::RtLolaHir;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-
 
     struct TestBox {
         hir: RtLolaHir<BaseMode>,
@@ -1713,6 +1716,20 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_simple_annotated2() {
         let spec = "output c: Int8 @1Hz := widen<Int32>(42)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn function_to_many_type_args() {
+        let spec = "import math output c: Int32 @1Hz := max<Int16,Int16>(13,42)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn math_function_wrong_arg_type() {
+        let spec = "import math output c @1Hz := sqrt(13.37) + cos(13)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }

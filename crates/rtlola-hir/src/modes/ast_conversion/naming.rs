@@ -80,7 +80,12 @@ impl<'b> NamingAnalysis<'b> {
             )
         }
 
-        if let Some(decl) = self.declarations.get_decl_in_current_scope_for(name) {
+        let decl_name = if let Declaration::Func(rcfunc) = &decl {
+            DeclName::Func(rcfunc.name.clone())
+        } else {
+            DeclName::Ident(name.to_string())
+        };
+        if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&decl_name) {
             Diagnostic::error(self.handler, &format!("the name `{}` is defined multiple times", name))
                 .add_span_with_label(span, Some(&format!("`{}` redefined here", name)), true)
                 .maybe_add_span_with_label(
@@ -98,7 +103,7 @@ impl<'b> NamingAnalysis<'b> {
     fn check_type(&mut self, ty: &Type) {
         match &ty.kind {
             TypeKind::Simple(name) => {
-                if let Some(decl) = self.type_declarations.get_decl_for(&name) {
+                if let Some(decl) = self.type_declarations.get_decl_for(&DeclName::Ident(name.to_string())) {
                     assert!(decl.is_type());
                     self.result.insert(ty.id, decl);
                 } else {
@@ -109,10 +114,12 @@ impl<'b> NamingAnalysis<'b> {
                         Some("not found in this scope"),
                     );
                 }
-            }
-            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
-                self.check_type(ty);
-            }),
+            },
+            TypeKind::Tuple(elements) => {
+                elements.iter().for_each(|ty| {
+                    self.check_type(ty);
+                })
+            },
             TypeKind::Optional(ty) => self.check_type(ty),
         }
     }
@@ -120,11 +127,17 @@ impl<'b> NamingAnalysis<'b> {
     /// Checks that the parameter name and type are both valid
     fn check_param(&mut self, param: &Rc<Parameter>) {
         // check the name
-        if let Some(decl) = self.declarations.get_decl_for(&param.name.name) {
+        if let Some(decl) = self
+            .declarations
+            .get_decl_for(&DeclName::Ident(param.name.name.clone()))
+        {
             assert!(!decl.is_type());
 
             // check if there is a parameter with the same name
-            if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&param.name.name) {
+            if let Some(decl) = self
+                .declarations
+                .get_decl_in_current_scope_for(&DeclName::Ident(param.name.name.clone()))
+            {
                 Diagnostic::error(
                     self.handler,
                     &format!(
@@ -161,11 +174,13 @@ impl<'b> NamingAnalysis<'b> {
             match import.name.name.as_str() {
                 "math" => self.fun_declarations.add_all_fun_decl(stdlib::math_module()),
                 "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
-                n => self.handler.error_with_span(
-                    &format!("unresolved import `{}`", n),
-                    import.name.span.clone(),
-                    Some(&format!("no `{}` in the root", n)),
-                ),
+                n => {
+                    self.handler.error_with_span(
+                        &format!("unresolved import `{}`", n),
+                        import.name.span.clone(),
+                        Some(&format!("no `{}` in the root", n)),
+                    )
+                },
             }
         }
 
@@ -207,7 +222,10 @@ impl<'b> NamingAnalysis<'b> {
         let mut trigger_names: Vec<(&String, &Trigger)> = Vec::new();
         for trigger in &spec.trigger {
             if let Some(ident) = &trigger.name {
-                if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&ident.name) {
+                if let Some(decl) = self
+                    .declarations
+                    .get_decl_in_current_scope_for(&DeclName::Ident(ident.name.clone()))
+                {
                     Diagnostic::error(
                         self.handler,
                         &format!("the name `{}` is defined multiple times", ident.name),
@@ -290,7 +308,7 @@ impl<'b> NamingAnalysis<'b> {
 
     /// Checks that each used identifiers has a declaration in the current or higher scope.
     fn check_ident(&mut self, expression: &Expression, ident: &Ident) {
-        if let Some(decl) = self.declarations.get_decl_for(&ident.name) {
+        if let Some(decl) = self.declarations.get_decl_for(&DeclName::Ident(ident.name.clone())) {
             assert!(!decl.is_type());
 
             self.result.insert(expression.id, decl);
@@ -306,11 +324,13 @@ impl<'b> NamingAnalysis<'b> {
     /// Checks that each used function identifier has a declaration in the current scope or higher scope.
     fn check_function(&mut self, expression: &Expression, name: &FunctionName) {
         let str_repr = name.to_string();
-        if let Some(decl) = self.fun_declarations.get_decl_for(str_repr.as_str()) {
+        if let Some(decl) = self.fun_declarations.get_decl_for(&DeclName::Func(name.clone().into())) {
             assert!(decl.is_function());
 
             self.result.insert(expression.id, decl);
-        } else if let Some(Declaration::ParamOut(out)) = self.declarations.get_decl_for(&name.name.name) {
+        } else if let Some(Declaration::ParamOut(out)) =
+            self.declarations.get_decl_for(&DeclName::Ident(name.name.name.clone()))
+        {
             // parametric outputs are represented as functions
             self.result.insert(expression.id, Declaration::ParamOut(out));
         } else {
@@ -328,49 +348,49 @@ impl<'b> NamingAnalysis<'b> {
         match &expression.kind {
             Ident(ident) => {
                 self.check_ident(expression, ident);
-            }
+            },
             StreamAccess(expr, _) => self.check_expression(expr),
             Offset(expr, _) => {
                 self.check_expression(expr);
-            }
+            },
             DiscreteWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            }
+            },
             SlidingWindowAggregation { expr, duration, .. } => {
                 self.check_expression(expr);
                 self.check_expression(duration);
-            }
+            },
             Binary(_, left, right) => {
                 self.check_expression(left);
                 self.check_expression(right);
-            }
-            Lit(_) | MissingExpression => {}
+            },
+            Lit(_) | MissingExpression => {},
             Ite(condition, if_case, else_case) => {
                 self.check_expression(condition);
                 self.check_expression(if_case);
                 self.check_expression(else_case);
-            }
+            },
             ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => {
                 self.check_expression(expr);
-            }
+            },
             Tuple(exprs) => {
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
             Function(name, types, exprs) => {
                 self.check_function(expression, name);
                 types.iter().for_each(|ty| self.check_type(ty));
                 exprs.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
             Default(accessed, default) => {
                 self.check_expression(accessed);
                 self.check_expression(default);
-            }
+            },
             Method(expr, _, types, args) => {
                 self.check_expression(expr);
                 types.iter().for_each(|ty| self.check_type(ty));
                 args.iter().for_each(|expr| self.check_expression(expr));
-            }
+            },
         }
     }
 }
@@ -378,7 +398,7 @@ impl<'b> NamingAnalysis<'b> {
 /// Provides a mapping from `String` to `Declaration` and is able to handle different scopes.
 #[derive(Debug)]
 pub(crate) struct ScopedDecl {
-    scopes: Vec<HashMap<String, Declaration>>,
+    scopes: Vec<HashMap<DeclName, Declaration>>,
 }
 
 impl ScopedDecl {
@@ -397,7 +417,7 @@ impl ScopedDecl {
         self.scopes.pop();
     }
 
-    fn get_decl_for(&self, name: &str) -> Option<Declaration> {
+    fn get_decl_for(&self, name: &DeclName) -> Option<Declaration> {
         for scope in self.scopes.iter().rev() {
             if let Some(decl) = scope.get(name) {
                 return Some(decl.clone());
@@ -406,7 +426,7 @@ impl ScopedDecl {
         None
     }
 
-    fn get_decl_in_current_scope_for(&self, name: &str) -> Option<Declaration> {
+    fn get_decl_in_current_scope_for(&self, name: &DeclName) -> Option<Declaration> {
         match self
             .scopes
             .last()
@@ -424,17 +444,19 @@ impl ScopedDecl {
         self.scopes
             .last_mut()
             .expect("It appears that we popped the global context.")
-            .insert(name.to_string(), decl);
+            .insert(DeclName::Ident(name.to_string()), decl);
     }
 
     /// Adds a new function declaration to the scope. Requires MANUEL check for duplicate definitions.
     pub(crate) fn add_fun_decl(&mut self, fun: &FuncDecl) {
         assert!(self.scopes.last().is_some());
-        let name = fun.name.name.clone();
         self.scopes
             .last_mut()
             .expect("It appears that we popped the global context.")
-            .insert(name, Declaration::Func(Rc::new(fun.clone())));
+            .insert(
+                DeclName::Func(fun.name.clone()),
+                Declaration::Func(Rc::new(fun.clone())),
+            );
     }
 
     /// Adds all function declaration. See [add_fun_decl].
@@ -455,6 +477,12 @@ pub(crate) enum Declaration {
     Type(Rc<AnnotatedType>),
     Param(Rc<Parameter>),
     Func(Rc<FuncDecl>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum DeclName {
+    Func(crate::hir::FunctionName),
+    Ident(String),
 }
 
 impl Declaration {
@@ -497,18 +525,32 @@ impl Declaration {
     }
 }
 
+impl From<FunctionName> for crate::hir::FunctionName {
+    fn from(f: FunctionName) -> Self {
+        crate::hir::FunctionName::new(
+            f.name.name,
+            &f.arg_names
+                .iter()
+                .map(|op| op.clone().map(|ident| ident.name.clone()))
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use std::path::PathBuf;
 
-    use super::*;
     use rtlola_parser::{parse_with_handler, ParserConfig};
+
+    use super::*;
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
         let handler = Handler::new(PathBuf::new(), content.into());
-        let ast = parse_with_handler(ParserConfig::for_string(content.to_string()), &handler).unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse_with_handler(ParserConfig::for_string(content.to_string()), &handler)
+            .unwrap_or_else(|e| panic!("{}", e));
         let mut naming_analyzer = NamingAnalysis::new(&handler);
         naming_analyzer.check(&ast);
         handler.emitted_errors()
