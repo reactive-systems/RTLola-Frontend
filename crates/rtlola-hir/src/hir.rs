@@ -338,7 +338,7 @@ impl ExpressionMaps {
 }
 
 /// Represents the name of a function including its arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionName {
     /// Name of the function
     pub name: String,
@@ -556,7 +556,7 @@ impl AnnotatedType {
     /// Yields a collection of primitive types and their names.
     pub(crate) fn primitive_types() -> Vec<(&'static str, &'static AnnotatedType)> {
         let mut types = vec![];
-        types.extend_from_slice(&crate::stdlib::REDUCED_PRIMITIVE_TYPES);
+        types.extend_from_slice(&crate::stdlib::PRIMITIVE_TYPES);
         types.extend_from_slice(&crate::stdlib::PRIMITIVE_TYPES_ALIASES);
 
         types

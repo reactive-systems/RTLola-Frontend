@@ -429,14 +429,14 @@ where
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     },
                     StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
-                        let (target, aggr) = match wref {
+                        let (target, op, wait ) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
-                                (win.target, win.aggr)
+                                (win.target, win.aggr.op, win.aggr.wait)
                             },
                             WindowReference::Discrete(_) => {
-                                let win = self.hir.single_sliding(*wref);
-                                (win.target, win.aggr)
+                                let win = self.hir.single_discrete(*wref);
+                                (win.target, win.aggr.op, win.aggr.wait)
                             },
                         };
                         let target_key = *self
@@ -445,7 +445,7 @@ where
                             .expect("all nodes keys were entered in the constructor");
 
                         use rtlola_parser::ast::WindowOperation;
-                        match aggr.op {
+                        match op {
                             //Min|Max|Avg <T:Num> T -> Option<T>
                             WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
                                 self.tyc
@@ -465,7 +465,7 @@ where
                             WindowOperation::Integral => {
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                if aggr.wait {
+                                if wait {
                                     self.tyc
                                         .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
@@ -482,7 +482,7 @@ where
                             WindowOperation::Sum | WindowOperation::Product => {
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                if aggr.wait {
+                                if wait {
                                     self.tyc
                                         .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
