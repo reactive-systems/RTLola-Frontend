@@ -271,7 +271,7 @@ impl DepAna {
             .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>(); // TODO can use this approxiamtion for the number of edges
 
-        //add nodes and edges to graph
+        // add nodes and edges to graph
         let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
         edges.iter().for_each(|(src, w, tar)| {
             graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());
@@ -364,6 +364,7 @@ impl DepAna {
         }
     }
 
+    /// Returns is the DP is well-formed, i.e., no closed-walk with total weight of zero or positive
     fn check_well_formedness(graph: &DependencyGraph) -> Result<()> {
         let graph = graph.without_negative_offset_edges();
         let graph = graph.without_close_edges();
@@ -627,9 +628,7 @@ mod tests {
     #[test]
     fn negative_loop() {
         let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::Out(0))]
-            .into_iter()
-            .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::Out(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
             .into_iter()
             .collect();

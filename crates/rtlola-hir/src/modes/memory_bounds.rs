@@ -113,7 +113,7 @@ impl MemBound {
         match w {
             EdgeWeight::Offset(o) => {
                 if *o > 0 {
-                    unimplemented!("Positive Offsets not yet implemented")
+                    unimplemented!("Positive Offsets")
                 } else {
                     MemorizationBound::Bounded(u16::try_from(abs(*o) + if dynamic { 0 } else { 1 }).unwrap())
                 }
