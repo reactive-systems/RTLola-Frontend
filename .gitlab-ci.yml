@@ -12,45 +12,50 @@ default:
 
 ####### Use cargo to check the source code formatting #######
 
+# Todo: 
+#  Remove: - rustup default nightly-2021-02-11
+#  Change: cargo +nightly-2021-02-11 fmt -> cargo +nightly fmt
+# Once rustfmt ist available in current nighlty release
+
 format:reporting:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt
+    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-reporting --verbose -- --check
+    - cargo +nightly-2021-02-11 fmt -p rtlola-reporting --verbose -- --check
 
 format:parser:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt
+    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-parser --verbose -- --check
+    - cargo +nightly-2021-02-11 fmt -p rtlola-parser --verbose -- --check
 
 format:macros:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt
+    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-macros --verbose -- --check
+    - cargo +nightly-2021-02-11 fmt -p rtlola-macros --verbose -- --check
 
 format:hir:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt
+    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-hir --verbose -- --check
+    - cargo +nightly-2021-02-11 fmt -p rtlola-hir --verbose -- --check
 
 format:frontend:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt
+    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-frontend --verbose -- --check
+    - cargo +nightly-2021-02-11 fmt -p rtlola-frontend --verbose -- --check
 
 
 ####### Use cargo to run clippy (Rust linter) #######
