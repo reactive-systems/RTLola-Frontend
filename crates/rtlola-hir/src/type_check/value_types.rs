@@ -444,9 +444,7 @@ impl Emittable for ValueErrorKind {
             ValueErrorKind::UnnecessaryTypeParam(span) => {
                 Diagnostic::error(
                     handler,
-                    &format!(
-                        "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
-                    ),
+                    "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
                 )
                     .add_span_with_label(span, Some("here"), true)
                     .emit()

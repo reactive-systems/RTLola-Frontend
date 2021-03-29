@@ -162,8 +162,10 @@ impl<'b> NamingAnalysis<'b> {
             self.add_decl_for(Declaration::Param(param.clone()));
         }
 
-        // check the type
-        param.ty.as_ref().map(|t| self.check_type(t));
+        // check the type is there exists a parameter type
+        if let Some(param_ty) = param.ty.as_ref() {
+            self.check_type(param_ty)
+        }
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
@@ -208,7 +210,10 @@ impl<'b> NamingAnalysis<'b> {
             } else {
                 self.add_decl_for(Declaration::ParamOut(output.clone()))
             }
-            output.ty.as_ref().map(|t| self.check_type(t));
+            // Check annotated type if existing
+            if let Some(output_ty) = output.ty.as_ref() {
+                self.check_type(output_ty);
+            }
         }
 
         self.check_outputs(&spec);
@@ -531,7 +536,7 @@ impl From<FunctionName> for crate::hir::FunctionName {
             f.name.name,
             &f.arg_names
                 .iter()
-                .map(|op| op.clone().map(|ident| ident.name.clone()))
+                .map(|op| op.clone().map(|ident| ident.name))
                 .collect::<Vec<_>>(),
         )
     }

@@ -11,7 +11,7 @@ use uom::si::time::second;
 
 use super::{Expression, ExpressionKind, LitKind, Offset, TimeUnit};
 use crate::ast::Literal;
-use crate::parse::RTLolaParser;
+use crate::parse::RtLolaParser;
 
 pub(crate) type RationalType = i64;
 
@@ -23,14 +23,16 @@ impl Expression {
         } else {
             // has to be a real-time expression
             let (val, unit) = match &self.kind {
-                ExpressionKind::Lit(l) => match &l.kind {
-                    LitKind::Numeric(val, Some(unit)) => (val, unit),
-                    _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                ExpressionKind::Lit(l) => {
+                    match &l.kind {
+                        LitKind::Numeric(val, Some(unit)) => (val, unit),
+                        _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                    }
                 },
                 _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
             };
             Ok(Offset::RealTime(
-                RTLolaParser::parse_rational(val)?,
+                RtLolaParser::parse_rational(val)?,
                 TimeUnit::from_str(unit)?,
             ))
         }
@@ -39,9 +41,11 @@ impl Expression {
     /// Parses an expression into a duration for a discrete window [ExpressionKind::DiscreteWindowAggregation]
     pub fn parse_discrete_duration(&self) -> Result<u64, String> {
         match &self.kind {
-            ExpressionKind::Lit(l) => match &l.kind {
-                LitKind::Numeric(val, None) => val.parse().map_err(|err: ParseIntError| err.to_string()),
-                _ => Err(format!("expected numeric value without unit, found `{}`", l)),
+            ExpressionKind::Lit(l) => {
+                match &l.kind {
+                    LitKind::Numeric(val, None) => val.parse().map_err(|err: ParseIntError| err.to_string()),
+                    _ => Err(format!("expected numeric value without unit, found `{}`", l)),
+                }
             },
             _ => Err(format!("expected numeric value without unit, found `{}`", self)),
         }
@@ -50,9 +54,11 @@ impl Expression {
     /// Parses an expression into a duration with a given unit of time
     pub(crate) fn parse_duration(&self) -> Result<UOM_Time, String> {
         let (val, unit) = match &self.kind {
-            ExpressionKind::Lit(l) => match &l.kind {
-                LitKind::Numeric(val, Some(unit)) => (RTLolaParser::parse_rational(val)?, unit),
-                _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+            ExpressionKind::Lit(l) => {
+                match &l.kind {
+                    LitKind::Numeric(val, Some(unit)) => (RtLolaParser::parse_rational(val)?, unit),
+                    _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                }
             },
             _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
         };
@@ -80,10 +86,10 @@ impl Expression {
                             "parsing duration failed: rational {}*{} does not fit into Rational64",
                             val, factor
                         ))
-                    }
+                    },
                 };
                 Ok(UOM_Time::new::<second>(duration))
-            }
+            },
             u => Err(format!("expected duration unit, found `{}`", u)),
         }
     }
@@ -92,9 +98,11 @@ impl Expression {
     /// Expression must be a positive numeric value with Hz unit.
     pub fn parse_frequency(&self) -> Result<UOM_Frequency, String> {
         let (val, unit) = match &self.kind {
-            ExpressionKind::Lit(l) => match &l.kind {
-                LitKind::Numeric(val, Some(unit)) => (RTLolaParser::parse_rational(val)?, unit),
-                _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+            ExpressionKind::Lit(l) => {
+                match &l.kind {
+                    LitKind::Numeric(val, Some(unit)) => (RtLolaParser::parse_rational(val)?, unit),
+                    _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                }
             },
             _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
         };
@@ -125,10 +133,10 @@ impl Expression {
                             "parsing frequency failed: rational {}*{} does not fit into Rational64",
                             val, factor
                         ))
-                    }
+                    },
                 };
                 Ok(UOM_Frequency::new::<hertz>(freq))
-            }
+            },
             u => Err(format!("expected frequency unit, found `{}`", u)),
         }
     }
@@ -177,7 +185,7 @@ impl Literal {
                     return None;
                 }
                 val.parse::<T>().ok()
-            }
+            },
             _ => None,
         }
     }
@@ -191,7 +199,7 @@ impl Offset {
             Offset::RealTime(val, unit) => {
                 let seconds = val * unit.to_uom_time().get::<second>();
                 Some(UOM_Time::new::<second>(seconds))
-            }
+            },
         }
     }
 }
@@ -219,18 +227,24 @@ impl TimeUnit {
     /// Transforms a TimeUnit into a UOM_Time i.e. the number of seconds the timeunit spans.
     pub(crate) fn to_uom_time(self) -> UOM_Time {
         let f = match self {
-            TimeUnit::Nanosecond => Rational::new(
-                RationalType::from_u64(1).unwrap(),
-                RationalType::from_u64(10_u64.pow(9)).unwrap(),
-            ),
-            TimeUnit::Microsecond => Rational::new(
-                RationalType::from_u64(1).unwrap(),
-                RationalType::from_u64(10_u64.pow(6)).unwrap(),
-            ),
-            TimeUnit::Millisecond => Rational::new(
-                RationalType::from_u64(1).unwrap(),
-                RationalType::from_u64(10_u64.pow(3)).unwrap(),
-            ),
+            TimeUnit::Nanosecond => {
+                Rational::new(
+                    RationalType::from_u64(1).unwrap(),
+                    RationalType::from_u64(10_u64.pow(9)).unwrap(),
+                )
+            },
+            TimeUnit::Microsecond => {
+                Rational::new(
+                    RationalType::from_u64(1).unwrap(),
+                    RationalType::from_u64(10_u64.pow(6)).unwrap(),
+                )
+            },
+            TimeUnit::Millisecond => {
+                Rational::new(
+                    RationalType::from_u64(1).unwrap(),
+                    RationalType::from_u64(10_u64.pow(3)).unwrap(),
+                )
+            },
             TimeUnit::Second => Rational::from_u64(1).unwrap(),
             TimeUnit::Minute => Rational::from_u64(60).unwrap(),
             TimeUnit::Hour => Rational::from_u64(60 * 60).unwrap(),
@@ -275,20 +289,24 @@ impl Expression {
                 duration: right,
                 ..
             } => Box::new(std::iter::once(self).chain(left.iter()).chain(right.iter())),
-            Ite(cond, normal, alternative) => Box::new(
-                std::iter::once(self)
-                    .chain(cond.iter())
-                    .chain(normal.iter())
-                    .chain(alternative.iter()),
-            ),
+            Ite(cond, normal, alternative) => {
+                Box::new(
+                    std::iter::once(self)
+                        .chain(cond.iter())
+                        .chain(normal.iter())
+                        .chain(alternative.iter()),
+                )
+            },
             Tuple(entries) | Function(_, _, entries) => {
                 Box::new(std::iter::once(self).chain(entries.iter().map(|entry| entry.iter()).flatten()))
-            }
-            Method(base, _, _, arguments) => Box::new(
-                std::iter::once(self)
-                    .chain(base.iter())
-                    .chain(arguments.iter().map(|entry| entry.iter()).flatten()),
-            ),
+            },
+            Method(base, _, _, arguments) => {
+                Box::new(
+                    std::iter::once(self)
+                        .chain(base.iter())
+                        .chain(arguments.iter().map(|entry| entry.iter()).flatten()),
+                )
+            },
         }
     }
 }
@@ -308,11 +326,11 @@ mod tests {
             ($f:expr) => {
                 let f_string = format!("{}", $f);
                 let f = f_string.parse::<f64>().unwrap();
-                let was = super::RTLolaParser::parse_rational(f_string.as_str())
+                let was = super::RtLolaParser::parse_rational(f_string.as_str())
                     .unwrap_or_else(|e| panic!("parsing failed: {}", e));
                 assert_eq!(was, Rational::from_f64(f).unwrap());
             };
-        };
+        }
         check_on!(0);
         check_on!(42);
         check_on!(-1);

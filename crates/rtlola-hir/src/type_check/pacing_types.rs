@@ -99,7 +99,7 @@ pub(crate) struct InferredTemplates {
 pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
     NeverEval(Span),
-    MalformedAC(Span, String),
+    MalformedAc(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
     ParameterizationNeeded {
@@ -125,7 +125,7 @@ impl std::ops::BitAnd for ActivationCondition {
                 left.sort();
                 left.dedup();
                 ActivationCondition::Conjunction(left)
-            }
+            },
             (ActivationCondition::True, other) | (other, ActivationCondition::True) => other,
             (ActivationCondition::Conjunction(mut other_con), other_ac)
             | (other_ac, ActivationCondition::Conjunction(mut other_con)) => {
@@ -133,13 +133,13 @@ impl std::ops::BitAnd for ActivationCondition {
                 other_con.sort();
                 other_con.dedup();
                 ActivationCondition::Conjunction(other_con)
-            }
+            },
             (a, b) => {
                 let mut childs = vec![a, b];
                 childs.sort();
                 childs.dedup();
                 ActivationCondition::Conjunction(childs)
-            }
+            },
         }
         .flatten()
     }
@@ -155,7 +155,7 @@ impl std::ops::BitOr for ActivationCondition {
                 left.sort();
                 left.dedup();
                 ActivationCondition::Disjunction(left)
-            }
+            },
             (ActivationCondition::True, _) | (_, ActivationCondition::True) => ActivationCondition::True,
             (ActivationCondition::Disjunction(mut other_dis), other_ac)
             | (other_ac, ActivationCondition::Disjunction(mut other_dis)) => {
@@ -163,13 +163,13 @@ impl std::ops::BitOr for ActivationCondition {
                 other_dis.sort();
                 other_dis.dedup();
                 ActivationCondition::Disjunction(other_dis)
-            }
+            },
             (a, b) => {
                 let mut childs = vec![a, b];
                 childs.sort();
                 childs.dedup();
                 ActivationCondition::Disjunction(childs)
-            }
+            },
         }
         .flatten()
     }
@@ -183,7 +183,7 @@ impl ActivationCondition {
         match self {
             ActivationCondition::Conjunction(mut v) | ActivationCondition::Disjunction(mut v) if v.len() == 1 => {
                 v.remove(0)
-            }
+            },
             _ => self,
         }
     }
@@ -191,51 +191,57 @@ impl ActivationCondition {
     fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
         use ExpressionKind::*;
         match &ast_expr.kind {
-            LoadConstant(c) => match c {
-                Constant::Basic(lit) | Constant::Inlined(Inlined { lit, .. }) => match lit {
-                    Literal::Bool(b) => {
-                        if *b {
-                            Ok(ActivationCondition::True)
-                        } else {
-                            Err(PacingErrorKind::MalformedAC(
-                                ast_expr.span.clone(),
-                                "Only 'True' is supported as literals in activation conditions.".into(),
-                            ))
+            LoadConstant(c) => {
+                match c {
+                    Constant::Basic(lit) | Constant::Inlined(Inlined { lit, .. }) => {
+                        match lit {
+                            Literal::Bool(b) => {
+                                if *b {
+                                    Ok(ActivationCondition::True)
+                                } else {
+                                    Err(PacingErrorKind::MalformedAc(
+                                        ast_expr.span.clone(),
+                                        "Only 'True' is supported as literals in activation conditions.".into(),
+                                    ))
+                                }
+                            },
+                            _ => {
+                                Err(PacingErrorKind::MalformedAc(
+                                    ast_expr.span.clone(),
+                                    "Only 'True' is supported as literals in activation conditions.".into(),
+                                ))
+                            },
                         }
-                    }
-                    _ => Err(PacingErrorKind::MalformedAC(
-                        ast_expr.span.clone(),
-                        "Only 'True' is supported as literals in activation conditions.".into(),
-                    )),
-                },
+                    },
+                }
             },
             StreamAccess(sref, kind, args) => {
                 if !args.is_empty() {
-                    return Err(PacingErrorKind::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAc(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
                     ));
                 }
                 match kind {
-                    StreamAccessKind::Sync => {}
+                    StreamAccessKind::Sync => {},
                     _ => {
-                        return Err(PacingErrorKind::MalformedAC(
+                        return Err(PacingErrorKind::MalformedAc(
                             ast_expr.span.clone(),
                             "An activation condition can only contain literals and binary operators.".into(),
                         ));
-                    }
+                    },
                 }
                 if sref.is_output() {
-                    return Err(PacingErrorKind::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAc(
                         ast_expr.span.clone(),
                         "An activation condition can only refer to input streams".into(),
                     ));
                 }
                 Ok(ActivationCondition::Stream(*sref))
-            }
+            },
             ArithLog(op, v) => {
                 if v.len() != 2 {
-                    return Err(PacingErrorKind::MalformedAC(
+                    return Err(PacingErrorKind::MalformedAc(
                         ast_expr.span.clone(),
                         "An activation condition can only contain literals and binary operators.".into(),
                     ));
@@ -246,16 +252,20 @@ impl ActivationCondition {
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l & ac_r),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l | ac_r),
-                    _ => Err(PacingErrorKind::MalformedAC(
-                        ast_expr.span.clone(),
-                        "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                    )),
+                    _ => {
+                        Err(PacingErrorKind::MalformedAc(
+                            ast_expr.span.clone(),
+                            "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
+                        ))
+                    },
                 }
-            }
-            _ => Err(PacingErrorKind::MalformedAC(
-                ast_expr.span.clone(),
-                "An activation condition can only contain literals and binary operators.".into(),
-            )),
+            },
+            _ => {
+                Err(PacingErrorKind::MalformedAc(
+                    ast_expr.span.clone(),
+                    "An activation condition can only contain literals and binary operators.".into(),
+                ))
+            },
         }
     }
 
@@ -268,11 +278,11 @@ impl ActivationCondition {
             Conjunction(childs) => {
                 let child_string: String = childs.iter().map(|ac| ac.to_string(stream_names)).join(" ∧ ");
                 format!("({})", child_string)
-            }
+            },
             Disjunction(childs) => {
                 let child_string: String = childs.iter().map(|ac| ac.to_string(stream_names)).join(" ∨ ");
                 format!("({})", child_string)
-            }
+            },
         }
     }
 }
@@ -296,7 +306,7 @@ impl Emittable for PacingErrorKind {
                     span,
                     Some("here"),
                 );
-            }
+            },
             NeverEval(span) => {
                 Diagnostic::error(
                     handler,
@@ -305,14 +315,14 @@ impl Emittable for PacingErrorKind {
                 .add_span_with_label(span, Some("here"), true)
                 .add_note("Help: Consider annotating a pacing type explicitly.")
                 .emit();
-            }
-            MalformedAC(span, reason) => {
+            },
+            MalformedAc(span, reason) => {
                 handler.error_with_span(
                     &format!("In pacing type analysis:\nMalformed activation condition: {}", reason),
                     span,
                     Some("here"),
                 );
-            }
+            },
             MixedEventPeriodic(absty1, absty2) => {
                 let span1 = key1.and_then(|k| pacing_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| pacing_spans.get(&k).cloned());
@@ -329,7 +339,7 @@ impl Emittable for PacingErrorKind {
                 .maybe_add_span_with_label(span1, Some(format!("Found {} here", ty1).as_str()), true)
                 .maybe_add_span_with_label(span2, Some(format!("and found {} here", ty2).as_str()), false)
                 .emit();
-            }
+            },
             IncompatibleExpressions(e1, e2) => {
                 let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
@@ -353,24 +363,26 @@ impl Emittable for PacingErrorKind {
                     false,
                 )
                 .emit();
-            }
-            UnintuitivePacingWarning(span, inferred) => Diagnostic::warning(
-                handler,
-                format!(
-                    "In pacing type analysis:\nInferred complex pacing type: {}",
-                    inferred.to_string(names)
+            },
+            UnintuitivePacingWarning(span, inferred) => {
+                Diagnostic::warning(
+                    handler,
+                    format!(
+                        "In pacing type analysis:\nInferred complex pacing type: {}",
+                        inferred.to_string(names)
+                    )
+                    .as_str(),
                 )
-                .as_str(),
-            )
-            .add_span_with_label(span, Some("here"), true)
-            .add_note(
-                format!(
-                    "Help: Consider annotating the type explicitly for better readability using: @{}",
-                    inferred.to_string(names)
+                .add_span_with_label(span, Some("here"), true)
+                .add_note(
+                    format!(
+                        "Help: Consider annotating the type explicitly for better readability using: @{}",
+                        inferred.to_string(names)
+                    )
+                    .as_str(),
                 )
-                .as_str(),
-            )
-            .emit(),
+                .emit()
+            },
             Other(span, reason, causes) => {
                 Diagnostic::error(
                     handler,
@@ -385,7 +397,7 @@ impl Emittable for PacingErrorKind {
                 .maybe_add_span_with_label(key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
                 .maybe_add_span_with_label(key2.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
                 .emit();
-            }
+            },
             ParameterizationNotAllowed(span) => {
                 Diagnostic::error(
                     handler,
@@ -394,7 +406,7 @@ impl Emittable for PacingErrorKind {
                 .add_span_with_label(span, Some("here"), true)
                 .add_note("Help: Consider using a hold access")
                 .emit();
-            }
+            },
             ParameterizationNeeded { who, why, inferred } => {
                 let InferredTemplates { spawn, filter, close } = *inferred;
                 let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
@@ -416,7 +428,7 @@ impl Emittable for PacingErrorKind {
                         spawn_str, filter_str, close_str,
                     ))
                     .emit();
-            }
+            },
             PacingTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_string(names);
                 let inferred_str = inferred.to_string(names);
@@ -437,7 +449,7 @@ impl Emittable for PacingErrorKind {
                     true,
                 )
                 .emit();
-            }
+            },
             SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
                 handler,
                 "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
@@ -467,15 +479,19 @@ pub(crate) trait PrintableVariant: Debug {
 impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
     fn from(err: TcErr<V>) -> TypeError<PacingErrorKind> {
         match err {
-            TcErr::KeyEquation(k1, k2, err) => TypeError {
-                kind: err,
-                key1: Some(k1),
-                key2: Some(k2),
+            TcErr::KeyEquation(k1, k2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(k1),
+                    key2: Some(k2),
+                }
             },
-            TcErr::Bound(k1, k2, err) => TypeError {
-                kind: err,
-                key1: Some(k1),
-                key2: k2,
+            TcErr::Bound(k1, k2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(k1),
+                    key2: k2,
+                }
             },
             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
                 let msg = "Child type out of bounds for type: ";
@@ -484,7 +500,7 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
                     key1: Some(key),
                     key2: None,
                 }
-            }
+            },
             TcErr::ArityMismatch {
                 key,
                 variant,
@@ -500,16 +516,20 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
                     key1: Some(key),
                     key2: None,
                 }
-            }
-            TcErr::Construction(key, _preliminary, kind) => TypeError {
-                kind,
-                key1: Some(key),
-                key2: None,
             },
-            TcErr::ChildConstruction(key, idx, preliminary, kind) => TypeError {
-                kind,
-                key1: Some(key),
-                key2: preliminary.children[idx],
+            TcErr::Construction(key, _preliminary, kind) => {
+                TypeError {
+                    kind,
+                    key1: Some(key),
+                    key2: None,
+                }
+            },
+            TcErr::ChildConstruction(key, idx, preliminary, kind) => {
+                TypeError {
+                    kind,
+                    key1: Some(key),
+                    key2: preliminary.children[idx],
+                }
             },
         }
     }
@@ -528,7 +548,7 @@ impl std::fmt::Display for Freq {
                     freq.clone()
                         .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
                 )
-            }
+            },
         }
     }
 }
@@ -550,11 +570,13 @@ impl Freq {
         }
         match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
             Some(q) => Ok(q.is_integer()),
-            None => Err(PacingErrorKind::Other(
-                Span::Unknown,
-                format!("division of frequencies `{:?}`/`{:?}` failed", &lhs, &rhs),
-                vec![],
-            )),
+            None => {
+                Err(PacingErrorKind::Other(
+                    Span::Unknown,
+                    format!("division of frequencies `{:?}`/`{:?}` failed", &lhs, &rhs),
+                    vec![],
+                ))
+            },
         }
     }
 
@@ -592,7 +614,7 @@ impl Variant for AbstractPacingType {
             (Any, x) | (x, Any) => Ok(x),
             (Periodic(_), Event(_)) | (Event(_), Periodic(_)) => {
                 Err(PacingErrorKind::MixedEventPeriodic(lhs.variant, rhs.variant))
-            }
+            },
             (Event(ac1), Event(ac2)) => Ok(Event(ac1 & ac2)),
             (Periodic(f1), Periodic(f2)) => {
                 if let Freq::Any = f1 {
@@ -602,7 +624,7 @@ impl Variant for AbstractPacingType {
                 } else {
                     Ok(Periodic(f1.conjunction(&f2)))
                 }
-            }
+            },
         }?;
         Ok(Partial {
             variant: new_var,
@@ -623,9 +645,11 @@ impl Constructable for AbstractPacingType {
         match self {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
-            AbstractPacingType::Periodic(freq) => match freq {
-                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(*f)),
-                Freq::Any => Ok(ConcretePacingType::Periodic),
+            AbstractPacingType::Periodic(freq) => {
+                match freq {
+                    Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(*f)),
+                    Freq::Any => Ok(ConcretePacingType::Periodic),
+                }
             },
         }
     }
@@ -662,7 +686,7 @@ impl AbstractPacingType {
                     AbstractPacingType::Event(ActivationCondition::parse(expr)?),
                     expr.span.clone(),
                 )
-            }
+            },
         })
     }
 }
@@ -689,7 +713,7 @@ impl Variant for AbstractExpressionType {
                         Self::Expression(b),
                     ))
                 }
-            }
+            },
         }?;
         Ok(Partial {
             variant: new_var,
@@ -709,16 +733,20 @@ impl Constructable for AbstractExpressionType {
         assert!(children.is_empty(), "suspicious children");
 
         match self {
-            Self::Any => Ok(Expression {
-                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
-                eid: ExprId(u32::max_value()),
-                span: Span::Unknown,
-            }),
-            Self::AnyClose => Ok(Expression {
-                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
-                eid: ExprId(u32::max_value()),
-                span: Span::Unknown,
-            }),
+            Self::Any => {
+                Ok(Expression {
+                    kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
+                    eid: ExprId(u32::max_value()),
+                    span: Span::Unknown,
+                })
+            },
+            Self::AnyClose => {
+                Ok(Expression {
+                    kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
+                    eid: ExprId(u32::max_value()),
+                    span: Span::Unknown,
+                })
+            },
             Self::Expression(e) => Ok(e.clone()),
         }
     }
@@ -739,10 +767,11 @@ impl ConcretePacingType {
     pub fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
-            ConcretePacingType::FixedPeriodic(freq) => freq
-                .clone()
-                .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
-                .to_string(),
+            ConcretePacingType::FixedPeriodic(freq) => {
+                freq.clone()
+                    .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .to_string()
+            },
             ConcretePacingType::Periodic => "Periodic".to_string(),
             ConcretePacingType::Constant => "Constant".to_string(),
         }
@@ -764,7 +793,7 @@ impl ConcretePacingType {
             Ac::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 ActivationCondition::parse(expr).map(ConcretePacingType::Event)
-            }
+            },
         }
     }
 }

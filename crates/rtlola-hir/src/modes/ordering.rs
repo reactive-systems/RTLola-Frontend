@@ -51,9 +51,10 @@ impl StreamLayers {
         self.evaluation
     }
 }
-impl Into<usize> for Layer {
-    fn into(self) -> usize {
-        self.0
+
+impl From<Layer> for usize {
+    fn from(layer: Layer) -> usize {
+        layer.0
     }
 }
 
@@ -161,7 +162,7 @@ impl Ordered {
                 if !evaluation_layers.contains_key(sref) && spawn_layers.contains_key(sref) {
                     // Layer for current stream check incoming
                     let neighbor_layers: Vec<_> = graph
-                        .neighbors_directed(node, Outgoing) 
+                        .neighbors_directed(node, Outgoing)
                         .flat_map(|outgoing_neighbor| {
                             if outgoing_neighbor == node {
                                 None

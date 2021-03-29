@@ -34,12 +34,14 @@ impl<'a> From<pest::Span<'a>> for Span {
         }
     }
 }
-impl Into<Range<usize>> for Span {
-    fn into(self) -> Range<usize> {
-        let (s, e) = self.get_bounds();
+
+impl From<Span> for Range<usize> {
+    fn from(s: Span) -> Range<usize> {
+        let (s, e) = s.get_bounds();
         Range { start: s, end: e }
     }
 }
+
 impl Span {
     /// Return true if the span is indirect.
     pub fn is_indirect(&self) -> bool {

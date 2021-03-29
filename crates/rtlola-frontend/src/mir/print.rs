@@ -106,7 +106,7 @@ impl Display for Type {
             Type::Float(_) => write!(f, "Float{}", self.size().expect("Floats are sized.").0 * 8),
             Type::UInt(_) => write!(f, "UInt{}", self.size().expect("UInts are sized.").0 * 8),
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
-            Type::Function { args, ret} => write_delim_list(f, args, "(", &format!(") -> {}", ret), ","),
+            Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {}", ret), ","),
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),

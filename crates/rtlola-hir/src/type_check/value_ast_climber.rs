@@ -429,7 +429,7 @@ where
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     },
                     StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
-                        let (target, op, wait ) = match wref {
+                        let (target, op, wait) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)

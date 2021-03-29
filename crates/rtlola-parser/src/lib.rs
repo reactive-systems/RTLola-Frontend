@@ -95,7 +95,7 @@ pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
         rtlola_reporting::Handler::without_file(cfg.spec.clone())
     };
 
-    let spec = match crate::parse::RTLolaParser::parse(&handler, cfg) {
+    let spec = match crate::parse::RtLolaParser::parse(&handler, cfg) {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
@@ -106,7 +106,7 @@ pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
 
 /// Invokes the parser with the given configuration and uses the provided [Handler] for error reporting.
 pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLolaAst, String> {
-    let spec = match crate::parse::RTLolaParser::parse(&handler, cfg) {
+    let spec = match crate::parse::RtLolaParser::parse(&handler, cfg) {
         Ok(spec) => spec,
         Err(e) => {
             return Err(format!("error: invalid syntax:\n{}", e));
