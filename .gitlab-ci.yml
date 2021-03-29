@@ -229,7 +229,7 @@ cargo:test-nightly:
 ####### Use cargo to test the docs for broken links #######
 
 doc:reporting:
-  stage: doc
+  stage: docs
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
@@ -238,7 +238,7 @@ doc:reporting:
     - cargo doc -p rtlola-reporting --no-deps --verbose
 
 doc:parser:
-  stage: doc
+  stage: docs
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
@@ -247,7 +247,7 @@ doc:parser:
     - cargo doc -p rtlola-parser --no-deps --verbose
 
 doc:macros:
-  stage: doc
+  stage: docs
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
@@ -256,7 +256,7 @@ doc:macros:
     - cargo doc -p rtlola-macros --no-deps --verbose
 
 doc:hir:
-  stage: doc
+  stage: docs
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
@@ -265,7 +265,7 @@ doc:hir:
     - cargo doc -p rtlola-hir --no-deps --verbose
 
 doc:frontend:
-  stage: doc
+  stage: docs
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
