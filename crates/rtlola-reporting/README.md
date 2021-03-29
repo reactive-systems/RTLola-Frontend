@@ -4,10 +4,10 @@ RTLola is a stream-based runtime verification framework.  It parses an RTLola sp
 The framework is separated into a front-end and several back-ends.
 
 This crate is part of the RTLola front-end, which includes several sub-modules:
-* Main Crate: The RTLola front-end: [rtlola-frontend](crates.io/crates/rtlola-frontend) 
-* A parser for RTLola specifications: [rtlola-parser](crates.io/crates/rtlola-parser) 
-* The RTLola high-level intermediate representation including a strong static analysis: [rtlola-hir](crates.io/crates/rtlola-hir)
-* Procedural macros: [rtlola-macros](crates.io/crates/rtlola-macros)
+* Main Crate: The RTLola front-end: [rtlola-frontend](https://crates.io/crates/rtlola-frontend) 
+* A parser for RTLola specifications: [rtlola-parser](https://crates.io/crates/rtlola-parser) 
+* The RTLola high-level intermediate representation including a strong static analysis: [rtlola-hir](https://crates.io/crates/rtlola-hir)
+* Procedural macros: [rtlola-macros](https://crates.io/crates/rtlola-macros)
 
 # Copyright
 
