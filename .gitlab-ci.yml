@@ -16,7 +16,7 @@ format:reporting:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt-preview
+    - rustup component add rustfmt
     - rustc --version && cargo --version
     - cargo +nightly fmt -p rtlola-reporting --verbose -- --check
 
@@ -24,7 +24,7 @@ format:parser:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt-preview
+    - rustup component add rustfmt
     - rustc --version && cargo --version
     - cargo +nightly fmt -p rtlola-parser --verbose -- --check
 
@@ -32,7 +32,7 @@ format:macros:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt-preview
+    - rustup component add rustfmt
     - rustc --version && cargo --version
     - cargo +nightly fmt -p rtlola-macros --verbose -- --check
 
@@ -40,7 +40,7 @@ format:hir:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt-preview
+    - rustup component add rustfmt
     - rustc --version && cargo --version
     - cargo +nightly fmt -p rtlola-hir --verbose -- --check
 
@@ -48,7 +48,7 @@ format:frontend:
   stage: check-format
   image: rustlang/rust:nightly
   script:
-    - rustup component add rustfmt-preview
+    - rustup component add rustfmt
     - rustc --version && cargo --version
     - cargo +nightly fmt -p rtlola-frontend --verbose -- --check
 
@@ -59,7 +59,7 @@ clippy:reporting:
   stage: clippy
   image: rust:latest
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-reporting
 
@@ -67,7 +67,7 @@ clippy:parser:
   stage: clippy
   image: rust:latest
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-parser
 
@@ -75,7 +75,7 @@ clippy:macros:
   stage: clippy
   image: rust:latest
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-macros
 
@@ -83,7 +83,7 @@ clippy:hir:
   stage: clippy
   image: rust:latest
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-hir
 
@@ -91,7 +91,7 @@ clippy:frontend:
   stage: clippy
   image: rust:latest
   script:
-    - rustup component add clippy-preview
+    - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-frontend
 
