@@ -3,8 +3,9 @@ stages:
   - clippy
   - check-ignored-tests
   - test
-  - test-windows
+#  - test-windows
   - test-nightly
+  - docs
 
 default:
   before_script:
@@ -183,19 +184,19 @@ test:frontend:
     - cargo test -p rtlola-frontend --verbose
 
 ####### Use cargo to test the project on stable toolchain on windows #######
-test:windows:
-  stage: test-windows
-  tags:
-    - windows
-    - rust
-  script:
-    - rustup update
-    - rustc --version
-    - cargo --version
-    - cargo test --all --verbose
+# Todo: Reactivate when windows runner is working
+# test:windows:
+#   stage: test-windows
+#   tags:
+#     - windows
+#     - rust
+#   script:
+#     - rustup update
+#     - rustc --version
+#     - cargo --version
+#     - cargo test --all --verbose
 
 ####### Use cargo to test the project on nightly toolchain #######
-
 cargo:test-nightly:
   stage: test-nightly
   image: rustlang/rust:nightly
@@ -224,3 +225,50 @@ cargo:test-nightly:
     reports:
       junit: results.xml
 
+
+####### Use cargo to test the docs for broken links #######
+
+doc:reporting:
+  stage: doc
+  image: rust:latest
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" 
+  script:
+    - rustc --version && cargo --version
+    - cargo doc -p rtlola-reporting --no-deps --verbose
+
+doc:parser:
+  stage: doc
+  image: rust:latest
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" 
+  script:
+    - rustc --version && cargo --version
+    - cargo doc -p rtlola-parser --no-deps --verbose
+
+doc:macros:
+  stage: doc
+  image: rust:latest
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" 
+  script:
+    - rustc --version && cargo --version
+    - cargo doc -p rtlola-macros --no-deps --verbose
+
+doc:hir:
+  stage: doc
+  image: rust:latest
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" 
+  script:
+    - rustc --version && cargo --version
+    - cargo doc -p rtlola-hir --no-deps --verbose
+
+doc:frontend:
+  stage: doc
+  image: rust:latest
+  variables:
+    RUSTDOCFLAGS: "-Dwarnings" 
+  script:
+    - rustc --version && cargo --version
+    - cargo doc -p rtlola-frontend --no-deps --verbose
