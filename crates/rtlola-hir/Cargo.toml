@@ -1,8 +1,19 @@
 [package]
 name = "rtlola-hir"
 version = "0.1.0"
-authors = ["Maximilian Schwenger <schwenger@react.uni-saarland.de>"]
+authors = [
+    "Jan Baumeister <jan.baumeister@cispa.de>",
+    "Florian Kohn <florian.kohn@cispa.de>",
+    "Stefan Oswald <stefan.oswald@cispa.de>",
+    "Maximilian Schwenger <maximilian.schwenger@cispa.de>",
+]
 edition = "2018"
+description = "A high-level intermediate representation for RTLola specifications."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/rtlola-frontend"
+license = "Apache-2.0"
+keywords = ["verification", "frontend", "monitoring", "analyzer", "hir"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,4 +27,3 @@ rtlola-reporting = { path = "../rtlola-reporting" }
 rtlola-macros = { path = "../rtlola-macros" }
 rtlola-parser = { path = "../rtlola-parser" } 
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git", branch="recursive-types"}
-regex = "*"

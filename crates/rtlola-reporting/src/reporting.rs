@@ -2,13 +2,13 @@
 use std::fmt::Debug;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 use codespan_reporting::diagnostic::{Diagnostic as RepDiagnostic, Label, Severity};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
 use codespan_reporting::term::Config;
-use std::sync::RwLock;
 
 /// Represents a location in the source
 // Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
@@ -49,6 +49,7 @@ impl Span {
             Span::Unknown => false,
         }
     }
+
     /// Returns true if the span is unknown.
     pub fn is_unknown(&self) -> bool {
         match self {
@@ -145,7 +146,7 @@ impl Handler {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
-            _ => {}
+            _ => {},
         }
         term::emit(
             (*self.output.write().unwrap()).as_mut(),

@@ -1,8 +1,19 @@
 [package]
 name = "rtlola-parser"
 version = "0.1.0"
-authors = ["maximilianschwenger", "floriankohn"]
+authors = [
+    "Florian Kohn <florian.kohn@cispa.de>",
+    "Stefan Oswald <stefan.oswald@cispa.de>",
+    "Malte Schledjewski <malte.schledjewski@cispa.de>",
+    "Maximilian Schwenger <maximilian.schwenger@cispa.de>",
+]
 edition = "2018"
+description = "A parser for RTLola specifications."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola"
+license = "Apache-2.0"
+keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,9 +1,9 @@
 [package]
 name = "rtlola-macros"
 version = "0.1.0"
-authors = ["Maximilian Schwenger <schwenger@react.uni-saarland.de>"]
+authors = ["Maximilian Schwenger <maximilian.schwenger@cispa.de>"]
 edition = "2018"
-description = "Procedural macros for more convenient handling of HirModes in the RTLola-Frontend."
+description = "Procedural macros for more convenient handling of HirModes in the rtlola_hir crate."
 readme = "README.md"
 repository = "https://github.com/Schwenger/RTLolaProcMacros"
 homepage = "https://rtlola.org"
