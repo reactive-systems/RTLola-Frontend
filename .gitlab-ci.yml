@@ -233,6 +233,7 @@ doc:reporting:
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
+  allow_failure: true
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-reporting --no-deps --verbose
@@ -242,6 +243,7 @@ doc:parser:
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
+  allow_failure: true
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-parser --no-deps --verbose
@@ -251,6 +253,7 @@ doc:macros:
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
+  allow_failure: true
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-macros --no-deps --verbose
@@ -260,6 +263,7 @@ doc:hir:
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
+  allow_failure: true
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-hir --no-deps --verbose
@@ -269,6 +273,7 @@ doc:frontend:
   image: rust:latest
   variables:
     RUSTDOCFLAGS: "-Dwarnings" 
+  allow_failure: true
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-frontend --no-deps --verbose
