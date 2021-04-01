@@ -1,0 +1,20 @@
+[package]
+name = "rtlola-reporting"
+version = "0.1.0"
+authors = [
+    "Florian Kohn <florian.kohn@cispa.de>",
+    "Maximilian Schwenger <maximilian.schwenger@cispa.de>"
+    ]
+edition = "2018"
+description = "An error reporting crate for RTLola-related crates."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola"
+license = "Apache-2.0"
+keywords = ["reporting"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+codespan-reporting = "0.9.5" # Error Reporting
+pest = "2.1"

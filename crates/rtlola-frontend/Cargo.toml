@@ -1,0 +1,25 @@
+[package]
+name = "rtlola-frontend"
+version = "0.4.0"
+authors = [
+    "Jan Baumeister <jan.baumeister@cispa.de>",
+    "Florian Kohn <florian.kohn@cispa.de>",
+    "Stefan Oswald <stefan.oswald@cispa.de>",
+    "Maximilian Schwenger <maximilian.schwenger@cispa.de>",
+]
+edition = "2018"
+description = "A frontend for the RTLola runtime verification framework."
+readme = "README.md"
+homepage = "http://rtlola.org"
+repository = "https://github.com/reactive-systems/RTLola"
+license = "Apache-2.0"
+keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
+
+[dependencies]
+itertools = "0.9.0"
+lazy_static = "1.3.0" # lazy_static! macro
+num = "0.3.1"     # infinite precision rationals
+rtlola-hir = { path = "../rtlola-hir" }
+rtlola-reporting = { path = "../rtlola-reporting" }
+rtlola-parser = { path = "../rtlola-parser" }
+uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
