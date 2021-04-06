@@ -37,9 +37,9 @@ where
     pub(crate) expression_tyc: TypeChecker<AbstractExpressionType, Variable>,
     /// Lookup table for stream keys
     pub(crate) node_key: HashMap<NodeId, StreamTypeKeys>,
-    /// Maps a RustTyc key to the corresponding span for error reporting.
+    /// Maps a RustTyc key of the pacing_tyc to the corresponding span for error reporting.
     pub(crate) pacing_key_span: HashMap<TcKey, Span>,
-    /// Maps a RustTyc key to the corresponding span of expression keys for error reporting.
+    /// Maps a RustTyc key of the expression_tyc to the corresponding span for error reporting.
     pub(crate) expression_key_span: HashMap<TcKey, Span>,
     /// Lookup table for the name of a given stream.
     pub(crate) names: &'a HashMap<StreamReference, &'a str>,
