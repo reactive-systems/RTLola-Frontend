@@ -36,23 +36,25 @@ impl Expression {
         self.span.clone()
     }
 
-    /// Returns all stream accesses of the expression
-    fn collect_stream_accesses(&self) -> Vec<&Self> {
+    /// Returns all streams that are synchronous accesses
+    ///
+    /// This function iterates over the [Expression] and retruns a vector of [StreamReference] identifying each stream that is synchronous accessed with its unique ID.
+    pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
         match &self.kind {
             ExpressionKind::ArithLog(_, children)
             | ExpressionKind::Tuple(children)
             | ExpressionKind::Function(FnExprKind { args: children, .. }) => {
-                children.iter().flat_map(|c| c.collect_stream_accesses()).collect()
+                children.iter().flat_map(|c| c.get_sync_accesses()).collect()
             },
-            ExpressionKind::StreamAccess(_, kind, children) => {
+            ExpressionKind::StreamAccess(target, kind, children) => {
                 match kind {
                     StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
-                        vec![self]
+                        vec![*target]
                             .into_iter()
-                            .chain(children.iter().flat_map(|c| c.collect_stream_accesses()))
+                            .chain(children.iter().flat_map(|c| c.get_sync_accesses()))
                             .collect()
                     },
-                    _ => children.iter().flat_map(|c| c.collect_stream_accesses()).collect(),
+                    _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
                 }
             },
             ExpressionKind::Ite {
@@ -62,54 +64,24 @@ impl Expression {
             } => {
                 condition
                     .as_ref()
-                    .collect_stream_accesses()
+                    .get_sync_accesses()
                     .into_iter()
-                    .chain(consequence.as_ref().collect_stream_accesses())
-                    .chain(alternative.as_ref().collect_stream_accesses())
+                    .chain(consequence.as_ref().get_sync_accesses())
+                    .chain(alternative.as_ref().get_sync_accesses())
                     .collect()
             },
             ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(WidenExprKind { expr: child, .. }) => {
-                child.as_ref().collect_stream_accesses()
+                child.as_ref().get_sync_accesses()
             },
             ExpressionKind::Default { expr, default } => {
                 expr.as_ref()
-                    .collect_stream_accesses()
+                    .get_sync_accesses()
                     .into_iter()
-                    .chain(default.as_ref().collect_stream_accesses())
+                    .chain(default.as_ref().get_sync_accesses())
                     .collect()
             },
             _ => vec![],
         }
-    }
-
-    /// Returns all streams that are synchronous accesses
-    ///
-    /// This function iterates over the [Expression] and retruns a vector of [StreamReference] identifying each stream that is synchronous accessed with its unique ID.
-    pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {
-        self.collect_stream_accesses()
-            .into_iter()
-            .map(|expr| {
-                match expr.kind {
-                    ExpressionKind::StreamAccess(target, _, _) => target,
-                    _ => unreachable!(),
-                }
-            })
-            .collect()
-    }
-
-    /// Returns all streams that are synchronously accessed with parameters
-    ///
-    /// This function iterates over the [Expression] and retruns a vector of [StreamReference] identifying each stream that is synchronous accessed with parameters by its unique ID.
-    pub(crate) fn get_parameterized_sync_accesses(&self) -> Vec<StreamReference> {
-        self.collect_stream_accesses()
-            .into_iter()
-            .filter_map(|expr| {
-                match &expr.kind {
-                    ExpressionKind::StreamAccess(target, _, parameter) if !parameter.is_empty() => Some(*target),
-                    _ => None,
-                }
-            })
-            .collect()
     }
 }
 

@@ -16,10 +16,10 @@ license = "Apache-2.0"
 keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
 
 [dependencies]
-itertools = "0.9.0"
+itertools = "0.10.0"
 lazy_static = "1.3.0" # lazy_static! macro
 num = "0.3.1"     # infinite precision rationals
 rtlola-hir = { path = "../rtlola-hir" }
 rtlola-reporting = { path = "../rtlola-reporting" }
 rtlola-parser = { path = "../rtlola-parser" }
-uom = { version = "0.30.0", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+uom = { version = "0.31.1", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}

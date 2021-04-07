@@ -1665,4 +1665,62 @@ mod tests {
         let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(e).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
+
+    #[test]
+    fn delay() {
+        let spec = "
+            input x:Int8\n\
+            output a @1Hz spawn if x=42 close if true then true else a := x.aggregate(over: 1s, using: sum) > 1337
+        ";
+        let sname_to_sref = vec![("a", SRef::Out(0)), ("x", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["a"], sname_to_sref["x"]]),
+            (sname_to_sref["x"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["a"], sname_to_sref["x"]]),
+            (sname_to_sref["x"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["a"]]),
+            (sname_to_sref["x"], vec![sname_to_sref["a"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["a"]]),
+            (sname_to_sref["x"], vec![sname_to_sref["a"]]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (sname_to_sref["a"], vec![(sname_to_sref["x"], WRef::Sliding(0))]),
+            (sname_to_sref["x"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["x"], vec![(sname_to_sref["a"], WRef::Sliding(0))]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
 }
