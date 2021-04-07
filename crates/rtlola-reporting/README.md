@@ -1,4 +1,7 @@
 # RTLola Reporting
+[![Crate](https://img.shields.io/crates/v/rtlola-reporting.svg)](https://crates.io/crates/rtlola-reporting)
+[![API](https://docs.rs/rtlola-reporting/badge.svg)](https://docs.rs/rtlola-reporting)
+[![License](https://img.shields.io/crates/l/rtlola-reporting)](https://crates.io/crates/rtlola-reporting)
 
 RTLola is a stream-based runtime verification framework.  It parses an RTLola specification, analyses it, and generates executable monitors for it.
 The framework is separated into a front-end and several back-ends.

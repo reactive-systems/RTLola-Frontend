@@ -1,4 +1,7 @@
 # RTLola Macros
+[![Crate](https://img.shields.io/crates/v/rtlola-macros.svg)](https://crates.io/crates/rtlola-macros)
+[![API](https://docs.rs/rtlola-macros/badge.svg)](https://docs.rs/rtlola-macros)
+[![License](https://img.shields.io/crates/l/rtlola-macros)](https://crates.io/crates/rtlola-macros)
 
 RTLola is a stream-based runtime verification framework.  It parses an RTLola specification, analyses it, and generates executable monitors for it.
 The framework is separated into a front-end and several back-ends.
