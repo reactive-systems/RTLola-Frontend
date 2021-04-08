@@ -22,6 +22,8 @@ variables:
 # Once rustfmt ist available in current nighlty release
 
 format:reporting:
+  tags:
+    - docker
   stage: check-format
   image: rustlang/rust:nightly
   script:
@@ -30,6 +32,8 @@ format:reporting:
     - cargo +nightly-2021-02-11 fmt -p rtlola-reporting --verbose -- --check
 
 format:parser:
+  tags:
+    - docker
   stage: check-format
   image: rustlang/rust:nightly
   script:
@@ -38,6 +42,8 @@ format:parser:
     - cargo +nightly-2021-02-11 fmt -p rtlola-parser --verbose -- --check
 
 format:macros:
+  tags:
+    - docker
   stage: check-format
   image: rustlang/rust:nightly
   script:
@@ -46,6 +52,8 @@ format:macros:
     - cargo +nightly-2021-02-11 fmt -p rtlola-macros --verbose -- --check
 
 format:hir:
+  tags:
+    - docker
   stage: check-format
   image: rustlang/rust:nightly
   script:
@@ -54,6 +62,8 @@ format:hir:
     - cargo +nightly-2021-02-11 fmt -p rtlola-hir --verbose -- --check
 
 format:frontend:
+  tags:
+    - docker
   stage: check-format
   image: rustlang/rust:nightly
   script:
@@ -65,6 +75,8 @@ format:frontend:
 ####### Use cargo to run clippy (Rust linter) #######
 
 clippy:reporting:
+  tags:
+    - docker
   stage: clippy
   image: rust:latest
   cache:
@@ -79,6 +91,8 @@ clippy:reporting:
     - cargo clippy -p rtlola-reporting
 
 clippy:parser:
+  tags:
+    - docker
   stage: clippy
   image: rust:latest
   cache:
@@ -93,6 +107,8 @@ clippy:parser:
     - cargo clippy -p rtlola-parser
 
 clippy:macros:
+  tags:
+    - docker
   stage: clippy
   image: rust:latest
   cache:
@@ -107,6 +123,8 @@ clippy:macros:
     - cargo clippy -p rtlola-macros
 
 clippy:hir:
+  tags:
+    - docker
   stage: clippy
   image: rust:latest
   cache:
@@ -121,6 +139,8 @@ clippy:hir:
     - cargo clippy -p rtlola-hir
 
 clippy:frontend:
+  tags:
+    - docker
   stage: clippy
   image: rust:latest
   cache:
@@ -136,6 +156,8 @@ clippy:frontend:
 
 ####### Check that every ignored test has an accompanying comment #######
 ignored:reporting:
+  tags:
+    - docker
   stage: check-ignored-tests
   image: alpine:latest
   script:
@@ -143,6 +165,8 @@ ignored:reporting:
     - ./check_ignored_tests_without_comment.sh rtlola-reporting
 
 ignored:parser:
+  tags:
+    - docker
   stage: check-ignored-tests
   image: alpine:latest
   script:
@@ -150,6 +174,8 @@ ignored:parser:
     - ./check_ignored_tests_without_comment.sh rtlola-parser
 
 ignored:macros:
+  tags:
+    - docker
   stage: check-ignored-tests
   image: alpine:latest
   script:
@@ -157,6 +183,8 @@ ignored:macros:
     - ./check_ignored_tests_without_comment.sh rtlola-macros
 
 ignored:hir:
+  tags:
+    - docker
   stage: check-ignored-tests
   image: alpine:latest
   script:
@@ -164,6 +192,8 @@ ignored:hir:
     - ./check_ignored_tests_without_comment.sh rtlola-hir
 
 ignored:frontend:
+  tags:
+    - docker
   stage: check-ignored-tests
   image: alpine:latest
   script:
@@ -172,6 +202,8 @@ ignored:frontend:
 
 ####### Use cargo to test the project on stable toolchain #######
 test:reporting:
+  tags:
+    - docker
   stage: test
   image: rust:latest
   cache:
@@ -187,6 +219,8 @@ test:reporting:
     - cargo test -p rtlola-reporting --verbose
 
 test:parser:
+  tags:
+    - docker
   stage: test
   image: rust:latest
   cache:
@@ -202,6 +236,8 @@ test:parser:
     - cargo test -p rtlola-parser --verbose
 
 test:macros:
+  tags:
+    - docker
   stage: test
   image: rust:latest
   cache:
@@ -217,6 +253,8 @@ test:macros:
     - cargo test -p rtlola-macros --verbose
 
 test:hir:
+  tags:
+    - docker
   stage: test
   image: rust:latest
   cache:
@@ -232,6 +270,8 @@ test:hir:
     - cargo test -p rtlola-hir --verbose
 
 test:frontend:
+  tags:
+    - docker
   stage: test
   image: rust:latest
   cache:
@@ -261,6 +301,8 @@ test:frontend:
 
 ####### Use cargo to test the project on nightly toolchain #######
 cargo:test-nightly:
+  tags:
+    - docker
   stage: test-nightly
   image: rustlang/rust:nightly
   variables:
@@ -292,6 +334,8 @@ cargo:test-nightly:
 ####### Use cargo to test the docs for broken links #######
 
 doc:reporting:
+  tags:
+    - docker
   stage: docs
   image: rust:latest
   variables:
@@ -308,6 +352,8 @@ doc:reporting:
     - cargo doc -p rtlola-reporting --no-deps --verbose
 
 doc:parser:
+  tags:
+    - docker
   stage: docs
   image: rust:latest
   variables:
@@ -324,6 +370,8 @@ doc:parser:
     - cargo doc -p rtlola-parser --no-deps --verbose
 
 doc:macros:
+  tags:
+    - docker
   stage: docs
   image: rust:latest
   variables:
@@ -340,6 +388,8 @@ doc:macros:
     - cargo doc -p rtlola-macros --no-deps --verbose
 
 doc:hir:
+  tags:
+    - docker
   stage: docs
   image: rust:latest
   variables:
@@ -356,6 +406,8 @@ doc:hir:
     - cargo doc -p rtlola-hir --no-deps --verbose
 
 doc:frontend:
+  tags:
+    - docker
   stage: docs
   image: rust:latest
   variables:
