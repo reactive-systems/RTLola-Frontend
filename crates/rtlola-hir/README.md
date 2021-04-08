@@ -1,4 +1,7 @@
 # RTLola High-level Intermediate Representation
+[![Crate](https://img.shields.io/crates/v/rtlola-hir.svg)](https://crates.io/crates/rtlola-hir)
+[![API](https://docs.rs/rtlola-hir/badge.svg)](https://docs.rs/rtlola-hir)
+[![License](https://img.shields.io/crates/l/rtlola-hir)](https://crates.io/crates/rtlola-hir)
 
 RTLola is a stream-based runtime verification framework.  It parses an RTLola specification, analyses it, and generates executable monitors for it.
 The framework is separated into a front-end and several back-ends.
