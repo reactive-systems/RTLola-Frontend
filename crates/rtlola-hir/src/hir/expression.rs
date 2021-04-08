@@ -36,7 +36,7 @@ impl Expression {
         self.span.clone()
     }
 
-    /// Returns all stream that are synchronous accesses
+    /// Returns all streams that are synchronous accesses
     ///
     /// This function iterates over the [Expression] and retruns a vector of [StreamReference] identifying each stream that is synchronous accessed with its unique ID.
     pub(crate) fn get_sync_accesses(&self) -> Vec<StreamReference> {

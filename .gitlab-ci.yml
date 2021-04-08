@@ -3,7 +3,7 @@ stages:
   - clippy
   - check-ignored-tests
   - test
-#  - test-windows
+  #  - test-windows
   - test-nightly
   - docs
 
@@ -11,9 +11,12 @@ default:
   before_script:
     - cd crates
 
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
 ####### Use cargo to check the source code formatting #######
 
-# Todo: 
+# Todo:
 #  Remove: - rustup default nightly-2021-02-11
 #  Change: cargo +nightly-2021-02-11 fmt -> cargo +nightly fmt
 # Once rustfmt ist available in current nighlty release
@@ -64,6 +67,12 @@ format:frontend:
 clippy:reporting:
   stage: clippy
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustup component add clippy
     - rustc --version && cargo --version
@@ -72,6 +81,12 @@ clippy:reporting:
 clippy:parser:
   stage: clippy
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustup component add clippy
     - rustc --version && cargo --version
@@ -80,6 +95,12 @@ clippy:parser:
 clippy:macros:
   stage: clippy
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustup component add clippy
     - rustc --version && cargo --version
@@ -88,6 +109,12 @@ clippy:macros:
 clippy:hir:
   stage: clippy
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustup component add clippy
     - rustc --version && cargo --version
@@ -96,6 +123,12 @@ clippy:hir:
 clippy:frontend:
   stage: clippy
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustup component add clippy
     - rustc --version && cargo --version
@@ -141,6 +174,12 @@ ignored:frontend:
 test:reporting:
   stage: test
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -150,6 +189,12 @@ test:reporting:
 test:parser:
   stage: test
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -159,6 +204,12 @@ test:parser:
 test:macros:
   stage: test
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -168,6 +219,12 @@ test:macros:
 test:hir:
   stage: test
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -177,6 +234,12 @@ test:hir:
 test:frontend:
   stage: test
   image: rust:latest
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev
@@ -232,8 +295,14 @@ doc:reporting:
   stage: docs
   image: rust:latest
   variables:
-    RUSTDOCFLAGS: "-Dwarnings" 
+    RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-reporting --no-deps --verbose
@@ -242,8 +311,14 @@ doc:parser:
   stage: docs
   image: rust:latest
   variables:
-    RUSTDOCFLAGS: "-Dwarnings" 
+    RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-parser --no-deps --verbose
@@ -252,8 +327,14 @@ doc:macros:
   stage: docs
   image: rust:latest
   variables:
-    RUSTDOCFLAGS: "-Dwarnings" 
+    RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-macros --no-deps --verbose
@@ -262,8 +343,14 @@ doc:hir:
   stage: docs
   image: rust:latest
   variables:
-    RUSTDOCFLAGS: "-Dwarnings" 
+    RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-hir --no-deps --verbose
@@ -272,8 +359,14 @@ doc:frontend:
   stage: docs
   image: rust:latest
   variables:
-    RUSTDOCFLAGS: "-Dwarnings" 
+    RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
+  cache:
+    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   script:
     - rustc --version && cargo --version
     - cargo doc -p rtlola-frontend --no-deps --verbose
