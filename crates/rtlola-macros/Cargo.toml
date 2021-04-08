@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-macros"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Maximilian Schwenger <maximilian.schwenger@cispa.de>"]
 edition = "2018"
 description = "Procedural macros for more convenient handling of HirModes in the rtlola_hir crate."
