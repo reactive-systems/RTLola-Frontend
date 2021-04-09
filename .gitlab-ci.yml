@@ -3,8 +3,7 @@ stages:
   - clippy
   - check-ignored-tests
   - test
-  #  - test-windows
-  - test-nightly
+  - additional-test
   - docs
 
 default:
@@ -25,51 +24,46 @@ format:reporting:
   tags:
     - docker
   stage: check-format
-  image: rustlang/rust:nightly
+  image: instrumentisto/rust:nightly-2021-02-11
   script:
-    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly-2021-02-11 fmt -p rtlola-reporting --verbose -- --check
+    - cargo +nightly fmt -p rtlola-reporting --verbose -- --check
 
 format:parser:
   tags:
     - docker
   stage: check-format
-  image: rustlang/rust:nightly
+  image: instrumentisto/rust:nightly-2021-02-11
   script:
-    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly-2021-02-11 fmt -p rtlola-parser --verbose -- --check
+    - cargo +nightly fmt -p rtlola-parser --verbose -- --check
 
 format:macros:
   tags:
     - docker
   stage: check-format
-  image: rustlang/rust:nightly
+  image: instrumentisto/rust:nightly-2021-02-11
   script:
-    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly-2021-02-11 fmt -p rtlola-macros --verbose -- --check
+    - cargo +nightly fmt -p rtlola-macros --verbose -- --check
 
 format:hir:
   tags:
     - docker
   stage: check-format
-  image: rustlang/rust:nightly
+  image: instrumentisto/rust:nightly-2021-02-11
   script:
-    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly-2021-02-11 fmt -p rtlola-hir --verbose -- --check
+    - cargo +nightly fmt -p rtlola-hir --verbose -- --check
 
 format:frontend:
   tags:
     - docker
   stage: check-format
-  image: rustlang/rust:nightly
+  image: instrumentisto/rust:nightly-2021-02-11
   script:
-    - rustup default nightly-2021-02-11
     - rustc --version && cargo --version
-    - cargo +nightly-2021-02-11 fmt -p rtlola-frontend --verbose -- --check
+    - cargo +nightly fmt -p rtlola-frontend --verbose -- --check
 
 
 ####### Use cargo to run clippy (Rust linter) #######
@@ -79,8 +73,9 @@ clippy:reporting:
     - docker
   stage: clippy
   image: rust:latest
+  needs: ["format:reporting"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "reporting"
     policy: pull-push
     paths:
       - crates/target/
@@ -95,8 +90,9 @@ clippy:parser:
     - docker
   stage: clippy
   image: rust:latest
+  needs: ["format:parser"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "parser"
     policy: pull-push
     paths:
       - crates/target/
@@ -111,8 +107,9 @@ clippy:macros:
     - docker
   stage: clippy
   image: rust:latest
+  needs: ["format:macros"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "macros"
     policy: pull-push
     paths:
       - crates/target/
@@ -127,8 +124,9 @@ clippy:hir:
     - docker
   stage: clippy
   image: rust:latest
+  needs: ["format:hir"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "hir"
     policy: pull-push
     paths:
       - crates/target/
@@ -143,8 +141,9 @@ clippy:frontend:
     - docker
   stage: clippy
   image: rust:latest
+  needs: ["format:frontend"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "frontend"
     policy: pull-push
     paths:
       - crates/target/
@@ -160,6 +159,7 @@ ignored:reporting:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
+  needs: ["clippy:reporting"]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-reporting
@@ -169,6 +169,7 @@ ignored:parser:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
+  needs: ["clippy:parser"]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-parser
@@ -178,6 +179,7 @@ ignored:macros:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
+  needs: ["clippy:macros"]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-macros
@@ -187,6 +189,7 @@ ignored:hir:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
+  needs: ["clippy:hir"]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-hir
@@ -196,6 +199,7 @@ ignored:frontend:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
+  needs: ["clippy:frontend"]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-frontend
@@ -206,8 +210,9 @@ test:reporting:
     - docker
   stage: test
   image: rust:latest
+  needs: ["ignored:reporting"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "reporting"
     policy: pull-push
     paths:
       - crates/target/
@@ -223,8 +228,9 @@ test:parser:
     - docker
   stage: test
   image: rust:latest
+  needs: ["ignored:parser"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "parser"
     policy: pull-push
     paths:
       - crates/target/
@@ -240,8 +246,9 @@ test:macros:
     - docker
   stage: test
   image: rust:latest
+  needs: ["ignored:macros"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "macros"
     policy: pull-push
     paths:
       - crates/target/
@@ -257,8 +264,9 @@ test:hir:
     - docker
   stage: test
   image: rust:latest
+  needs: ["ignored:hir"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "hir"
     policy: pull-push
     paths:
       - crates/target/
@@ -274,8 +282,9 @@ test:frontend:
     - docker
   stage: test
   image: rust:latest
+  needs: ["ignored:frontend"]
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "frontend"
     policy: pull-push
     paths:
       - crates/target/
@@ -287,38 +296,48 @@ test:frontend:
     - cargo test -p rtlola-frontend --verbose
 
 ####### Use cargo to test the project on stable toolchain on windows #######
-# Todo: Reactivate when windows runner is working
-# test:windows:
-#   stage: test-windows
-#   tags:
-#     - windows
-#     - rust
-#   script:
-#     - rustup update
-#     - rustc --version
-#     - cargo --version
-#     - cargo test --all --verbose
+
+test:windows:
+  stage: additional-test
+  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  variables:
+    CARGO_HOME: "C:\\Users\\react\\.cargo"
+  tags:
+    - windows
+    - rust
+  script:
+    - rustup update
+    - rustc --version
+    - cargo --version
+    - cargo test --all --verbose
 
 ####### Use cargo to test the project on nightly toolchain #######
-cargo:test-nightly:
+test:nightly:
   tags:
     - docker
-  stage: test-nightly
+  stage: additional-test
   image: rustlang/rust:nightly
+  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  cache:
+    key: "nightly"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
   variables:
-    CARGO_INCREMENTAL: 0
-    RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
-    RUSTDOCFLAGS: "-Cpanic=abort"
+    RUSTFLAGS: "-Zinstrument-coverage"
+    LLVM_PROFILE_FILE: "json5format-%m.profraw"
   script:
+    - (rm -r ./target/debug/coverage/) || true
     - apt-get update -yqq
     - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
     - pip3 install junit-xml
-    - cargo install grcov
+    - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - cargo install cargo2junit
+    - rustup component add llvm-tools-preview
     - rustc --version && cargo --version      # Print version info for debugging
-    - cargo build
-    - (cargo test -- -Z unstable-options --format json | cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
-    - grcov ./target/debug/ -s . -t html --llvm --branch --ignore-not-existing -o ./target/debug/coverage/
+    - (cargo test -- -Z unstable-options --format json | $CARGO_HOME/bin/cargo2junit > results.xml) || true # ignore the return code so that we can show the complete output (including ignored tests)
+    - ./grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o ./target/debug/coverage/
     - cat ./target/debug/coverage/index.html
     - cargo test --all --verbose
   allow_failure: true
@@ -326,9 +345,9 @@ cargo:test-nightly:
   artifacts:
     when: always
     paths:
-      - target/debug/coverage/
+      - crates/target/debug/coverage/
     reports:
-      junit: results.xml
+      junit: crates/results.xml
 
 
 ####### Use cargo to test the docs for broken links #######
@@ -338,11 +357,12 @@ doc:reporting:
     - docker
   stage: docs
   image: rust:latest
+  needs: ["test:reporting"]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "reporting"
     policy: pull-push
     paths:
       - crates/target/
@@ -356,11 +376,12 @@ doc:parser:
     - docker
   stage: docs
   image: rust:latest
+  needs: ["test:parser"]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "parser"
     policy: pull-push
     paths:
       - crates/target/
@@ -374,11 +395,12 @@ doc:macros:
     - docker
   stage: docs
   image: rust:latest
+  needs: ["test:macros"]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "macros"
     policy: pull-push
     paths:
       - crates/target/
@@ -392,11 +414,12 @@ doc:hir:
     - docker
   stage: docs
   image: rust:latest
+  needs: ["test:hir"]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "hir"
     policy: pull-push
     paths:
       - crates/target/
@@ -410,11 +433,12 @@ doc:frontend:
     - docker
   stage: docs
   image: rust:latest
+  needs: ["test:frontend"]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
   cache:
-    key: "$CI_JOB_STAGE-$CI_COMMIT_REF_SLUG"
+    key: "frontend"
     policy: pull-push
     paths:
       - crates/target/
