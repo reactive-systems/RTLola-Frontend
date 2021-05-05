@@ -1,10 +1,11 @@
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
-    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, OrderedTrait, SlidingAggr, StreamReference,
-    TypedTrait, WidenExprKind, Window,
+    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
+    StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
+use rtlola_parser::ast::WindowOperation;
 
 use crate::mir;
 use crate::mir::{InstanceTemplate, Mir};
@@ -170,7 +171,7 @@ impl Mir {
             caller: win.caller,
             duration: win.aggr.duration,
             wait: win.aggr.wait,
-            op: win.aggr.op,
+            op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
         }
@@ -182,7 +183,7 @@ impl Mir {
             caller: win.caller,
             duration: win.aggr.duration,
             wait: win.aggr.wait,
-            op: win.aggr.op,
+            op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
         }
@@ -239,7 +240,7 @@ impl Mir {
             rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => {
                 mir::ExpressionKind::StreamAccess {
                     target: *sr,
-                    access_kind: *kind,
+                    access_kind: Self::lower_stream_access_kind(*kind),
                     parameters: para.iter().map(|p| Self::lower_expr(hir, p)).collect(),
                 }
             },
@@ -345,6 +346,40 @@ impl Mir {
             ArithLogOp::Ne => mir::ArithLogOp::Ne,
             ArithLogOp::Ge => mir::ArithLogOp::Ge,
             ArithLogOp::Gt => mir::ArithLogOp::Gt,
+        }
+    }
+
+    fn lower_window_operation(op: WindowOperation) -> mir::WindowOperation {
+        match op {
+            WindowOperation::Count => mir::WindowOperation::Count,
+            WindowOperation::Min => mir::WindowOperation::Min,
+            WindowOperation::Max => mir::WindowOperation::Max,
+            WindowOperation::Sum => mir::WindowOperation::Sum,
+            WindowOperation::Product => mir::WindowOperation::Product,
+            WindowOperation::Average => mir::WindowOperation::Average,
+            WindowOperation::Integral => mir::WindowOperation::Integral,
+            WindowOperation::Conjunction => mir::WindowOperation::Conjunction,
+            WindowOperation::Disjunction => mir::WindowOperation::Disjunction,
+        }
+    }
+
+    fn lower_stream_access_kind(kind: StreamAccessKind) -> mir::StreamAccessKind {
+        match kind {
+            StreamAccessKind::Sync => mir::StreamAccessKind::Sync,
+            StreamAccessKind::DiscreteWindow(wref) => mir::StreamAccessKind::DiscreteWindow(wref),
+            StreamAccessKind::SlidingWindow(wref) => mir::StreamAccessKind::SlidingWindow(wref),
+            StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
+            StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
+        }
+    }
+
+    fn lower_offset(offset: Offset) -> mir::Offset {
+        match offset {
+            Offset::FutureDiscrete(o) => mir::Offset::Future(o),
+            Offset::PastDiscrete(o) => mir::Offset::Past(o),
+            Offset::FutureRealTime(_) | Offset::PastRealTime(_) => {
+                unreachable!("Real-time Lookups should be already transformed to discrete lookups.")
+            },
         }
     }
 }

@@ -36,12 +36,13 @@ pub mod mir;
 use mir::Mir;
 use rtlola_hir::hir::TransformationErr;
 use rtlola_hir::{BaseMode, CompleteMode, HirErr};
-use rtlola_parser::{ParserConfig, RtLolaAst};
+use rtlola_parser::RtLolaAst;
 
 #[cfg(test)]
 mod tests;
 
 pub(crate) use rtlola_hir::hir::RtLolaHir;
+pub use rtlola_parser::ParserConfig;
 use rtlola_reporting::Handler;
 
 pub use crate::mir::RtLolaMir;
@@ -129,5 +130,15 @@ impl From<HirErr> for FrontEndErr {
 impl From<TransformationErr> for FrontEndErr {
     fn from(e: TransformationErr) -> FrontEndErr {
         Self::Analysis(HirErr::from(e))
+    }
+}
+
+//TODO: Do we want something like this?
+impl std::fmt::Display for FrontEndErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Parser(e) => write!(f, "Could not parse specification: {}", e),
+            Self::Analysis(e) => write!(f, "Specification is not valid: {:?}", e),
+        }
     }
 }

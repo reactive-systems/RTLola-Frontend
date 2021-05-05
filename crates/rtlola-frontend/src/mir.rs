@@ -23,12 +23,14 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use num::traits::Inv;
-use rtlola_hir::hir::*;
-use rtlola_parser::ast::WindowOperation; // Re-export needed for IR
+use rtlola_hir::hir::ConcreteValueType;
+pub use rtlola_hir::hir::{
+    InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
+};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-use crate::mir::schedule::Schedule;
+pub use crate::mir::schedule::{Deadline, Schedule};
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -473,6 +475,29 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// The Ast representation of the different aggregation functions
+pub enum WindowOperation {
+    /// Aggregation function to count the number of updated values on the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the integral
+    Integral,
+    /// Aggregation function to return the conjunction, i.e., the sliding window returns true iff ALL values on the accessed stream inside a window are assigned to true
+    Conjunction,
+    /// Aggregation function to return the disjunction, i.e., the sliding window returns true iff AT LEAst ONE value on the accessed stream inside a window is assigned to true
+    Disjunction,
+}
+
 ////////// Implementations //////////
 impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
@@ -593,6 +618,11 @@ impl RtLolaMir {
     /// Provides a collection of all time-driven output streams.
     pub fn all_time_driven(&self) -> Vec<&OutputStream> {
         self.time_driven.iter().map(|t| self.output(t.reference)).collect()
+    }
+
+    /// Provides the activation contion of a event-driven stream and none if the stream is time-driven
+    pub fn get_ac(&self, sref: StreamReference) -> Option<&ActivationCondition> {
+        self.event_driven.iter().find(|e| e.reference == sref).map(|e| &e.ac)
     }
 
     /// Provides immutable access to a discrete window.
@@ -716,5 +746,55 @@ impl std::ops::Add for ValSize {
 
     fn add(self, rhs: ValSize) -> ValSize {
         ValSize(self.0 + rhs.0)
+    }
+}
+
+/// Representation of the different stream accesses
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StreamAccessKind {
+    /// Represents the synchronous access
+    Sync,
+    /// Represents the access to a (discrete window)[DiscreteAggr]
+    ///
+    /// The argument contains the reference to the (discrete window)[DiscreteAggr] whose value is used in the [Expression].
+    DiscreteWindow(WindowReference),
+    /// Represents the access to a (sliding window)[SlidingAggr]
+    ///
+    /// The argument contains the reference to the (sliding window)[SlidingAggr] whose value is used in the [Expression].
+    SlidingWindow(WindowReference),
+    /// Representation of sample and hold accesses
+    Hold,
+    /// Representation of offset accesses
+    ///
+    /// The argument contains the [Offset] of the stream access.
+    Offset(Offset),
+}
+
+/// Offset used in the lookup expression
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Offset {
+    /// A strictly positive discrete offset, e.g., `4`, or `42`
+    Future(u32),
+    /// A non-negative discrete offset, e.g., `0`, `-4`, or `-42`
+    Past(u32),
+}
+
+impl PartialOrd for Offset {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+
+        use Offset::*;
+        match (self, other) {
+            (Past(_), Future(_)) => Some(Ordering::Less),
+            (Future(_), Past(_)) => Some(Ordering::Greater),
+            (Future(a), Future(b)) => Some(a.cmp(b)),
+            (Past(a), Past(b)) => Some(b.cmp(a)),
+        }
+    }
+}
+
+impl Ord for Offset {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
     }
 }
