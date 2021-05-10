@@ -15,6 +15,7 @@ impl Mir {
     pub(crate) fn from_hir(hir: RtLolaHir<CompleteMode>) -> Mir {
         let inputs = hir
             .inputs()
+            .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
             .map(|i| {
                 let sr = i.sr();
                 mir::InputStream {
@@ -28,7 +29,8 @@ impl Mir {
                 }
             })
             .collect::<Vec<mir::InputStream>>();
-        // assert that each sr is available
+        assert!(inputs.iter().enumerate().all(|(idx, i)| idx == i.reference.in_ix()), "SRefs need to enumerated from 0 to the number of streams");
+
         let outputs = hir
             .outputs()
             .map(|o| {
@@ -78,14 +80,9 @@ impl Mir {
             .chain(trigger_streams.into_iter())
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
-        //TODO: change SR if streams are deleted during a transformation
-        assert!(
-            outputs
-                .iter()
-                .enumerate()
-                .all(|(index, o)| index == o.reference.out_ix()),
-            "SRefs need to enumerated from 0 to the number of streams"
-        );
+
+        assert!(outputs.iter().enumerate().all(|(idx, o)| idx == o.reference.out_ix()), "SRefs need to enumerated from 0 to the number of streams");
+
         let time_driven = outputs
             .iter()
             .filter(|o| hir.is_periodic(o.reference))
@@ -100,13 +97,19 @@ impl Mir {
         let discrete_windows = hir
             .discrete_windows()
             .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
             .map(|win| Self::lower_discrete_window(&hir, win))
             .collect::<Vec<mir::DiscreteWindow>>();
+        assert!(discrete_windows.iter().enumerate().all(|(idx, w)| idx == w.reference.idx()), "WRefs need to enumerated from 0 to the number of discrete windows");
+
         let sliding_windows = hir
             .sliding_windows()
             .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
             .map(|win| Self::lower_sliding_window(&hir, win))
             .collect::<Vec<mir::SlidingWindow>>();
+        assert!(sliding_windows.iter().enumerate().all(|(idx, w)| idx == w.reference.idx()), "WRefs need to enumerated from 0 to the number of sliding windows");
+
         Mir {
             inputs,
             outputs,
