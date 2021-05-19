@@ -74,19 +74,11 @@ lazy_static! {
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
 
-    // fn matches(String, regex: String) -> Bool
-    static ref MATCHES_STRING_REGEX: FuncDecl = FuncDecl {
+    // fn matches<T: Sequence>(T, regex: String) -> Bool
+    static ref MATCHES: FuncDecl = FuncDecl {
         name: FunctionName::new("matches".to_string(), &[None, Some("regex".to_string())]),
-        generics: vec![],
-        parameters: vec![AnnotatedType::String, AnnotatedType::String],
-        return_type: AnnotatedType::Bool,
-    };
-
-    // fn matches(Bytes, regex: String) -> Bool
-    static ref MATCHES_BYTES_REGEX: FuncDecl = FuncDecl {
-        name: FunctionName::new("matches".to_string(), &[None, Some("regex".to_string())]),
-        generics: vec![],
-        parameters: vec![AnnotatedType::Bytes, AnnotatedType::String],
+        generics: vec![AnnotatedType::Sequence],
+        parameters: vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::String],
         return_type: AnnotatedType::Bool,
     };
 
@@ -111,7 +103,7 @@ lazy_static! {
 }
 
 pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
-    vec![&WIDEN, &CAST]
+    vec![&WIDEN, &CAST, &BYTES_AT]
 }
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
@@ -119,7 +111,7 @@ pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
 }
 
 pub(crate) fn regex_module() -> Vec<&'static FuncDecl> {
-    vec![&MATCHES_STRING_REGEX]
+    vec![&MATCHES]
 }
 
 lazy_static! {

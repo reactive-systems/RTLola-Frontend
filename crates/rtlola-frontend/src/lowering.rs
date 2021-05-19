@@ -29,7 +29,10 @@ impl Mir {
                 }
             })
             .collect::<Vec<mir::InputStream>>();
-        assert!(inputs.iter().enumerate().all(|(idx, i)| idx == i.reference.in_ix()), "SRefs need to enumerated from 0 to the number of streams");
+        assert!(
+            inputs.iter().enumerate().all(|(idx, i)| idx == i.reference.in_ix()),
+            "SRefs need to enumerated from 0 to the number of streams"
+        );
 
         let outputs = hir
             .outputs()
@@ -81,7 +84,10 @@ impl Mir {
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
-        assert!(outputs.iter().enumerate().all(|(idx, o)| idx == o.reference.out_ix()), "SRefs need to enumerated from 0 to the number of streams");
+        assert!(
+            outputs.iter().enumerate().all(|(idx, o)| idx == o.reference.out_ix()),
+            "SRefs need to enumerated from 0 to the number of streams"
+        );
 
         let time_driven = outputs
             .iter()
@@ -100,7 +106,13 @@ impl Mir {
             .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
             .map(|win| Self::lower_discrete_window(&hir, win))
             .collect::<Vec<mir::DiscreteWindow>>();
-        assert!(discrete_windows.iter().enumerate().all(|(idx, w)| idx == w.reference.idx()), "WRefs need to enumerated from 0 to the number of discrete windows");
+        assert!(
+            discrete_windows
+                .iter()
+                .enumerate()
+                .all(|(idx, w)| idx == w.reference.idx()),
+            "WRefs need to enumerated from 0 to the number of discrete windows"
+        );
 
         let sliding_windows = hir
             .sliding_windows()
@@ -108,7 +120,13 @@ impl Mir {
             .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
             .map(|win| Self::lower_sliding_window(&hir, win))
             .collect::<Vec<mir::SlidingWindow>>();
-        assert!(sliding_windows.iter().enumerate().all(|(idx, w)| idx == w.reference.idx()), "WRefs need to enumerated from 0 to the number of sliding windows");
+        assert!(
+            sliding_windows
+                .iter()
+                .enumerate()
+                .all(|(idx, w)| idx == w.reference.idx()),
+            "WRefs need to enumerated from 0 to the number of sliding windows"
+        );
 
         Mir {
             inputs,

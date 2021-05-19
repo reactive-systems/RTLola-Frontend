@@ -391,9 +391,15 @@ impl<'b> NamingAnalysis<'b> {
                 self.check_expression(accessed);
                 self.check_expression(default);
             },
-            Method(expr, _, types, args) => {
-                self.check_expression(expr);
+            Method(expr, name, types, args) => {
+                // Method is equal to function with `expr` as first argument
+                let func_name = FunctionName {
+                    name: name.name.clone(),
+                    arg_names: vec![None].into_iter().chain(name.arg_names.clone()).collect(),
+                };
+                self.check_function(expression, &func_name);
                 types.iter().for_each(|ty| self.check_type(ty));
+                self.check_expression(expr);
                 args.iter().for_each(|expr| self.check_expression(expr));
             },
         }

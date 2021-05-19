@@ -211,6 +211,10 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
             },
+            AnnotatedType::Sequence => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
+            },
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
             },
@@ -740,6 +744,7 @@ where
         match at {
             AnnotatedType::Param(idx, _) => Ok(to[*idx]),
             AnnotatedType::Numeric
+            | AnnotatedType::Sequence
             | AnnotatedType::Int(_)
             | AnnotatedType::Float(_)
             | AnnotatedType::UInt(_)
@@ -1732,5 +1737,17 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math output c @1Hz := sqrt(13.37) + cos(13)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_matches() {
+        let spec = "import regex\ninput s: String\ninput b: Bytes\noutput c: Bool := s.matches<String>(regex:\"hello\") && b.matches<Bytes>(regex:\"world\")";
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn test_max() {
+        let spec = "import math\ninput s: Int16\ninput b: Int16\noutput c := max<Int16>(s, b)";
+        assert_eq!(0, complete_check(spec));
     }
 }

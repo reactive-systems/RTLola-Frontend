@@ -40,7 +40,7 @@ pub(crate) enum ValueErrorKind {
     UnnecessaryTypeParam(Span),
 }
 
-/// The [AbstractValueType] is used during inference and represents a value within the type latticec
+/// The [AbstractValueType] is used during inference and represents a value within the type lattice
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum AbstractValueType {
     Any,
@@ -52,6 +52,7 @@ pub(crate) enum AbstractValueType {
     Bool,
     AnyTuple,
     Tuple(usize),
+    Sequence,
     String,
     Bytes,
     Option,
@@ -103,6 +104,9 @@ impl Variant for AbstractValueType {
             (Tuple(size_l), Tuple(size_r)) if size_l == size_r => Ok((Tuple(size_l), size_l)),
             (Tuple(size_l), Tuple(size_r)) => Err(TupleSize(size_l, size_r)),
             (Tuple(_), _) | (_, Tuple(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Sequence, String) | (String, Sequence) => Ok((String, 0)),
+            (Sequence, Bytes) | (Bytes, Sequence) => Ok((Bytes, 0)),
+            (Sequence, _) | (_, Sequence) => Err(TypeClash(lhs.variant, rhs.variant)),
             (String, String) => Ok((String, 0)),
             (String, _) | (_, String) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Bytes, Bytes) => Ok((Bytes, 0)),
@@ -122,7 +126,9 @@ impl Variant for AbstractValueType {
             Any | AnyTuple => Arity::Variable,
             Tuple(x) => Arity::Fixed(*x),
             Option => Arity::Fixed(1),
-            Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | String | Bytes => Arity::Fixed(0),
+            Numeric | Integer | SInteger(_) | UInteger(_) | Float(_) | Bool | Sequence | String | Bytes => {
+                Arity::Fixed(0)
+            },
         }
     }
 }
@@ -152,6 +158,7 @@ impl Constructable for AbstractValueType {
             AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
             AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
             AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),
+            AbstractValueType::Sequence => Err(CannotReify(*self)),
             AbstractValueType::String => Ok(ConcreteValueType::TString),
             AbstractValueType::Bytes => Ok(ConcreteValueType::Byte),
             AbstractValueType::Option => Ok(ConcreteValueType::Option(Box::new(children[0].clone()))),
@@ -191,7 +198,7 @@ impl ConcreteValueType {
                 ConcreteValueType::from_annotated_type(child).map(|child| ConcreteValueType::Option(Box::new(child)))
             },
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
-
+            AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
         }
     }
@@ -210,8 +217,9 @@ impl Display for AbstractValueType {
             AbstractValueType::AnyTuple => write!(f, "AnyTuple"),
             AbstractValueType::Tuple(w) => write!(f, "{}Tuple", *w),
             AbstractValueType::String => write!(f, "String"),
-            AbstractValueType::Bytes => write!(f, "String"),
+            AbstractValueType::Bytes => write!(f, "Bytes"),
             AbstractValueType::Option => write!(f, "Option<?>"),
+            AbstractValueType::Sequence => write!(f, "Sequence"),
         }
     }
 }
