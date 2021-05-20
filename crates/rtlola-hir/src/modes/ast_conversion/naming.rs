@@ -438,15 +438,11 @@ impl ScopedDecl {
     }
 
     fn get_decl_in_current_scope_for(&self, name: &DeclName) -> Option<Declaration> {
-        match self
-            .scopes
+        self.scopes
             .last()
             .expect("It appears that we popped the global context.")
             .get(name)
-        {
-            Some(decl) => Some(decl.clone()),
-            None => None,
-        }
+            .cloned()
     }
 
     /// Adds a new declaration to the scope. Requires MANUEL check for duplicate definitions.

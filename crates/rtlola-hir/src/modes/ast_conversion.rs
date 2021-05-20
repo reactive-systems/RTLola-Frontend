@@ -310,7 +310,7 @@ impl ExpressionTransformer {
                         Ok((
                             self.stream_by_name[&o.name.name],
                             args.iter()
-                                .map(|e| self.transform_expression(*e.clone(), current_output))
+                                .map(|e| self.transform_expression(e.clone(), current_output))
                                 .collect::<Result<Vec<_>, TransformationErr>>()?,
                         ))
                     },
@@ -580,7 +580,7 @@ impl ExpressionTransformer {
                 ExpressionKind::Tuple(
                     inner
                         .into_iter()
-                        .map(|ex| self.transform_expression(*ex, current_output))
+                        .map(|ex| self.transform_expression(ex, current_output))
                         .collect::<Result<Vec<_>, TransformationErr>>()?,
                 )
             },
@@ -591,11 +591,17 @@ impl ExpressionTransformer {
             },
             ast::ExpressionKind::Method(base, name, type_param, mut args) => {
                 // Method Access is same as function application with base as first parameter
-                args.insert(0, base);
-                self.transfrom_function(false, ast_expression.id, &span, current_output, name, type_param, args)?
+                args.insert(0, *base);
+                self.transfrom_function(
+                    false,
+                    ast_expression.id,
+                    &span,
+                    current_output,
+                    ast::ExpressionKind::Function(name, type_param, args),
+                )?
             },
-            ast::ExpressionKind::Function(name, type_param, args) => {
-                self.transfrom_function(true, ast_expression.id, &span, current_output, name, type_param, args)?
+            ast::ExpressionKind::Function(..) => {
+                self.transfrom_function(true, ast_expression.id, &span, current_output, ast_expression.kind)?
             },
         };
         Ok(Expression {
@@ -612,10 +618,13 @@ impl ExpressionTransformer {
         id: NodeId,
         span: &Span,
         current_output: SRef,
-        name: FunctionName,
-        type_param: Vec<Type>,
-        args: Vec<Box<ast::Expression>>,
+        kind: ast::ExpressionKind,
     ) -> Result<ExpressionKind, TransformationErr> {
+        let (name, type_param, args) = if let ast::ExpressionKind::Function(name, type_param, args) = kind {
+            (name, type_param, args)
+        } else {
+            unreachable!()
+        };
         let decl = self
             .decl_table
             .get(&id)
@@ -625,7 +634,7 @@ impl ExpressionTransformer {
                 let name = name.name.name;
                 let args: Vec<Expression> = args
                     .into_iter()
-                    .map(|ex| self.transform_expression(*ex, current_output))
+                    .map(|ex| self.transform_expression(ex, current_output))
                     .collect::<Result<Vec<_>, TransformationErr>>()?;
 
                 if name.starts_with("widen") {
@@ -662,7 +671,7 @@ impl ExpressionTransformer {
                         self.stream_by_name[&name.name.name],
                         IRAccess::Sync,
                         args.into_iter()
-                            .map(|ex| self.transform_expression(*ex, current_output))
+                            .map(|ex| self.transform_expression(ex, current_output))
                             .collect::<Result<Vec<_>, TransformationErr>>()?,
                     ))
                 } else {

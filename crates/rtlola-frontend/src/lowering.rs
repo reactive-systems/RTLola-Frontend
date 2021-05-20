@@ -131,11 +131,11 @@ impl Mir {
         Mir {
             inputs,
             outputs,
-            triggers,
-            event_driven,
             time_driven,
-            sliding_windows,
+            event_driven,
             discrete_windows,
+            sliding_windows,
+            triggers,
         }
     }
 

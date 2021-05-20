@@ -66,8 +66,8 @@ impl Schedule {
 
         let hyper_period = Duration::from_nanos(hyper_period.get::<nanosecond>().to_integer().to_u64().unwrap());
         Ok(Schedule {
-            deadlines,
             hyper_period,
+            deadlines,
         })
     }
 

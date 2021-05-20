@@ -369,7 +369,7 @@ impl Emittable for PacingErrorKind {
                     handler,
                     format!(
                         "In pacing type analysis:\nInferred complex pacing type: {}",
-                        inferred.to_string(names)
+                        inferred.to_pretty_string(names)
                     )
                     .as_str(),
                 )
@@ -377,7 +377,7 @@ impl Emittable for PacingErrorKind {
                 .add_note(
                     format!(
                         "Help: Consider annotating the type explicitly for better readability using: @{}",
-                        inferred.to_string(names)
+                        inferred.to_pretty_string(names)
                     )
                     .as_str(),
                 )
@@ -412,7 +412,7 @@ impl Emittable for PacingErrorKind {
                 let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
                     format!(
                         "\nspawn @{} with <...> if {}",
-                        pacing.to_string(names),
+                        pacing.to_pretty_string(names),
                         cond.pretty_string(names)
                     )
                 });
@@ -430,8 +430,8 @@ impl Emittable for PacingErrorKind {
                     .emit();
             },
             PacingTypeMismatch(bound, inferred) => {
-                let bound_str = bound.to_string(names);
-                let inferred_str = inferred.to_string(names);
+                let bound_str = bound.to_pretty_string(names);
+                let inferred_str = inferred.to_pretty_string(names);
                 let bound_span = key1.map(|k| pacing_spans[&k].clone());
                 let inferred_span = key2.and_then(|k| pacing_spans.get(&k).cloned());
                 Diagnostic::error(
@@ -459,7 +459,7 @@ impl Emittable for PacingErrorKind {
                 Some(
                     format!(
                         "Found accessing stream here with: spawn @{} <...> if {}",
-                        access_pacing.to_string(names),
+                        access_pacing.to_pretty_string(names),
                         access_condition.pretty_string(names)
                     )
                     .as_str(),
@@ -736,14 +736,14 @@ impl Constructable for AbstractExpressionType {
             Self::Any => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
-                    eid: ExprId(u32::max_value()),
+                    eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
             Self::AnyClose => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
-                    eid: ExprId(u32::max_value()),
+                    eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
@@ -764,7 +764,7 @@ impl std::fmt::Display for AbstractExpressionType {
 
 impl ConcretePacingType {
     /// Pretty print function for [ConcretePacingType].
-    pub fn to_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    pub fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
             ConcretePacingType::FixedPeriodic(freq) => {

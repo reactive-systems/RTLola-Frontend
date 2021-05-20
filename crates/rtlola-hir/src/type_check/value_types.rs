@@ -38,6 +38,8 @@ pub(crate) enum ValueErrorKind {
     ChildConstruction(Box<Self>, AbstractValueType, usize),
     /// A function call has more type parameters then needed or expected
     UnnecessaryTypeParam(Span),
+    /// Inner expression of widen is wider than target width
+    InvalidWiden(ConcreteValueType, ConcreteValueType),
 }
 
 /// The [AbstractValueType] is used during inference and represents a value within the type lattice
@@ -83,9 +85,15 @@ impl Variant for AbstractValueType {
             (other, Any) => Ok((other, lhs.least_arity)),
             (Numeric, Numeric) => Ok((Numeric, 0)),
             (Integer, Integer) => Ok((Integer, 0)),
-            (SInteger(l), SInteger(r)) => Ok((SInteger(max(r, l)), 0)),
-            (UInteger(l), UInteger(r)) => Ok((UInteger(max(r, l)), 0)),
-            (Float(l), Float(r)) => Ok((Float(max(l, r)), 0)),
+            (SInteger(l), SInteger(r)) if l == r => Ok((SInteger(l), 0)),
+            (SInteger(1), SInteger(r)) | (SInteger(r), SInteger(1)) => Ok((SInteger(r), 0)),
+            (SInteger(_), SInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (UInteger(l), UInteger(r)) if l == r => Ok((UInteger(l), 0)),
+            (UInteger(1), UInteger(r)) | (UInteger(r), UInteger(1)) => Ok((UInteger(r), 0)),
+            (UInteger(_), UInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Float(l), Float(r)) if l == r => Ok((Float(l), 0)),
+            (Float(1), Float(r)) | (Float(r), Float(1)) => Ok((Float(r), 0)),
+            (Float(_), Float(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Bool, Bool) => Ok((Bool, 0)),
             (Bool, _) | (_, Bool) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Numeric, Integer) | (Integer, Numeric) => Ok((Integer, 0)),
@@ -200,6 +208,28 @@ impl ConcreteValueType {
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
+        }
+    }
+
+    /// Return the width of numeric types
+    pub(crate) fn width(&self) -> Option<usize> {
+        use ConcreteValueType::*;
+        match self {
+            Bool => None,
+            Integer8 => Some(8),
+            Integer16 => Some(16),
+            Integer32 => Some(32),
+            Integer64 => Some(64),
+            UInteger8 => Some(8),
+            UInteger16 => Some(16),
+            UInteger32 => Some(32),
+            UInteger64 => Some(64),
+            Float32 => Some(32),
+            Float64 => Some(64),
+            Tuple(_) => None,
+            TString => None,
+            Byte => None,
+            Option(_) => None,
         }
     }
 }
@@ -400,13 +430,13 @@ impl Emittable for ValueErrorKind {
                 )
                 .maybe_add_span_with_label(
                     key1.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Expected {} here", expected)),
-                    true,
+                    Some(&format!("Found {} here", expected)),
+                    false,
                 )
                 .maybe_add_span_with_label(
                     key2.and_then(|k| spans.get(&k).cloned()),
                     Some(&format!("But inferred {} here", inferred)),
-                    false,
+                    true,
                 )
                 .emit()
             },
@@ -455,6 +485,15 @@ impl Emittable for ValueErrorKind {
                     "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
                 )
                     .add_span_with_label(span, Some("here"), true)
+                    .emit()
+            },
+            ValueErrorKind::InvalidWiden(bound, inner) => {
+                Diagnostic::error(
+                    handler,
+                    &format!("In value type analysis:\nInvalid application of the widen operator.\nTarget width is {} but supplied width is {}.", bound.width().unwrap_or(0), inner.width().unwrap_or(0))
+                )
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Widen with traget {} is found here", bound)), false)
+                    .maybe_add_span_with_label(key2.and_then(|k| spans.get(&k).cloned()), Some(&format!("Inferred type {} here", inner)), true)
                     .emit()
             }
         }
