@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-hir"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <florian.kohn@cispa.de>",
@@ -11,7 +11,7 @@ edition = "2018"
 description = "A high-level intermediate representation for RTLola specifications."
 readme = "README.md"
 homepage = "http://rtlola.org"
-repository = "https://github.com/reactive-systems/rtlola-frontend"
+repository = "https://github.com/reactive-systems/RTLola-Frontend"
 license = "Apache-2.0"
 keywords = ["verification", "frontend", "monitoring", "analyzer", "hir"]
 
