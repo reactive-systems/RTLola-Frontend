@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
 use super::{FloatTy, IntTy, UIntTy};
-use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, StreamAccessKind, Type};
+use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -52,6 +52,9 @@ impl Display for Expression {
                     StreamAccessKind::Offset(offset) => write!(f, "{}.offset({})", sr, offset),
                     StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
                 }
+            },
+            ExpressionKind::ParameterAccess(sr, idx) => {
+                write!(f, "Parameter({}, {})", sr, idx)
             },
             ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
         }
@@ -165,4 +168,13 @@ pub(crate) fn write_delim_list<T: Display>(
     }
     write!(f, "{}", suff)?;
     Ok(())
+}
+
+impl Display for Offset {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Offset::Past(u) => write!(f, "{}", u),
+            _ => unimplemented!(),
+        }
+    }
 }

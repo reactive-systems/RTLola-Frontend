@@ -45,6 +45,8 @@ where
     pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
     /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcreteValueType, Option<TcKey>)>,
+    /// Stores all widen checks during HIR climbing, resolved and checked during post process.
+    pub(crate) widen_checks: HashMap<TcKey, (ConcreteValueType, TcKey)>,
     /// Lookup table for the name of a given stream.
     pub(crate) names: &'a HashMap<StreamReference, &'a str>,
 }
@@ -64,6 +66,7 @@ where
         let mut node_key = HashMap::new();
         let mut key_span = HashMap::new();
         let annotated_checks = HashMap::new();
+        let widen_checks = HashMap::new();
 
         for input in hir.inputs() {
             let key = tyc.get_var_key(&Variable(input.name.clone()));
@@ -92,6 +95,7 @@ where
             hir,
             pacing_tt,
             annotated_checks,
+            widen_checks,
             names,
         }
     }
@@ -130,6 +134,11 @@ where
         for err in Self::check_explicit_bounds(self.annotated_checks.clone(), &tt) {
             err.emit(handler, &[&self.key_span], &self.names);
         }
+
+        for err in Self::check_widen_exprs(self.widen_checks.clone(), &tt) {
+            err.emit(handler, &[&self.key_span], &self.names);
+        }
+
         if handler.contains_error() {
             return None;
         }
@@ -166,6 +175,23 @@ where
             }
         })?;
         self.annotated_checks.insert(target, (concrete_type, conflict_key));
+        Ok(())
+    }
+
+    fn add_widen_check(
+        &mut self,
+        term_key: TcKey,
+        inner_expr_key: TcKey,
+        ty: &AnnotatedType,
+    ) -> Result<(), TypeError<ValueErrorKind>> {
+        let concrete_type = ConcreteValueType::from_annotated_type(ty).map_err(|reason| {
+            TypeError {
+                kind: reason,
+                key1: Some(term_key),
+                key2: None,
+            }
+        })?;
+        self.widen_checks.insert(inner_expr_key, (concrete_type, term_key));
         Ok(())
     }
 
@@ -210,6 +236,10 @@ where
             AnnotatedType::Numeric => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
+            },
+            AnnotatedType::Sequence => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
             },
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
@@ -486,7 +516,7 @@ where
                                     self.tyc
                                         .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                                    self.tyc.impose(inner_key.equate_with(target_key))?;
+                                    self.tyc.impose(inner_key.concretizes(target_key))?;
                                 } else {
                                     self.tyc.impose(term_key.concretizes(target_key))?;
                                 }
@@ -655,18 +685,16 @@ where
                 let inner_expr_key = self.expression_infer(inner, None)?;
                 // Bind expr type to least restrictive version of the variant i.e. e.g. Integer w/ width of 1 bit.
                 // Also bind the result to the type annotation of the widening call.
-                let (upper_bound, type_bound) = match ty {
-                    AnnotatedType::UInt(x) => (AbstractValueType::UInteger(1), AbstractValueType::UInteger(*x)),
-                    AnnotatedType::Int(x) => (AbstractValueType::SInteger(1), AbstractValueType::SInteger(*x)),
-                    AnnotatedType::Float(x) => (AbstractValueType::Float(1), AbstractValueType::Float(*x)),
+                let upper_bound = match ty {
+                    AnnotatedType::UInt(_) => AbstractValueType::UInteger(1),
+                    AnnotatedType::Int(_) => AbstractValueType::SInteger(1),
+                    AnnotatedType::Float(_) => AbstractValueType::Float(1),
                     _ => unimplemented!("unsupported widening type"),
                 };
-                let internal_key = self.tyc.new_term_key();
-                self.key_span.insert(internal_key, exp.span.clone());
-                self.tyc.impose(internal_key.concretizes_explicit(type_bound))?;
+                self.handle_annotated_type(term_key, &ty, Some(inner_expr_key))?;
                 self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
-                self.tyc.impose(internal_key.concretizes(inner_expr_key))?;
-                self.tyc.impose(term_key.equate_with(internal_key))?;
+                self.add_widen_check(term_key, inner_expr_key, &ty)?;
+                //self.tyc.impose(term_key.concretizes(inner_expr_key))?;
             },
             ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
                 // type_param.len() <= generics.len()
@@ -712,7 +740,7 @@ where
                         // Replace reference to generic with generic key
                         let p = self.replace_type(param, &generics)?;
                         let arg_key = self.expression_infer(&*arg, None)?;
-                        self.tyc.impose(arg_key.concretizes(p))?;
+                        self.tyc.impose(arg_key.equate_with(p))?;
                         Ok(())
                     })
                     .collect::<Result<Vec<()>, TypeError<ValueErrorKind>>>()?;
@@ -740,6 +768,7 @@ where
         match at {
             AnnotatedType::Param(idx, _) => Ok(to[*idx]),
             AnnotatedType::Numeric
+            | AnnotatedType::Sequence
             | AnnotatedType::Int(_)
             | AnnotatedType::Float(_)
             | AnnotatedType::UInt(_)
@@ -771,6 +800,28 @@ where
                     })
                 } else {
                     None
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn check_widen_exprs(
+        widen_checks: HashMap<TcKey, (ConcreteValueType, TcKey)>,
+        tt: &TypeTable<AbstractValueType>,
+    ) -> Vec<TypeError<ValueErrorKind>> {
+        widen_checks
+            .into_iter()
+            .filter_map(|(inner_key, (bound, parent))| {
+                let resolved = tt[&inner_key].clone();
+                match (bound.width(), resolved.width()) {
+                    (Some(bound_width), Some(inner_width)) if inner_width > bound_width => {
+                        Some(TypeError {
+                            kind: ValueErrorKind::InvalidWiden(bound, resolved),
+                            key1: Some(parent),
+                            key2: Some(inner_key),
+                        })
+                    },
+                    _ => None,
                 }
             })
             .collect()
@@ -1021,7 +1072,7 @@ mod value_type_tests {
     }
 
     #[test]
-    fn simple_invalid_wideing() {
+    fn simple_invalid_widening() {
         let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := widen<Int8>(c)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
@@ -1487,7 +1538,7 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_window_widening() {
-        let spec = "input in: Int8\n output out: Int64 @5Hz:= in.aggregate(over: 3s, using: Σ)";
+        let spec = "input in: Int8\n output out: Int64 @5Hz:= widen<Int64>(in.aggregate(over: 3s, using: Σ))";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
@@ -1730,6 +1781,42 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn math_function_wrong_arg_type() {
         let spec = "import math output c @1Hz := sqrt(13.37) + cos(13)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_matches() {
+        let spec = "import regex\ninput s: String\ninput b: Bytes\noutput c: Bool := s.matches<String>(regex:\"hello\") && b.matches<Bytes>(regex:\"world\")";
+        assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn test_max() {
+        let spec = "import math\ninput s: Int16\ninput b: Int16\noutput c := max(s, b)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("c");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+    }
+
+    #[test]
+    fn test_error_msg_bounds() {
+        let spec = "input a: UInt8\noutput b: UInt16 := if true then a else a[-1].defaults(to: 0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_error_msg_bounds2() {
+        let spec = "output a: UInt8 @1Hz := 5\noutput b: UInt16 := if true then a else a[-1].defaults(to: 0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_error_faulty_widen() {
+        let spec = "input a: Int32\noutput b: Int16 := widen<Int16>(a)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
