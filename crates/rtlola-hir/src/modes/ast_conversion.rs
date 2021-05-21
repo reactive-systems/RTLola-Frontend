@@ -57,7 +57,8 @@ impl Hir<BaseMode> {
     }
 }
 
-/// The Hir Spawn Condition is defined by a pair of two expressions.
+/// The Hir Spawn definition is composed of two optional expressions.
+/// The first one refers to the spawn target while the second one represents the spawn condition.
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 /// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.

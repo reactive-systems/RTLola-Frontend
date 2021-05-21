@@ -2,10 +2,20 @@ use std::time::Duration;
 
 use num::rational::Rational64 as Rational;
 use num::{One, ToPrimitive};
+use uom::num_traits::Inv;
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
-use crate::mir::{OutputReference, RtLolaMir, Stream};
+use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
+
+/// This enum represents the different tasks that have to be executed periodically.
+#[derive(Debug, Clone, Copy)]
+pub enum Task {
+    /// Evaluate the stream referred to by the OutputReference
+    Evaluate(OutputReference),
+    /// Spawn the stream referred to by the OutputReference
+    Spawn(OutputReference),
+}
 
 /// This struct represents a single deadline inside a [Schedule].
 ///
@@ -19,7 +29,7 @@ pub struct Deadline {
     /// The time delay between the current deadline and the next.
     pub pause: Duration,
     /// The set of streams affected by this deadline.
-    pub due: Vec<OutputReference>,
+    pub due: Vec<Task>,
 }
 
 ///
@@ -55,7 +65,19 @@ impl Schedule {
     /// # Fail
     /// Fails if the resulting schedule would require at least 10^7 deadlines.
     pub(crate) fn from(ir: &RtLolaMir) -> Result<Schedule, String> {
-        let periods: Vec<UOM_Time> = ir.time_driven.iter().map(|s| s.period()).collect();
+        let periods: Vec<UOM_Time> = ir
+            .time_driven
+            .iter()
+            .map(|s| s.period())
+            .chain(ir.outputs.iter().filter_map(|o| {
+                match &o.instance_template.spawn.pacing {
+                    PacingType::Periodic(freq) => {
+                        Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+                    },
+                    _ => None,
+                }
+            }))
+            .collect();
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
 
@@ -95,7 +117,7 @@ impl Schedule {
     /// Hyper-period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
     /// Input:  `[[a] [b]   []  [c]]`
     /// Output: `[[a] [a,b] [a] [a,b,c]]`
-    fn apply_periodicity(steps: &[Vec<OutputReference>]) -> Vec<Vec<OutputReference>> {
+    fn apply_periodicity(steps: &[Vec<Task>]) -> Vec<Vec<Task>> {
         // Whenever there are streams in a cell at index `i`,
         // add them to every cell with index k*i within bounds, where k > 1.
         // k = 0 would always schedule them initially, so this must be skipped.
@@ -118,11 +140,7 @@ impl Schedule {
     /// Hyper-period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
     /// Result: `[[a] [b] [] [c]]`
     /// Meaning: `a` starts being scheduled after one gcd, `b` after two gcds, `c` after 4 gcds.
-    fn build_extend_steps(
-        ir: &RtLolaMir,
-        gcd: UOM_Time,
-        hyper_period: UOM_Time,
-    ) -> Result<Vec<Vec<OutputReference>>, String> {
+    fn build_extend_steps(ir: &RtLolaMir, gcd: UOM_Time, hyper_period: UOM_Time) -> Result<Vec<Vec<Task>>, String> {
         let num_steps = hyper_period.get::<second>() / gcd.get::<second>();
         assert!(num_steps.is_integer());
         let num_steps = num_steps.to_integer() as usize;
@@ -135,7 +153,29 @@ impl Schedule {
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
-            extend_steps[ix].push(s.reference.out_ix());
+            extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
+        }
+        let periodic_spawns: Vec<(usize, UOM_Time)> = ir
+            .outputs
+            .iter()
+            .filter_map(|o| {
+                match &o.instance_template.spawn.pacing {
+                    PacingType::Periodic(freq) => {
+                        Some((
+                            o.reference.out_ix(),
+                            UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                        ))
+                    },
+                    _ => None,
+                }
+            })
+            .collect();
+        for (out_ix, period) in periodic_spawns {
+            let ix = period.get::<second>() / gcd.get::<second>();
+            assert!(ix.is_integer());
+            let ix = ix.to_integer() as usize;
+            let ix = ix - 1;
+            extend_steps[ix].push(Task::Spawn(out_ix));
         }
         Ok(extend_steps)
     }
@@ -148,7 +188,7 @@ impl Schedule {
     ///
     /// # Panics
     /// Panics if the last entry/-ies of `extend_steps` are empty.
-    fn condense_deadlines(gcd: UOM_Time, extend_steps: Vec<Vec<OutputReference>>) -> Vec<Deadline> {
+    fn condense_deadlines(gcd: UOM_Time, extend_steps: Vec<Vec<Task>>) -> Vec<Deadline> {
         let mut empty_counter = 0;
         let mut deadlines: Vec<Deadline> = vec![];
         for step in extend_steps.iter() {
@@ -172,7 +212,12 @@ impl Schedule {
 
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
-            deadline.due.sort_by_key(|s| ir.outputs[*s].eval_layer());
+            deadline.due.sort_by_key(|s| {
+                match s {
+                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer(),
+                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer(),
+                }
+            });
         }
     }
 }

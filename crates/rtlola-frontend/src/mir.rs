@@ -13,7 +13,7 @@
 //! # See Also
 //! * [rtlola_frontend](crate) for an overview regarding different representations.
 //! * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-//! * [RtLolaHir] for a data structs designed for working _on_it.
+//! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod print;
@@ -30,7 +30,7 @@ pub use rtlola_hir::hir::{
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-pub use crate::mir::schedule::{Deadline, Schedule};
+pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -63,7 +63,7 @@ pub trait Stream {
 /// # See Also
 /// * [rtlola_frontend](crate) for an overview regarding different representations.
 /// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-/// * [RtLolaHir] for a data structs designed for working _on_it.
+/// * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 /// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtLolaMir {
@@ -111,6 +111,18 @@ pub enum Type {
         ret: Box<Type>,
     },
 }
+
+/// Represents an RTLola pacing type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PacingType {
+    /// Represents a periodic pacing with a fixed frequency
+    Periodic(UOM_Frequency),
+    /// Represents an event based pacing defined by an [ActivationCondition]
+    Event(ActivationCondition),
+    /// The pacing is constant, meaning that the value is always present.
+    Constant,
+}
+
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntTy {
@@ -196,7 +208,7 @@ pub struct OutputStream {
     /// The type of the stream.
     pub ty: Type,
     /// Information on the spawn and parametrization behavior of this stream if appropriate
-    pub instance_template: Option<InstanceTemplate>,
+    pub instance_template: InstanceTemplate,
     /// The stream expression
     pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
@@ -232,20 +244,39 @@ pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
     /// The condition under which the stream is not supposed to be evaluated
-    pub filter: Expression,
+    pub filter: Option<Expression>,
     /// The condition under which the stream is supposed to be closed
-    pub close: Expression,
+    pub close: Option<Expression>,
+}
+
+impl Default for InstanceTemplate {
+    fn default() -> Self {
+        InstanceTemplate {
+            spawn: SpawnTemplate::default(),
+            filter: None,
+            close: None,
+        }
+    }
 }
 
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTemplate {
     /// The `target` expression needs to be evaluated whenever the stream with this SpawnTemplate is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
-    pub target: Expression,
+    pub target: Option<Expression>,
     /// The timing of when a new instance _could_ be created assuming the spawn condition evaluates to true.
-    pub pacing: ActivationCondition,
-    /// The spawn condition.  If the condition evaluates to true, the stream will not be spawned.
-    pub condition: Expression,
+    pub pacing: PacingType,
+    /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
+    pub condition: Option<Expression>,
+}
+impl Default for SpawnTemplate {
+    fn default() -> Self {
+        SpawnTemplate {
+            target: None,
+            pacing: PacingType::Constant,
+            condition: None,
+        }
+    }
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -334,6 +365,9 @@ pub enum ExpressionKind {
         /// The kind of access
         access_kind: StreamAccessKind,
     },
+    /// Access to the parameter of a stream represented by a stream reference,
+    /// referencing the target stream and the index of the parameter that should be accessed.
+    ParameterAccess(StreamReference, usize),
     /// A conditional (if-then-else) expression
     Ite {
         /// The condition under which either `consequence` or `alternative` is selected.
@@ -754,13 +788,13 @@ impl std::ops::Add for ValSize {
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
-    /// Represents the access to a (discrete window)[DiscreteAggr]
+    /// Represents the access to a (discrete window)[DiscreteWindow]
     ///
-    /// The argument contains the reference to the (discrete window)[DiscreteAggr] whose value is used in the [Expression].
+    /// The argument contains the reference to the (discrete window)[DiscreteWindow] whose value is used in the [Expression].
     DiscreteWindow(WindowReference),
-    /// Represents the access to a (sliding window)[SlidingAggr]
+    /// Represents the access to a (sliding window)[SlidingWindow]
     ///
-    /// The argument contains the reference to the (sliding window)[SlidingAggr] whose value is used in the [Expression].
+    /// The argument contains the reference to the (sliding window)[SlidingWindow] whose value is used in the [Expression].
     SlidingWindow(WindowReference),
     /// Representation of sample and hold accesses
     Hold,

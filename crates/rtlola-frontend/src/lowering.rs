@@ -8,7 +8,7 @@ use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::WindowOperation;
 
 use crate::mir;
-use crate::mir::{InstanceTemplate, Mir};
+use crate::mir::{InstanceTemplate, Mir, PacingType, SpawnTemplate};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -67,7 +67,7 @@ impl Mir {
                     name: format!("trigger_{}", index), //TODO better name
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                     expr: Self::lower_expr(&hir, hir.expr(sr)),
-                    instance_template: None,
+                    instance_template: InstanceTemplate::default(),
                     accesses: hir.direct_accesses(sr),
                     accessed_by: hir.direct_accessed_by(sr),
                     aggregated_by: hir.aggregated_by(sr),
@@ -174,16 +174,36 @@ impl Mir {
         }
     }
 
-    fn lower_instance_template(_hir: &RtLolaHir<CompleteMode>, _sr: StreamReference) -> Option<InstanceTemplate> {
-        // let HirType { value_ty: _, pacing_ty: _, spawn, filter, close } = self.stream_type(sr);
-        // let spawn_cond = self.lower_expr(&spawn.1);
-        // let filter = self.lower_expr(&filter);
-        // let close = self.lower_expr(&close);
-        // assert!(matches!(spawn.0, PacingTy::Constant));
-        // assert_eq!(spawn_cond.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(true)));
-        // assert_eq!(filter.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(true)));
-        // assert_eq!(close.kind, mir::ExpressionKind::LoadConstant(mir::Constant::Bool(false)));
-        None
+    fn lower_instance_template(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> InstanceTemplate {
+        let rtlola_hir::hir::StreamType {
+            value_ty: _,
+            pacing_ty: _,
+            spawn,
+            filter,
+            close,
+        } = hir.stream_type(sr);
+        let spawn_pacing = match &spawn.0 {
+            ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(ac)),
+            ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(*freq),
+            ConcretePacingType::Constant => PacingType::Constant,
+            ConcretePacingType::Periodic => {
+                unreachable!("Ensured by pacing type checker")
+            },
+        };
+        let (hir_spawn_target, hir_spawn_condition) = hir.spawn(sr).unwrap_or((None, None));
+        let spawn_cond = hir_spawn_condition.map(|_| Self::lower_expr(hir, &spawn.1));
+        let spawn_target = hir_spawn_target.map(|target| Self::lower_expr(hir, target));
+        let filter = hir.filter(sr).map(|_| Self::lower_expr(hir, &filter));
+        let close = hir.close(sr).map(|_| Self::lower_expr(hir, &close));
+        InstanceTemplate {
+            spawn: SpawnTemplate {
+                target: spawn_target,
+                pacing: spawn_pacing,
+                condition: spawn_cond,
+            },
+            filter,
+            close,
+        }
     }
 
     fn lower_sliding_window(hir: &RtLolaHir<CompleteMode>, win: &Window<SlidingAggr>) -> mir::SlidingWindow {
@@ -265,7 +285,9 @@ impl Mir {
                     parameters: para.iter().map(|p| Self::lower_expr(hir, p)).collect(),
                 }
             },
-            rtlola_hir::hir::ExpressionKind::ParameterAccess(_sr, _para) => unimplemented!(),
+            rtlola_hir::hir::ExpressionKind::ParameterAccess(sr, para) => {
+                mir::ExpressionKind::ParameterAccess(*sr, *para)
+            },
             rtlola_hir::hir::ExpressionKind::Ite {
                 condition,
                 consequence,
@@ -409,10 +431,15 @@ impl Mir {
 mod tests {
     use std::path::PathBuf;
 
+    use num::rational::Rational64 as Rational;
+    use num::FromPrimitive;
     use rtlola_parser::ParserConfig;
     use rtlola_reporting::Handler;
+    use uom::si::frequency::hertz;
+    use uom::si::rational64::Frequency as UOM_Frequency;
 
     use super::*;
+    use crate::mir::IntTy::Int8;
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let handler = Handler::new(PathBuf::new(), spec.into());
@@ -464,14 +491,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "type checker bug"]
     fn check_stream_with_parameter() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\n\
+        output d(para) @a spawn with a if a > 6 := para";
         let (hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 3);
-        assert_eq!(mir.event_driven.len(), 3);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.event_driven.len(), 1);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
@@ -482,6 +509,78 @@ mod tests {
         let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
-        todo!()
+        assert_eq!(
+            &mir_d.instance_template.spawn.target,
+            &Some(mir::Expression {
+                kind: mir::ExpressionKind::StreamAccess {
+                    target: mir_a.reference,
+                    parameters: vec![],
+                    access_kind: mir::StreamAccessKind::Sync,
+                },
+                ty: mir::Type::Int(Int8)
+            })
+        );
+        assert!(matches!(
+            &mir_d.instance_template.spawn.condition,
+            &Some(mir::Expression {
+                kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Gt, _),
+                ty: _,
+            })
+        ));
+        assert_eq!(
+            &mir_d.instance_template.spawn.pacing,
+            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
+        );
+        assert_eq!(
+            &mir_d.expr,
+            &mir::Expression {
+                kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
+                ty: mir::Type::Int(Int8)
+            }
+        );
+    }
+
+    #[test]
+    fn check_spawn_filter_close() {
+        let spec = "input a: Int8\n\
+        output d @a spawn @1Hz if a.hold().defaults(to:0) > 6 filter a = 42 close a = 1337 := a";
+        let (_, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 1);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.event_driven.len(), 1);
+        assert_eq!(mir.time_driven.len(), 0);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 0);
+        assert_eq!(mir.triggers.len(), 0);
+
+        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+
+        assert!(mir_d.instance_template.spawn.target.is_none());
+        assert!(matches!(
+            &mir_d.instance_template.spawn.condition,
+            Some(mir::Expression {
+                kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Gt, _),
+                ty: _,
+            })
+        ));
+        assert_eq!(
+            mir_d.instance_template.spawn.pacing,
+            PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+        );
+        assert!(matches!(
+            mir_d.instance_template.filter,
+            Some(mir::Expression {
+                kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
+                ty: _,
+            })
+        ));
+        assert!(matches!(
+            mir_d.instance_template.close,
+            Some(mir::Expression {
+                kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
+                ty: _,
+            })
+        ));
     }
 }

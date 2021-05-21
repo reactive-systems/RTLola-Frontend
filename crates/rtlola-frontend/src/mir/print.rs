@@ -53,6 +53,9 @@ impl Display for Expression {
                     StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
                 }
             },
+            ExpressionKind::ParameterAccess(sr, idx) => {
+                write!(f, "Parameter({}, {})", sr, idx)
+            },
             ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
         }
     }
