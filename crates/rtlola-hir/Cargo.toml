@@ -25,5 +25,5 @@ petgraph = "0.5"
 num = "0.3.1"     # infinite precision rationals
 rtlola-reporting = "0.1.0"
 rtlola-macros = "0.1.1"
-rtlola-parser = "0.1.0"
+rtlola-parser = "0.1.1"
 rusttyc = "0.4.1"
