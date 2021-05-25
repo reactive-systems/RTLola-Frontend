@@ -13,7 +13,7 @@
 //! # See Also
 //! * [rtlola_frontend](crate) for an overview regarding different representations.
 //! * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-//! * [RtLolaHir] for a data structs designed for working _on_it.
+//! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod print;
@@ -23,12 +23,14 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use num::traits::Inv;
-use rtlola_hir::hir::*;
-use rtlola_parser::ast::WindowOperation; // Re-export needed for IR
+use rtlola_hir::hir::ConcreteValueType;
+pub use rtlola_hir::hir::{
+    InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
+};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-use crate::mir::schedule::Schedule;
+pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -61,7 +63,7 @@ pub trait Stream {
 /// # See Also
 /// * [rtlola_frontend](crate) for an overview regarding different representations.
 /// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
-/// * [RtLolaHir] for a data structs designed for working _on_it.
+/// * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 /// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtLolaMir {
@@ -109,6 +111,18 @@ pub enum Type {
         ret: Box<Type>,
     },
 }
+
+/// Represents an RTLola pacing type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PacingType {
+    /// Represents a periodic pacing with a fixed frequency
+    Periodic(UOM_Frequency),
+    /// Represents an event based pacing defined by an [ActivationCondition]
+    Event(ActivationCondition),
+    /// The pacing is constant, meaning that the value is always present.
+    Constant,
+}
+
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntTy {
@@ -194,7 +208,7 @@ pub struct OutputStream {
     /// The type of the stream.
     pub ty: Type,
     /// Information on the spawn and parametrization behavior of this stream if appropriate
-    pub instance_template: Option<InstanceTemplate>,
+    pub instance_template: InstanceTemplate,
     /// The stream expression
     pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
@@ -230,20 +244,39 @@ pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
     /// The condition under which the stream is not supposed to be evaluated
-    pub filter: Expression,
+    pub filter: Option<Expression>,
     /// The condition under which the stream is supposed to be closed
-    pub close: Expression,
+    pub close: Option<Expression>,
+}
+
+impl Default for InstanceTemplate {
+    fn default() -> Self {
+        InstanceTemplate {
+            spawn: SpawnTemplate::default(),
+            filter: None,
+            close: None,
+        }
+    }
 }
 
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTemplate {
     /// The `target` expression needs to be evaluated whenever the stream with this SpawnTemplate is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
-    pub target: Expression,
+    pub target: Option<Expression>,
     /// The timing of when a new instance _could_ be created assuming the spawn condition evaluates to true.
-    pub pacing: ActivationCondition,
-    /// The spawn condition.  If the condition evaluates to true, the stream will not be spawned.
-    pub condition: Expression,
+    pub pacing: PacingType,
+    /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
+    pub condition: Option<Expression>,
+}
+impl Default for SpawnTemplate {
+    fn default() -> Self {
+        SpawnTemplate {
+            target: None,
+            pacing: PacingType::Constant,
+            condition: None,
+        }
+    }
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -332,6 +365,9 @@ pub enum ExpressionKind {
         /// The kind of access
         access_kind: StreamAccessKind,
     },
+    /// Access to the parameter of a stream represented by a stream reference,
+    /// referencing the target stream and the index of the parameter that should be accessed.
+    ParameterAccess(StreamReference, usize),
     /// A conditional (if-then-else) expression
     Ite {
         /// The condition under which either `consequence` or `alternative` is selected.
@@ -473,6 +509,29 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// The Ast representation of the different aggregation functions
+pub enum WindowOperation {
+    /// Aggregation function to count the number of updated values on the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the integral
+    Integral,
+    /// Aggregation function to return the conjunction, i.e., the sliding window returns true iff ALL values on the accessed stream inside a window are assigned to true
+    Conjunction,
+    /// Aggregation function to return the disjunction, i.e., the sliding window returns true iff AT LEAst ONE value on the accessed stream inside a window is assigned to true
+    Disjunction,
+}
+
 ////////// Implementations //////////
 impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
@@ -593,6 +652,11 @@ impl RtLolaMir {
     /// Provides a collection of all time-driven output streams.
     pub fn all_time_driven(&self) -> Vec<&OutputStream> {
         self.time_driven.iter().map(|t| self.output(t.reference)).collect()
+    }
+
+    /// Provides the activation contion of a event-driven stream and none if the stream is time-driven
+    pub fn get_ac(&self, sref: StreamReference) -> Option<&ActivationCondition> {
+        self.event_driven.iter().find(|e| e.reference == sref).map(|e| &e.ac)
     }
 
     /// Provides immutable access to a discrete window.
@@ -716,5 +780,55 @@ impl std::ops::Add for ValSize {
 
     fn add(self, rhs: ValSize) -> ValSize {
         ValSize(self.0 + rhs.0)
+    }
+}
+
+/// Representation of the different stream accesses
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum StreamAccessKind {
+    /// Represents the synchronous access
+    Sync,
+    /// Represents the access to a (discrete window)[DiscreteWindow]
+    ///
+    /// The argument contains the reference to the (discrete window)[DiscreteWindow] whose value is used in the [Expression].
+    DiscreteWindow(WindowReference),
+    /// Represents the access to a (sliding window)[SlidingWindow]
+    ///
+    /// The argument contains the reference to the (sliding window)[SlidingWindow] whose value is used in the [Expression].
+    SlidingWindow(WindowReference),
+    /// Representation of sample and hold accesses
+    Hold,
+    /// Representation of offset accesses
+    ///
+    /// The argument contains the [Offset] of the stream access.
+    Offset(Offset),
+}
+
+/// Offset used in the lookup expression
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Offset {
+    /// A strictly positive discrete offset, e.g., `4`, or `42`
+    Future(u32),
+    /// A non-negative discrete offset, e.g., `0`, `-4`, or `-42`
+    Past(u32),
+}
+
+impl PartialOrd for Offset {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+
+        use Offset::*;
+        match (self, other) {
+            (Past(_), Future(_)) => Some(Ordering::Less),
+            (Future(_), Past(_)) => Some(Ordering::Greater),
+            (Future(a), Future(b)) => Some(a.cmp(b)),
+            (Past(a), Past(b)) => Some(b.cmp(a)),
+        }
+    }
+}
+
+impl Ord for Offset {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
     }
 }

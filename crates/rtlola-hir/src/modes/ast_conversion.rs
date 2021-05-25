@@ -57,7 +57,8 @@ impl Hir<BaseMode> {
     }
 }
 
-/// The Hir Spawn Condition is defined by a pair of two expressions.
+/// The Hir Spawn definition is composed of two optional expressions.
+/// The first one refers to the spawn target while the second one represents the spawn condition.
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 /// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.
@@ -310,7 +311,7 @@ impl ExpressionTransformer {
                         Ok((
                             self.stream_by_name[&o.name.name],
                             args.iter()
-                                .map(|e| self.transform_expression(*e.clone(), current_output))
+                                .map(|e| self.transform_expression(e.clone(), current_output))
                                 .collect::<Result<Vec<_>, TransformationErr>>()?,
                         ))
                     },
@@ -580,7 +581,7 @@ impl ExpressionTransformer {
                 ExpressionKind::Tuple(
                     inner
                         .into_iter()
-                        .map(|ex| self.transform_expression(*ex, current_output))
+                        .map(|ex| self.transform_expression(ex, current_output))
                         .collect::<Result<Vec<_>, TransformationErr>>()?,
                 )
             },
@@ -589,62 +590,19 @@ impl ExpressionTransformer {
                 let inner = Box::new(self.transform_expression(*inner_exp, current_output)?);
                 ExpressionKind::TupleAccess(inner, num)
             },
-            ast::ExpressionKind::Method(_base, _name, _types, _params) => {
-                return Err(TransformationErr::MethodAccess);
+            ast::ExpressionKind::Method(base, name, type_param, mut args) => {
+                // Method Access is same as function application with base as first parameter
+                args.insert(0, *base);
+                self.transfrom_function(
+                    false,
+                    ast_expression.id,
+                    &span,
+                    current_output,
+                    ast::ExpressionKind::Function(name, type_param, args),
+                )?
             },
-            ast::ExpressionKind::Function(name, type_param, args) => {
-                let decl = self
-                    .decl_table
-                    .get(&ast_expression.id)
-                    .ok_or_else(|| TransformationErr::UnknownFunction(span.clone()))?;
-                match decl {
-                    Declaration::Func(_) => {
-                        let name = name.name.name;
-                        let args: Vec<Expression> = args
-                            .into_iter()
-                            .map(|ex| self.transform_expression(*ex, current_output))
-                            .collect::<Result<Vec<_>, TransformationErr>>()?;
-
-                        if name.starts_with("widen") {
-                            let widen_arg = args
-                                .get(0)
-                                .ok_or_else(|| TransformationErr::MissingWidenArg(span.clone()))?;
-                            ExpressionKind::Widen(WidenExprKind {
-                                expr: Box::new(widen_arg.clone()),
-                                ty: match type_param.get(0) {
-                                    Some(t) => {
-                                        Self::annotated_type(t).ok_or_else(|| {
-                                            TransformationErr::InvalidTypeArgument(t.clone(), span.clone())
-                                        })?
-                                    },
-                                    None => todo!("error case"),
-                                },
-                            })
-                        } else {
-                            ExpressionKind::Function(FnExprKind {
-                                name,
-                                args,
-                                type_param: type_param
-                                    .into_iter()
-                                    .map(|t| {
-                                        Self::annotated_type(&t)
-                                            .ok_or_else(|| TransformationErr::InvalidTypeArgument(t, span.clone()))
-                                    })
-                                    .collect::<Result<Vec<_>, TransformationErr>>()?,
-                            })
-                        }
-                    },
-                    Declaration::ParamOut(_) => {
-                        ExpressionKind::StreamAccess(
-                            self.stream_by_name[&name.name.name],
-                            IRAccess::Sync,
-                            args.into_iter()
-                                .map(|ex| self.transform_expression(*ex, current_output))
-                                .collect::<Result<Vec<_>, TransformationErr>>()?,
-                        )
-                    },
-                    _ => return Err(TransformationErr::UnknownFunction(span)),
-                }
+            ast::ExpressionKind::Function(..) => {
+                self.transfrom_function(true, ast_expression.id, &span, current_output, ast_expression.kind)?
             },
         };
         Ok(Expression {
@@ -652,6 +610,77 @@ impl ExpressionTransformer {
             eid: new_id,
             span,
         })
+    }
+
+    /// Unifies the transformation of function and method applications to the internal representation
+    fn transfrom_function(
+        &mut self,
+        allow_parametric: bool,
+        id: NodeId,
+        span: &Span,
+        current_output: SRef,
+        kind: ast::ExpressionKind,
+    ) -> Result<ExpressionKind, TransformationErr> {
+        let (name, type_param, args) = if let ast::ExpressionKind::Function(name, type_param, args) = kind {
+            (name, type_param, args)
+        } else {
+            unreachable!()
+        };
+        let decl = self
+            .decl_table
+            .get(&id)
+            .ok_or_else(|| TransformationErr::UnknownFunction(span.clone()))?;
+        match decl {
+            Declaration::Func(_) => {
+                let name = name.name.name;
+                let args: Vec<Expression> = args
+                    .into_iter()
+                    .map(|ex| self.transform_expression(ex, current_output))
+                    .collect::<Result<Vec<_>, TransformationErr>>()?;
+
+                if name.starts_with("widen") {
+                    let widen_arg = args
+                        .get(0)
+                        .ok_or_else(|| TransformationErr::MissingWidenArg(span.clone()))?;
+                    Ok(ExpressionKind::Widen(WidenExprKind {
+                        expr: Box::new(widen_arg.clone()),
+                        ty: match type_param.get(0) {
+                            Some(t) => {
+                                Self::annotated_type(t)
+                                    .ok_or_else(|| TransformationErr::InvalidTypeArgument(t.clone(), span.clone()))?
+                            },
+                            None => todo!("error case"),
+                        },
+                    }))
+                } else {
+                    Ok(ExpressionKind::Function(FnExprKind {
+                        name,
+                        args,
+                        type_param: type_param
+                            .into_iter()
+                            .map(|t| {
+                                Self::annotated_type(&t)
+                                    .ok_or_else(|| TransformationErr::InvalidTypeArgument(t, span.clone()))
+                            })
+                            .collect::<Result<Vec<_>, TransformationErr>>()?,
+                    }))
+                }
+            },
+            Declaration::ParamOut(_) => {
+                if allow_parametric {
+                    Ok(ExpressionKind::StreamAccess(
+                        self.stream_by_name[&name.name.name],
+                        IRAccess::Sync,
+                        args.into_iter()
+                            .map(|ex| self.transform_expression(ex, current_output))
+                            .collect::<Result<Vec<_>, TransformationErr>>()?,
+                    ))
+                } else {
+                    Err(TransformationErr::UnknownFunction(span.clone()))
+                }
+            },
+            _ => Err(TransformationErr::UnknownFunction(span.clone())),
+        }
     }
 
     /// Converts an expression into the internal representation for a duration

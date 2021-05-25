@@ -542,10 +542,7 @@ impl<'a> RtLolaParser<'a> {
                 let value = pairs.next().expect("Mismatch between AST and grammar");
 
                 let str_rep: &str = value.as_str();
-                let unit = match pairs.next() {
-                    None => None,
-                    Some(unit) => Some(unit.as_str().to_string()),
-                };
+                let unit = pairs.next().map(|unit| unit.as_str().to_string());
 
                 Literal::new_numeric(self.next_id(), str_rep, unit, span.into())
             },
@@ -556,11 +553,8 @@ impl<'a> RtLolaParser<'a> {
     }
 
     #[allow(clippy::vec_box)]
-    fn parse_vec_of_expressions(&self, pairs: Pairs<'_, Rule>) -> Vec<Box<Expression>> {
-        pairs
-            .map(|expr| self.build_expression_ast(expr.into_inner()))
-            .map(Box::new)
-            .collect()
+    fn parse_vec_of_expressions(&self, pairs: Pairs<'_, Rule>) -> Vec<Expression> {
+        pairs.map(|expr| self.build_expression_ast(expr.into_inner())).collect()
     }
 
     fn parse_vec_of_types(&self, pairs: Pairs<'_, Rule>) -> Vec<Type> {
@@ -594,7 +588,7 @@ impl<'a> RtLolaParser<'a> {
             } else {
                 arg_names.push(None);
             }
-            args.push(self.build_expression_ast(pair.into_inner()).into());
+            args.push(self.build_expression_ast(pair.into_inner()));
         }
         let name = FunctionName {
             name: fun_name,
@@ -679,7 +673,7 @@ impl<'a> RtLolaParser<'a> {
                                 let kind = match signature.as_str() {
                                     "defaults(to:)" => {
                                         assert_eq!(args.len(), 1);
-                                        ExpressionKind::Default(inner, args[0].clone())
+                                        ExpressionKind::Default(inner, Box::new(args[0].clone()))
                                     }
                                     "offset(by:)" => {
                                         assert_eq!(args.len(), 1);
@@ -708,7 +702,7 @@ impl<'a> RtLolaParser<'a> {
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Hold),
                                             span.clone(),
                                         );
-                                        ExpressionKind::Default(Box::new(lhs), args[0].clone())
+                                        ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
                                     "get()" => {
                                         assert_eq!(args.len(), 0);
@@ -752,14 +746,14 @@ impl<'a> RtLolaParser<'a> {
                                         if signature.contains("discrete") {
                                             ExpressionKind::DiscreteWindowAggregation {
                                                 expr: inner,
-                                                duration: args[0].clone(),
+                                                duration: Box::new(args[0].clone()),
                                                 wait: signature.contains("over_exactly"),
                                                 aggregation: window_op,
                                             }
                                         } else {
                                             ExpressionKind::SlidingWindowAggregation {
                                                 expr: inner,
-                                                duration: args[0].clone(),
+                                                duration: Box::new(args[0].clone()),
                                                 wait: signature.contains("over_exactly"),
                                                 aggregation: window_op,
                                             }
@@ -904,7 +898,11 @@ impl<'a> RtLolaParser<'a> {
                 assert_eq!(children.len(), 3, "A ternary expression needs exactly three children.");
                 Expression::new(
                     self.next_id(),
-                    ExpressionKind::Ite(children.remove(0), children.remove(0), children.remove(0)),
+                    ExpressionKind::Ite(
+                        Box::new(children.remove(0)),
+                        Box::new(children.remove(0)),
+                        Box::new(children.remove(0)),
+                    ),
                     span.into(),
                 )
             },

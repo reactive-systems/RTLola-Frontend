@@ -308,7 +308,7 @@ pub struct Expression {
 impl Expression {
     /// Creates a new expression
     pub(crate) fn new(id: NodeId, kind: ExpressionKind, span: Span) -> Expression {
-        Expression { id, kind, span }
+        Expression { kind, id, span }
     }
 }
 
@@ -359,13 +359,13 @@ pub enum ExpressionKind {
     /// An expression was expected, e.g., after an operator like `*`
     MissingExpression,
     /// A tuple expression
-    Tuple(Vec<Box<Expression>>),
+    Tuple(Vec<Expression>),
     /// Access of a named (`obj.foo`) or unnamed (`obj.0`) struct field
     Field(Box<Expression>, Ident),
     /// A method call, e.g., `foo.bar(-1)`
-    Method(Box<Expression>, FunctionName, Vec<Type>, Vec<Box<Expression>>),
+    Method(Box<Expression>, FunctionName, Vec<Type>, Vec<Expression>),
     /// A function call
-    Function(FunctionName, Vec<Type>, Vec<Box<Expression>>),
+    Function(FunctionName, Vec<Type>, Vec<Expression>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

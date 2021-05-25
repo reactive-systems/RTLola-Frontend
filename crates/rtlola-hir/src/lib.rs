@@ -53,7 +53,7 @@ pub fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Hir<BaseMode>, Tran
 ///
 /// The [RtLolaAst] can be obtained by [parse](rtlola_parser::parse)  and its sibling functions.
 /// Analyses are performed sequentially in the following order:
-/// - Initial conversion (see [from_ast](crate::hir::RtLolaHir::<BaseMode>::from_ast))
+/// - Initial conversion (see [from_ast])
 /// - Dependency analysis (see [determine_evaluation_order](crate::hir::RtLolaHir::<TypeMode>::determine_evaluation_order)).
 /// - Type analysis (see [check_types](crate::hir::RtLolaHir::<DepAnaMode>::check_types)):
 /// - Layer analysis (see [determine_evaluation_order](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order)):

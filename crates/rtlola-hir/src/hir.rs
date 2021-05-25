@@ -549,6 +549,7 @@ pub(crate) enum AnnotatedType {
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
     Numeric,
+    Sequence,
     Param(usize, String),
 }
 

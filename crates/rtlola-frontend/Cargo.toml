@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-frontend"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
     "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <florian.kohn@cispa.de>",
@@ -11,7 +11,7 @@ edition = "2018"
 description = "A frontend for the RTLola runtime verification framework."
 readme = "README.md"
 homepage = "http://rtlola.org"
-repository = "https://github.com/reactive-systems/RTLola"
+repository = "https://github.com/reactive-systems/RTLola-Frontend"
 license = "Apache-2.0"
 keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
 

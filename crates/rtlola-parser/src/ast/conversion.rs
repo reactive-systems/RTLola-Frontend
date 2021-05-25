@@ -261,7 +261,7 @@ impl Expression {
     fn get_expr_from_tuple(&self, idx: usize) -> Option<&Expression> {
         use ExpressionKind::*;
         match &self.kind {
-            Tuple(entries) => Some(entries[idx].as_ref()),
+            Tuple(entries) => Some(&entries[idx]),
             _ => None,
         }
     }

@@ -212,6 +212,7 @@ impl Display for AnnotatedType {
             Tuple(tys) => write!(f, "({})", tys.iter().map(|t| format!("{}", t)).join(",")),
             //Used in function declaration
             Numeric => write!(f, "Numeric"),
+            Sequence => write!(f, "Sequence"),
             Param(idx, name) => write!(f, "FunctionParam({}, {})", *idx, name),
         }
     }

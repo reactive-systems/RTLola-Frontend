@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-reporting"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     "Florian Kohn <florian.kohn@cispa.de>",
     "Maximilian Schwenger <maximilian.schwenger@cispa.de>"
@@ -9,7 +9,7 @@ edition = "2018"
 description = "An error reporting crate for RTLola-related crates."
 readme = "README.md"
 homepage = "http://rtlola.org"
-repository = "https://github.com/reactive-systems/RTLola"
+repository = "https://github.com/reactive-systems/RTLola-Frontend"
 license = "Apache-2.0"
 keywords = ["reporting"]
 

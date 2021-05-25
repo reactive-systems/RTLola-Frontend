@@ -334,8 +334,8 @@ impl DepAna {
             transitive_accesses,
             direct_accessed_by,
             transitive_accessed_by,
-            aggregates,
             aggregated_by,
+            aggregates,
             graph,
         })
     }

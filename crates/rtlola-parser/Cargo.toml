@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-parser"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     "Florian Kohn <florian.kohn@cispa.de>",
     "Stefan Oswald <stefan.oswald@cispa.de>",
@@ -11,7 +11,7 @@ edition = "2018"
 description = "A parser for RTLola specifications."
 readme = "README.md"
 homepage = "http://rtlola.org"
-repository = "https://github.com/reactive-systems/RTLola"
+repository = "https://github.com/reactive-systems/RTLola-Frontend"
 license = "Apache-2.0"
 keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
 
