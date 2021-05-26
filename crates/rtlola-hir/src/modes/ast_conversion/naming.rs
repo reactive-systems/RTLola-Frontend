@@ -224,54 +224,26 @@ impl<'b> NamingAnalysis<'b> {
 
     /// Checks that if the trigger has a name, it is unique
     fn check_triggers(&mut self, spec: &RtLolaAst) {
-        let mut trigger_names: Vec<(&String, &Trigger)> = Vec::new();
         for trigger in &spec.trigger {
-            if let Some(ident) = &trigger.name {
+            //Check that each supplied info stream exists
+            for info_stream in &trigger.info_streams {
                 if let Some(decl) = self
                     .declarations
-                    .get_decl_in_current_scope_for(&DeclName::Ident(ident.name.clone()))
+                    .get_decl_for(&DeclName::Ident(info_stream.name.clone()))
                 {
-                    Diagnostic::error(
-                        self.handler,
-                        &format!("the name `{}` is defined multiple times", ident.name),
-                    )
-                    .add_span_with_label(
-                        ident.span.clone(),
-                        Some(&format!("`{}` redefined here", ident.name)),
-                        true,
-                    )
-                    .maybe_add_span_with_label(
-                        decl.get_span(),
-                        Some(&format!("previous definition of the value `{}` here", ident.name)),
-                        false,
-                    )
-                    .emit();
-                }
-                let mut found = false;
-                for previous_entry in &trigger_names {
-                    let (name, previous_trigger) = previous_entry;
-                    if ident.name == **name {
-                        found = true;
-                        Diagnostic::error(
-                            self.handler,
-                            &format!("the trigger `{}` is defined multiple times", ident.name),
-                        )
-                        .add_span_with_label(
-                            ident.span.clone(),
-                            Some(&format!("`{}` redefined here", ident.name)),
-                            true,
-                        )
-                        .add_span_with_label(
-                            previous_trigger.span.clone(),
-                            Some(&format!("previous trigger definition `{}` here", ident.name)),
-                            false,
-                        )
-                        .emit();
-                        break;
+                    if !matches!(decl, Declaration::Out(_) | Declaration::In(_)) {
+                        self.handler.error_with_span(
+                            "Only input and output names are supported in trigger messages.",
+                            info_stream.span.clone(),
+                            Some("Found other name here"),
+                        );
                     }
-                }
-                if !found {
-                    trigger_names.push((&ident.name, trigger))
+                } else {
+                    self.handler.error_with_span(
+                        &format!("name `{}` does not exist in current scope", &info_stream.name),
+                        info_stream.span.clone(),
+                        Some("does not exist"),
+                    );
                 }
             }
             self.declarations.push();
@@ -683,5 +655,23 @@ mod tests {
     fn test_param_use() {
         let spec = "output a(x,y,z) := if y then y else z";
         assert_eq!(0, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_infos() {
+        let spec = "input a: Int8\ntrigger a \"test msg\" (a)";
+        assert_eq!(0, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_infos_fail() {
+        let spec = "input a: Int8\ntrigger a \"test msg\" (a, b)";
+        assert_eq!(1, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_infos_fail2() {
+        let spec = "input a: Int8\noutput b (x:Int8) := 42\ntrigger a \"test msg\" (a, b)";
+        assert_eq!(1, number_of_naming_errors(spec));
     }
 }

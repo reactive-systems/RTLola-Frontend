@@ -60,6 +60,7 @@ impl Mir {
                 let sr = t.sr();
                 let mir_trigger = mir::Trigger {
                     message: t.message.clone(),
+                    info_streams: t.info_streams.clone(),
                     reference: sr,
                     trigger_reference: index,
                 };
@@ -582,5 +583,39 @@ mod tests {
                 ty: _,
             })
         ));
+    }
+
+    #[test]
+    fn test_trigger_with_info() {
+        let spec = "input a: Bool\n\
+        trigger a \"test message\" (a)";
+        let (_, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 1);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.event_driven.len(), 1);
+        assert_eq!(mir.time_driven.len(), 0);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 0);
+        assert_eq!(mir.triggers.len(), 1);
+        let trigger = mir.triggers[0].clone();
+        assert_eq!(trigger.info_streams[0], StreamReference::In(0));
+
+        assert_eq!(trigger.message, "test message");
+    }
+
+    #[test]
+    fn test_periodic_trigger() {
+        let spec = "input a: Bool\n\
+        trigger @1Hz a.hold(or: false)";
+        let (_, mir) = lower_spec(spec);
+
+        assert_eq!(mir.inputs.len(), 1);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.event_driven.len(), 0);
+        assert_eq!(mir.time_driven.len(), 1);
+        assert_eq!(mir.discrete_windows.len(), 0);
+        assert_eq!(mir.sliding_windows.len(), 0);
+        assert_eq!(mir.triggers.len(), 1);
     }
 }

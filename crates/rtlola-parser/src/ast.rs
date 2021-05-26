@@ -102,7 +102,7 @@ pub struct Output {
     pub name: Ident,
     /// An optional value type annotation of the output stream
     pub ty: Option<Type>,
-    /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
+    /// The activation condition, which defines when a new value of a stream is computed.
     pub extend: ActivationCondition,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Rc<Parameter>>,
@@ -188,12 +188,14 @@ pub struct CloseSpec {
 /// An Ast node representing the declaration of a trigger
 #[derive(Debug, Clone)]
 pub struct Trigger {
-    /// The optional name of a trigger
-    pub name: Option<Ident>,
     /// The boolean expression of a trigger
     pub expression: Expression,
+    /// The activation condition, which defines when a new value of a stream is computed.
+    pub extend: ActivationCondition,
     /// The optional trigger message, which is printed if the monitor raises the trigger
     pub message: Option<String>,
+    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
+    pub info_streams: Vec<Ident>,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration

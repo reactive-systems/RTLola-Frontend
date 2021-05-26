@@ -427,27 +427,48 @@ impl<'a> RtLolaParser<'a> {
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner();
 
-        let mut name = None;
-        let mut message = None;
-
         let mut pair = pairs.next().expect("mismatch between grammar and AST");
-        // first token is either expression or identifier
-        if let Rule::Ident = pair.as_rule() {
-            name = Some(self.parse_ident(&pair));
+
+        // Parse the `@ [Expr]` part of output declaration
+        let extend = if let Rule::ActivationCondition = pair.as_rule() {
+            let span: Span = pair.as_span().into();
+            let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-        }
+            ActivationCondition {
+                expr: Some(expr),
+                id: self.next_id(),
+                span,
+            }
+        } else {
+            ActivationCondition {
+                expr: None,
+                id: self.next_id(),
+                span: Span::Unknown,
+            }
+        };
+
         let expression = self.build_expression_ast(pair.into_inner());
 
-        if let Some(pair) = pairs.next() {
+        let message = pairs.next().map(|pair| {
             assert_eq!(pair.as_rule(), Rule::String);
-            message = Some(pair.as_str().to_string());
-        }
+            pair.as_str().to_string()
+        });
+
+        // Parse list of info streams
+        let info_streams = pairs
+            .next()
+            .map(|pair| {
+                assert_eq!(pair.as_rule(), Rule::IdentList);
+                pair.into_inner().into_iter().map(|p| self.parse_ident(&p)).collect()
+            })
+            .unwrap_or_default();
 
         Trigger {
             id: self.next_id(),
-            name,
             expression,
+            extend,
             message,
+            info_streams,
             span,
         }
     }
@@ -1278,6 +1299,40 @@ mod tests {
         let spec = "input in: Int\ntrigger in > 5\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_trigger_extend() {
+        let spec = "trigger @1Hz in > 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_trigger_message() {
+        let spec = "trigger in > 5 \"test trigger\"\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+        assert_eq!(ast.trigger[0].message, Some("test trigger".to_string()));
+    }
+
+    #[test]
+    fn build_trigger_message_with_info_streams() {
+        let spec = "trigger in > 5 \"test trigger\" (i, o, x)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+        assert_eq!(ast.trigger[0].info_streams.len(), 3);
+        assert_eq!(ast.trigger[0].info_streams[0].name, "i".to_string());
+        assert_eq!(ast.trigger[0].info_streams[1].name, "o".to_string());
+        assert_eq!(ast.trigger[0].info_streams[2].name, "x".to_string());
+    }
+
+    #[test]
+    fn build_trigger_message_with_info_streams_faulty() {
+        let spec = "trigger in > 5 (i, o, x)\n";
+        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
+        let parser = create_parser(&handler, spec);
+        assert!(matches!(parser.parse_spec(), Err(_)));
     }
 
     #[test]

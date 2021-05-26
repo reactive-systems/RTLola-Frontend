@@ -38,7 +38,9 @@ InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamLi
 
 OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ ActivationCondition? ~ SpawnDecl? ~ FilterDecl? ~CloseDecl? ~":="~ Expr}
 
-Trigger = { "trigger " ~ Expr ~ StringLiteral?}
+Trigger = { "trigger " ~ ActivationCondition? ~ Expr ~ (StringLiteral ~ IdentList?)?}
+
+IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
 
 //////////////////////////////////////////////////
 ////////////////// Expressions ///////////////////

@@ -186,14 +186,27 @@ impl ExpressionTransformer {
             let sr = SRef::Out(hir_outputs.len() + ix);
             let ast::Trigger {
                 message,
-                name,
+                extend,
+                info_streams,
                 expression,
                 span,
                 ..
             } = Rc::try_unwrap(t).expect("other strong references should be dropped now");
+            let ac = extend.expr.map_or(Ok(None), |exp| {
+                self.transform_ac(&mut exprid_to_expr, exp, sr).map(Some)
+            })?;
+            let info_streams: Vec<SRef> = info_streams
+                .into_iter()
+                .map(|ident| {
+                    *self
+                        .stream_by_name
+                        .get(&ident.name)
+                        .expect("Ensured by naming analysis")
+                })
+                .collect();
             let expr_id = Self::insert_return(&mut exprid_to_expr, self.transform_expression(expression, sr)?);
 
-            hir_triggers.push(Trigger::new(name, message, expr_id, sr, span));
+            hir_triggers.push(Trigger::new(message, info_streams, ac, expr_id, sr, span));
         }
         let hir_triggers = hir_triggers;
         let hir_inputs: Vec<Input> = inputs
@@ -1111,5 +1124,31 @@ mod tests {
         assert!(a.instance_template.spawn.is_some());
         let template = a.instance_template.spawn;
         assert!(matches!(template.unwrap().pacing, Some(Ac::Frequency { .. })));
+    }
+
+    #[test]
+    fn test_trigger_info() {
+        let spec = "input a:Bool\noutput b:Int8 := 42\n trigger a \"a is true\" (a, b)";
+        let ir = obtain_expressions(spec);
+        let trigger: Trigger = ir.triggers[0].clone();
+        assert_eq!(trigger.info_streams[0], SRef::In(0));
+        assert_eq!(trigger.info_streams[1], SRef::Out(0));
+    }
+
+    #[test]
+    fn test_trigger_ac() {
+        let spec = "input a:Bool\n trigger @1Hz a";
+        let ir = obtain_expressions(spec);
+        let trigger: Trigger = ir.triggers[0].clone();
+        assert!(matches!(trigger.activation_condition, Some(Ac::Frequency { .. })))
+    }
+
+    #[test]
+    fn test_trigger_complex() {
+        let spec = "input a:Bool\n trigger @1Hz a \"This is a message\" (a)";
+        let ir = obtain_expressions(spec);
+        let trigger: Trigger = ir.triggers[0].clone();
+        assert_eq!(trigger.info_streams[0], SRef::In(0));
+        assert!(matches!(trigger.activation_condition, Some(Ac::Frequency { .. })))
     }
 }
