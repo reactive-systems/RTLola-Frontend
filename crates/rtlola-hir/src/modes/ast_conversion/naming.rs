@@ -211,7 +211,7 @@ impl<'b> NamingAnalysis<'b> {
                 self.add_decl_for(Declaration::ParamOut(output.clone()))
             }
             // Check annotated type if existing
-            if let Some(output_ty) = output.ty.as_ref() {
+            if let Some(output_ty) = output.annotated_type.as_ref() {
                 self.check_type(output_ty);
             }
         }
@@ -261,8 +261,8 @@ impl<'b> NamingAnalysis<'b> {
                 if let Some(target) = &spawn.target {
                     self.check_expression(target);
                 }
-                if let Some(pacing) = &spawn.pacing {
-                    self.check_expression(&pacing.expr);
+                if let Some(pacing) = &spawn.annotated_pacing {
+                    self.check_expression(&pacing);
                 }
                 if let Some(cond) = &spawn.condition {
                     self.check_expression(&cond);
@@ -274,8 +274,8 @@ impl<'b> NamingAnalysis<'b> {
             if let Some(close) = &output.close {
                 self.check_expression(&close.target);
             }
-            if let Some(ac) = output.extend.as_ref() {
-                self.check_expression(&ac.expr);
+            if let Some(pt) = output.annotated_pacing_type.as_ref() {
+                self.check_expression(&pt);
             }
             self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
             self.check_expression(&output.expression);

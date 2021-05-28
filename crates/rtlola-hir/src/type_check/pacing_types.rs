@@ -11,7 +11,8 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 use crate::hir::{
-    Ac, Constant, ExprId, Expression, ExpressionKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, ValueEq,
+    AnnotatedPacingType, Constant, ExprId, Expression, ExpressionKind, Hir, Inlined, Literal, StreamAccessKind,
+    StreamReference, ValueEq,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Emittable, TypeError};
@@ -677,10 +678,12 @@ impl PrintableVariant for AbstractExpressionType {
 
 impl AbstractPacingType {
     /// Transforms a given [Ac] (annotated in the [Hir]) into an abstract pacing type.
-    pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
-        Ok(match ac {
-            Ac::Frequency { span, value } => (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone()),
-            Ac::Expr(eid) => {
+    pub(crate) fn from_pt<M: HirMode>(pt: &AnnotatedPacingType, hir: &Hir<M>) -> Result<(Self, Span), PacingErrorKind> {
+        Ok(match pt {
+            AnnotatedPacingType::Frequency { span, value } => {
+                (AbstractPacingType::Periodic(Freq::Fixed(*value)), span.clone())
+            },
+            AnnotatedPacingType::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 (
                     AbstractPacingType::Event(ActivationCondition::parse(expr)?),
@@ -787,10 +790,10 @@ impl ConcretePacingType {
     }
 
     /// Transforms a given [Ac] (annotated in the [Hir]) into a pacing type.
-    pub(crate) fn from_ac<M: HirMode>(ac: &Ac, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
-        match ac {
-            Ac::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
-            Ac::Expr(eid) => {
+    pub(crate) fn from_pt<M: HirMode>(pt: &AnnotatedPacingType, hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
+        match pt {
+            AnnotatedPacingType::Frequency { span: _, value } => Ok(ConcretePacingType::FixedPeriodic(*value)),
+            AnnotatedPacingType::Expr(eid) => {
                 let expr = hir.expression(*eid);
                 ActivationCondition::parse(expr).map(ConcretePacingType::Event)
             },

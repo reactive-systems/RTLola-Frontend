@@ -234,10 +234,10 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    if let Some(ac) = output.and_then(|o| o.activation_condition.as_ref()) {
-                        match ac {
-                            Ac::Expr(e) => Some(self.expression(*e)),
-                            Ac::Frequency { .. } => None, //May change return type
+                    if let Some(pt) = output.and_then(|o| o.annotated_pacing_type.as_ref()) {
+                        match pt {
+                            AnnotatedPacingType::Expr(e) => Some(self.expression(*e)),
+                            AnnotatedPacingType::Frequency { .. } => None, //May change return type
                         }
                     } else {
                         None
@@ -389,7 +389,7 @@ pub struct Output {
     /// The user annotated Type
     pub(crate) annotated_type: Option<AnnotatedType>,
     /// The activation condition, which defines when a new value of a stream is computed.
-    pub(crate) activation_condition: Option<Ac>,
+    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub(crate) params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
@@ -451,7 +451,7 @@ impl Parameter {
 
 /// Pacing information for stream; contains either a frequency or a condition on input streams.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Ac {
+pub(crate) enum AnnotatedPacingType {
     /// The evaluation frequency
     Frequency {
         /// A span to the part of the specification containing the frequency
@@ -480,7 +480,7 @@ pub(crate) struct SpawnTemplate {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub(crate) target: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub(crate) pacing: Option<Ac>,
+    pub(crate) pacing: Option<AnnotatedPacingType>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
 }
@@ -493,7 +493,7 @@ pub struct Trigger {
     /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
     pub info_streams: Vec<StreamReference>,
     /// The activation condition, which defines when the trigger is evaluated.
-    pub(crate) activation_condition: Option<Ac>,
+    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
     /// The id of the expression belonging to the trigger
     pub(crate) expr_id: ExprId,
     /// A reference to the stream which represents this trigger.
@@ -507,14 +507,14 @@ impl Trigger {
     pub(crate) fn new(
         msg: Option<String>,
         infos: Vec<StreamReference>,
-        ac: Option<Ac>,
+        pt: Option<AnnotatedPacingType>,
         expr_id: ExprId,
         sr: SRef,
         span: Span,
     ) -> Self {
         Self {
             info_streams: infos,
-            activation_condition: ac,
+            annotated_pacing_type: pt,
             message: msg.unwrap_or_else(String::new),
             expr_id,
             sr,

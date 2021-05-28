@@ -5,8 +5,8 @@ use rusttyc::{TcKey, TypeChecker, TypeTable};
 
 use super::*;
 use crate::hir::{
-    self, Ac, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset, Output,
-    SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
+    self, AnnotatedPacingType, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset,
+    Output, SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
@@ -184,10 +184,10 @@ where
     fn bind_to_annotated_type(
         &mut self,
         target: TcKey,
-        bound: &Ac,
+        bound: &AnnotatedPacingType,
         conflict_key: TcKey,
     ) -> Result<(), TypeError<PacingErrorKind>> {
-        let concrete_pacing = ConcretePacingType::from_ac(bound, self.hir)?;
+        let concrete_pacing = ConcretePacingType::from_pt(bound, self.hir)?;
         self.annotated_checks.insert(target, (concrete_pacing, conflict_key));
         Ok(())
     }
@@ -203,8 +203,8 @@ where
         let stream_keys = self.node_key[&NodeId::SRef(trigger.sr)];
         let exp_key = self.expression_infer(self.hir.expr(trigger.sr))?;
         // Check if there is a type is annotated
-        if let Some(ac) = &trigger.activation_condition {
-            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
+        if let Some(ac) = &trigger.annotated_pacing_type {
+            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
 
             self.bind_to_annotated_type(stream_keys.exp_pacing, ac, exp_key.exp_pacing)?;
@@ -227,8 +227,8 @@ where
         let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
 
         // Check if there is a type is annotated
-        if let Some(ac) = &output.activation_condition {
-            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
+        if let Some(ac) = &output.annotated_pacing_type {
+            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
 
             self.bind_to_annotated_type(stream_keys.exp_pacing, ac, exp_key.exp_pacing)?;
@@ -270,7 +270,7 @@ where
 
         // Check if there is a pacing annotated
         if let Some(ac) = spawn.pacing.as_ref() {
-            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
+            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.spawn.0, span);
             self.pacing_tyc
                 .impose(stream_keys.spawn.0.concretizes_explicit(annotated_ty))?;
@@ -660,10 +660,10 @@ where
                     let span = template
                         .pacing
                         .as_ref()
-                        .map(|ac| {
-                            match ac {
-                                Ac::Frequency { span, .. } => span.clone(),
-                                Ac::Expr(id) => hir.expression(*id).span.clone(),
+                        .map(|pt| {
+                            match pt {
+                                AnnotatedPacingType::Frequency { span, .. } => span.clone(),
+                                AnnotatedPacingType::Expr(id) => hir.expression(*id).span.clone(),
                             }
                         })
                         .or_else(|| template.target.map(|id| hir.expression(id).span.clone()))
@@ -772,7 +772,7 @@ where
         for output in hir.outputs() {
             let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.expr_id)].exp_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].exp_pacing].clone();
-            if output.activation_condition.is_none() && exp_pacing != stream_pacing {
+            if output.annotated_pacing_type.is_none() && exp_pacing != stream_pacing {
                 errors.push(PacingErrorKind::UnintuitivePacingWarning(output.span.clone(), stream_pacing).into());
             }
         }

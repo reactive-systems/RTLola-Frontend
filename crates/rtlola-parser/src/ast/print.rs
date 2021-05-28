@@ -17,15 +17,6 @@ fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff
     Ok(())
 }
 
-/// Helper to format the ActivationCondition
-fn format_ac(ac: &Option<ActivationCondition>) -> String {
-    if let Some(ac) = ac {
-        format!(" @{}", ac.expr)
-    } else {
-        String::new()
-    }
-}
-
 /// Helper to format an Optional
 fn format_opt<T: Display>(opt: &Option<T>, pref: &str, suff: &str) -> String {
     if let Some(ref e) = opt {
@@ -62,13 +53,13 @@ impl Display for Output {
         if !self.params.is_empty() {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
         }
-        if let Some(ty) = &self.ty {
+        if let Some(ty) = &self.annotated_type {
             write!(f, ": {}", ty)?;
         }
-        match &self.extend {
+        match &self.annotated_pacing_type {
             None => {},
-            Some(ac) => {
-                write!(f, " @ {}", ac.expr)?;
+            Some(pt) => {
+                write!(f, " @ {}", pt)?;
             },
         }
         if let Some(spawn) = &self.spawn {
@@ -98,8 +89,8 @@ impl Display for SpawnSpec {
         if self.target.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
-        if let Some(ac) = &self.pacing {
-            write!(f, " @{}", ac.expr)?;
+        if let Some(pt) = &self.annotated_pacing {
+            write!(f, " @{}", pt)?;
         }
         if let Some(target) = &self.target {
             write!(f, " with {}", target)?;
@@ -128,7 +119,7 @@ impl Display for Trigger {
         write!(
             f,
             "trigger{} {}{}",
-            format_ac(&self.extend),
+            format_opt(&self.annotated_pacing_type, " @", ""),
             self.expression,
             format_opt(&self.message, " \"", "\""),
         )?;

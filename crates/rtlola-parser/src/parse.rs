@@ -216,7 +216,7 @@ impl<'a> RtLolaParser<'a> {
             Vec::new()
         };
 
-        let ty = if let Rule::Type = pair.as_rule() {
+        let annotated_type = if let Rule::Type = pair.as_rule() {
             let ty = self.parse_type(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
             Some(ty)
@@ -225,15 +225,10 @@ impl<'a> RtLolaParser<'a> {
         };
 
         // Parse the `@ [Expr]` part of output declaration
-        let extend = if let Rule::ActivationCondition = pair.as_rule() {
-            let span: Span = pair.as_span().into();
+        let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            Some(ActivationCondition {
-                expr,
-                id: self.next_id(),
-                span,
-            })
+            Some(expr)
         } else {
             None
         };
@@ -267,8 +262,8 @@ impl<'a> RtLolaParser<'a> {
         Output {
             id: self.next_id(),
             name,
-            ty,
-            extend,
+            annotated_type,
+            annotated_pacing_type,
             params: params.into_iter().map(Rc::new).collect(),
             spawn,
             filter,
@@ -308,16 +303,11 @@ impl<'a> RtLolaParser<'a> {
         let mut spawn_children = spawn_pair.into_inner();
         let mut next_pair = spawn_children.next();
 
-        let pacing = if let Some(pair) = next_pair.clone() {
+        let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let span: Span = pair.as_span().into();
                 let expr = self.build_expression_ast(pair.into_inner());
                 next_pair = spawn_children.next();
-                Some(ActivationCondition {
-                    expr,
-                    id: self.next_id(),
-                    span,
-                })
+                Some(expr)
             } else {
                 None
             }
@@ -351,7 +341,7 @@ impl<'a> RtLolaParser<'a> {
             (None, false)
         };
 
-        if target.is_none() && condition.is_none() && pacing.is_none() {
+        if target.is_none() && condition.is_none() && annotated_pacing.is_none() {
             self.handler.error_with_span(
                 "Spawn condition needs either expression or condition",
                 span_inv.clone(),
@@ -360,7 +350,7 @@ impl<'a> RtLolaParser<'a> {
         }
         SpawnSpec {
             target,
-            pacing,
+            annotated_pacing,
             condition,
             is_if,
             id: self.next_id(),
@@ -418,15 +408,10 @@ impl<'a> RtLolaParser<'a> {
         let mut pair = pairs.next().expect("mismatch between grammar and AST");
 
         // Parse the `@ [Expr]` part of output declaration
-        let extend = if let Rule::ActivationCondition = pair.as_rule() {
-            let span: Span = pair.as_span().into();
+        let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            Some(ActivationCondition {
-                expr,
-                id: self.next_id(),
-                span,
-            })
+            Some(expr)
         } else {
             None
         };
@@ -450,7 +435,7 @@ impl<'a> RtLolaParser<'a> {
         Trigger {
             id: self.next_id(),
             expression,
-            extend,
+            annotated_pacing_type,
             message,
             info_streams,
             span,
