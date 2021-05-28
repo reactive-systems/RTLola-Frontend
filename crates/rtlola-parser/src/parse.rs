@@ -229,17 +229,13 @@ impl<'a> RtLolaParser<'a> {
             let span: Span = pair.as_span().into();
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            ActivationCondition {
-                expr: Some(expr),
+            Some(ActivationCondition {
+                expr,
                 id: self.next_id(),
                 span,
-            }
+            })
         } else {
-            ActivationCondition {
-                expr: None,
-                id: self.next_id(),
-                span: Span::Unknown,
-            }
+            None
         };
 
         let spawn = if let Rule::SpawnDecl = pair.as_rule() {
@@ -317,24 +313,16 @@ impl<'a> RtLolaParser<'a> {
                 let span: Span = pair.as_span().into();
                 let expr = self.build_expression_ast(pair.into_inner());
                 next_pair = spawn_children.next();
-                ActivationCondition {
-                    expr: Some(expr),
+                Some(ActivationCondition {
+                    expr,
                     id: self.next_id(),
                     span,
-                }
+                })
             } else {
-                ActivationCondition {
-                    expr: None,
-                    id: self.next_id(),
-                    span: Span::Unknown,
-                }
+                None
             }
         } else {
-            ActivationCondition {
-                expr: None,
-                id: self.next_id(),
-                span: Span::Unknown,
-            }
+            None
         };
 
         let target = if let Some(pair) = next_pair.clone() {
@@ -363,7 +351,7 @@ impl<'a> RtLolaParser<'a> {
             (None, false)
         };
 
-        if target.is_none() && condition.is_none() && pacing.expr.is_none() {
+        if target.is_none() && condition.is_none() && pacing.is_none() {
             self.handler.error_with_span(
                 "Spawn condition needs either expression or condition",
                 span_inv.clone(),
@@ -434,17 +422,13 @@ impl<'a> RtLolaParser<'a> {
             let span: Span = pair.as_span().into();
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            ActivationCondition {
-                expr: Some(expr),
+            Some(ActivationCondition {
+                expr,
                 id: self.next_id(),
                 span,
-            }
+            })
         } else {
-            ActivationCondition {
-                expr: None,
-                id: self.next_id(),
-                span: Span::Unknown,
-            }
+            None
         };
 
         let expression = self.build_expression_ast(pair.into_inner());

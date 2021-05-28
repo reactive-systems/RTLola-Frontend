@@ -261,8 +261,8 @@ impl<'b> NamingAnalysis<'b> {
                 if let Some(target) = &spawn.target {
                     self.check_expression(target);
                 }
-                if let Some(pacing) = &spawn.pacing.expr {
-                    self.check_expression(pacing);
+                if let Some(pacing) = &spawn.pacing {
+                    self.check_expression(&pacing.expr);
                 }
                 if let Some(cond) = &spawn.condition {
                     self.check_expression(&cond);
@@ -274,8 +274,8 @@ impl<'b> NamingAnalysis<'b> {
             if let Some(close) = &output.close {
                 self.check_expression(&close.target);
             }
-            if let Some(expr) = output.extend.expr.as_ref() {
-                self.check_expression(expr);
+            if let Some(ac) = output.extend.as_ref() {
+                self.check_expression(&ac.expr);
             }
             self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
             self.check_expression(&output.expression);

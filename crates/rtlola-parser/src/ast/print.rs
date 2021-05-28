@@ -17,6 +17,15 @@ fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff
     Ok(())
 }
 
+/// Helper to format the ActivationCondition
+fn format_ac(ac: &Option<ActivationCondition>) -> String {
+    if let Some(ac) = ac {
+        format!(" @{}", ac.expr)
+    } else {
+        String::new()
+    }
+}
+
 /// Helper to format an Optional
 fn format_opt<T: Display>(opt: &Option<T>, pref: &str, suff: &str) -> String {
     if let Some(ref e) = opt {
@@ -56,10 +65,10 @@ impl Display for Output {
         if let Some(ty) = &self.ty {
             write!(f, ": {}", ty)?;
         }
-        match &self.extend.expr {
+        match &self.extend {
             None => {},
-            Some(expr) => {
-                write!(f, " @ {}", expr)?;
+            Some(ac) => {
+                write!(f, " @ {}", ac.expr)?;
             },
         }
         if let Some(spawn) = &self.spawn {
@@ -89,8 +98,8 @@ impl Display for SpawnSpec {
         if self.target.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
-        if let Some(expr) = &self.pacing.expr {
-            write!(f, " @{}", expr)?;
+        if let Some(ac) = &self.pacing {
+            write!(f, " @{}", ac.expr)?;
         }
         if let Some(target) = &self.target {
             write!(f, " with {}", target)?;
@@ -119,7 +128,7 @@ impl Display for Trigger {
         write!(
             f,
             "trigger{} {}{}",
-            format_opt(&self.extend.expr, " @", ""),
+            format_ac(&self.extend),
             self.expression,
             format_opt(&self.message, " \"", "\""),
         )?;

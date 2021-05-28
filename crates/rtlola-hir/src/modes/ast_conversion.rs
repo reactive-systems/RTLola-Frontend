@@ -165,8 +165,8 @@ impl ExpressionTransformer {
             let expression = self.transform_expression(expression, sr)?;
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
-            let ac = extend.expr.map_or(Ok(None), |exp| {
-                self.transform_ac(&mut exprid_to_expr, exp, sr).map(Some)
+            let ac = extend.map_or(Ok(None), |ac| {
+                self.transform_ac(&mut exprid_to_expr, ac.expr, sr).map(Some)
             })?;
             let instance_template = self.transform_template_spec(spawn, filter, close, &mut exprid_to_expr, sr)?;
             hir_outputs.push(Output {
@@ -192,8 +192,8 @@ impl ExpressionTransformer {
                 span,
                 ..
             } = Rc::try_unwrap(t).expect("other strong references should be dropped now");
-            let ac = extend.expr.map_or(Ok(None), |exp| {
-                self.transform_ac(&mut exprid_to_expr, exp, sr).map(Some)
+            let ac = extend.map_or(Ok(None), |ac| {
+                self.transform_ac(&mut exprid_to_expr, ac.expr, sr).map(Some)
             })?;
             let info_streams: Vec<SRef> = info_streams
                 .into_iter()
@@ -748,8 +748,8 @@ impl ExpressionTransformer {
                     let exp = self.transform_expression(target_exp, current_output)?;
                     Ok(Some(Self::insert_return(exprid_to_expr, exp)))
                 })?;
-                let pacing = pacing.expr.map_or(Ok(None), |ac| {
-                    Ok(Some(self.transform_ac(exprid_to_expr, ac, current_output)?))
+                let pacing = pacing.map_or(Ok(None), |ac| {
+                    Ok(Some(self.transform_ac(exprid_to_expr, ac.expr, current_output)?))
                 })?;
 
                 let condition = condition.map_or(Ok(None), |cond_expr| {
