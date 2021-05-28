@@ -200,10 +200,23 @@ where
     }
 
     fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
-        let ex_key = self.expression_infer(self.hir.expr(trigger.sr))?;
-        //Todo: add explicit pacing annotation
-        let trigger_key = self.node_key[&NodeId::SRef(trigger.sr)].exp_pacing;
-        self.pacing_tyc.impose(trigger_key.equate_with(ex_key.exp_pacing))?;
+        let stream_keys = self.node_key[&NodeId::SRef(trigger.sr)];
+        let exp_key = self.expression_infer(self.hir.expr(trigger.sr))?;
+        // Check if there is a type is annotated
+        if let Some(ac) = &trigger.activation_condition {
+            let (annotated_ty, span) = AbstractPacingType::from_ac(ac, self.hir)?;
+            self.pacing_key_span.insert(stream_keys.exp_pacing, span);
+
+            self.bind_to_annotated_type(stream_keys.exp_pacing, ac, exp_key.exp_pacing)?;
+            self.pacing_tyc
+                .impose(stream_keys.exp_pacing.concretizes_explicit(annotated_ty))?;
+            self.pacing_tyc
+                .impose(stream_keys.exp_pacing.concretizes(exp_key.exp_pacing))?;
+        } else {
+            // Trigger type is equal to inferred type
+            self.pacing_tyc
+                .impose(stream_keys.exp_pacing.equate_with(exp_key.exp_pacing))?;
+        }
         Ok(())
     }
 
@@ -2044,5 +2057,32 @@ mod tests {
             output a @1Hz spawn if x=42 close if true then true else a := x.aggregate(over: 1s, using: sum) > 1337
         ";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_annotated() {
+        let spec = "
+            input x:Bool\n\
+            trigger @1Hz x.hold(or: false)
+        ";
+        assert_eq!(0, num_errors(spec));
+        let (hir, handler) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let trigger = tt[&NodeId::SRef(hir.triggers[0].sr)].clone();
+        assert_eq!(
+            trigger.expression_pacing,
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+        );
+    }
+
+    #[test]
+    fn test_trigger_annotated_fail() {
+        let spec = "
+            input x:Bool\n\
+            trigger @1Hz x
+        ";
+        assert_eq!(1, num_errors(spec));
     }
 }

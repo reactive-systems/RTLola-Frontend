@@ -232,6 +232,8 @@ pub type TriggerReference = usize;
 pub struct Trigger {
     /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
     pub message: String,
+    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
+    pub info_streams: Vec<StreamReference>,
     /// A reference to the output stream representing this trigger.
     pub reference: StreamReference,
     /// The reference referring to this stream

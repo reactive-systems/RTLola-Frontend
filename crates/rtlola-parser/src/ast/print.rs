@@ -119,10 +119,14 @@ impl Display for Trigger {
         write!(
             f,
             "trigger{} {}{}",
-            format_opt(&self.name, " ", " :="),
+            format_opt(&self.extend.expr, " @", ""),
             self.expression,
             format_opt(&self.message, " \"", "\""),
-        )
+        )?;
+        if !self.info_streams.is_empty() {
+            write_delim_list(f, &self.info_streams, " (", ")", ", ")?;
+        }
+        Ok(())
     }
 }
 

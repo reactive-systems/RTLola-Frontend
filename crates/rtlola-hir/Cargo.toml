@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-hir"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <florian.kohn@cispa.de>",

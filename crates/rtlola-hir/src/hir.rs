@@ -388,7 +388,7 @@ pub struct Output {
     pub name: String,
     /// The user annotated Type
     pub(crate) annotated_type: Option<AnnotatedType>,
-    /// The activation condition, which defines when a new value of a stream is computed. In periodic streams, the condition is 'None'
+    /// The activation condition, which defines when a new value of a stream is computed.
     pub(crate) activation_condition: Option<Ac>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub(crate) params: Vec<Parameter>,
@@ -488,10 +488,12 @@ pub(crate) struct SpawnTemplate {
 /// Represents a trigger of an RTLola specification.
 #[derive(Debug, Clone)]
 pub struct Trigger {
-    /// The synthetic name of a trigger.
-    pub name: String,
     /// The message that will be conveyed when the trigger expression evaluates to true.
     pub message: String,
+    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
+    pub info_streams: Vec<StreamReference>,
+    /// The activation condition, which defines when the trigger is evaluated.
+    pub(crate) activation_condition: Option<Ac>,
     /// The id of the expression belonging to the trigger
     pub(crate) expr_id: ExprId,
     /// A reference to the stream which represents this trigger.
@@ -503,15 +505,16 @@ pub struct Trigger {
 impl Trigger {
     /// Creates a new trigger.
     pub(crate) fn new(
-        name: Option<rtlola_parser::ast::Ident>,
         msg: Option<String>,
+        infos: Vec<StreamReference>,
+        ac: Option<Ac>,
         expr_id: ExprId,
         sr: SRef,
         span: Span,
     ) -> Self {
-        let name_str = name.map(|ident| ident.name).unwrap_or_else(String::new);
         Self {
-            name: name_str,
+            info_streams: infos,
+            activation_condition: ac,
             message: msg.unwrap_or_else(String::new),
             expr_id,
             sr,
