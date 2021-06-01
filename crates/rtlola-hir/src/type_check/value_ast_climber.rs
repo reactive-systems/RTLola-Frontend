@@ -156,8 +156,8 @@ where
             Literal::Str(_) => AbstractValueType::String,
             Literal::Bool(_) => AbstractValueType::Bool,
             Literal::Integer(_) => AbstractValueType::Integer,
-            Literal::SInt(_) => AbstractValueType::SInteger(1),
-            Literal::Float(_) => AbstractValueType::Float(1),
+            Literal::SInt(_) => AbstractValueType::SInteger,
+            Literal::Float(_) => AbstractValueType::Float,
         }
     }
 
@@ -205,17 +205,26 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::String))?
             },
+            AnnotatedType::Int(0) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SInteger))?
+            },
             AnnotatedType::Int(x) => {
                 self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SInteger(*x)))?
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedSInteger(*x)))?
             },
+            AnnotatedType::Float(0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Float))?,
             AnnotatedType::Float(f) => {
                 self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Float(*f)))?
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedFloat(*f)))?
+            },
+            AnnotatedType::UInt(0) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::UInteger))?
             },
             AnnotatedType::UInt(u) => {
                 self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::UInteger(*u)))?
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?
             },
             AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
             AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
@@ -488,7 +497,7 @@ where
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Any))?;
                                 self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::UInteger(1)))?;
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
                             },
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
@@ -501,11 +510,11 @@ where
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
                                     self.tyc
-                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Float(1)))?;
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Float))?;
                                 } else {
                                     //self.tyc.impose(term_key.concretizes(ex_key))?;
                                     self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Float(1)))?;
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Float))?;
                                 }
                             },
                             //Σ and Π :T <T:Num> -> T
@@ -686,9 +695,9 @@ where
                 // Bind expr type to least restrictive version of the variant i.e. e.g. Integer w/ width of 1 bit.
                 // Also bind the result to the type annotation of the widening call.
                 let upper_bound = match ty {
-                    AnnotatedType::UInt(_) => AbstractValueType::UInteger(1),
-                    AnnotatedType::Int(_) => AbstractValueType::SInteger(1),
-                    AnnotatedType::Float(_) => AbstractValueType::Float(1),
+                    AnnotatedType::UInt(_) => AbstractValueType::UInteger,
+                    AnnotatedType::Int(_) => AbstractValueType::SInteger,
+                    AnnotatedType::Float(_) => AbstractValueType::Float,
                     _ => unimplemented!("unsupported widening type"),
                 };
                 self.handle_annotated_type(term_key, &ty, Some(inner_expr_key))?;
@@ -1819,5 +1828,23 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input a: Int32\noutput b: Int16 := widen<Int16>(a)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let spec = "import math\ninput a: Float32\noutput b := sqrt(a)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("b");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_generics() {
+        let spec = "import math\nconstant x: Float32 := 5.0\noutput b @1Hz := abs(x)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("b");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
 }
