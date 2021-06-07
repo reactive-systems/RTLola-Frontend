@@ -1847,4 +1847,20 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
+
+    #[test]
+    fn test_complex_spec() {
+        let spec = "\
+        import math\n\
+        input w_dir: Float64\n\
+        input lat: Float64\n\
+        input lon: Float64\n\
+
+        output lon_diff: Float64 := lon - lon.offset(by: -1).defaults(to: lon)\n\
+        output lat_diff: Float64 := lat - lat.offset(by: -1).defaults(to: lat)\n\
+
+        output yaw: Float64 := if lon_diff = 0.0 then 0.0 else arctan(lat_diff / lon_diff)\n\
+        output head_wind: Bool @ 1Hz := (w_dir.hold().defaults(to: 0.0) - yaw.hold().defaults(to: 0.0)) < 0.2";
+        assert_eq!(0, complete_check(spec));
+    }
 }
