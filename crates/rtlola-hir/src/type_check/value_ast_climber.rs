@@ -1863,4 +1863,14 @@ output o_9: Bool @i_0 := true  && true";
         output head_wind: Bool @ 1Hz := (w_dir.hold().defaults(to: 0.0) - yaw.hold().defaults(to: 0.0)) < 0.2";
         assert_eq!(0, complete_check(spec));
     }
+
+    #[test]
+    fn test_stdlib_function() {
+        let spec = "import math\n\
+                        input  a : Float64\n\
+                        output b : Float64 := arctan(a)\n\
+                        output c : Float64 := sin(a)\n\
+                        ";
+        assert_eq!(0, complete_check(spec));
+    }
 }
