@@ -269,7 +269,7 @@ impl ExpressionTransformer {
                 }
                 if let Some(size_str) = string.strip_prefix("Int") {
                     if string.len() == 3 {
-                        return Some(AnnotatedType::Int(8));
+                        return Some(AnnotatedType::Int(64));
                     } else {
                         let size: u32 = size_str.parse().expect("Invalid char followed Int type annotation");
                         return Some(AnnotatedType::Int(size));
@@ -277,7 +277,7 @@ impl ExpressionTransformer {
                 }
                 if let Some(size_str) = string.strip_prefix("UInt") {
                     if string.len() == 4 {
-                        return Some(AnnotatedType::Int(8));
+                        return Some(AnnotatedType::UInt(64));
                     } else {
                         let size: u32 = size_str.parse().expect("Invalid char followed UInt type annotation");
                         return Some(AnnotatedType::UInt(size));
@@ -285,7 +285,7 @@ impl ExpressionTransformer {
                 }
                 if let Some(size_str) = string.strip_prefix("Float") {
                     if string.len() == 5 {
-                        return Some(AnnotatedType::Int(8));
+                        return Some(AnnotatedType::Float(64));
                     } else {
                         let size: u32 = size_str.parse().expect("Invalid char followed Float type annotation");
                         return Some(AnnotatedType::Float(size));
