@@ -101,9 +101,9 @@ pub struct Output {
     /// The name of the output stream
     pub name: Ident,
     /// An optional value type annotation of the output stream
-    pub ty: Option<Type>,
-    /// The activation condition, which defines when a new value of a stream is computed.
-    pub extend: ActivationCondition,
+    pub annotated_type: Option<Type>,
+    /// The pacing type, which defines when a new value of a stream is computed.
+    pub annotated_pacing_type: Option<Expression>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Rc<Parameter>>,
     /// The spawn declaration of a parameterized stream
@@ -135,24 +135,13 @@ pub struct Parameter {
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a activation condition of a stream.
-#[derive(Debug, Clone)]
-pub struct ActivationCondition {
-    /// The boolean expression representing the activation condition. For periodic streams this component is assigned to 'None'
-    pub expr: Option<Expression>,
-    /// The id of the node in the Ast
-    pub id: NodeId,
-    /// The span in the specification declaring the activation condition
-    pub span: Span,
-}
-
 /// An Ast node representing the declaration of a spawn condition of a stream template.
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<Expression>,
-    /// The ActivationCondition describing when a new instance is created.
-    pub pacing: ActivationCondition,
+    /// The pacing type describing when a new instance is created.
+    pub annotated_pacing: Option<Expression>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
     /// A flag to describe if the condition is an `if` or an `unless` condition.
@@ -190,11 +179,11 @@ pub struct CloseSpec {
 pub struct Trigger {
     /// The boolean expression of a trigger
     pub expression: Expression,
-    /// The activation condition, which defines when a new value of a stream is computed.
-    pub extend: ActivationCondition,
+    /// The pacing type, which defines when a new value of a stream is computed.
+    pub annotated_pacing_type: Option<Expression>,
     /// The optional trigger message, which is printed if the monitor raises the trigger
     pub message: Option<String>,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
+    /// A collection of streams which can be used in the message. Their value is printed when the trigger is fired.
     pub info_streams: Vec<Ident>,
     /// The id of the node in the Ast
     pub id: NodeId,

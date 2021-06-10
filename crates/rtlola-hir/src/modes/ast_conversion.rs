@@ -11,9 +11,9 @@ use rtlola_reporting::{Handler, Span};
 
 use super::BaseMode;
 use crate::hir::{
-    Ac, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression, ExpressionKind,
-    ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output, Parameter, SRef,
-    SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    AnnotatedPacingType, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression,
+    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output,
+    Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -144,8 +144,8 @@ impl ExpressionTransformer {
                 spawn,
                 filter,
                 close,
-                ty,
-                extend,
+                annotated_type,
+                annotated_pacing_type,
                 ..
             } = (*o).clone();
             let params: Vec<Parameter> = params
@@ -161,13 +161,12 @@ impl ExpressionTransformer {
                     }
                 })
                 .collect();
-            let annotated_type = ty.as_ref().and_then(Self::annotated_type);
+            let annotated_type = annotated_type.as_ref().and_then(Self::annotated_type);
             let expression = self.transform_expression(expression, sr)?;
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
-            let ac = extend.expr.map_or(Ok(None), |exp| {
-                self.transform_ac(&mut exprid_to_expr, exp, sr).map(Some)
-            })?;
+            let annotated_pacing_type = annotated_pacing_type
+                .map_or(Ok(None), |pt| self.transform_pt(&mut exprid_to_expr, pt, sr).map(Some))?;
             let instance_template = self.transform_template_spec(spawn, filter, close, &mut exprid_to_expr, sr)?;
             hir_outputs.push(Output {
                 name: name.name,
@@ -175,7 +174,7 @@ impl ExpressionTransformer {
                 params,
                 instance_template,
                 annotated_type,
-                activation_condition: ac,
+                annotated_pacing_type,
                 expr_id,
                 span: o.span.clone(),
             });
@@ -186,15 +185,14 @@ impl ExpressionTransformer {
             let sr = SRef::Out(hir_outputs.len() + ix);
             let ast::Trigger {
                 message,
-                extend,
+                annotated_pacing_type,
                 info_streams,
                 expression,
                 span,
                 ..
             } = Rc::try_unwrap(t).expect("other strong references should be dropped now");
-            let ac = extend.expr.map_or(Ok(None), |exp| {
-                self.transform_ac(&mut exprid_to_expr, exp, sr).map(Some)
-            })?;
+            let pt = annotated_pacing_type
+                .map_or(Ok(None), |pt| self.transform_pt(&mut exprid_to_expr, pt, sr).map(Some))?;
             let info_streams: Vec<SRef> = info_streams
                 .into_iter()
                 .map(|ident| {
@@ -206,7 +204,7 @@ impl ExpressionTransformer {
                 .collect();
             let expr_id = Self::insert_return(&mut exprid_to_expr, self.transform_expression(expression, sr)?);
 
-            hir_triggers.push(Trigger::new(message, info_streams, ac, expr_id, sr, span));
+            hir_triggers.push(Trigger::new(message, info_streams, pt, expr_id, sr, span));
         }
         let hir_triggers = hir_triggers;
         let hir_inputs: Vec<Input> = inputs
@@ -375,24 +373,24 @@ impl ExpressionTransformer {
         })
     }
 
-    fn transform_ac(
+    fn transform_pt(
         &mut self,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
-        ac_expr: ast::Expression,
+        pt_expr: ast::Expression,
         current: SRef,
-    ) -> Result<Ac, TransformationErr> {
-        if let ast::ExpressionKind::Lit(l) = &ac_expr.kind {
+    ) -> Result<AnnotatedPacingType, TransformationErr> {
+        if let ast::ExpressionKind::Lit(l) = &pt_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                let val = ac_expr.parse_freqspec().map_err(TransformationErr::InvalidAc)?;
-                return Ok(Ac::Frequency {
-                    span: ac_expr.span.clone(),
+                let val = pt_expr.parse_freqspec().map_err(TransformationErr::InvalidAc)?;
+                return Ok(AnnotatedPacingType::Frequency {
+                    span: pt_expr.span.clone(),
                     value: val,
                 });
             }
         }
-        Ok(Ac::Expr(Self::insert_return(
+        Ok(AnnotatedPacingType::Expr(Self::insert_return(
             exprid_to_expr,
-            self.transform_expression(ac_expr, current)?,
+            self.transform_expression(pt_expr, current)?,
         )))
     }
 
@@ -734,7 +732,7 @@ impl ExpressionTransformer {
             spawn: spawn_spec.map_or(Ok(None), |spawn_spec| {
                 let SpawnSpec {
                     target,
-                    pacing,
+                    annotated_pacing,
                     condition,
                     is_if,
                     ..
@@ -748,8 +746,8 @@ impl ExpressionTransformer {
                     let exp = self.transform_expression(target_exp, current_output)?;
                     Ok(Some(Self::insert_return(exprid_to_expr, exp)))
                 })?;
-                let pacing = pacing.expr.map_or(Ok(None), |ac| {
-                    Ok(Some(self.transform_ac(exprid_to_expr, ac, current_output)?))
+                let pacing = annotated_pacing.map_or(Ok(None), |pt| {
+                    Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
                 })?;
 
                 let condition = condition.map_or(Ok(None), |cond_expr| {
@@ -1064,12 +1062,15 @@ mod tests {
 
     #[test]
     fn test_instance() {
-        use crate::hir::{Ac, Output};
+        use crate::hir::{AnnotatedPacingType, Output};
         let spec = "input i: Bool output c(a: Int8): Bool @1Hz spawn with i if i filter i close i:= i";
         let ir = obtain_expressions(spec);
         let output: Output = ir.outputs[0].clone();
         assert!(output.annotated_type.is_some());
-        assert!(matches!(output.activation_condition, Some(Ac::Frequency { .. })));
+        assert!(matches!(
+            output.annotated_pacing_type,
+            Some(AnnotatedPacingType::Frequency { .. })
+        ));
         assert!(output.params.len() == 1);
         let fil: &Expression = ir.filter(output.sr).unwrap();
         assert!(matches!(
@@ -1094,13 +1095,16 @@ mod tests {
 
     #[test]
     fn test_ac() {
-        use crate::hir::{Ac, Output};
+        use crate::hir::{AnnotatedPacingType, Output};
         let spec = "input in: Bool output a: Bool @2.5Hz := true output b: Bool @in := false";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(matches!(a.activation_condition, Some(Ac::Frequency { .. })));
+        assert!(matches!(
+            a.annotated_pacing_type,
+            Some(AnnotatedPacingType::Frequency { .. })
+        ));
         let b: &Output = &ir.outputs[1];
-        assert!(matches!(b.activation_condition, Some(Ac::Expr(_))));
+        assert!(matches!(b.annotated_pacing_type, Some(AnnotatedPacingType::Expr(_))));
     }
 
     #[test]
@@ -1123,7 +1127,10 @@ mod tests {
         let a: Output = ir.outputs[0].clone();
         assert!(a.instance_template.spawn.is_some());
         let template = a.instance_template.spawn;
-        assert!(matches!(template.unwrap().pacing, Some(Ac::Frequency { .. })));
+        assert!(matches!(
+            template.unwrap().pacing,
+            Some(AnnotatedPacingType::Frequency { .. })
+        ));
     }
 
     #[test]
@@ -1140,7 +1147,10 @@ mod tests {
         let spec = "input a:Bool\n trigger @1Hz a";
         let ir = obtain_expressions(spec);
         let trigger: Trigger = ir.triggers[0].clone();
-        assert!(matches!(trigger.activation_condition, Some(Ac::Frequency { .. })))
+        assert!(matches!(
+            trigger.annotated_pacing_type,
+            Some(AnnotatedPacingType::Frequency { .. })
+        ))
     }
 
     #[test]
@@ -1149,6 +1159,9 @@ mod tests {
         let ir = obtain_expressions(spec);
         let trigger: Trigger = ir.triggers[0].clone();
         assert_eq!(trigger.info_streams[0], SRef::In(0));
-        assert!(matches!(trigger.activation_condition, Some(Ac::Frequency { .. })))
+        assert!(matches!(
+            trigger.annotated_pacing_type,
+            Some(AnnotatedPacingType::Frequency { .. })
+        ))
     }
 }
