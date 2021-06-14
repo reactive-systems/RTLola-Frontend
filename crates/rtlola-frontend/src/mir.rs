@@ -42,6 +42,10 @@ pub trait Stream {
     fn eval_layer(&self) -> Layer;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
+    /// Indicates whether or not the stream has parameters.
+    fn is_parameterized(&self) -> bool;
+    /// Indicates whether or not the stream spawned / dynamically created.
+    fn is_spawned(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
@@ -548,6 +552,14 @@ impl Stream for OutputStream {
         false
     }
 
+    fn is_parameterized(&self) -> bool {
+        self.instance_template.spawn.target.is_some()
+    }
+
+    fn is_spawned(&self) -> bool {
+        self.instance_template.spawn.target.is_some() || self.instance_template.spawn.condition.is_some()
+    }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
@@ -568,6 +580,14 @@ impl Stream for InputStream {
 
     fn is_input(&self) -> bool {
         true
+    }
+
+    fn is_parameterized(&self) -> bool {
+        false
+    }
+
+    fn is_spawned(&self) -> bool {
+        false
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
