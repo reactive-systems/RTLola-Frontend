@@ -40,6 +40,8 @@ pub(crate) enum ValueErrorKind {
     UnnecessaryTypeParam(Span),
     /// Inner expression of widen is wider than target width
     InvalidWiden(ConcreteValueType, ConcreteValueType),
+    /// Optional Type is not allowed
+    OptionNotAllowed(ConcreteValueType),
 }
 
 /// The [AbstractValueType] is used during inference and represents a value within the type lattice
@@ -518,6 +520,15 @@ impl Emittable for ValueErrorKind {
                     .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Widen with traget {} is found here", bound)), false)
                     .maybe_add_span_with_label(key2.and_then(|k| spans.get(&k).cloned()), Some(&format!("Inferred type {} here", inner)), true)
                     .emit()
+            },
+            ValueErrorKind::OptionNotAllowed(ty) => {
+                Diagnostic::error(
+                     handler,
+                "In value type analysis:\nAn optional type is not allowed here."
+                )
+                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Optional type: {} found here", ty)), true)
+                    .add_note("Help: Consider using the default operator to resolve the optional.")
+                .emit()
             }
         }
     }
