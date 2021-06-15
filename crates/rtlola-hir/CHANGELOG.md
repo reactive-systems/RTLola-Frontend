@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.4] - ?
 
+### Added
+- Convenience methods for parameterized streams to MIR
+
 ### Fixed
 - Streams can no longer have optional value types
 
