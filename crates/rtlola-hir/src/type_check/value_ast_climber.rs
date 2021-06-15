@@ -139,6 +139,10 @@ where
             err.emit(handler, &[&self.key_span], &self.names);
         }
 
+        for err in Self::post_process(self.hir, &self.node_key, &tt) {
+            err.emit(handler, &[&self.key_span], &self.names);
+        }
+
         if handler.contains_error() {
             return None;
         }
@@ -835,6 +839,27 @@ where
             })
             .collect()
     }
+
+    pub(crate) fn post_process(
+        hir: &Hir<M>,
+        node_key: &HashMap<NodeId, TcKey>,
+        tt: &TypeTable<AbstractValueType>,
+    ) -> Vec<TypeError<ValueErrorKind>> {
+        let mut errors = vec![];
+        //Check that no output has an optional type
+        for output in &hir.outputs {
+            let key = node_key[&NodeId::SRef(output.sr())];
+            let ty: &ConcreteValueType = &tt[&key];
+            if matches!(ty, ConcreteValueType::Option(_)) {
+                errors.push(TypeError {
+                    kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                    key1: Some(key),
+                    key2: None,
+                });
+            }
+        }
+        errors
+    }
 }
 
 #[cfg(test)]
@@ -846,7 +871,7 @@ mod value_type_tests {
     use rtlola_parser::{parse_with_handler, ParserConfig};
     use rtlola_reporting::Handler;
 
-    use crate::hir::{RtLolaHir, StreamReference};
+    use crate::hir::{ExprId, RtLolaHir, StreamReference};
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::{LolaTypeChecker, NodeId};
     use crate::type_check::ConcreteValueType;
@@ -1454,14 +1479,13 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_optional_type() {
-        let spec = "input in: Int8\noutput out: Int8? := in.offset(by: -1)";
+        let spec = "input in: Int8\noutput out: Int8 := in.offset(by: -1).defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
-        let out_id = tb.output("out");
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(
-            result_map[&NodeId::SRef(out_id)],
+            result_map[&NodeId::Expr(ExprId(1))],
             ConcreteValueType::Option(ConcreteValueType::Integer8.into())
         );
     }
@@ -1872,5 +1896,13 @@ output o_9: Bool @i_0 := true  && true";
                         output c : Float64 := sin(a)\n\
                         ";
         assert_eq!(0, complete_check(spec));
+    }
+
+    #[test]
+    fn test_no_optional_stream() {
+        let spec = "input  a : Float64\n\
+                         output b := a.offset(by:-1)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 }
