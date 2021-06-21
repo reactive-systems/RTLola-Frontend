@@ -867,7 +867,7 @@ where
         tt: &TypeTable<AbstractValueType>,
     ) -> Vec<TypeError<ValueErrorKind>> {
         let mut errors = vec![];
-        //Check that no output has an optional type
+        //Check that no output or spawn target has an optional type
         for output in &hir.outputs {
             let key = node_key[&NodeId::SRef(output.sr())];
             let ty: &ConcreteValueType = &tt[&key];
@@ -877,6 +877,18 @@ where
                     key1: Some(key),
                     key2: None,
                 });
+            }
+
+            if let Some(target) = output.instance_template.spawn.as_ref().and_then(|st| st.target) {
+                let key = node_key[&NodeId::Expr(target)];
+                let ty: &ConcreteValueType = &tt[&key];
+                if matches!(ty, ConcreteValueType::Option(_)) {
+                    errors.push(TypeError {
+                        kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                        key1: Some(key),
+                        key2: None,
+                    });
+                }
             }
         }
         errors
@@ -1902,5 +1914,13 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input  a : Float64\n\
                          output b := a.offset(by:-1)";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_no_optional_spawn_target() {
+        let spec = "input  a : Float64\n\
+                         output b(p) spawn with a.offset(by: -1) := a + p.defaults(to: 0.0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 }
