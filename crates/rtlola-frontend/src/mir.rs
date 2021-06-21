@@ -246,14 +246,14 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
     /// The condition under which the stream is not supposed to be evaluated
-    pub filter: Option<Expression>,
+    pub filter: FilterTemplate,
     /// The condition under which the stream is supposed to be closed
-    pub close: Option<Expression>,
+    pub close: CloseTemplate,
 }
 
 /// Information on the spawn behavior of a stream
@@ -272,6 +272,43 @@ impl Default for SpawnTemplate {
             target: None,
             pacing: PacingType::Constant,
             condition: None,
+        }
+    }
+}
+
+/// Information on the close behavior of a stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTemplate {
+    /// The `target` expression needs to be evaluated whenever the stream with this CloseTemplate is supposed to be closed.  The result of the evaluation constitutes whether the stream is closed.
+    pub target: Option<Expression>,
+    /// The timing of the close condition.
+    pub pacing: PacingType,
+    /// Indicates whether the close condition contains a reference to the stream it belongs to.
+    pub has_self_reference: bool,
+}
+impl Default for CloseTemplate {
+    fn default() -> Self {
+        CloseTemplate {
+            target: None,
+            pacing: PacingType::Constant,
+            has_self_reference: false,
+        }
+    }
+}
+
+/// Information on the close behavior of a stream
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterTemplate {
+    /// The `target` expression needs to be evaluated whenever the stream with this FilterTemplate is supposed to be evaluated.  The result of the evaluation constitutes whether the stream is actually evaluated.
+    pub target: Option<Expression>,
+    /// The timing of the filter condition.
+    pub pacing: PacingType,
+}
+impl Default for FilterTemplate {
+    fn default() -> Self {
+        FilterTemplate {
+            target: None,
+            pacing: PacingType::Constant,
         }
     }
 }

@@ -9,12 +9,14 @@ use uom::si::time::{nanosecond, second};
 use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
 
 /// This enum represents the different tasks that have to be executed periodically.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Task {
     /// Evaluate the stream referred to by the OutputReference
     Evaluate(OutputReference),
     /// Spawn the stream referred to by the OutputReference
     Spawn(OutputReference),
+    /// Evaluate the close condition referred to by the OutputReference
+    Close(OutputReference),
 }
 
 /// This struct represents a single deadline inside a [Schedule].
@@ -65,19 +67,31 @@ impl Schedule {
     /// # Fail
     /// Fails if the resulting schedule would require at least 10^7 deadlines.
     pub(crate) fn from(ir: &RtLolaMir) -> Result<Schedule, String> {
-        let periods: Vec<UOM_Time> = ir
+        let stream_periods = ir
             .time_driven
             .iter()
-            .map(|s| s.period())
-            .chain(ir.outputs.iter().filter_map(|o| {
-                match &o.instance_template.spawn.pacing {
-                    PacingType::Periodic(freq) => {
-                        Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
-                    },
-                    _ => None,
+            .map(|tds| (ir.output(tds.reference), tds.period()))
+            .filter(|(o, _)| !o.is_spawned())
+            .map(|(_, period)| period);
+        let spawn_periods = ir.outputs.iter().filter_map(|o| {
+            if let PacingType::Periodic(freq) = &o.instance_template.spawn.pacing {
+                Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+            } else {
+                None
+            }
+        });
+        let close_periods = ir.outputs.iter().filter_map(|o| {
+            if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
+                if !o.instance_template.close.has_self_reference {
+                    Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+                } else {
+                    None
                 }
-            }))
-            .collect();
+            } else {
+                None
+            }
+        });
+        let periods: Vec<UOM_Time> = stream_periods.chain(spawn_periods).chain(close_periods).collect();
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
 
@@ -148,7 +162,11 @@ impl Schedule {
             return Err("stream frequencies are too incompatible to generate schedule".to_string());
         }
         let mut extend_steps = vec![Vec::new(); num_steps];
-        for s in ir.time_driven.iter() {
+        for s in ir
+            .time_driven
+            .iter()
+            .filter(|tds| !ir.output(tds.reference).is_spawned())
+        {
             let ix = s.period().get::<second>() / gcd.get::<second>();
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
@@ -176,6 +194,28 @@ impl Schedule {
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
             extend_steps[ix].push(Task::Spawn(out_ix));
+        }
+
+        let periodic_close = ir.outputs.iter().filter_map(|o| {
+            if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
+                if !o.instance_template.close.has_self_reference {
+                    Some((
+                        o.reference.out_ix(),
+                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        for (out_ix, period) in periodic_close {
+            let ix = period.get::<second>() / gcd.get::<second>();
+            assert!(ix.is_integer());
+            let ix = ix.to_integer() as usize;
+            let ix = ix - 1;
+            extend_steps[ix].push(Task::Close(out_ix));
         }
         Ok(extend_steps)
     }
@@ -214,8 +254,9 @@ impl Schedule {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| {
                 match s {
-                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer(),
-                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer(),
+                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
+                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                    Task::Close(_) => usize::MAX,
                 }
             });
         }
@@ -254,6 +295,7 @@ mod tests {
 
     use super::math::*;
     use super::*;
+    use crate::mir::schedule::Task::{Close, Evaluate, Spawn};
     use crate::mir::RtLolaMir;
     use crate::ParserConfig;
 
@@ -365,5 +407,19 @@ mod tests {
             let was = divide_durations(to_dur(*a), to_dur(*b), true);
             assert_eq!(was, *expected, "Expected {}, but was {}.", expected, was);
         }
+    }
+
+    #[test]
+    fn test_spawn_close_scheduled() {
+        let ir = to_ir(
+            "input a:UInt64\n\
+                          output x @1Hz := a.hold(or: 42)\n\
+                          output y close x = 42 := a\n\
+                          output z spawn @0.5Hz if a.hold(or: 42) = 1337 := a - 15
+       ",
+        );
+        let schedule = ir.compute_schedule().expect("failed to compute schedule");
+        assert_eq!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
+        assert_eq!(schedule.deadlines[1].due, vec![Evaluate(0), Spawn(2), Close(1)]);
     }
 }
