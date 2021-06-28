@@ -709,6 +709,16 @@ impl RtLolaMir {
         self.event_driven.iter().map(|t| self.output(t.reference)).collect()
     }
 
+    /// Return true if the specification contains any time-driven features.
+    /// This includes time-driven streams and time-driven spawn conditions.
+    pub fn has_time_driven_features(&self) -> bool {
+        !self.time_driven.is_empty()
+            || self
+                .outputs
+                .iter()
+                .any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
+    }
+
     /// Provides a collection of all time-driven output streams.
     pub fn all_time_driven(&self) -> Vec<&OutputStream> {
         self.time_driven.iter().map(|t| self.output(t.reference)).collect()
