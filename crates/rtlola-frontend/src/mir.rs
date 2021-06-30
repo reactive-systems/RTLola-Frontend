@@ -692,6 +692,14 @@ impl RtLolaMir {
         }
     }
 
+    /// Provides immutable access to a stream.
+    pub fn stream(&self, reference: StreamReference) -> &dyn Stream {
+        match reference {
+            StreamReference::In(ix) => &self.inputs[ix],
+            StreamReference::Out(ix) => &self.outputs[ix],
+        }
+    }
+
     /// Produces an iterator over all stream references.
     pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> {
         self.input_refs()
