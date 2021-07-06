@@ -653,4 +653,21 @@ mod tests {
         let periodic_layers = vec![].into_iter().collect();
         check_eval_order_for_spec(spec, event_layers, periodic_layers)
     }
+
+    #[test]
+    fn test_spawn_eventbased() {
+        let spec = "input a: Int32\n\
+                  output b(x: Int32) spawn with a := x + a";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = vec![].into_iter().collect();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
 }

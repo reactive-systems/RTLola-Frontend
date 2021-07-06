@@ -760,17 +760,33 @@ impl RtLolaMir {
     }
 
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` an output stream in the layer.
-    pub fn get_event_driven_layers(&self) -> Vec<Vec<OutputReference>> {
-        if self.event_driven.is_empty() {
+    pub fn get_event_driven_layers(&self) -> Vec<Vec<Task>> {
+        let event_driven_spawns: Vec<&OutputStream> = self
+            .outputs
+            .iter()
+            .filter(|o| matches!(o.instance_template.spawn.pacing, PacingType::Event(_)))
+            .collect();
+
+        if self.event_driven.is_empty() && event_driven_spawns.is_empty() {
             return vec![];
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers: Vec<(usize, OutputReference)> = self
+        let streams_with_layers: Vec<(usize, Task)> = self
             .event_driven
             .iter()
             .map(|s| s.reference)
-            .map(|r| (self.output(r).eval_layer().into(), r.out_ix()))
+            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())))
+            .collect();
+
+        let spawns_with_layers: Vec<(usize, Task)> = event_driven_spawns
+            .iter()
+            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())))
+            .collect();
+
+        let tasks_with_layers: Vec<(usize, Task)> = streams_with_layers
+            .into_iter()
+            .chain(spawns_with_layers.into_iter())
             .collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
@@ -783,13 +799,13 @@ impl RtLolaMir {
         // e) If there are some, add them as layer.
 
         // a) Find the greatest layer. Maximum must exist because vec cannot be empty.
-        let max_layer = streams_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
+        let max_layer = tasks_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
 
         let mut layers = Vec::new();
         // b) For each potential layer
         for i in 0..=max_layer {
             // c) Find streams that would be in it.
-            let in_layer_i: Vec<OutputReference> = streams_with_layers
+            let in_layer_i: Vec<Task> = tasks_with_layers
                 .iter()
                 .filter_map(|(l, r)| if *l == i { Some(*r) } else { None })
                 .collect();
