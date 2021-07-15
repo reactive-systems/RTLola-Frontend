@@ -882,13 +882,32 @@ where
             if let Some(target) = output.instance_template.spawn.as_ref().and_then(|st| st.target) {
                 let key = node_key[&NodeId::Expr(target)];
                 let ty: &ConcreteValueType = &tt[&key];
-                if matches!(ty, ConcreteValueType::Option(_)) {
-                    errors.push(TypeError {
-                        kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
-                        key1: Some(key),
-                        key2: None,
-                    });
+                match ty {
+                    ConcreteValueType::Tuple(child_types) => {
+                        if let ExpressionKind::Tuple(children) = &hir.expression(target).kind {
+                            if let Some((child_idx, child_ty)) = child_types
+                                .iter()
+                                .find_position(|t| matches!(t, ConcreteValueType::Option(_)))
+                            {
+                                let key = node_key[&NodeId::Expr(children[child_idx].eid)];
+                                errors.push(TypeError {
+                                    kind: ValueErrorKind::OptionNotAllowed(child_ty.clone()),
+                                    key1: Some(key),
+                                    key2: None,
+                                })
+                            }
+                        }
+                    },
+                    ConcreteValueType::Option(_) => {
+                        errors.push(TypeError {
+                            kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                            key1: Some(key),
+                            key2: None,
+                        })
+                    },
+                    _ => {},
                 }
+                if matches!(ty, ConcreteValueType::Option(_)) {}
             }
         }
         errors
@@ -1920,6 +1939,14 @@ output o_9: Bool @i_0 := true  && true";
     fn test_no_optional_spawn_target() {
         let spec = "input  a : Float64\n\
                          output b(p) spawn with a.offset(by: -1) := a + p.defaults(to: 0.0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_no_optional_spawn_target_tuple() {
+        let spec = "input  a : Float64\n\
+                         output b(p, q) spawn with (42, a.offset(by: -1)) := a + q.defaults(to: 0.0)";
         let tb = check_expect_error(spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
