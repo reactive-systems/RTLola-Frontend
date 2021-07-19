@@ -414,7 +414,7 @@ where
                         self.handle_offset(kind, term_keys)?;
                         self.impose_more_concrete(term_keys, stream_key)?;
 
-                        //Check that arguments are equal to spawn target if parameterized
+                        //Check that arguments are equal to spawn target if parameterized or the parameters for self
                         let target = self.hir.spawn(*sref).and_then(|(t, _)| t).map(|target| {
                             match &target.kind {
                                 ExpressionKind::Tuple(s) => s.clone(),
@@ -423,9 +423,9 @@ where
                         });
 
                         if let Some(spawn_args) = target {
-                            if spawn_args.len() != args.len()
-                                || spawn_args.iter().zip(args.iter()).any(|(l, r)| l.value_neq(r))
-                            {
+                            let is_self_access = args.iter().enumerate().all(|(idx,arg)|matches!(arg.kind, ExpressionKind::ParameterAccess(_, p_idx) if idx == p_idx));
+                            let spawn_target_mismatch = spawn_args.iter().zip(args.iter()).any(|(l, r)| l.value_neq(r));
+                            if spawn_args.len() != args.len() || (spawn_target_mismatch && !is_self_access) {
                                 return Err(PacingErrorKind::Other(
                                     exp.span.clone(),
                                     format!(
@@ -2080,5 +2080,14 @@ mod tests {
         output a @1Hz := true\n\
         output b @1Hz spawn if i = 5 close b = 7 & a := 42";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_self_ref_counter() {
+        let spec = "
+            input x: Int32\n\
+            output a (p: Int32) @1Hz spawn with x := a(p).offset(by: -1).defaults(to: 0) + 1
+        ";
+        assert_eq!(0, num_errors(spec));
     }
 }
