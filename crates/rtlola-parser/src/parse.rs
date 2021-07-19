@@ -1593,4 +1593,13 @@ mod tests {
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
+
+    #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) spawn with a = 42 := a\n\
+        output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
 }

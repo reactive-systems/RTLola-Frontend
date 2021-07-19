@@ -571,7 +571,7 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Discrete(idx);
                 let duration = (*duration)
@@ -589,7 +589,7 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.discrete_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::Discrete(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::Discrete(idx)), paras)
             },
             ast::ExpressionKind::SlidingWindowAggregation {
                 expr: w_expr,
@@ -597,7 +597,7 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
                 let duration = Self::parse_duration_from_expr(&*duration)
@@ -614,7 +614,7 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.sliding_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), paras)
             },
             ast::ExpressionKind::Binary(op, left, right) => {
                 use rtlola_parser::ast::BinOp;
@@ -1244,5 +1244,17 @@ mod tests {
             trigger.annotated_pacing_type,
             Some(AnnotatedPacingType::Frequency { .. })
         ))
+    }
+
+    #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) spawn with a = 42 := a\n\
+        output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
+        let ir = obtain_expressions(spec);
+        let expr = &ir.expression(ir.outputs[1].expr_id).kind;
+        assert!(
+            matches!(expr, ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(_), paras) if paras.len() == 1)
+        );
     }
 }

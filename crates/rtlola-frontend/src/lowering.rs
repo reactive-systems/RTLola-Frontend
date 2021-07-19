@@ -668,6 +668,19 @@ mod tests {
     }
 
     #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b(p: Bool) spawn with a == 42 := a\n\
+        output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
+        let (_, mir) = lower_spec(spec);
+
+        let expr = mir.outputs[1].expr.kind.clone();
+        assert!(
+            matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
+        );
+    }
+
+    #[test]
     fn test_cast_lowering() {
         let spec = "input a: Int64\n\
         output b := cast<Int64, Float64>(a)";
