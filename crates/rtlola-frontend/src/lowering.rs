@@ -317,11 +317,20 @@ impl Mir {
             },
             rtlola_hir::hir::ExpressionKind::Function(kind) => {
                 let FnExprKind { name, args, .. } = kind;
-                let args = args
-                    .iter()
-                    .map(|arg| Self::lower_expr(hir, arg))
-                    .collect::<Vec<mir::Expression>>();
-                mir::ExpressionKind::Function(name.clone(), args)
+                match name.as_ref() {
+                    "cast" => {
+                        assert_eq!(args.len(), 1);
+                        let expr = Box::new(Self::lower_expr(hir, &args[0]));
+                        mir::ExpressionKind::Convert { expr }
+                    },
+                    _ => {
+                        let args = args
+                            .iter()
+                            .map(|arg| Self::lower_expr(hir, arg))
+                            .collect::<Vec<mir::Expression>>();
+                        mir::ExpressionKind::Function(name.clone(), args)
+                    },
+                }
             },
             rtlola_hir::hir::ExpressionKind::Widen(kind) => {
                 let WidenExprKind { expr, .. } = kind;
@@ -617,5 +626,16 @@ mod tests {
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 1);
+    }
+
+    #[test]
+    fn test_cast_lowering() {
+        let spec = "input a: Int64\n\
+        output b := cast<Int64, Float64>(a)";
+        let (_, mir) = lower_spec(spec);
+        assert!(matches!(
+            mir.outputs[0].expr.kind,
+            mir::ExpressionKind::Convert { expr: _ }
+        ));
     }
 }
