@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.4] - ?
 
 ### Added
+- trigonometric functions: tan, arcsin, arccos
 - Convenience methods for parameterized streams to MIR
 
 ### Fixed
