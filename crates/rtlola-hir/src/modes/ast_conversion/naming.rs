@@ -291,6 +291,9 @@ impl NamingAnalysis {
                     );
                 }
             }
+            if let Some(pt) = trigger.annotated_pacing_type.as_ref() {
+                self.check_expression(&pt);
+            }
             self.declarations.push();
             if let Err(e) = self.check_expression(&trigger.expression) {
                 error.join(e);
