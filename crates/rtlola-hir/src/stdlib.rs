@@ -57,7 +57,31 @@ lazy_static! {
         parameters: vec![AnnotatedType::Param(0, "T".to_string())],
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-     // fn arctan<T: FloatingPoint>(T) -> T
+    // fn tan<T: FloatingPoint>(T) -> T
+    static ref TAN: FuncDecl = FuncDecl {
+        name: FunctionName::new("tan".to_string(), &[None]),
+        generics: vec![AnnotatedType::Float(0),
+        ],
+        parameters: vec![AnnotatedType::Param(0, "T".to_string())],
+        return_type: AnnotatedType::Param(0, "T".to_string()),
+    };
+    // fn arcsin<T: FloatingPoint>(T) -> T
+    static ref ARCSIN: FuncDecl = FuncDecl {
+        name: FunctionName::new("arcsin".to_string(), &[None]),
+        generics: vec![ AnnotatedType::Float(0),
+        ],
+        parameters: vec![AnnotatedType::Param(0, "T".to_string())],
+        return_type: AnnotatedType::Param(0, "T".to_string()),
+    };
+    // fn arccos<T: FloatingPoint>(T) -> T
+    static ref ARCCOS: FuncDecl = FuncDecl {
+        name: FunctionName::new("arccos".to_string(), &[None]),
+        generics: vec![ AnnotatedType::Float(0),
+        ],
+        parameters: vec![AnnotatedType::Param(0, "T".to_string())],
+        return_type: AnnotatedType::Param(0, "T".to_string()),
+    };
+    // fn arctan<T: FloatingPoint>(T) -> T
     static ref ARCTAN: FuncDecl = FuncDecl {
         name: FunctionName::new("arctan".to_string(), &[None]),
         generics: vec![ AnnotatedType::Float(0),
@@ -107,7 +131,7 @@ pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
 }
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
-    vec![&SQRT, &COS, &SIN, &ABS, &ARCTAN, &MIN, &MAX]
+    vec![&SQRT, &COS, &SIN, &TAN, &ARCSIN, &ARCCOS, &ARCTAN, &ABS, &MIN, &MAX]
 }
 
 pub(crate) fn regex_module() -> Vec<&'static FuncDecl> {
