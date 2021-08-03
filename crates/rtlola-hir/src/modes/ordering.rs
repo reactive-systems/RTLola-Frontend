@@ -670,4 +670,27 @@ mod tests {
         let periodic_layers = vec![].into_iter().collect();
         check_eval_order_for_spec(spec, event_layers, periodic_layers)
     }
+
+    #[test]
+    fn test_delay() {
+        let spec = "input a: UInt64\n\
+                            output a_counter: UInt64 @a := a_counter.offset(by: -1).defaults(to: 0) + 1\n\
+                            output b(p: UInt64) @1Hz spawn with a_counter if a = 1 close if true then true else b(p) := a.hold(or: 0) == 2";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("a_counter", SRef::Out(0)), ("b", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (
+                sname_to_sref["a_counter"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let periodic_layers = vec![(sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3)))]
+            .into_iter()
+            .collect();
+        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+    }
 }

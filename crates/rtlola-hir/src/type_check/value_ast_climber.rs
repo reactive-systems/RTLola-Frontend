@@ -1142,7 +1142,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_trigger() {
-        let spec = "trigger false";
+        let spec = "trigger @1Hz false";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
@@ -1150,7 +1150,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_trigger_message() {
-        let spec = "trigger false \"alert always\"";
+        let spec = "trigger @1Hz false \"alert always\"";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
@@ -1158,7 +1158,7 @@ mod value_type_tests {
 
     #[test]
     fn faulty_trigger() {
-        let spec = "trigger 1";
+        let spec = "trigger @1Hz 1";
         assert_eq!(1, num_errors(spec));
     }
 

@@ -5,7 +5,7 @@ use rusttyc::{TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
     self, AnnotatedPacingType, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset,
-    Output, SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
+    Output, SRef, SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
@@ -570,14 +570,19 @@ where
         let mut errors = vec![];
 
         // Check that every periodic stream has a frequency
-        for output in hir.outputs() {
-            let ct = &pacing_tt[&nid_key[&NodeId::SRef(output.sr)].exp_pacing];
+        let streams: Vec<(SRef, Span)> = hir
+            .outputs()
+            .map(|o| (o.sr, o.span.clone()))
+            .chain(hir.triggers().map(|t| (t.sr, t.span.clone())))
+            .collect();
+        for (sref, span) in streams {
+            let ct = &pacing_tt[&nid_key[&NodeId::SRef(sref)].exp_pacing];
             match ct {
                 ConcretePacingType::Periodic => {
-                    errors.push(PacingErrorKind::FreqAnnotationNeeded(output.span.clone()).into());
+                    errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into());
                 },
                 ConcretePacingType::Constant => {
-                    errors.push(PacingErrorKind::NeverEval(output.span.clone()).into());
+                    errors.push(PacingErrorKind::NeverEval(span).into());
                 },
                 _ => {},
             }
@@ -2079,6 +2084,15 @@ mod tests {
         let spec = "input i: Int8\n\
         output a @1Hz := true\n\
         output b @1Hz spawn if i = 5 close b = 7 & a := 42";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_annotation_needed() {
+        let spec = "
+            input x:Bool\n\
+            trigger x.hold(or: false)
+        ";
         assert_eq!(1, num_errors(spec));
     }
 
