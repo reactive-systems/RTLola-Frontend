@@ -502,7 +502,6 @@ where
                                     self.tyc
                                         .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
                                 }
-
                             },
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
@@ -1972,8 +1971,11 @@ output o_9: Bool @i_0 := true  && true";
     fn test_exact_window() {
         let functions = vec!["min", "max", "average", "sum", "count"];
         for swf in functions {
-            let spec = format!("input  a : Int32\n\
-                          output b @2Hz := a.aggregate(over_exactly: 1s, using: {})", swf);
+            let spec = format!(
+                "input  a : Int32\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: {})",
+                swf
+            );
             let tb = check_expect_error(&spec);
             assert_eq!(1, tb.handler.emitted_errors());
         }
