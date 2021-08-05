@@ -572,7 +572,7 @@ impl ExpressionTransformer {
                 aggregation: win_op,
             } => {
                 let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
-                let idx = self.sliding_windows.len();
+                let idx = self.discrete_windows.len();
                 let wref = WRef::Discrete(idx);
                 let duration = (*duration)
                     .parse_discrete_duration()
