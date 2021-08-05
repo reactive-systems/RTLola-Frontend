@@ -491,10 +491,18 @@ where
                             },
                             //Count: Any -> uint
                             WindowOperation::Count => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Any))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                if wait {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                                    self.tyc
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                } else {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                }
+
                             },
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
@@ -531,8 +539,17 @@ where
                             WindowOperation::Conjunction | WindowOperation::Disjunction => {
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                if wait {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                                    self.tyc
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                } else {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                }
                             },
                             // Float -> Option<Float>
                             WindowOperation::Variance | WindowOperation::StandardDeviation => {
@@ -1948,6 +1965,27 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input  a : Float64\n\
                          output b(p, q) spawn with (42, a.offset(by: -1)) := a + q.defaults(to: 0.0)";
         let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_exact_window() {
+        let functions = vec!["min", "max", "average", "sum", "count"];
+        for swf in functions {
+            let spec = format!("input  a : Int32\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: {})", swf);
+            let tb = check_expect_error(&spec);
+            assert_eq!(1, tb.handler.emitted_errors());
+        }
+
+        let spec = "input  a : Bool\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: conjunction)";
+        let tb = check_expect_error(&spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+
+        let spec = "input  a : Bool\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: disjunction)";
+        let tb = check_expect_error(&spec);
         assert_eq!(1, tb.handler.emitted_errors());
     }
 }
