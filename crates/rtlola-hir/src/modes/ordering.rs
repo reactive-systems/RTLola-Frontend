@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn lookup_chain_with_parametrization() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(a)\noutput d(para) spawn with a if a > 6 := a + c(a)";
+        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::Out(0)),

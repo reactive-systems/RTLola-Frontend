@@ -220,6 +220,40 @@ where
     }
 
     fn output_infer(&mut self, output: &Output) -> Result<(), TypeError<PacingErrorKind>> {
+        //Check that if the output has parameters it has a spawn condition with a target and the other way around
+        if !output.params.is_empty() && output.instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
+            return Err(PacingErrorKind::Other(
+                output.span.clone(),
+                "A spawn declaration is needed to initialize the parameters of the stream.".into(),
+                vec![],
+            )
+            .into());
+        }
+        if let Some(target) = output.instance_template.spawn.as_ref().and_then(|s| s.target) {
+            if output.params.is_empty() {
+                let span = self.hir.expression(target).span.clone();
+                return Err(PacingErrorKind::Other(
+                    span,
+                    "Found a spawn target declaration in a stream without parameter.".into(),
+                    vec![],
+                )
+                .into());
+            }
+            // check that they are equal length
+            let num_spawn_expr = match &self.hir.expression(target).kind {
+                ExpressionKind::Tuple(elements) => elements.len(),
+                _ => 1,
+            };
+            if num_spawn_expr != output.params.len() {
+                return Err(PacingErrorKind::Other(
+                    output.span.clone(),
+                    format!("The number of parameters does not match the number of provided spawn expressions.\nFound {} parameter(s) and {} spawn expression(s)", output.params.len(), num_spawn_expr),
+                    vec![],
+                )
+                    .into());
+            }
+        }
+
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
         // Type Expression Pacing
@@ -415,28 +449,63 @@ where
                         self.impose_more_concrete(term_keys, stream_key)?;
 
                         //Check that arguments are equal to spawn target if parameterized or the parameters for self
-                        let target = self.hir.spawn(*sref).and_then(|(t, _)| t).map(|target| {
+                        let target_spawn_args = self.hir.spawn(*sref).and_then(|(t, _)| t).map(|target| {
                             match &target.kind {
                                 ExpressionKind::Tuple(s) => s.clone(),
                                 _ => vec![target.clone()],
                             }
                         });
+                        // target is parameterized
+                        if let Some(target_spawn_args) = target_spawn_args {
+                            // check that access arguments are only parameters of self
+                            let spawn_exps: Vec<Option<Expression>> = args
+                                .iter()
+                                .map(|e| {
+                                    match e.kind {
+                                        ExpressionKind::ParameterAccess(self_ref, p) => {
+                                            self.hir
+                                                .spawn(self_ref)
+                                                .and_then(|(spawn_target, _)| spawn_target)
+                                                .and_then(|st| {
+                                                    match &st.kind {
+                                                        ExpressionKind::Tuple(elements) => elements.get(p).cloned(),
+                                                        _ if p == 0 => Some(st.clone()),
+                                                        _ => None,
+                                                    }
+                                                })
+                                        },
+                                        _ => None,
+                                    }
+                                })
+                                .collect();
 
-                        if let Some(spawn_args) = target {
-                            let is_self_access = args.iter().enumerate().all(|(idx,arg)|matches!(arg.kind, ExpressionKind::ParameterAccess(_, p_idx) if idx == p_idx));
-                            let spawn_target_mismatch = spawn_args.iter().zip(args.iter()).any(|(l, r)| l.value_neq(r));
-                            if spawn_args.len() != args.len() || (spawn_target_mismatch && !is_self_access) {
+                            let mismatch = target_spawn_args
+                                .iter()
+                                .zip(spawn_exps.iter())
+                                .any(|(target, self_arg)| {
+                                    self_arg.is_none() || target.value_neq(self_arg.as_ref().unwrap())
+                                });
+
+                            if target_spawn_args.len() != spawn_exps.len() || mismatch {
                                 return Err(PacingErrorKind::Other(
                                     exp.span.clone(),
                                     format!(
-                                        "Expected spawn arguments: ({}) but found: ({})",
-                                        spawn_args
+                                        "Invalid arguments for synchronise access:\n\
+                                        Target expected the arguments to be equal to its spawn expressions: ({})\n\
+                                        Supplied arguments ({}) either did not resolve or resolved to the spawn expressions: ({})",
+                                        target_spawn_args
                                             .iter()
                                             .map(|e| e.pretty_string(&self.names))
                                             .collect::<Vec<String>>()
                                             .join(", "),
-                                        args.iter()
+                                        args
+                                            .iter()
                                             .map(|e| e.pretty_string(&self.names))
+                                            .collect::<Vec<String>>()
+                                            .join(", "),
+                                        spawn_exps
+                                            .iter()
+                                            .map(|e| e.as_ref().map(|expr| expr.pretty_string(&self.names)).unwrap_or("<Not a parameter>".into()))
                                             .collect::<Vec<String>>()
                                             .join(", ")
                                     ),
@@ -704,10 +773,21 @@ where
             let filter_type = exp_tt[&keys.filter].clone();
             let close_type = exp_tt[&keys.close].clone();
 
-            let spawn = if output.instance_template.spawn.is_none()
-                && (spawn_pacing != ConcretePacingType::Constant || spawn_cond.kind.value_neq(&kind_true))
+            let spawn_pacing =
+                if output.instance_template.spawn.is_none() && spawn_pacing != ConcretePacingType::Constant {
+                    Some(spawn_pacing)
+                } else {
+                    None
+                };
+            let spawn_cond = if output
+                .instance_template
+                .spawn
+                .as_ref()
+                .and_then(|st| st.condition)
+                .is_none()
+                && spawn_cond.kind.value_neq(&kind_true)
             {
-                Some((spawn_pacing, spawn_cond))
+                Some(spawn_cond)
             } else {
                 None
             };
@@ -722,42 +802,20 @@ where
                 None
             };
 
-            if spawn.is_some() || filter.is_some() || close.is_some() {
+            if spawn_pacing.is_some() || spawn_cond.is_some() || filter.is_some() || close.is_some() {
                 errors.push(
                     PacingErrorKind::ParameterizationNeeded {
                         who: output.span.clone(),
                         why: hir.expression(output.expr_id).span.clone(),
-                        inferred: Box::new(InferredTemplates { spawn, filter, close }),
+                        inferred: Box::new(InferredTemplates {
+                            spawn_pacing,
+                            spawn_cond,
+                            filter,
+                            close,
+                        }),
                     }
                     .into(),
                 )
-            }
-        }
-
-        //Check that every output that has parameters has a spawn condition with a target and the other way around
-        for output in hir.outputs() {
-            if !output.params.is_empty() && output.instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
-                errors.push(
-                    PacingErrorKind::Other(
-                        output.span.clone(),
-                        "A spawn declaration is needed to initialize the parameters of the stream.".into(),
-                        vec![],
-                    )
-                    .into(),
-                );
-            }
-            if let Some(target) = output.instance_template.spawn.as_ref().and_then(|s| s.target) {
-                if output.params.is_empty() {
-                    let span = hir.expression(target).span.clone();
-                    errors.push(
-                        PacingErrorKind::Other(
-                            span,
-                            "Found a spawn target declaration in a stream without parameter.".into(),
-                            vec![],
-                        )
-                        .into(),
-                    );
-                }
             }
         }
 
@@ -1583,9 +1641,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            input z:Int8\n\
             output a(p:Int8) @x spawn with (x) if y:= p\n\
-            output b(p:Int8) spawn with (z) if y := a(x)";
+            output b(p:Int8) spawn with (x) if y := a(x)";
         let hir = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1606,7 +1663,6 @@ mod tests {
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
                 ActivationCondition::Stream(get_sr_for_name(&hir, "x")),
                 ActivationCondition::Stream(get_sr_for_name(&hir, "y")),
-                ActivationCondition::Stream(get_sr_for_name(&hir, "z")),
             ]))
         );
 
@@ -1735,7 +1791,7 @@ mod tests {
             input y:Bool\n\
             input z:Int8\n\
             output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter !y close z=42 := a(x)";
+            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p)";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1852,7 +1908,7 @@ mod tests {
             input y:Bool\n\
             input z:Int8\n\
             output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter !y close z=42 := a(x).offset(by: -1).defaults(to: 0)";
+            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p).offset(by: -1).defaults(to: 0)";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1863,8 +1919,8 @@ mod tests {
             input y:Bool\n\
             input z:Int8\n\
             output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter !y close z=42 := a(x)\n\
-            output c spawn @(x&y&z) if y filter !y close z=42 := a(x) + b(z)";
+            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p)\n\
+            output c(p) spawn @(x&y&z) with x if y filter !y close z=42 := a(p) + b(p)";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1937,7 +1993,7 @@ mod tests {
             input y:Bool\n\
             input z:Int8\n\
             output a(p:Int8) spawn with (x) if y close z=42 := p+x\n\
-            output b(p:Int8) spawn with (x) if y filter a(x) close z=42 := p+42";
+            output b(p:Int8) spawn with (x) if y filter a(p) close z=42 := p+42";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1989,7 +2045,7 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p:Int8) spawn with (x) if y filter y close a(x) := p + x
+            output a(p:Int8) spawn with (x) if y filter y close a(p) := p + x
         ";
         let hir = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -2024,7 +2080,7 @@ mod tests {
                 get_sr_for_name(&hir, "a"),
                 StreamAccessKind::Sync,
                 vec![Expression {
-                    kind: ExpressionKind::StreamAccess(get_sr_for_name(&hir, "x"), StreamAccessKind::Sync, vec![]),
+                    kind: ExpressionKind::ParameterAccess(get_sr_for_name(&hir, "a"), 0),
                     eid: ExprId(0),
                     span: Span::Unknown
                 }]
@@ -2103,5 +2159,40 @@ mod tests {
             output a (p: Int32) @1Hz spawn with x := a(p).offset(by: -1).defaults(to: 0) + 1
         ";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_broken_access() {
+        let spec = "input x:Int8\n\
+                        input y:Int8\n\
+                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
+                        output b(p:Int8) spawn with y if x % 2 == 0 := a(x) + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_broken_access2() {
+        let spec = "input x:Int8\n\
+                        input y:Int8\n\
+                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
+                        output b(p:Int8) spawn with y if x % 2 == 0 := a(p) + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_broken_access3() {
+        let spec = "input x:Int8\n\
+                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
+                        output b(p:Int8) spawn with x := a(p)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_self_access_faulty() {
+        let spec = "input x:Int8\n\
+                        input y:Int8\n\
+                        output a(p:Int8) spawn with x := p + x\n\
+                        output b(p:Int8) spawn with y := a(p) + y";
+        assert_eq!(1, num_errors(spec));
     }
 }

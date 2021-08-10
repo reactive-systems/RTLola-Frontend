@@ -1026,7 +1026,10 @@ mod value_type_tests {
 
     #[test]
     fn parametric_access_default() {
-        let spec = "output i(a: Int8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true):= if b then a else 0 \n output o(x) spawn @1Hz with 42 := i(5,true).offset(by:-1).defaults(to: 42)";
+        let spec = "input x: Int8\n\
+        input y: Bool\n\
+        output i(a: Int8, b: Bool): Int8 @1Hz spawn with (x, y):= if b then a else 0\n\
+        output o(a: Int8, b: Bool) spawn with (x, y) := i(a, b).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
@@ -1058,18 +1061,6 @@ mod value_type_tests {
         let output_2_id = tb.output("y");
         assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_2_id)], ConcreteValueType::Integer8);
-    }
-
-    #[test]
-    fn parametric_declaration_param_two_many() {
-        let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true, false) := a";
-        assert_eq!(1, num_errors(spec));
-    }
-
-    #[test]
-    fn parametric_declaration_param_two_few() {
-        let spec = "output x(a: UInt8, b: Bool, c:String) @1Hz spawn @1Hz with (5, true) := a";
-        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1396,7 +1387,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_param_spec() {
         let spec =
-            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 3 := 3\noutput b(p:Int8): Int8 spawn @1Hz with 42 := a(3)";
+            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 3 := 3\noutput b(p:Int8): Int8 spawn @1Hz with 3 := a(p)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");

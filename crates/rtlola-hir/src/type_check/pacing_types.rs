@@ -90,7 +90,8 @@ pub(crate) struct StreamTypeKeys {
 /// Reference for stream  template during pacing type inference, used in error reporting.
 #[derive(Debug)]
 pub(crate) struct InferredTemplates {
-    pub(crate) spawn: Option<(ConcretePacingType, Expression)>,
+    pub(crate) spawn_pacing: Option<ConcretePacingType>,
+    pub(crate) spawn_cond: Option<Expression>,
     pub(crate) filter: Option<Expression>,
     pub(crate) close: Option<Expression>,
 }
@@ -402,14 +403,24 @@ impl Resolvable for PacingErrorKind {
                 .add_note("Help: Consider using a hold access")
             },
             ParameterizationNeeded { who, why, inferred } => {
-                let InferredTemplates { spawn, filter, close } = *inferred;
-                let spawn_str = spawn.map_or("".into(), |(pacing, cond)| {
-                    format!(
-                        "\nspawn @{} with <...> if {}",
-                        pacing.to_pretty_string(names),
-                        cond.pretty_string(names)
-                    )
-                });
+                let InferredTemplates {
+                    spawn_pacing,
+                    spawn_cond,
+                    filter,
+                    close,
+                } = *inferred;
+                let spawn_str = match (spawn_pacing, spawn_cond) {
+                    (Some(pacing), Some(cond)) => {
+                        format!(
+                            "\nspawn @{} with <...> if {}",
+                            pacing.to_pretty_string(names),
+                            cond.pretty_string(names)
+                        )
+                    },
+                    (Some(pacing), None) => format!("\nspawn @{} with <...>", pacing.to_pretty_string(names)),
+                    (None, Some(cond)) => format!("\nspawn <...> if {}", cond.pretty_string(names)),
+                    (None, None) => "".to_string(),
+                };
                 let filter_str: String =
                     filter.map_or("".into(), |filter| format!("\nfilter {}", filter.pretty_string(names)));
                 let close_str: String =
