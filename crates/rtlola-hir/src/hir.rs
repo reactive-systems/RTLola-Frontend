@@ -15,6 +15,7 @@
 
 mod expression;
 mod print;
+pub mod selector;
 
 use std::collections::HashMap;
 use std::time::Duration;

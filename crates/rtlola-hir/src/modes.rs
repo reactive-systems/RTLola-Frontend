@@ -12,6 +12,7 @@ use self::dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Win
 use self::memory_bounds::MemBoundErr;
 use self::ordering::OrderErr;
 use self::types::HirType;
+use crate::hir::selector::{All, StreamSelector};
 use crate::hir::{ExprId, Hir, SRef, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
@@ -290,6 +291,10 @@ impl Hir<TypedMode> {
     /// The function fails if the evaluation order cannot be determined.
     pub fn determine_evaluation_order(self, handler: &Handler) -> Result<Hir<OrderedMode>, OrderErr> {
         self.progress(handler)
+    }
+
+    pub fn select(&self) -> StreamSelector<TypedMode, All> {
+        StreamSelector::all(self)
     }
 }
 
