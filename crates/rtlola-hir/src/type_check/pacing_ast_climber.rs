@@ -777,16 +777,40 @@ where
             }
         }
 
-        //Check Periodic Stream with Spawn accesses on periodic streams
-        for output in hir.outputs() {
-            let stream_keys = nid_key[&NodeId::SRef(output.sr)];
+        //Check that no periodic expressions with a spawn access static periodic stream
+        let nodes_to_check: Vec<NodeId> = hir
+            .outputs
+            .iter()
+            .flat_map(|o| {
+                vec![
+                    Some(NodeId::SRef(o.sr)),
+                    o.instance_template.filter.map(|eid| NodeId::Expr(eid)),
+                    o.instance_template.close.map(|eid| NodeId::Expr(eid)),
+                ]
+            })
+            .filter(Option::is_some)
+            .map(Option::unwrap)
+            .collect();
+
+        for node in nodes_to_check {
+            let stream_keys = nid_key[&node];
             let exp_pacing = pacing_tt[&stream_keys.exp_pacing].clone();
             let spawn_pacing = pacing_tt[&stream_keys.spawn.0].clone();
             let spawn_cond = exp_tt[&stream_keys.spawn.1].clone();
             if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
                 && spawn_pacing != ConcretePacingType::Constant
             {
-                let accesses_streams = hir.expr(output.sr).get_sync_accesses();
+                let (expr, span) = match node {
+                    NodeId::SRef(sr) => {
+                        (
+                            hir.expr(sr),
+                            &hir.output(sr).expect("StreamReference created above is invalid").span,
+                        )
+                    },
+                    NodeId::Expr(eid) => (hir.expression(eid), &hir.expression(eid).span),
+                    NodeId::Param(_, _) => unreachable!(),
+                };
+                let accesses_streams: Vec<StreamReference> = expr.get_sync_accesses();
                 for target in accesses_streams {
                     let target_keys = nid_key[&NodeId::SRef(target)];
                     let target_spawn_pacing = pacing_tt[&target_keys.spawn.0].clone();
@@ -799,7 +823,7 @@ where
                             .unwrap_or(Span::Unknown);
                         errors.push(
                             PacingErrorKind::SpawnPeriodicMismatch(
-                                output.span.clone(),
+                                span.clone(),
                                 target_span,
                                 (spawn_pacing.clone(), spawn_cond.clone()),
                             )
@@ -809,6 +833,92 @@ where
                 }
             }
         }
+        //
+        // //Check Periodic Stream with Spawn accesses on periodic streams
+        // for output in hir.outputs() {
+        //     let stream_keys = nid_key[&NodeId::SRef(output.sr)];
+        //     let exp_pacing = pacing_tt[&stream_keys.exp_pacing].clone();
+        //     let spawn_pacing = pacing_tt[&stream_keys.spawn.0].clone();
+        //     let spawn_cond = exp_tt[&stream_keys.spawn.1].clone();
+        //     if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
+        //         && spawn_pacing != ConcretePacingType::Constant
+        //     {
+        //         let accesses_streams: Vec<StreamReference> = hir
+        //             .expr(output.sr)
+        //             .get_sync_accesses()
+        //             .into_iter()
+        //             .chain(
+        //                 output
+        //                     .instance_template
+        //                     .filter
+        //                     .map(|eid| hir.expression(eid).get_sync_accesses())
+        //                     .unwrap_or(vec![])
+        //                     .into_iter(),
+        //             )
+        //             .collect();
+        //         for target in accesses_streams {
+        //             let target_keys = nid_key[&NodeId::SRef(target)];
+        //             let target_spawn_pacing = pacing_tt[&target_keys.spawn.0].clone();
+        //             let target_spawn_condition = exp_tt[&target_keys.spawn.1].clone();
+        //             if spawn_pacing != target_spawn_pacing || spawn_cond.value_neq(&target_spawn_condition) {
+        //                 let target_span = hir
+        //                     .outputs()
+        //                     .find(|o| o.sr == target)
+        //                     .map(|o| o.span.clone())
+        //                     .unwrap_or(Span::Unknown);
+        //                 errors.push(
+        //                     PacingErrorKind::SpawnPeriodicMismatch(
+        //                         output.span.clone(),
+        //                         target_span,
+        //                         (spawn_pacing.clone(), spawn_cond.clone()),
+        //                     )
+        //                     .into(),
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
+        //
+        // //Check dynamic close access on static periodic streams
+        // for output in hir.outputs() {
+        //     let stream_keys = nid_key[&NodeId::SRef(output.sr)];
+        //     let close_expr = exp_tt[&stream_keys.close].clone();
+        //     if close_expr.kind.value_neq(&kind_false) {
+        //         let close_expr = output.instance_template.close.expect("Checked by if");
+        //         let close_keys = nid_key[&NodeId::Expr(close_expr)];
+        //         let exp_pacing = pacing_tt[&close_keys.exp_pacing].clone();
+        //         let spawn_pacing = pacing_tt[&close_keys.spawn.0].clone();
+        //         let spawn_cond = exp_tt[&close_keys.spawn.1].clone();
+        //         if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
+        //             && spawn_pacing != ConcretePacingType::Constant
+        //         {
+        //             let close_expr = hir
+        //                 .expression(close_expr);
+        //             let accesses_streams = close_expr
+        //                 .get_sync_accesses();
+        //             for target in accesses_streams {
+        //                 let target_keys = nid_key[&NodeId::SRef(target)];
+        //                 let target_spawn_pacing = pacing_tt[&target_keys.spawn.0].clone();
+        //                 let target_spawn_condition = exp_tt[&target_keys.spawn.1].clone();
+        //                 if spawn_pacing != target_spawn_pacing || spawn_cond.value_neq(&target_spawn_condition) {
+        //                     let target_span = hir
+        //                         .outputs()
+        //                         .find(|o| o.sr == target)
+        //                         .map(|o| o.span.clone())
+        //                         .unwrap_or(Span::Unknown);
+        //                     errors.push(
+        //                         PacingErrorKind::SpawnPeriodicMismatch(
+        //                             close_expr.span.clone(),
+        //                             target_span,
+        //                             (spawn_pacing.clone(), spawn_cond.clone()),
+        //                         )
+        //                             .into(),
+        //                     );
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         errors
     }
@@ -2083,6 +2193,14 @@ mod tests {
             input x:Bool\n\
             trigger @1Hz x
         ";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_dynamic_close_static_freq() {
+        let spec = "input i: Int8\n\
+        output a @1Hz := true\n\
+        output b @1Hz spawn if i = 5 close b = 7 & a := 42";
         assert_eq!(1, num_errors(spec));
     }
 }
