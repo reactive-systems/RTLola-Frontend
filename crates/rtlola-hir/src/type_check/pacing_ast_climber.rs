@@ -651,12 +651,12 @@ where
             }
         }
 
-        //Check that spawn pacing is not constant
+        //Check that spawn pacing is not constant / perioidc and close pacing is not periodic
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
             if let Some(template) = output.instance_template.spawn.as_ref() {
-                if spawn_pacing == ConcretePacingType::Constant {
+                if spawn_pacing == ConcretePacingType::Constant || spawn_pacing == ConcretePacingType::Periodic {
                     let span = template
                         .pacing
                         .as_ref()
@@ -677,6 +677,14 @@ where
                         )
                         .into(),
                     )
+                }
+            }
+            if let Some(close) = output.instance_template.close {
+                let keys = nid_key[&NodeId::Expr(close)];
+                let close_pacing = pacing_tt[&keys.exp_pacing].clone();
+                if close_pacing == ConcretePacingType::Periodic {
+                    let span = hir.expression(close).span.clone();
+                    errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
                 }
             }
         }
@@ -777,16 +785,40 @@ where
             }
         }
 
-        //Check Periodic Stream with Spawn accesses on periodic streams
-        for output in hir.outputs() {
-            let stream_keys = nid_key[&NodeId::SRef(output.sr)];
+        //Check that no periodic expressions with a spawn access static periodic stream
+        let nodes_to_check: Vec<NodeId> = hir
+            .outputs
+            .iter()
+            .flat_map(|o| {
+                vec![
+                    Some(NodeId::SRef(o.sr)),
+                    o.instance_template.filter.map(|eid| NodeId::Expr(eid)),
+                    o.instance_template.close.map(|eid| NodeId::Expr(eid)),
+                ]
+            })
+            .filter(Option::is_some)
+            .map(Option::unwrap)
+            .collect();
+
+        for node in nodes_to_check {
+            let stream_keys = nid_key[&node];
             let exp_pacing = pacing_tt[&stream_keys.exp_pacing].clone();
             let spawn_pacing = pacing_tt[&stream_keys.spawn.0].clone();
             let spawn_cond = exp_tt[&stream_keys.spawn.1].clone();
             if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
                 && spawn_pacing != ConcretePacingType::Constant
             {
-                let accesses_streams = hir.expr(output.sr).get_sync_accesses();
+                let (expr, span) = match node {
+                    NodeId::SRef(sr) => {
+                        (
+                            hir.expr(sr),
+                            &hir.output(sr).expect("StreamReference created above is invalid").span,
+                        )
+                    },
+                    NodeId::Expr(eid) => (hir.expression(eid), &hir.expression(eid).span),
+                    NodeId::Param(_, _) => unreachable!(),
+                };
+                let accesses_streams: Vec<StreamReference> = expr.get_sync_accesses();
                 for target in accesses_streams {
                     let target_keys = nid_key[&NodeId::SRef(target)];
                     let target_spawn_pacing = pacing_tt[&target_keys.spawn.0].clone();
@@ -799,7 +831,7 @@ where
                             .unwrap_or(Span::Unknown);
                         errors.push(
                             PacingErrorKind::SpawnPeriodicMismatch(
-                                output.span.clone(),
+                                span.clone(),
                                 target_span,
                                 (spawn_pacing.clone(), spawn_cond.clone()),
                             )
@@ -2083,6 +2115,14 @@ mod tests {
             input x:Bool\n\
             trigger @1Hz x
         ";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_dynamic_close_static_freq() {
+        let spec = "input i: Int8\n\
+        output a @1Hz := true\n\
+        output b @1Hz spawn if i = 5 close b = 7 & a := 42";
         assert_eq!(1, num_errors(spec));
     }
 }

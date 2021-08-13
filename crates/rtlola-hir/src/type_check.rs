@@ -36,6 +36,23 @@ pub enum ConcretePacingType {
     Constant,
 }
 
+impl ConcretePacingType {
+    /// Returns true if the type is fixed-periodic
+    pub fn is_periodic(&self) -> bool {
+        matches!(self, ConcretePacingType::FixedPeriodic(_))
+    }
+
+    /// Returns true if the type is event-based
+    pub fn is_event_based(&self) -> bool {
+        matches!(self, ConcretePacingType::Event(_))
+    }
+
+    /// Returns true if the type is constant
+    pub fn is_constant(&self) -> bool {
+        matches!(self, ConcretePacingType::Constant)
+    }
+}
+
 /// The external definition for a value type.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ConcreteValueType {

@@ -233,13 +233,13 @@ pub trait TypedTrait {
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn stream_type(&self, sr: SRef) -> HirType;
 
-    /// Returns true if the given stream has a periodic pacing type
+    /// Returns true if the given stream has a periodic evaluation pacing
     ///
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn is_periodic(&self, sr: SRef) -> bool;
 
-    /// Returns true if the given stream has a event-based pacing type
+    /// Returns true if the given stream has a event-based evaluation pacing
     ///
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
