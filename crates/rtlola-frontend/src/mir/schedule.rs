@@ -42,10 +42,10 @@ pub struct Deadline {
 pub struct Schedule {
     /// The `hyper_period` is the duration after which the schedule is meant to repeat.
     ///
-    /// It is therefore the least common multiple of all periods.  
+    /// It is therefore the least common multiple of all periods. If there are no statically scheduled streams, the hyper-period is `None`.
     /// # Example:  
     /// If there are three streams, one running at 0.5Hz, one with 1Hz, and one with 2Hz.  The hyper-period then is 2000ms.
-    pub hyper_period: Duration,
+    pub hyper_period: Option<Duration>,
 
     /// A sequence of deadlines within a hyper-period.
     ///
@@ -92,6 +92,13 @@ impl Schedule {
             }
         });
         let periods: Vec<UOM_Time> = stream_periods.chain(spawn_periods).chain(close_periods).collect();
+        if periods.is_empty() {
+            // Nothing to schedule here
+            return Ok(Schedule {
+                hyper_period: None,
+                deadlines: vec![],
+            });
+        }
         let gcd = Self::find_extend_period(&periods);
         let hyper_period = Self::find_hyper_period(&periods);
 
@@ -102,7 +109,7 @@ impl Schedule {
 
         let hyper_period = Duration::from_nanos(hyper_period.get::<nanosecond>().to_integer().to_u64().unwrap());
         Ok(Schedule {
-            hyper_period,
+            hyper_period: Some(hyper_period),
             deadlines,
         })
     }

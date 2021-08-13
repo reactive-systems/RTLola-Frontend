@@ -115,6 +115,13 @@ pub(crate) enum PacingErrorKind {
     UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String, Vec<Box<dyn PrintableVariant>>),
     SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
+    InvalidSyncAccess {
+        target_span: Span,
+        exp_span: Span,
+        target_spawn_expr: Vec<Expression>,
+        own_spawn_expr: Vec<Option<Expression>>,
+        args: Vec<Expression>,
+    },
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -468,6 +475,43 @@ impl Resolvable for PacingErrorKind {
                 true,
             )
             .add_span_with_label(target_span, Some("Found target stream here"), false),
+            InvalidSyncAccess {
+                target_span,
+                exp_span,
+                target_spawn_expr,
+                own_spawn_expr,
+                args,
+            } => {
+                let target_exprs = target_spawn_expr
+                    .iter()
+                    .map(|e| e.pretty_string(names))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                let own_exprs = own_spawn_expr
+                    .iter()
+                    .map(|e| {
+                        e.as_ref()
+                            .map(|expr| expr.pretty_string(names))
+                            .unwrap_or("<Not a parameter>".into())
+                    })
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                let supplied = args
+                    .iter()
+                    .map(|e| e.pretty_string(names))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                Diagnostic::error(handler,
+                    "In pacing type analysis:\nInvalid arguments for synchronized access:"
+                )
+                .add_span_with_label(target_span, Some(&format!("Target expected the arguments to be equal to its spawn expressions: ({})", target_exprs)), false)
+                .add_span_with_label(exp_span, Some(&format!("Supplied arguments ({}) either did not resolve or resolved to the spawn expressions: ({})",
+                    supplied,
+                    own_exprs
+                )), true)
+                    .add_note("Note: Each parameter of the accessed stream requires a counterpart which is a parameter of the accessing stream.")
+            },
         }
     }
 }

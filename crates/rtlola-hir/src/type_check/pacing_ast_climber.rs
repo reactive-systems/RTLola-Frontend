@@ -455,6 +455,11 @@ where
                                 _ => vec![target.clone()],
                             }
                         });
+
+                        let target_span = match sref {
+                            StreamReference::In(_) => self.hir.input(*sref).unwrap().span.clone(),
+                            StreamReference::Out(_) => self.hir.output(*sref).unwrap().span.clone(),
+                        };
                         // target is parameterized
                         if let Some(target_spawn_args) = target_spawn_args {
                             // check that access arguments are only parameters of self
@@ -487,30 +492,13 @@ where
                                 });
 
                             if target_spawn_args.len() != spawn_exps.len() || mismatch {
-                                return Err(PacingErrorKind::Other(
-                                    exp.span.clone(),
-                                    format!(
-                                        "Invalid arguments for synchronise access:\n\
-                                        Target expected the arguments to be equal to its spawn expressions: ({})\n\
-                                        Supplied arguments ({}) either did not resolve or resolved to the spawn expressions: ({})",
-                                        target_spawn_args
-                                            .iter()
-                                            .map(|e| e.pretty_string(&self.names))
-                                            .collect::<Vec<String>>()
-                                            .join(", "),
-                                        args
-                                            .iter()
-                                            .map(|e| e.pretty_string(&self.names))
-                                            .collect::<Vec<String>>()
-                                            .join(", "),
-                                        spawn_exps
-                                            .iter()
-                                            .map(|e| e.as_ref().map(|expr| expr.pretty_string(&self.names)).unwrap_or("<Not a parameter>".into()))
-                                            .collect::<Vec<String>>()
-                                            .join(", ")
-                                    ),
-                                    vec![],
-                                )
+                                return Err(PacingErrorKind::InvalidSyncAccess {
+                                    target_span,
+                                    exp_span: exp.span.clone(),
+                                    target_spawn_expr: target_spawn_args,
+                                    own_spawn_expr: spawn_exps,
+                                    args: args.clone(),
+                                }
                                 .into());
                             }
                         }
