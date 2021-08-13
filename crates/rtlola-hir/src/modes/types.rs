@@ -1,6 +1,6 @@
 use super::{Typed, TypedTrait};
 use crate::hir::{ExprId, SRef};
-use crate::type_check::{ConcretePacingType, ConcreteValueType, StreamType};
+use crate::type_check::{ConcreteValueType, StreamType};
 
 impl TypedTrait for Typed {
     fn stream_type(&self, sr: SRef) -> HirType {
@@ -8,14 +8,11 @@ impl TypedTrait for Typed {
     }
 
     fn is_periodic(&self, sr: SRef) -> bool {
-        matches!(
-            self.get_type_for_stream(sr).pacing_ty,
-            ConcretePacingType::FixedPeriodic(_)
-        )
+        self.get_type_for_stream(sr).pacing_ty.is_periodic()
     }
 
     fn is_event(&self, sr: SRef) -> bool {
-        matches!(self.get_type_for_stream(sr).pacing_ty, ConcretePacingType::Event(_))
+        self.get_type_for_stream(sr).pacing_ty.is_event_based()
     }
 
     fn expr_type(&self, eid: ExprId) -> HirType {

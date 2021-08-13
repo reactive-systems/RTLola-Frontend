@@ -651,12 +651,12 @@ where
             }
         }
 
-        //Check that spawn pacing is not constant
+        //Check that spawn pacing is not constant / perioidc and close pacing is not periodic
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
             if let Some(template) = output.instance_template.spawn.as_ref() {
-                if spawn_pacing == ConcretePacingType::Constant {
+                if spawn_pacing == ConcretePacingType::Constant || spawn_pacing == ConcretePacingType::Periodic {
                     let span = template
                         .pacing
                         .as_ref()
@@ -677,6 +677,14 @@ where
                         )
                         .into(),
                     )
+                }
+            }
+            if let Some(close) = output.instance_template.close {
+                let keys = nid_key[&NodeId::Expr(close)];
+                let close_pacing = pacing_tt[&keys.exp_pacing].clone();
+                if close_pacing == ConcretePacingType::Periodic {
+                    let span = hir.expression(close).span.clone();
+                    errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
                 }
             }
         }
