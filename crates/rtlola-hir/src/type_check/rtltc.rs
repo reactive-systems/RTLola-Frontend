@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
@@ -31,7 +32,7 @@ pub enum NodeId {
 }
 
 /// Resolvable is implemented for all type checker errors and is used for generic error printing.
-pub(crate) trait Resolvable {
+pub(crate) trait Resolvable: Debug {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
@@ -41,6 +42,7 @@ pub(crate) trait Resolvable {
     ) -> Diagnostic;
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct TypeError<K: Resolvable> {
     pub(crate) kind: K,
     pub(crate) key1: Option<TcKey>,

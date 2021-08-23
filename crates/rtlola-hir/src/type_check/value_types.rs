@@ -353,6 +353,9 @@ impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
                     key2: None,
                 }
             },
+            TcErr::CyclicGraph => {
+                panic!("Cyclic value type constraint system");
+            },
         }
     }
 }

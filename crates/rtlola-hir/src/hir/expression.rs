@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
 
-use itertools::Either;
+use itertools::{iproduct, Either};
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::Span;
 
 use super::WindowReference;
-use crate::hir::{AnnotatedType, Offset, SRef, StreamReference, WRef};
+use crate::hir::{AnnotatedType, Hir, Offset, SRef, StreamReference, WRef};
+use crate::modes::HirMode;
 
 /// Representation of the Id of an [Expression]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -86,8 +88,12 @@ impl Expression {
 }
 
 impl ValueEq for Expression {
-    fn value_eq(&self, other: &Self) -> bool {
-        self.kind.value_eq(&other.kind)
+    fn value_eq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool {
+        self.kind.value_eq(&other.kind, parameter_map)
+    }
+
+    fn value_eq_ignore_parameters(&self, other: &Self) -> bool {
+        self.kind.value_eq_ignore_parameters(&other.kind)
     }
 }
 
@@ -408,24 +414,137 @@ impl<A: WindowAggregation> Window<A> {
     }
 }
 
+/// A context for expressions that establishes equality between parameters of different streams.
+#[derive(Debug, Clone)]
+pub(crate) struct ExpressionContext(HashMap<SRef, HashMap<(SRef, usize), usize>>);
+
+impl ExpressionContext {
+    pub(crate) fn new<M: HirMode>(hir: &Hir<M>) -> ExpressionContext {
+        let mut inner = HashMap::with_capacity(hir.outputs.len());
+        for current in hir.outputs() {
+            let mut para_mapping = HashMap::new();
+
+            let cur_spawn_cond = current
+                .instance_template
+                .spawn
+                .as_ref()
+                .and_then(|st| st.condition)
+                .map(|eid| hir.expression(eid));
+
+            let current_spawn_args = current
+                .instance_template
+                .spawn
+                .as_ref()
+                .and_then(|st| st.target)
+                .map(|eid| hir.expression(eid))
+                .map(|se| {
+                    match &se.kind {
+                        ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                        _ => vec![se],
+                    }
+                })
+                .unwrap_or_else(Vec::new);
+
+            assert_eq!(current.params.len(), current_spawn_args.len());
+
+            if !current.params.is_empty() {
+                for target in hir.outputs() {
+                    // if both have a spawn condition they must match
+                    let target_spawn_cond = target
+                        .instance_template
+                        .spawn
+                        .as_ref()
+                        .and_then(|st| st.condition)
+                        .map(|eid| hir.expression(eid));
+                    let cond_match = match (cur_spawn_cond, target_spawn_cond) {
+                        (Some(e1), Some(e2)) if e1.value_eq_ignore_parameters(e2) => true,
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    if !target.params.is_empty() && cond_match {
+                        let target_spawn_args = target
+                            .instance_template
+                            .spawn
+                            .as_ref()
+                            .and_then(|st| st.target)
+                            .map(|eid| hir.expression(eid))
+                            .map(|se| {
+                                match &se.kind {
+                                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                                    _ => vec![se],
+                                }
+                            })
+                            .unwrap_or_else(Vec::new);
+
+                        assert_eq!(target.params.len(), target_spawn_args.len());
+
+                        iproduct!(
+                            current_spawn_args.iter().enumerate(),
+                            target_spawn_args.iter().enumerate()
+                        )
+                        .filter_map(|((current_para, current_exp), (target_para, target_exp))| {
+                            if current_exp.value_eq_ignore_parameters(target_exp) {
+                                Some(((target.sr, target_para), current_para))
+                            } else {
+                                None
+                            }
+                        })
+                        .for_each(|(k, v)| {
+                            para_mapping.insert(k, v);
+                        });
+                    }
+                }
+            }
+
+            inner.insert(current.sr, para_mapping);
+        }
+        ExpressionContext(inner)
+    }
+
+    /// Checks if the parameter of source matches the parameter of target
+    pub(crate) fn matches(&self, source: SRef, source_parameter: usize, target: SRef, target_parameter: usize) -> bool {
+        self.0
+            .get(&source)
+            .and_then(|para_map| para_map.get(&(target, target_parameter)))
+            .map(|source_idx| *source_idx == source_parameter)
+            .unwrap_or(false)
+    }
+}
+
 pub(crate) trait ValueEq {
-    fn value_eq(&self, other: &Self) -> bool;
-    fn value_neq(&self, other: &Self) -> bool {
-        !self.value_eq(other)
+    fn value_eq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool;
+    fn value_neq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool {
+        !self.value_eq(other, parameter_map)
+    }
+
+    fn value_eq_ignore_parameters(&self, other: &Self) -> bool;
+    fn value_neq_ignore_parameters(&self, other: &Self) -> bool {
+        !self.value_eq_ignore_parameters(other)
     }
 }
 
 impl ValueEq for ExpressionKind {
-    fn value_eq(&self, other: &Self) -> bool {
+    fn value_eq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool {
         use self::ExpressionKind::*;
         match (self, other) {
-            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => sref == sref2 && idx == idx2,
+            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => {
+                parameter_map.matches(*sref, *idx, *sref2, *idx2)
+            },
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
-                op == op2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
+                op == op2
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
             },
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
-                sref == sref2 && kind == kind2 && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
+                sref == sref2
+                    && kind == kind2
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
             },
             (
                 Ite {
@@ -438,9 +557,13 @@ impl ValueEq for ExpressionKind {
                     consequence: b2,
                     alternative: b3,
                 },
-            ) => c1.value_eq(&b1) && c2.value_eq(&b2) && c3.value_eq(&b3),
-            (Tuple(args), Tuple(args2)) => args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2)),
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2),
+            ) => c1.value_eq(&b1, parameter_map) && c2.value_eq(&b2, parameter_map) && c3.value_eq(&b3, parameter_map),
+            (Tuple(args), Tuple(args2)) => {
+                args.iter()
+                    .zip(args2.iter())
+                    .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+            },
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2, parameter_map),
             (
                 Function(FnExprKind { name, args, type_param }),
                 Function(FnExprKind {
@@ -451,10 +574,13 @@ impl ValueEq for ExpressionKind {
             ) => {
                 name == name2
                     && type_param == type_param2
-                    && args.iter().zip(args2.iter()).all(|(a1, a2)| a1.value_eq(&a2))
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
             },
             (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
-                t1 == t2 && inner.value_eq(&inner2)
+                t1 == t2 && inner.value_eq(&inner2, parameter_map)
             },
             (
                 Default { expr, default },
@@ -462,7 +588,78 @@ impl ValueEq for ExpressionKind {
                     expr: expr2,
                     default: default2,
                 },
-            ) => expr.value_eq(&expr2) && default.value_eq(&default2),
+            ) => expr.value_eq(&expr2, parameter_map) && default.value_eq(&default2, parameter_map),
+            _ => false,
+        }
+    }
+
+    fn value_eq_ignore_parameters(&self, other: &Self) -> bool {
+        use ExpressionKind::*;
+        match (self, other) {
+            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => sref == sref2 && idx == idx2,
+            (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
+            (ArithLog(op, args), ArithLog(op2, args2)) => {
+                op == op2
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+            },
+            (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
+                sref == sref2
+                    && kind == kind2
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+            },
+            (
+                Ite {
+                    condition: c1,
+                    consequence: c2,
+                    alternative: c3,
+                },
+                Ite {
+                    condition: b1,
+                    consequence: b2,
+                    alternative: b3,
+                },
+            ) => {
+                c1.value_eq_ignore_parameters(&b1)
+                    && c2.value_eq_ignore_parameters(&b2)
+                    && c3.value_eq_ignore_parameters(&b3)
+            },
+            (Tuple(args), Tuple(args2)) => {
+                args.iter()
+                    .zip(args2.iter())
+                    .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+            },
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq_ignore_parameters(&inner2),
+            (
+                Function(FnExprKind { name, args, type_param }),
+                Function(FnExprKind {
+                    name: name2,
+                    args: args2,
+                    type_param: type_param2,
+                }),
+            ) => {
+                name == name2
+                    && type_param == type_param2
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+            },
+            (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
+                t1 == t2 && inner.value_eq_ignore_parameters(&inner2)
+            },
+            (
+                Default { expr, default },
+                Default {
+                    expr: expr2,
+                    default: default2,
+                },
+            ) => expr.value_eq_ignore_parameters(&expr2) && default.value_eq_ignore_parameters(&default2),
             _ => false,
         }
     }

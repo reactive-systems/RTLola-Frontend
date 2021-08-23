@@ -89,6 +89,15 @@ pub enum TransformationErr {
     UnknownFunction(Span),
     /// Non duration literal with postfix found.
     InvalidLiteral(Span),
+    /// An access to a parameterized output stream is missing its parameters
+    MissingArguments(Span),
+    /// An output stream with parameters is missing a spawn target
+    MissingSpawn(Span),
+    /// An output stream with a spawn target is missing parameters
+    MissingParameters(Span),
+    /// The number of parameters of an output differs from the number of spawn expressions.
+    /// Span of the output, number of parameters, number of spawn expressions
+    SpawnParameterMismatch(Span, usize, usize),
 }
 
 impl TransformationErr {
@@ -248,6 +257,30 @@ impl ExpressionTransformer {
             let annotated_pacing_type = annotated_pacing_type
                 .map_or(Ok(None), |pt| self.transform_pt(&mut exprid_to_expr, pt, sr).map(Some))?;
             let instance_template = self.transform_template_spec(spawn, filter, close, &mut exprid_to_expr, sr)?;
+
+            //Check that if the output has parameters it has a spawn condition with a target and the other way around
+            if !params.is_empty() && instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
+                return Err(TransformationErr::MissingSpawn(o.span.clone()));
+            }
+            if let Some(target) = instance_template.spawn.as_ref().and_then(|s| s.target) {
+                let spawn_expr = &exprid_to_expr[&target];
+                if params.is_empty() {
+                    return Err(TransformationErr::MissingParameters(spawn_expr.span.clone()));
+                }
+                // check that they are equal length
+                let num_spawn_expr = match &spawn_expr.kind {
+                    ExpressionKind::Tuple(elements) => elements.len(),
+                    _ => 1,
+                };
+                if num_spawn_expr != params.len() {
+                    return Err(TransformationErr::SpawnParameterMismatch(
+                        o.span.clone(),
+                        params.len(),
+                        num_spawn_expr,
+                    ));
+                }
+            }
+
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
@@ -386,6 +419,7 @@ impl ExpressionTransformer {
                 match &self.decl_table[&expr.id] {
                     Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                     Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
+                    Declaration::ParamOut(_) => Err(TransformationErr::MissingArguments(expr.span.clone())),
                     _ => {
                         Err(TransformationErr::InvalidRefExpr(
                             expr.span.clone(),
@@ -514,7 +548,10 @@ impl ExpressionTransformer {
                     },
 
                     Declaration::Param(p) => ExpressionKind::ParameterAccess(current_output, p.param_idx),
-                    Declaration::ParamOut(_) | Declaration::Func(_) | Declaration::Type(_) => {
+                    Declaration::ParamOut(_) => {
+                        return Err(TransformationErr::MissingArguments(span));
+                    },
+                    Declaration::Func(_) | Declaration::Type(_) => {
                         unreachable!("Identifiers can only refer to streams")
                     },
                 }
@@ -893,7 +930,7 @@ mod tests {
         output o4 := 3 + 4
         output o5 := o
         output f := sqrt(4)
-        output p (x,y) := x
+        output p (x,y) spawn with (i,i) if true := x
         output t := (1,3)
         output t1 := t.0
         output def := o.defaults(to:2)
@@ -983,7 +1020,7 @@ mod tests {
 
     #[test]
     fn parameter_expr() {
-        let spec = "output o(a,b,c) :=  if c then a else b";
+        let spec = "output o(a,b,c) spawn @1Hz with (1, 2, 3) :=  if c then a else b";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.expression(output_expr_id);
@@ -1005,7 +1042,8 @@ mod tests {
     #[test]
     fn parametrized_access() {
         use crate::hir::StreamAccessKind;
-        let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
+        let spec =
+            "output o(a,b,c) spawn @1Hz with (1, 2, true):=  if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[1].expr_id;
         let expr = &ir.expression(output_expr_id);
@@ -1112,7 +1150,7 @@ mod tests {
     #[test]
     fn functions() {
         use crate::hir::StreamAccessKind;
-        let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3:= max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
         //check that this functions exists
         let _ = ir.func_declaration("max");
@@ -1126,7 +1164,7 @@ mod tests {
 
     #[test]
     fn function_param_default() {
-        let spec = "import math output o(a: Int) := sqrt(a) output c := o(1).defaults(to:1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3 := sqrt(a) output c := o(1).defaults(to:1)";
         let ir = obtain_expressions(spec);
         //check purely for valid access
         let _ = ir.func_declaration("sqrt");
@@ -1256,5 +1294,29 @@ mod tests {
         assert!(
             matches!(expr, ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(_), paras) if paras.len() == 1)
         );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_spawn() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) := a";
+        let ir = obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_parameters() {
+        let spec = "input a: Int32\n\
+        output b spawn with a := a";
+        let ir = obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_parameter_spawn_mismatch() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) spawn with a := a";
+        let ir = obtain_expressions(spec);
     }
 }

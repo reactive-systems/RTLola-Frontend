@@ -37,6 +37,17 @@ pub enum EdgeWeight {
     Close(Box<EdgeWeight>),
 }
 
+impl EdgeWeight {
+    /// Returns the window reference if the EdgeWeight contains an Aggregation or None otherwise
+    pub(crate) fn window(&self) -> Option<WRef> {
+        match self {
+            EdgeWeight::Offset(_) | EdgeWeight::Hold => None,
+            EdgeWeight::Aggr(wref) => Some(*wref),
+            EdgeWeight::Spawn(ew) | EdgeWeight::Filter(ew) | EdgeWeight::Close(ew) => ew.window(),
+        }
+    }
+}
+
 /// Represents all dependencies between streams
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
 /// Represents all dependencies between streams in which a window lookup is used
@@ -327,14 +338,14 @@ impl DepAna {
             if !cur_accessed_by.contains(src) {
                 cur_accessed_by.push(*src);
             }
-            if let EdgeWeight::Aggr(wref) = w {
+            if let Some(wref) = w.window() {
                 let cur_aggregates = aggregates.get_mut(src).unwrap();
-                if !cur_aggregates.contains(&(*tar, *wref)) {
-                    cur_aggregates.push((*tar, *wref));
+                if !cur_aggregates.contains(&(*tar, wref)) {
+                    cur_aggregates.push((*tar, wref));
                 }
                 let cur_aggregates_by = aggregated_by.get_mut(tar).unwrap();
-                if !cur_aggregates_by.contains(&(*src, *wref)) {
-                    cur_aggregates_by.push((*src, *wref));
+                if !cur_aggregates_by.contains(&(*src, wref)) {
+                    cur_aggregates_by.push((*src, wref));
                 }
             }
         });

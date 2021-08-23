@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rtlola_reporting::{Diagnostic, Span};
+use rusttyc::types::ContextSensitiveVariant;
 use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use uom::lib::collections::HashMap;
 use uom::lib::fmt::Formatter;
@@ -11,8 +12,8 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 use crate::hir::{
-    AnnotatedPacingType, Constant, ExprId, Expression, ExpressionKind, Hir, Inlined, Literal, StreamAccessKind,
-    StreamReference, ValueEq,
+    AnnotatedPacingType, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, Hir, Inlined, Literal,
+    StreamAccessKind, StreamReference, ValueEq,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
@@ -59,19 +60,6 @@ pub(crate) enum AbstractExpressionType {
     Expression(Expression),
 }
 
-impl PartialEq for AbstractExpressionType {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (AbstractExpressionType::Any, AbstractExpressionType::Any) => true,
-            (AbstractExpressionType::AnyClose, AbstractExpressionType::AnyClose) => true,
-            (AbstractExpressionType::Expression(l), AbstractExpressionType::Expression(r)) => l.value_eq(r),
-            _ => false,
-        }
-    }
-}
-
-impl Eq for AbstractExpressionType {}
-
 /// The internal representation of the overall Stream pacing
 /// Types are given by keys in the respective rustic instances
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,12 +103,18 @@ pub(crate) enum PacingErrorKind {
     UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String, Vec<Box<dyn PrintableVariant>>),
     SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
-    InvalidSyncAccess {
+    InvalidSyncAccessParameter {
+        target_span: Span,
+        target_spawn_expr: Expression,
+        own_spawn_expr: Expression,
+        arg: Expression,
+    },
+    NonParamInSyncAccess(Span),
+    ParameterAmountMismatch {
         target_span: Span,
         exp_span: Span,
-        target_spawn_expr: Vec<Expression>,
-        own_spawn_expr: Vec<Option<Expression>>,
-        args: Vec<Expression>,
+        given_num: usize,
+        expected_num: usize,
     },
 }
 
@@ -475,43 +469,41 @@ impl Resolvable for PacingErrorKind {
                 true,
             )
             .add_span_with_label(target_span, Some("Found target stream here"), false),
-            InvalidSyncAccess {
+            InvalidSyncAccessParameter {
                 target_span,
-                exp_span,
                 target_spawn_expr,
                 own_spawn_expr,
-                args,
+                arg,
             } => {
-                let target_exprs = target_spawn_expr
-                    .iter()
-                    .map(|e| e.pretty_string(names))
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                let own_exprs = own_spawn_expr
-                    .iter()
-                    .map(|e| {
-                        e.as_ref()
-                            .map(|expr| expr.pretty_string(names))
-                            .unwrap_or("<Not a parameter>".into())
-                    })
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                let supplied = args
-                    .iter()
-                    .map(|e| e.pretty_string(names))
-                    .collect::<Vec<String>>()
-                    .join(", ");
+                let target_expr = target_spawn_expr.pretty_string(names);
+                let own_expr = own_spawn_expr.pretty_string(names);
+                let supplied = arg.pretty_string(names);
 
                 Diagnostic::error(handler,
-                    "In pacing type analysis:\nInvalid arguments for synchronized access:"
+                    "In pacing type analysis:\nInvalid argument for synchronized access:"
                 )
-                .add_span_with_label(target_span, Some(&format!("Target expected the arguments to be equal to its spawn expressions: ({})", target_exprs)), false)
-                .add_span_with_label(exp_span, Some(&format!("Supplied arguments ({}) either did not resolve or resolved to the spawn expressions: ({})",
-                    supplied,
-                    own_exprs
+                .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({})", target_expr)), false)
+                .add_span_with_label(arg.span, Some(&format!("Supplied arguments ({}) resolved to the spawn expressions: ({})",
+                                                             supplied,
+                    own_expr
                 )), true)
                     .add_note("Note: Each parameter of the accessed stream requires a counterpart which is a parameter of the accessing stream.")
             },
+            NonParamInSyncAccess(span) => {
+                Diagnostic::error(handler,
+                                  "In pacing type analysis:\nOnly parameters are allowed as arguments when synchronously accessing a stream:"
+                )
+                    .add_span_with_label(span, Some("Found an expression that is not a parameter here"), true)
+                    .emit()
+            },
+            ParameterAmountMismatch { target_span, exp_span, given_num, expected_num} => {
+                Diagnostic::error(handler,
+                                  "In pacing type analysis:\nMismatch between number of given arguments and expected spawn arguments:"
+                )
+                    .add_span_with_label(exp_span, Some(&format!("Got {} arguments here.", given_num)), true)
+                    .add_span_with_label(target_span, Some(&format!("Expected {} arguments here.", expected_num)), false)
+                    .emit()
+            }
         }
     }
 }
@@ -520,7 +512,9 @@ pub(crate) trait PrintableVariant: Debug {
     fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String;
 }
 
-impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
+impl<V: 'static + ContextSensitiveVariant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>>
+    for TypeError<PacingErrorKind>
+{
     fn from(err: TcErr<V>) -> TypeError<PacingErrorKind> {
         match err {
             TcErr::KeyEquation(k1, k2, err) => {
@@ -574,6 +568,9 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
                     key1: Some(key),
                     key2: preliminary.children[idx],
                 }
+            },
+            TcErr::CyclicGraph => {
+                panic!("Cyclic pacing type constraint system");
             },
         }
     }
@@ -736,21 +733,22 @@ impl AbstractPacingType {
     }
 }
 
-impl Variant for AbstractExpressionType {
+impl ContextSensitiveVariant for AbstractExpressionType {
+    type Context = ExpressionContext;
     type Err = PacingErrorKind;
 
     fn top() -> Self {
         AbstractExpressionType::Any
     }
 
-    fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
+    fn meet(lhs: Partial<Self>, rhs: Partial<Self>, ctx: &ExpressionContext) -> Result<Partial<Self>, Self::Err> {
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
             (Self::Any, x) | (x, Self::Any) => Ok(x),
             (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
             (Self::Expression(a), Self::Expression(b)) => {
-                if a.value_eq(&b) {
+                if a.value_eq(&b, ctx) {
                     Ok(Self::Expression(a))
                 } else {
                     Err(PacingErrorKind::IncompatibleExpressions(
@@ -766,8 +764,17 @@ impl Variant for AbstractExpressionType {
         })
     }
 
-    fn arity(&self) -> Arity {
+    fn arity(&self, _ctx: &ExpressionContext) -> Arity {
         Arity::Fixed(0)
+    }
+
+    fn equal(this: &Self, that: &Self, ctx: &Self::Context) -> bool {
+        match (this, that) {
+            (AbstractExpressionType::Expression(e1), AbstractExpressionType::Expression(e2)) => e1.value_eq(e2, ctx),
+            (AbstractExpressionType::Any, AbstractExpressionType::Any)
+            | (AbstractExpressionType::AnyClose, AbstractExpressionType::AnyClose) => true,
+            _ => false,
+        }
     }
 }
 
