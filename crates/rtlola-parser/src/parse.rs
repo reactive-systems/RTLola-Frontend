@@ -715,11 +715,41 @@ impl<'a> RtLolaParser<'a> {
                                                 "∀" | "conjunction" | "∧" | "forall" => {
                                                     WindowOperation::Conjunction
                                                 }
+                                                "last" => WindowOperation::Last,
+                                                "variance" | "var" | "σ²" => WindowOperation::Variance,
+                                                "covariance" | "cov" => WindowOperation::Covariance,
+                                                "standard_deviation" | "sd" | "σ" => WindowOperation::StandardDeviation,
+                                                "median" | "med" | "µ" => WindowOperation::NthPercentile(50),
+                                                _ if i.name.as_str().starts_with("pctl") &&
+                                                    i.name.as_str().chars().skip("pctl".len()).all(|c| c.is_numeric()) => {
+                                                    let n_string = i.name.as_str().to_string();
+                                                    let n_string: String = n_string.chars().skip("pctl".len()).collect();
+                                                    let percentile: usize = match n_string.parse::<usize>() {
+                                                        Ok(u) => u,
+                                                        Err(_e) => {
+                                                            self.handler.error_with_span(
+                                                                &format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string),
+                                                                i.span.clone(),
+                                                                Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                                            );
+                                                            std::process::exit(1)
+                                                        }
+                                                    };
+                                                    if percentile > 100{
+                                                        self.handler.error_with_span(
+                                                            &format!("unknown aggregation function {}, invalid percentile suffix", i.name),
+                                                            i.span.clone(),
+                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                                        );
+                                                        std::process::exit(1);
+                                                    }
+                                                    WindowOperation::NthPercentile(percentile)
+                                                }
                                                 fun => {
                                                     self.handler.error_with_span(
                                                         &format!("unknown aggregation function {}", fun),
                                                         i.span.clone(),
-                                              Some("available: count, min, max, sum, average, exists, forall, integral"),
+                                              Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
                                                     );
                                                     std::process::exit(1);
                                                 }
@@ -728,7 +758,7 @@ impl<'a> RtLolaParser<'a> {
                                                 self.handler.error_with_span(
                                                     "expected aggregation function",
                                                     args[1].span.clone(),
-                                                    Some("available: count, min, max, sum, average, integral"),
+                                                    Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
                                                 );
                                                 std::process::exit(1);
                                             }
@@ -1476,6 +1506,13 @@ mod tests {
         let parser = create_parser(&handler, spec);
         parser.parse_spec().unwrap_or_else(|e| panic!("{}", e));
         assert_eq!(handler.emitted_errors(), 1);
+    }
+
+    #[test]
+    fn valid_percentile() {
+        let spec = "output x := x.aggregate(over: 3s, using: pctl15)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
     }
 
     #[test]

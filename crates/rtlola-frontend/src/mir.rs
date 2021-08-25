@@ -536,6 +536,16 @@ pub enum WindowOperation {
     Conjunction,
     /// Aggregation function to return the disjunction, i.e., the sliding window returns true iff AT LEAst ONE value on the accessed stream inside a window is assigned to true
     Disjunction,
+    /// Aggregation function to return the last value, a time bounded hold
+    Last,
+    /// Aggregation function to return the variance of all values, assumes equal probability.
+    Variance,
+    /// Aggregation function to return the covariance of all values in a tuple stream, assumes equal probability.
+    Covariance,
+    /// Aggregation function to return the standard deviation of all values, assumes equal probability.
+    StandardDeviation,
+    /// Aggregation function to return the X-Percentile
+    Percentile(usize),
 }
 
 ////////// Implementations //////////

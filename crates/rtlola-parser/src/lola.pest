@@ -119,9 +119,12 @@ Count = {"#" | "count"}
 Integral = {"∫"  | "integral"}
 Average = { "avg"| "average" }
 
-WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists }
+WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists | WindowVariance | WindowSD | WindowMedian}
 WindowForall = {"forall" | "∀" | "∧" | "conjunction" }
 WindowExists = {"exists" | "∃" | "∨" | "disjunction" }
+WindowVariance = {"var" | "variance" | "σ²"}
+WindowSD = {"standard_deviation" | "sd" | "σ"}
+WindowMedian = { "med" | "median" | "µ" }
 
 
 //////////////////////////////////////////////////

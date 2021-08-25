@@ -489,8 +489,12 @@ where
 
                         use rtlola_parser::ast::WindowOperation;
                         match op {
-                            //Min|Max|Avg <T:Num> T -> Option<T>
-                            WindowOperation::Min | WindowOperation::Max | WindowOperation::Average => {
+                            //Min|Max|Avg|Last|Percentile: <T:Num> T -> Option<T>
+                            WindowOperation::Min
+                            | WindowOperation::Max
+                            | WindowOperation::Average
+                            | WindowOperation::Last
+                            | WindowOperation::NthPercentile(_) => {
                                 self.tyc
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
@@ -540,6 +544,35 @@ where
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
                                 self.tyc
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                            },
+                            // Float -> Option<Float>
+                            WindowOperation::Variance | WindowOperation::StandardDeviation => {
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Float))?;
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                self.tyc.impose(inner_key.equate_with(target_key))?;
+                            }
+                            //<F:Float > (F,F) -> Option<F>
+                            WindowOperation::Covariance => {
+                                //Origin stream hs to be a tuple of size 2
+                                self.tyc
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::Tuple(2)))?;
+                                // Origin stream has to be a (Float, Float) tuple
+                                let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
+                                let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
+                                self.tyc
+                                    .impose(target_child_1.concretizes_explicit(AbstractValueType::Float))?;
+                                //both children need EQUAL type
+                                self.tyc.impose(target_child_1.equate_with(target_child_2))?;
+                                //Result Key is option, window is failable (empty set)
+                                self.tyc
+                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                //result inner key is float
+                                self.tyc
+                                    .impose(inner_key.concretizes_explicit(AbstractValueType::Float))?;
                             },
                         }
                     },
@@ -895,7 +928,7 @@ mod value_type_tests {
         let handler = Handler::new(PathBuf::from("test"), spec.into());
         let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
             Ok(s) => s,
-            Err(e) => panic!("Spech {} cannot be parsed: {}", spec, e),
+            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
         };
         let hir = crate::from_ast(ast, &handler).unwrap();
         //let mut dec = na.check(&spec);
@@ -1663,6 +1696,113 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_new_aggr_function_last() {
+        let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: last).defaults(to: 4)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+    }
+
+    #[test]
+    fn test_new_aggr_function_med() {
+        let spec = "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over: 3s, using: µ).defaults(to: 4)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+    }
+
+    #[test]
+    fn test_new_aggr_function_percentile() {
+        let spec = "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over: 3s, using: pctl25).defaults(to: 4)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+    }
+
+    #[test]
+    fn test_new_aggr_function_variance() {
+        let spec =
+            "input in: Float32\n output out: Float32 @5Hz := in.aggregate(over: 3s, using: var).defaults(to: 0.0)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_new_aggr_function_covariance() {
+        let spec = "input in: Float32\n input in2: Float32\noutput t:= (in,in2)\n output out: Float32 @5Hz := t.aggregate(over: 3s, using: cov).defaults(to: 0.0)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let in2_id = tb.input("in2");
+        let t_id = tb.output("t");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(t_id)],
+            ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Float32])
+        );
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_cov_different_float_types() {
+        let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+        /* This si the test needed if different Float types are accepted TODO Review
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let in2_id = tb.input("in2");
+        let t_id = tb.output("t");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float64);
+        assert_eq!(result_map[&NodeId::SRef(t_id)], ConcreteValueType::Tuple(vec![ConcreteValueType::Float32,ConcreteValueType::Float64]));
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
+        */
+    }
+
+    #[test]
+    fn test_cov_int() {
+        let spec = "input in: Float32\n input in2: Int64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: cov).defaults(to: 0.0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
+    }
+
+    #[test]
+    fn test_new_aggr_function_sd() {
+        let spec = "input in: Float32\n output out: Float32 @5Hz := in.aggregate(over: 3s, using: σ).defaults(to: 0.0)";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("in");
+        let out_id = tb.output("out");
+        assert_eq!(0, complete_check(spec));
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_new_aggr_function_missing_default() {
+        let spec = "input in: Float32\n output out: Float64 @5Hz := in.aggregate(over: 3s, using: σ²)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
