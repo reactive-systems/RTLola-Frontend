@@ -553,7 +553,7 @@ where
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
-                            }
+                            },
                             //<F:Float > (F,F) -> Option<F>
                             WindowOperation::Covariance => {
                                 //Origin stream hs to be a tuple of size 2
@@ -2019,10 +2019,8 @@ output o_9: Bool @i_0 := true  && true";
         input w_dir: Float64\n\
         input lat: Float64\n\
         input lon: Float64\n\
-
         output lon_diff: Float64 := lon - lon.offset(by: -1).defaults(to: lon)\n\
         output lat_diff: Float64 := lat - lat.offset(by: -1).defaults(to: lat)\n\
-
         output yaw: Float64 := if lon_diff = 0.0 then 0.0 else arctan(lat_diff / lon_diff)\n\
         output head_wind: Bool @ 1Hz := (w_dir.hold().defaults(to: 0.0) - yaw.hold().defaults(to: 0.0)) < 0.2";
         assert_eq!(0, complete_check(spec));
