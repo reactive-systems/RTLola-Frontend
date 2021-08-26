@@ -417,7 +417,7 @@ impl Mir {
             WindowOperation::Variance => mir::WindowOperation::Variance,
             WindowOperation::Covariance => mir::WindowOperation::Covariance,
             WindowOperation::StandardDeviation => mir::WindowOperation::StandardDeviation,
-            WindowOperation::NthPercentile(x) => mir::WindowOperation::Percentile(x),
+            WindowOperation::NthPercentile(x) => mir::WindowOperation::NthPercentile(x),
         }
     }
 

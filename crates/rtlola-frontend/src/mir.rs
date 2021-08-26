@@ -545,7 +545,7 @@ pub enum WindowOperation {
     /// Aggregation function to return the standard deviation of all values, assumes equal probability.
     StandardDeviation,
     /// Aggregation function to return the X-Percentile
-    Percentile(usize),
+    NthPercentile(usize),
 }
 
 ////////// Implementations //////////
