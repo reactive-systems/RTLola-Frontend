@@ -911,7 +911,7 @@ mod tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
-    use crate::hir::StreamAccessKind;
+    use crate::hir::{ExpressionContext, StreamAccessKind};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
@@ -1301,7 +1301,7 @@ mod tests {
     fn test_missing_spawn() {
         let spec = "input a: Int32\n\
         output b (p: Bool) := a";
-        let ir = obtain_expressions(spec);
+        obtain_expressions(spec);
     }
 
     #[test]
@@ -1309,7 +1309,7 @@ mod tests {
     fn test_missing_parameters() {
         let spec = "input a: Int32\n\
         output b spawn with a := a";
-        let ir = obtain_expressions(spec);
+        obtain_expressions(spec);
     }
 
     #[test]
@@ -1317,6 +1317,55 @@ mod tests {
     fn test_parameter_spawn_mismatch() {
         let spec = "input a: Int32\n\
         output b (p1, p2) spawn with a := a";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    fn test_expression_context() {
+        macro_rules! para_map {
+            ($($x:expr),+ $(,)?) => (
+                vec![$($x),+].into_iter().map(|(k, set)| (k, set.into_iter().collect::<HashSet<usize>>())).collect::<HashMap<(SRef, usize), HashSet<usize>>>()
+            );
+        }
+
+        let spec = "input a: Int32\n\
+        output b (p1, p2, p3) spawn with (a, a.hold(or: 5), a.offset(by: -5).defaults(to: 7)) if a = 5 := a + p1 + p2 + p3\n\
+        output c (p1, p2, p3, p4) spawn with (a.hold(or: 5), a, a.hold(or: 5), a.offset(by: -5).defaults(to: 8)) if a = 5 := a + p1 + p2 + p3\n\
+        output d (p1, p2) spawn with (a.hold(or: 5), a) := a + p1 + p2\n";
         let ir = obtain_expressions(spec);
+        let ctx = ExpressionContext::new(&ir);
+
+        let b = SRef::Out(0);
+        let c = SRef::Out(1);
+        let d = SRef::Out(2);
+
+        let b_map = ctx.map_for(b).clone();
+        assert_eq!(
+            b_map,
+            para_map![
+                ((b, 0), vec![0]),
+                ((b, 1), vec![1]),
+                ((b, 2), vec![2]),
+                ((c, 0), vec![1]),
+                ((c, 1), vec![0]),
+                ((c, 2), vec![1]),
+            ]
+        );
+
+        let c_map = ctx.map_for(c).clone();
+        assert_eq!(
+            c_map,
+            para_map![
+                ((c, 0), vec![0, 2]),
+                ((c, 1), vec![1]),
+                ((c, 2), vec![0, 2]),
+                ((c, 3), vec![3]),
+                ((b, 0), vec![1]),
+                ((b, 1), vec![0, 2]),
+            ]
+        );
+
+        let d_map = ctx.map_for(d).clone();
+        assert_eq!(d_map, para_map![((d, 0), vec![0]), ((d, 1), vec![1])]);
     }
 }

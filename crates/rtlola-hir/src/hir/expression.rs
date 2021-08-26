@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::iter::FromIterator;
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
@@ -414,15 +415,15 @@ impl<A: WindowAggregation> Window<A> {
     }
 }
 
-/// A context for expressions that establishes equality between parameters of different streams.
+/// A context for expressions that establishes equality between parameters of different streams based on their spawn expression.
 #[derive(Debug, Clone)]
-pub(crate) struct ExpressionContext(HashMap<SRef, HashMap<(SRef, usize), usize>>);
+pub(crate) struct ExpressionContext(HashMap<SRef, HashMap<(SRef, usize), HashSet<usize>>>);
 
 impl ExpressionContext {
     pub(crate) fn new<M: HirMode>(hir: &Hir<M>) -> ExpressionContext {
         let mut inner = HashMap::with_capacity(hir.outputs.len());
         for current in hir.outputs() {
-            let mut para_mapping = HashMap::new();
+            let mut para_mapping: HashMap<(SRef, usize), HashSet<usize>> = HashMap::new();
 
             let cur_spawn_cond = current
                 .instance_template
@@ -490,7 +491,11 @@ impl ExpressionContext {
                             }
                         })
                         .for_each(|(k, v)| {
-                            para_mapping.insert(k, v);
+                            if let Some(paras) = para_mapping.get_mut(&k) {
+                                paras.insert(v);
+                            } else {
+                                para_mapping.insert(k, vec![v].into_iter().collect::<HashSet<usize>>());
+                            }
                         });
                     }
                 }
@@ -506,8 +511,16 @@ impl ExpressionContext {
         self.0
             .get(&source)
             .and_then(|para_map| para_map.get(&(target, target_parameter)))
-            .map(|source_idx| *source_idx == source_parameter)
+            .map(|para_set| para_set.contains(&source_parameter))
             .unwrap_or(false)
+    }
+
+    /// Extracts the parameter mapping for a single stream from the context
+    /// Query the map for a stream b with a parameter p to get the parameter q of the stream if it matches with parameter p
+    pub(crate) fn map_for(&self, stream: SRef) -> &HashMap<(SRef, usize), HashSet<usize>> {
+        self.0
+            .get(&stream)
+            .expect("Invalid initialization of ExpressionContext")
     }
 }
 
