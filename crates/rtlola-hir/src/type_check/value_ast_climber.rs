@@ -564,15 +564,13 @@ where
                                 let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
                                 self.tyc
                                     .impose(target_child_1.concretizes_explicit(AbstractValueType::Float))?;
-                                //both children need EQUAL type
-                                self.tyc.impose(target_child_1.equate_with(target_child_2))?;
                                 //Result Key is option, window is failable (empty set)
                                 self.tyc
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 //result inner key is float
                                 self.tyc
-                                    .impose(inner_key.concretizes_explicit(AbstractValueType::Float))?;
+                                    .impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
                             },
                         }
                     },
@@ -1764,9 +1762,6 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_cov_different_float_types() {
         let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
-        /* This si the test needed if different Float types are accepted TODO Review
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let in2_id = tb.input("in2");
@@ -1777,7 +1772,13 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float64);
         assert_eq!(result_map[&NodeId::SRef(t_id)], ConcreteValueType::Tuple(vec![ConcreteValueType::Float32,ConcreteValueType::Float64]));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
-        */
+    }
+
+    #[test]
+    fn test_cov_result_type_check() {
+        let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float32 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
+        let tb = check_expect_error(spec);
+        assert_eq!(1, tb.handler.emitted_errors());
     }
 
     #[test]
