@@ -388,7 +388,7 @@ pub enum WindowOperation {
     Covariance,
     /// Aggregation function to return the standard deviation of all values, assumes equal probability.
     StandardDeviation,
-    /// Aggregation function to return the X-Percentile
+    /// Aggregation function to return the Nth-Percentile
     NthPercentile(usize),
 }
 

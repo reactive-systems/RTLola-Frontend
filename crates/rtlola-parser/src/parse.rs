@@ -730,7 +730,7 @@ impl<'a> RtLolaParser<'a> {
                                                             self.handler.error_with_span(
                                                                 &format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string),
                                                                 i.span.clone(),
-                                                                Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                                                Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
                                                             );
                                                             std::process::exit(1)
                                                         }
@@ -739,7 +739,7 @@ impl<'a> RtLolaParser<'a> {
                                                         self.handler.error_with_span(
                                                             &format!("unknown aggregation function {}, invalid percentile suffix", i.name),
                                                             i.span.clone(),
-                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
                                                         );
                                                         std::process::exit(1);
                                                     }
@@ -749,7 +749,7 @@ impl<'a> RtLolaParser<'a> {
                                                     self.handler.error_with_span(
                                                         &format!("unknown aggregation function {}", fun),
                                                         i.span.clone(),
-                                              Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                              Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
                                                     );
                                                     std::process::exit(1);
                                                 }
@@ -758,7 +758,7 @@ impl<'a> RtLolaParser<'a> {
                                                 self.handler.error_with_span(
                                                     "expected aggregation function",
                                                     args[1].span.clone(),
-                                                    Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, P0 to P100"),
+                                                    Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
                                                 );
                                                 std::process::exit(1);
                                             }
@@ -768,7 +768,7 @@ impl<'a> RtLolaParser<'a> {
                                                 self.handler.warn_with_span(
                                                     "discrete window operation: last has same semantics as .offset(by:-1) and is more expensive",
                                                     args[1].span.clone(),
-                                                    Some("dont use last for discrete windows")
+                                                    Some("don't use last for discrete windows")
                                                 )
                                             }
                                             ExpressionKind::DiscreteWindowAggregation {

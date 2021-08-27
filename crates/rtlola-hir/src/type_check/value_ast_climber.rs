@@ -569,8 +569,7 @@ where
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 //result inner key is float
-                                self.tyc
-                                    .impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
+                                self.tyc.impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
                             },
                         }
                     },
@@ -1770,7 +1769,10 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float64);
-        assert_eq!(result_map[&NodeId::SRef(t_id)], ConcreteValueType::Tuple(vec![ConcreteValueType::Float32,ConcreteValueType::Float64]));
+        assert_eq!(
+            result_map[&NodeId::SRef(t_id)],
+            ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Float64])
+        );
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
 
