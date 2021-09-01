@@ -739,11 +739,11 @@ impl<'a> RtLolaParser<'a> {
                                                         self.handler.error_with_span(
                                                             &format!("unknown aggregation function {}, invalid percentile suffix", i.name),
                                                             i.span.clone(),
-                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
+                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
                                                         );
                                                         std::process::exit(1);
                                                     }
-                                                    WindowOperation::NthPercentile(percentile)
+                                                    WindowOperation::NthPercentile(percentile as u8)
                                                 }
                                                 fun => {
                                                     self.handler.error_with_span(

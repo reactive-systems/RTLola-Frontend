@@ -389,7 +389,7 @@ pub enum WindowOperation {
     /// Aggregation function to return the standard deviation of all values, assumes equal probability.
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
-    NthPercentile(usize),
+    NthPercentile(u8),
 }
 
 /// Describes the operation used to access a stream

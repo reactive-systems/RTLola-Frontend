@@ -1761,25 +1761,6 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
-    #[ignore] //Currently not checkable in the type system without big changes,
-    fn test_cov_different_float_types() {
-        let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
-        let (tb, result_map) = check_value_type(spec);
-        let in_id = tb.input("in");
-        let in2_id = tb.input("in2");
-        let t_id = tb.output("t");
-        let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
-        assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float64);
-        assert_eq!(
-            result_map[&NodeId::SRef(t_id)],
-            ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Float64])
-        );
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
-    }
-
-    #[test]
     fn test_cov_result_type_check() {
         let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float32 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
         let tb = check_expect_error(spec);
