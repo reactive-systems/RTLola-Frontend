@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - Unreleased
 
 ### Added
-
+- New window operations: last, median, nth-percentile, variance, standard deviation, covariance
 - Added StreamSelector to select classes of streams
 - Added convenience methods to ConcretePacingType
 
