@@ -30,6 +30,8 @@
     unused_qualifications
 )]
 
+use serde::{Deserialize, Serialize};
+
 mod lowering;
 pub mod mir;
 
@@ -107,7 +109,7 @@ fn create_handler(cfg: &ParserConfig) -> Handler {
 }
 
 /// A wrapper for the different kinds of errors that can occur in the front-end.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FrontEndErr {
     /// Indicates a parsing error and provides a more detailed error description.  The error originates in [rtlola_parser].
     Parser(String),

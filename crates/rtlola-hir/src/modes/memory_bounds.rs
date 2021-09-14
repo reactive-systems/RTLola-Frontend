@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use num::abs;
+use serde::{Deserialize, Serialize};
 
 use crate::hir::{Hir, SRef};
 use crate::modes::dependencies::EdgeWeight;
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
 /// This enum indicates how much memory is required to store a stream.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum MemorizationBound {
     /// The required memory might exceed any bound.
     Unbounded,

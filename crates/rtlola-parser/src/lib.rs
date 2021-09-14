@@ -71,6 +71,14 @@ impl ParserConfig {
         ParserConfig { path: None, spec }
     }
 
+    /// Creates a new parser configuration for the given specification using the name as file name.
+    pub fn for_named_spec(name: String, spec: String) -> Self {
+        ParserConfig {
+            path: Some(PathBuf::from(name)),
+            spec,
+        }
+    }
+
     /// Invokes the parser on the specification given in the configuration.
     pub fn parse(self) -> Result<RtLolaAst, String> {
         parse(self)

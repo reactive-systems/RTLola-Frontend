@@ -27,6 +27,7 @@ use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
     InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
 };
+use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
@@ -69,7 +70,7 @@ pub trait Stream {
 /// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
 /// * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 /// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RtLolaMir {
     /// Contains all input streams.
     pub inputs: Vec<InputStream>,
@@ -89,7 +90,7 @@ pub struct RtLolaMir {
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Type {
     /// A boolean type
     Bool,
@@ -117,7 +118,7 @@ pub enum Type {
 }
 
 /// Represents an RTLola pacing type.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PacingType {
     /// Represents a periodic pacing with a fixed frequency
     Periodic(UOM_Frequency),
@@ -128,7 +129,7 @@ pub enum PacingType {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IntTy {
     /// Represents an 8-bit integer.
     Int8,
@@ -140,7 +141,7 @@ pub enum IntTy {
     Int64,
 }
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UIntTy {
     /// Represents an 8-bit unsigned integer.
     UInt8,
@@ -153,7 +154,7 @@ pub enum UIntTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FloatTy {
     /// Represents a 32-bit floating point number.
     Float32,
@@ -184,7 +185,7 @@ impl From<ConcreteValueType> for Type {
 }
 
 /// Contains all information inherent to an input stream.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct InputStream {
     /// The name of the stream
     pub name: String,
@@ -205,7 +206,7 @@ pub struct InputStream {
 /// Contains all information relevant to every kind of output stream.
 ///
 /// Refer to [TimeDrivenStream], [EventDrivenStream], and [Trigger], as well as their respective fields in the Mir for additional information.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct OutputStream {
     /// The name of the stream.
     pub name: String,
@@ -232,7 +233,7 @@ pub struct OutputStream {
 /// A type alias for references to triggers.
 pub type TriggerReference = usize;
 /// Wrapper for output streams that are in-fact triggers.  Provides additional information specific to triggers.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Trigger {
     /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
     pub message: String,
@@ -245,7 +246,7 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
@@ -266,7 +267,7 @@ impl Default for InstanceTemplate {
 }
 
 /// Information on the spawn behavior of a stream
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpawnTemplate {
     /// The `target` expression needs to be evaluated whenever the stream with this SpawnTemplate is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
     pub target: Option<Expression>,
@@ -286,7 +287,7 @@ impl Default for SpawnTemplate {
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct TimeDrivenStream {
     /// A reference to the stream that is specified.
     pub reference: StreamReference,
@@ -318,7 +319,7 @@ impl TimeDrivenStream {
 }
 
 /// Wrapper for output streams providing additional information specific to event-based streams.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct EventDrivenStream {
     /// A reference to the stream that is specified
     pub reference: StreamReference,
@@ -327,7 +328,7 @@ pub struct EventDrivenStream {
 }
 
 /// Representation of the activation condition of event-based entities such as streams or spawn conditions
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum ActivationCondition {
     /// Activate when all entries of the [Vec] are true.
     Conjunction(Vec<Self>),
@@ -340,7 +341,7 @@ pub enum ActivationCondition {
 }
 
 /// Represents an expression
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Expression {
     /// The kind and all kind-specific information of the expression
     pub kind: ExpressionKind,
@@ -349,7 +350,7 @@ pub struct Expression {
 }
 
 /// This enum contains all possible kinds of expressions and their relevant information.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum ExpressionKind {
     /// Load a constant value
     LoadConstant(Constant),
@@ -414,7 +415,7 @@ pub enum ExpressionKind {
 /// Represents a constant value of a certain kind.
 ///
 /// *Note* the type of the constant might be more general than the type of the constant.  For example, `Constant::UInt(3u64)` represents an RTLola UInt8 constant.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constant {
     #[allow(missing_docs)]
     Str(String),
@@ -429,7 +430,7 @@ pub enum Constant {
 }
 
 /// Arithmetical and logical operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArithLogOp {
     /// Logic negation (!)
     Not,
@@ -478,7 +479,7 @@ pub enum ArithLogOp {
 }
 
 /// Represents an instance of a discrete window
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct DiscreteWindow {
     /// The stream whose values will be aggregated
     pub target: StreamReference,
@@ -497,7 +498,7 @@ pub struct DiscreteWindow {
 }
 
 /// Represents an instance of a sliding window
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SlidingWindow {
     /// The stream whose values will be aggregated
     pub target: StreamReference,
@@ -515,7 +516,7 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 /// The Ast representation of the different aggregation functions
 pub enum WindowOperation {
     /// Aggregation function to count the number of updated values on the accessed stream
@@ -816,7 +817,7 @@ impl std::ops::Add for ValSize {
 }
 
 /// Representation of the different stream accesses
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
@@ -837,7 +838,7 @@ pub enum StreamAccessKind {
 }
 
 /// Offset used in the lookup expression
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
     Future(u32),

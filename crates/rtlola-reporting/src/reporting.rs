@@ -9,10 +9,11 @@ use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
 use codespan_reporting::term::Config;
+use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
 // Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {

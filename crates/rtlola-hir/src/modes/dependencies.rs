@@ -5,6 +5,7 @@ use petgraph::algo::{has_path_connecting, is_cyclic_directed};
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::Outgoing;
+use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, WRef, WidenExprKind};
@@ -191,7 +192,7 @@ impl DepAnaTrait for DepAna {
 }
 
 /// Represents the error of the dependency analysis
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum DependencyErr {
     /// Represents the error that the well-formedness condition is not satisfied.
     ///

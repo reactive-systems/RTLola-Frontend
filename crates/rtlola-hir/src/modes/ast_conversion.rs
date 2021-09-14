@@ -8,6 +8,7 @@ use std::time::Duration;
 use rtlola_parser::ast;
 use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type};
 use rtlola_reporting::{Handler, Span};
+use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
@@ -62,7 +63,7 @@ impl Hir<BaseMode> {
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 /// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransformationErr {
     /// A function was found when a stream was expected.
     InvalidIdentRef(FunctionName),

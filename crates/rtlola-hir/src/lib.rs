@@ -25,6 +25,8 @@
     unused_qualifications
 )]
 
+use serde::{Deserialize, Serialize};
+
 pub mod hir;
 mod modes;
 mod stdlib;
@@ -73,7 +75,7 @@ pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteM
 ///
 /// Each variant contains the more detailed error of the transformation stage.
 /// See [TransformationErr], [DependencyErr] and the error emitting by the [Handler].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HirErr {
     /// Contains an [TransformationErr] occurred during [from_ast].
     Ast(TransformationErr),

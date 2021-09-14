@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use petgraph::algo::is_cyclic_directed;
 use petgraph::Outgoing;
+use serde::{Deserialize, Serialize};
 
 use super::{Ordered, OrderedTrait, TypedTrait};
 use crate::hir::{Hir, SRef};
@@ -22,11 +23,11 @@ impl OrderedTrait for Ordered {
 pub enum OrderErr {}
 
 /// Represents a layer indicating the position when an expression can be evaluated
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layer(usize);
 
 /// Wrapper to collect the layer when a stream instance is spawned and evaluated
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamLayers {
     spawn: Layer,
     evaluation: Layer,

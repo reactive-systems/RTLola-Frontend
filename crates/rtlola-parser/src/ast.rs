@@ -2,6 +2,8 @@
 //!
 //! Every node in the abstract syntax tree is assigned a unique id and has a span referencing the node's location in the specification.
 
+use serde::{Deserialize, Serialize};
+
 mod conversion;
 mod print;
 
@@ -235,7 +237,7 @@ impl Parenthesis {
 }
 
 /// An Ast node representing the declaration of a value type
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Type {
     /// The kind of the type, e.g., a tuple
     pub kind: TypeKind,
@@ -275,7 +277,7 @@ impl Type {
 }
 
 /// Ast representation of the value type of a stream
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TypeKind {
     /// A simple type, e.g., `Int`
     Simple(String),
@@ -546,7 +548,7 @@ pub enum UnOp {
 }
 
 /// An Ast node representing the name of a called function and also the names of the arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionName {
     /// The name of the function
     pub name: Ident,
@@ -554,7 +556,7 @@ pub struct FunctionName {
     pub arg_names: Vec<Option<Ident>>,
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 /// This struct represents an identifier in the specification.
 /// For example the name of an [Output] or [Input].
 pub struct Ident {
@@ -581,7 +583,7 @@ impl PartialEq for Ident {
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub(crate) u32);
 
 impl NodeId {

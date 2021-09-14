@@ -18,3 +18,4 @@ keywords = ["reporting"]
 [dependencies]
 codespan-reporting = "0.11.1" # Error Reporting
 pest = "2.1"
+serde = { version = "1.0.130", features = ["derive"] }

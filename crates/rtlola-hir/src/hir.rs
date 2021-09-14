@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use rtlola_reporting::Span;
+use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use crate::hir::expression::*;
@@ -569,7 +570,7 @@ impl AnnotatedType {
 }
 
 /// Allows for referencing a window instance.
-#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowReference {
     /// Refers to a sliding window
     Sliding(usize),
@@ -595,7 +596,7 @@ pub type InputReference = usize;
 pub type OutputReference = usize;
 
 /// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StreamReference {
     /// References an input stream.
     In(InputReference),
