@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 
 mod conversion;
 mod print;
-
+mod syntactic_sugar;
 use std::rc::Rc;
 
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
+pub use syntactic_sugar::Desugarizer;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the Ast node, a span, and declaration-specific components.
 ///
@@ -586,12 +587,20 @@ impl PartialEq for Ident {
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct NodeId(pub(crate) u32);
+pub struct NodeId {
+    /// The actual unique id.
+    pub id: u32,
+    /// Counter to track transformations on this node. Increased during syntactic sugar removal.
+    pub prime_counter: u32,
+}
 
 impl NodeId {
     /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
         assert!(x < (u32::max_value() as usize));
-        NodeId(x as u32)
+        NodeId {
+            id: x as u32,
+            prime_counter: 0u32,
+        }
     }
 }

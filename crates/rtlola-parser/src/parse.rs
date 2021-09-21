@@ -66,7 +66,7 @@ impl RtLolaParser {
     /// Transforms a textual representation of a Lola specification into
     /// an AST representation.
     pub(crate) fn parse(config: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
-        RtLolaParser::new(config).parse_spec()
+        RtLolaParser::new(config).parse_spec().map(|spec| Desugarizer::all().remove_syn_sugar(spec))
     }
 
     /// Runs the parser on the give spec.
@@ -116,7 +116,7 @@ impl RtLolaParser {
 
     fn next_id(&self) -> NodeId {
         let res = *self.node_id.borrow();
-        self.node_id.borrow_mut().0 += 1;
+        self.node_id.borrow_mut().id += 1;
         res
     }
 

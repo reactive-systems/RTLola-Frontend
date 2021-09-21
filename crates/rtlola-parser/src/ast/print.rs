@@ -437,6 +437,6 @@ impl Display for RtLolaAst {
 
 impl Display for NodeId {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}{}", self.id, "'".repeat(self.prime_counter as usize))
     }
 }
