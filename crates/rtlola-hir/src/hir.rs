@@ -739,7 +739,7 @@ impl Ord for StreamReference {
 }
 
 /// Offset used in the lookup expression
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
     FutureDiscrete(u32),
@@ -749,6 +749,26 @@ pub enum Offset {
     FutureRealTime(Duration),
     /// A non-negative real-time offset, e.g., `0`, `4min`, `2.3h`
     PastRealTime(Duration),
+}
+
+impl Offset {
+    /// Returns `true`, iff the Offset is negative
+    pub(crate) fn has_negative_offset(&self) -> bool {
+        match self {
+            Offset::FutureDiscrete(_) | Offset::FutureRealTime(_) => false,
+            Offset::PastDiscrete(o) => *o != 0,
+            Offset::PastRealTime(o) => o.as_nanos() != 0,
+        }
+    }
+
+    pub(crate) fn to_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+        match self {
+            Offset::PastDiscrete(o) => MemorizationBound::Bounded(*o) + MemorizationBound::default_value(dynamic),
+            Offset::FutureDiscrete(_) => unimplemented!(),
+            Offset::FutureRealTime(_) => unimplemented!(),
+            Offset::PastRealTime(_) => unimplemented!(),
+        }
+    }
 }
 
 impl PartialOrd for Offset {

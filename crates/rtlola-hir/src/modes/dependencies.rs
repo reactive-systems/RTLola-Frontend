@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 use itertools::Itertools;
 use petgraph::algo::{all_simple_paths, has_path_connecting};
@@ -11,7 +10,9 @@ use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
-use crate::hir::{Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, WRef, WidenExprKind};
+use crate::hir::{
+    Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef, WidenExprKind,
+};
 use crate::modes::HirMode;
 
 /// Represents the Dependency Graph
@@ -20,30 +21,47 @@ use crate::modes::HirMode;
 /// For this, the graph contains a node for each node in the specification and an edge from `source` to `target`, iff the stream `source` uses an stream value of `target`.
 /// The weight of each nodes is the stream reference representing the stream. The weight of the edges is the [kind](EdgeWeight) of the lookup.
 pub type DependencyGraph = StableGraph<SRef, EdgeWeight>;
+
 /// Represents the weights of the edges in the dependency graph
-#[derive(Hash, Clone, Debug, PartialEq, Eq)]
-pub enum EdgeWeight {
-    /// Offset weigth
-    Offset(i32),
-    /// Window weigth
-    Aggr(WRef),
-    /// Sample and hold weigth
-    Hold,
-    /// Represents the edge weight of lookups appearing in the spawn condition
-    Spawn(Box<EdgeWeight>),
-    /// Represents the edge weight of lookups appearing in the filter condition
-    Filter(Box<EdgeWeight>),
-    /// Represents the edge weight of lookups appearing in the close condition
-    Close(Box<EdgeWeight>),
+#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
+pub struct EdgeWeight {
+    /// The [Origin] of the lookup
+    pub origin: Origin,
+    /// The [StreamAccessKind] of the lookup
+    pub kind: StreamAccessKind,
+}
+
+/// Represents the orgin of a stream lookup
+#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
+pub enum Origin {
+    Spawn,
+    Filter,
+    Eval,
+    Close,
 }
 
 impl EdgeWeight {
-    /// Returns the window reference if the EdgeWeight contains an Aggregation or None otherwise
+    /// Creates a new [EdgeWeight]
+    pub(crate) fn new(kind: StreamAccessKind, origin: Origin) -> Self {
+        EdgeWeight { kind, origin }
+    }
+
+    /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
     pub(crate) fn window(&self) -> Option<WRef> {
-        match self {
-            EdgeWeight::Offset(_) | EdgeWeight::Hold => None,
-            EdgeWeight::Aggr(wref) => Some(*wref),
-            EdgeWeight::Spawn(ew) | EdgeWeight::Filter(ew) | EdgeWeight::Close(ew) => ew.window(),
+        match self.kind {
+            StreamAccessKind::Sync | StreamAccessKind::Hold | StreamAccessKind::Offset(_) => None,
+            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
+        }
+    }
+
+    /// Returns the memory bound of the [EdgeWeight]
+    pub(crate) fn to_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+        match self.kind {
+            StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
+                MemorizationBound::default_value(dynamic)
+            },
+            StreamAccessKind::Hold => MemorizationBound::Bounded(1),
+            StreamAccessKind::Offset(o) => o.to_memory_bound(dynamic),
         }
     }
 }
@@ -59,12 +77,12 @@ pub(crate) trait ExtendedDepGraph {
 
     /// Returns `true`, iff the edge weight `e` is a negative offset lookup
     fn has_negative_offset(e: &EdgeWeight) -> bool {
-        match e {
-            EdgeWeight::Offset(o) if *o < 0 => true,
-            EdgeWeight::Spawn(s) => Self::has_negative_offset(s),
-            EdgeWeight::Filter(f) => Self::has_negative_offset(f),
-            EdgeWeight::Close(c) => Self::has_negative_offset(c),
-            _ => false,
+        match e.kind {
+            StreamAccessKind::Sync
+            | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::SlidingWindow(_)
+            | StreamAccessKind::Hold => false,
+            StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
     }
 
@@ -99,7 +117,7 @@ impl ExtendedDepGraph for DependencyGraph {
     fn without_close_edges(&self) -> Self {
         let mut working_graph = self.clone();
         self.edge_indices().for_each(|edge_index| {
-            if let EdgeWeight::Close(_) = self.edge_weight(edge_index).unwrap() {
+            if self.edge_weight(edge_index).unwrap().origin == Origin::Close {
                 working_graph.remove_edge(edge_index);
             }
         });
@@ -109,7 +127,7 @@ impl ExtendedDepGraph for DependencyGraph {
     fn only_spawn_edges(&self) -> Self {
         let mut working_graph = self.clone();
         self.edge_indices().for_each(|edge_index| {
-            if let EdgeWeight::Spawn(_) = self.edge_weight(edge_index).unwrap() {
+            if self.edge_weight(edge_index).unwrap().origin == Origin::Spawn {
             } else {
                 let res = working_graph.remove_edge(edge_index);
                 assert!(res.is_some());
@@ -262,7 +280,7 @@ impl DepAna {
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| Self::collect_edges(spec, sr, spec.expr(sr)))
-            .map(|(src, w, tar)| (src, Self::stream_access_kind_to_edge_weight(w), tar));
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
@@ -276,39 +294,21 @@ impl DepAna {
                 })
             })
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Spawn(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(spec, sr, filter)))
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Filter(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(spec, sr, close)))
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Close(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
         let edges = edges_expr
             .chain(edges_spawn)
             .chain(edges_filter)
@@ -480,29 +480,6 @@ impl DepAna {
                     .chain(Self::collect_edges(spec, src, default).into_iter())
                     .collect()
             },
-        }
-    }
-
-    fn stream_access_kind_to_edge_weight(w: StreamAccessKind) -> EdgeWeight {
-        match w {
-            StreamAccessKind::Sync => EdgeWeight::Offset(0),
-            StreamAccessKind::Offset(o) => {
-                match o {
-                    Offset::PastDiscrete(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
-                    Offset::FutureDiscrete(o) => {
-                        if o == 0 {
-                            EdgeWeight::Offset(i32::try_from(o).unwrap())
-                        } else {
-                            todo!("implement dependency analysis for positive future offsets")
-                        }
-                    },
-                    _ => todo!("implement dependency analysis for real-time offsets"),
-                }
-            },
-            StreamAccessKind::Hold => EdgeWeight::Hold,
-
-            StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
-            StreamAccessKind::DiscreteWindow(wref) => EdgeWeight::Aggr(wref),
         }
     }
 }

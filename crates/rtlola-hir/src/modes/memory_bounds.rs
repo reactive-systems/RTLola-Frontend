@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::ops::Add;
 
 use num::abs;
 use serde::{Deserialize, Serialize};
 
 use crate::hir::{Hir, SRef};
-use crate::modes::dependencies::EdgeWeight;
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
 /// This enum indicates how much memory is required to store a stream.
@@ -14,14 +13,17 @@ pub enum MemorizationBound {
     /// The required memory might exceed any bound.
     Unbounded,
     /// Only the contained amount of stream entries need to be stored.
-    Bounded(u16),
+    Bounded(u32),
 }
 
 impl MemorizationBound {
+    const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
+    const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
+
     /// Returns the unwraped memory bound
     ///
     /// This function returns the bound of an [MemorizationBound::Bounded] as `u16`. The function panics, if it is called on a [MemorizationBound::Unbounded] value.
-    pub fn unwrap(self) -> u16 {
+    pub fn unwrap(self) -> u32 {
         match self {
             MemorizationBound::Bounded(b) => b,
             MemorizationBound::Unbounded => {
@@ -33,10 +35,32 @@ impl MemorizationBound {
     /// Returns the unwraped memory bound as an optional
     ///
     /// This function returns `Some(v)` if the memory is bounded and `v` and `None` if it is unbounded.
-    pub fn as_opt(self) -> Option<u16> {
+    pub fn as_opt(self) -> Option<u32> {
         match self {
             MemorizationBound::Bounded(b) => Some(b),
             MemorizationBound::Unbounded => None,
+        }
+    }
+
+    /// Returns the default value for the [MemorizationBound]
+    pub(crate) fn default_value(dynamic: bool) -> MemorizationBound {
+        if dynamic {
+            Self::DYNAMIC_DEFAULT_VALUE
+        } else {
+            Self::STATIC_DEFAULT_VALUE
+        }
+    }
+}
+
+impl Add for MemorizationBound {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (MemorizationBound::Unbounded, MemorizationBound::Unbounded)
+            | (MemorizationBound::Unbounded, MemorizationBound::Bounded(_))
+            | (MemorizationBound::Bounded(_), MemorizationBound::Unbounded) => MemorizationBound::Unbounded,
+            (MemorizationBound::Bounded(lhs), MemorizationBound::Bounded(rhs)) => MemorizationBound::Bounded(lhs + rhs),
         }
     }
 }
@@ -62,9 +86,6 @@ impl MemBoundTrait for MemBound {
 }
 
 impl MemBound {
-    const DYNAMIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(0);
-    const STATIC_DEFAULT_VALUE: MemorizationBound = MemorizationBound::Bounded(1);
-
     /// Returns the result of the memory analysis
     ///
     /// This function returns for each stream in `spec` the required memory. It differentiates with the `dynamic` flag between a dynamic and a static memory computation.
@@ -77,21 +98,11 @@ impl MemBound {
         // Assign streams to default value
         let mut memory_bounds = spec
             .all_streams()
-            .map(|sr| {
-                (
-                    sr,
-                    if dynamic {
-                        Self::DYNAMIC_DEFAULT_VALUE
-                    } else {
-                        Self::STATIC_DEFAULT_VALUE
-                    },
-                )
-            })
+            .map(|sr| (sr, MemorizationBound::default_value(dynamic)))
             .collect::<HashMap<SRef, MemorizationBound>>();
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
-            let cur_edge_bound =
-                Self::edge_weight_to_memory_bound(spec.graph().edge_weight(edge_index).unwrap(), dynamic);
+            let cur_edge_bound = spec.graph().edge_weight(edge_index).unwrap().to_memory_bound(dynamic);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
@@ -103,29 +114,6 @@ impl MemBound {
         });
         MemBound {
             memory_bound_per_stream: memory_bounds,
-        }
-    }
-
-    fn edge_weight_to_memory_bound(w: &EdgeWeight, dynamic: bool) -> MemorizationBound {
-        match w {
-            EdgeWeight::Offset(o) => {
-                if *o > 0 {
-                    unimplemented!("Positive Offsets")
-                } else {
-                    MemorizationBound::Bounded(u16::try_from(abs(*o) + if dynamic { 0 } else { 1 }).unwrap())
-                }
-            },
-            EdgeWeight::Hold => MemorizationBound::Bounded(1),
-            EdgeWeight::Aggr(_) => {
-                if dynamic {
-                    Self::DYNAMIC_DEFAULT_VALUE
-                } else {
-                    Self::STATIC_DEFAULT_VALUE
-                }
-            },
-            EdgeWeight::Spawn(w) => Self::edge_weight_to_memory_bound(w, dynamic),
-            EdgeWeight::Filter(w) => Self::edge_weight_to_memory_bound(w, dynamic),
-            EdgeWeight::Close(w) => Self::edge_weight_to_memory_bound(w, dynamic),
         }
     }
 }

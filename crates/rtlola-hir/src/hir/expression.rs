@@ -236,7 +236,7 @@ pub struct Inlined {
     pub(crate) ty: AnnotatedType,
 }
 /// Representation of the different stream accesses
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
