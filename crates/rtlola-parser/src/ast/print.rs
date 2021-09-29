@@ -316,21 +316,23 @@ impl Display for TimeUnit {
 
 impl Display for WindowOperation {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                WindowOperation::Sum => "Σ",
-                WindowOperation::Product => "Π",
-                WindowOperation::Average => "avg",
-                WindowOperation::Count => "#",
-                WindowOperation::Integral => "∫",
-                WindowOperation::Min => "min",
-                WindowOperation::Max => "max",
-                WindowOperation::Disjunction => "∃",
-                WindowOperation::Conjunction => "∀",
-            }
-        )
+        let op_str = match self {
+            WindowOperation::Sum => "Σ",
+            WindowOperation::Product => "Π",
+            WindowOperation::Average => "avg",
+            WindowOperation::Count => "#",
+            WindowOperation::Integral => "∫",
+            WindowOperation::Min => "min",
+            WindowOperation::Max => "max",
+            WindowOperation::Disjunction => "∃",
+            WindowOperation::Conjunction => "∀",
+            WindowOperation::Last => "last",
+            WindowOperation::Variance => "σ²",
+            WindowOperation::Covariance => "cov",
+            WindowOperation::StandardDeviation => "σ",
+            WindowOperation::NthPercentile(p) => return write!(f, "{}", &format!("pctl{}", p),),
+        };
+        write!(f, "{}", op_str)
     }
 }
 

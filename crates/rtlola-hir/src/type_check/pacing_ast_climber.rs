@@ -792,8 +792,8 @@ where
             .flat_map(|o| {
                 vec![
                     Some(NodeId::SRef(o.sr)),
-                    o.instance_template.filter.map(|eid| NodeId::Expr(eid)),
-                    o.instance_template.close.map(|eid| NodeId::Expr(eid)),
+                    o.instance_template.filter.map(NodeId::Expr),
+                    o.instance_template.close.map(NodeId::Expr),
                 ]
             })
             .filter(Option::is_some)

@@ -119,9 +119,16 @@ Count = {"#" | "count"}
 Integral = {"∫"  | "integral"}
 Average = { "avg"| "average" }
 
-WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists }
+// WindowCovariance is not listed as it does not have any utf8 symbols as possible identifier,
+// "covariance" and "cov" will be parsed as normal identifier and are build as valid identifiers
+// and therefore valid window operations, e.g. Median without "µ" could be left out too
+
+WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists | WindowVariance | WindowSd | WindowMedian}
 WindowForall = {"forall" | "∀" | "∧" | "conjunction" }
 WindowExists = {"exists" | "∃" | "∨" | "disjunction" }
+WindowVariance = {"var" | "variance" | "σ²"}
+WindowSd = {"standard_deviation" | "sd" | "σ"}
+WindowMedian = { "med" | "median" | "µ" }
 
 
 //////////////////////////////////////////////////

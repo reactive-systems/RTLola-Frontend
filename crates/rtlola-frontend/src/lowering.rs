@@ -413,6 +413,11 @@ impl Mir {
             WindowOperation::Integral => mir::WindowOperation::Integral,
             WindowOperation::Conjunction => mir::WindowOperation::Conjunction,
             WindowOperation::Disjunction => mir::WindowOperation::Disjunction,
+            WindowOperation::Last => mir::WindowOperation::Last,
+            WindowOperation::Variance => mir::WindowOperation::Variance,
+            WindowOperation::Covariance => mir::WindowOperation::Covariance,
+            WindowOperation::StandardDeviation => mir::WindowOperation::StandardDeviation,
+            WindowOperation::NthPercentile(x) => mir::WindowOperation::NthPercentile(x),
         }
     }
 
