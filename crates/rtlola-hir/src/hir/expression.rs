@@ -415,66 +415,50 @@ impl<A: WindowAggregation> Window<A> {
 }
 
 /// A context for expressions that establishes equality between parameters of different streams based on their spawn expression.
+// Maps a stream 'a' and a parameter 'x' of stream 'b' to the set of matching parameters of 'a'
 #[derive(Debug, Clone)]
 pub(crate) struct ExpressionContext(HashMap<SRef, HashMap<(SRef, usize), HashSet<usize>>>);
 
 impl ExpressionContext {
+    // Two parameters of two streams are equal if they are spawned with the same expression under the same condition.
+    // For example:
+    //
+    // output a(x, y) spawn with (5, 42) if i = 2 ...
+    // output b(v, w) spawn with (42, 7) if i = 2 ...
+    //
+    // Then parameter y of a is equal to the parameter v of b
+    // The spawn condition has to match as otherwise y could already be initialized while v is not.
+    //
+    // This equivalence is computed as follows:
+    //
+    // For all pairs of output streams that have parameters and the same spawn condition:
+    //      Get the vector of expressions that initialize the parameters of a (i.e. (5, 42))
+    //      Get the vector of expressions that initialize the parameters of b (i.e. (42, 7))
+    //      For all paris of expressions in the cross product of these two vectors (i.e. (5, 42), (5, 7), (42, 42), (42, 7)):
+    //          check if the two expressions are equal
+    //              if true then insert the corresponding parameter into the resulting set
     pub(crate) fn new<M: HirMode>(hir: &Hir<M>) -> ExpressionContext {
         let mut inner = HashMap::with_capacity(hir.outputs.len());
         for current in hir.outputs() {
             let mut para_mapping: HashMap<(SRef, usize), HashSet<usize>> = HashMap::new();
 
-            let cur_spawn_cond = current
-                .instance_template
-                .spawn
-                .as_ref()
-                .and_then(|st| st.condition)
-                .map(|eid| hir.expression(eid));
+            let cur_spawn_cond = current.instance_template.spawn_condition(hir);
 
-            let current_spawn_args = current
-                .instance_template
-                .spawn
-                .as_ref()
-                .and_then(|st| st.target)
-                .map(|eid| hir.expression(eid))
-                .map(|se| {
-                    match &se.kind {
-                        ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
-                        _ => vec![se],
-                    }
-                })
-                .unwrap_or_else(Vec::new);
+            let current_spawn_args = current.instance_template.spawn_arguments(hir);
 
             assert_eq!(current.params.len(), current_spawn_args.len());
 
             if !current.params.is_empty() {
                 for target in hir.outputs() {
                     // if both have a spawn condition they must match
-                    let target_spawn_cond = target
-                        .instance_template
-                        .spawn
-                        .as_ref()
-                        .and_then(|st| st.condition)
-                        .map(|eid| hir.expression(eid));
+                    let target_spawn_cond = target.instance_template.spawn_condition(hir);
                     let cond_match = match (cur_spawn_cond, target_spawn_cond) {
                         (Some(e1), Some(e2)) => e1.value_eq_ignore_parameters(e2),
                         (None, None) => true,
                         _ => false,
                     };
                     if !target.params.is_empty() && cond_match {
-                        let target_spawn_args = target
-                            .instance_template
-                            .spawn
-                            .as_ref()
-                            .and_then(|st| st.target)
-                            .map(|eid| hir.expression(eid))
-                            .map(|se| {
-                                match &se.kind {
-                                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
-                                    _ => vec![se],
-                                }
-                            })
-                            .unwrap_or_else(Vec::new);
+                        let target_spawn_args = target.instance_template.spawn_arguments(hir);
 
                         assert_eq!(target.params.len(), target_spawn_args.len());
 
@@ -545,6 +529,7 @@ impl ValueEq for ExpressionKind {
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
@@ -553,6 +538,7 @@ impl ValueEq for ExpressionKind {
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
                     && kind == kind2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
@@ -571,9 +557,11 @@ impl ValueEq for ExpressionKind {
                 },
             ) => c1.value_eq(&b1, parameter_map) && c2.value_eq(&b2, parameter_map) && c3.value_eq(&b3, parameter_map),
             (Tuple(args), Tuple(args2)) => {
-                args.iter()
-                    .zip(args2.iter())
-                    .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+                args.len() == args2.len()
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
             },
             (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2, parameter_map),
             (
@@ -586,6 +574,7 @@ impl ValueEq for ExpressionKind {
             ) => {
                 name == name2
                     && type_param == type_param2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
@@ -612,6 +601,7 @@ impl ValueEq for ExpressionKind {
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
@@ -620,6 +610,7 @@ impl ValueEq for ExpressionKind {
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
                     && kind == kind2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
@@ -642,9 +633,11 @@ impl ValueEq for ExpressionKind {
                     && c3.value_eq_ignore_parameters(&b3)
             },
             (Tuple(args), Tuple(args2)) => {
-                args.iter()
-                    .zip(args2.iter())
-                    .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+                args.len() == args2.len()
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
             },
             (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq_ignore_parameters(&inner2),
             (
@@ -657,6 +650,7 @@ impl ValueEq for ExpressionKind {
             ) => {
                 name == name2
                     && type_param == type_param2
+                    && args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())

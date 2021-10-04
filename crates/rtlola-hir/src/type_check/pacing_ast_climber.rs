@@ -419,14 +419,8 @@ where
                         //Check that arguments are equal to spawn target if parameterized or the parameters for self
                         let target_spawn_args = self
                             .hir
-                            .spawn(*sref)
-                            .and_then(|(t, _)| t)
-                            .map(|target| {
-                                match &target.kind {
-                                    ExpressionKind::Tuple(s) => s.clone(),
-                                    _ => vec![target.clone()],
-                                }
-                            })
+                            .output(*sref)
+                            .map(|o| o.instance_template.spawn_arguments(self.hir))
                             .unwrap_or_else(Vec::new);
 
                         let target_span = match sref {
@@ -461,14 +455,8 @@ where
                                 if !self.exp_context.matches(current_stream, current_idx, *sref, target_idx) {
                                     let own_spawn_expr = self
                                         .hir
-                                        .spawn(current_stream)
-                                        .and_then(|(t, _)| t)
-                                        .map(|target| {
-                                            match &target.kind {
-                                                ExpressionKind::Tuple(s) => s[current_idx].clone(),
-                                                _ => target.clone(),
-                                            }
-                                        })
+                                        .output(current_stream)
+                                        .map(|c| c.instance_template.spawn_arguments(self.hir)[current_idx].clone())
                                         .expect("Target of sync access must have a spawn expression");
                                     return Err(PacingErrorKind::InvalidSyncAccessParameter {
                                         target_span,
@@ -741,36 +729,18 @@ where
             let filter_type = exp_tt[&keys.filter].clone();
             let close_type = exp_tt[&keys.close].clone();
 
-            let spawn_pacing =
-                if output.instance_template.spawn.is_none() && spawn_pacing != ConcretePacingType::Constant {
-                    Some(spawn_pacing)
-                } else {
-                    None
-                };
-            let spawn_cond = if output
-                .instance_template
-                .spawn
-                .as_ref()
-                .and_then(|st| st.condition)
-                .is_none()
-                && spawn_cond.kind.value_neq(&kind_true, exp_context)
-            {
-                Some(spawn_cond)
-            } else {
-                None
-            };
-            let filter =
-                if output.instance_template.filter.is_none() && filter_type.kind.value_neq(&kind_true, exp_context) {
-                    Some(filter_type)
-                } else {
-                    None
-                };
-            let close =
-                if output.instance_template.close.is_none() && close_type.kind.value_neq(&kind_false, exp_context) {
-                    Some(close_type)
-                } else {
-                    None
-                };
+            let spawn_pacing = (output.instance_template.spawn.is_none()
+                && spawn_pacing != ConcretePacingType::Constant)
+                .then(|| spawn_pacing);
+            let spawn_cond = (output.instance_template.spawn_condition(hir).is_none()
+                && spawn_cond.kind.value_neq(&kind_true, exp_context))
+            .then(|| spawn_cond);
+            let filter = (output.instance_template.filter.is_none()
+                && filter_type.kind.value_neq(&kind_true, exp_context))
+            .then(|| filter_type);
+            let close = (output.instance_template.close.is_none()
+                && close_type.kind.value_neq(&kind_false, exp_context))
+            .then(|| close_type);
 
             if spawn_pacing.is_some() || spawn_cond.is_some() || filter.is_some() || close.is_some() {
                 errors.push(

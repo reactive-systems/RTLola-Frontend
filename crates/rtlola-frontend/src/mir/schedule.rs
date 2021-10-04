@@ -1,3 +1,4 @@
+use std::ops::Not;
 use std::time::Duration;
 
 use num::rational::Rational64 as Rational;
@@ -7,7 +8,6 @@ use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
 use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
-use std::ops::Not;
 
 /// This enum represents the different tasks that have to be executed periodically.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -70,7 +70,8 @@ impl Schedule {
     pub(crate) fn from(ir: &RtLolaMir) -> Result<Schedule, String> {
         let stream_periods = ir
             .time_driven
-            .iter().filter_map(|tds| ir.output(tds.reference).is_spawned().not().then(|| tds.period()));
+            .iter()
+            .filter_map(|tds| ir.output(tds.reference).is_spawned().not().then(|| tds.period()));
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.spawn.pacing {
                 Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
@@ -80,7 +81,11 @@ impl Schedule {
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                o.instance_template.close.has_self_reference.not().then(|| UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+                o.instance_template
+                    .close
+                    .has_self_reference
+                    .not()
+                    .then(|| UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
             } else {
                 None
             }
@@ -175,20 +180,17 @@ impl Schedule {
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns = ir
-            .outputs
-            .iter()
-            .filter_map(|o| {
-                match &o.instance_template.spawn.pacing {
-                    PacingType::Periodic(freq) => {
-                        Some((
-                            o.reference.out_ix(),
-                            UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-                        ))
-                    },
-                    _ => None,
-                }
-            });
+        let periodic_spawns = ir.outputs.iter().filter_map(|o| {
+            match &o.instance_template.spawn.pacing {
+                PacingType::Periodic(freq) => {
+                    Some((
+                        o.reference.out_ix(),
+                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                    ))
+                },
+                _ => None,
+            }
+        });
         for (out_ix, period) in periodic_spawns {
             let ix = period.get::<second>() / gcd.get::<second>();
             // Period must be integer multiple of gcd by def of gcd
@@ -200,10 +202,12 @@ impl Schedule {
 
         let periodic_close = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                o.instance_template.close.has_self_reference.not().then(|| (
-                    o.reference.out_ix(),
-                    UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-                ))
+                o.instance_template.close.has_self_reference.not().then(|| {
+                    (
+                        o.reference.out_ix(),
+                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                    )
+                })
             } else {
                 None
             }

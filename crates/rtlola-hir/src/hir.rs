@@ -484,6 +484,51 @@ pub(crate) struct InstanceTemplate {
     pub(crate) close: Option<ExprId>,
 }
 
+impl InstanceTemplate {
+    /// Returns a reference to the `Expression` representing the spawn target if it exists
+    pub(crate) fn spawn_target<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.spawn
+            .as_ref()
+            .and_then(|st| st.target)
+            .map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a vector of `Expression` references representing the expressions with which the parameters of the stream are initialized
+    pub(crate) fn spawn_arguments<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Vec<&'a Expression> {
+        self.spawn_target(hir)
+            .map(|se| {
+                match &se.kind {
+                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                    _ => vec![se],
+                }
+            })
+            .unwrap_or_else(Vec::new)
+    }
+
+    /// Returns a reference to the `Expression` representing the spawn condition if it exists
+    pub(crate) fn spawn_condition<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.spawn
+            .as_ref()
+            .and_then(|st| st.condition)
+            .map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a reference to the `AnnotatedPacingType` representing the spawn pacing if it exists
+    pub(crate) fn spawn_pacing<'a, M: HirMode>(&'a self) -> Option<&'a AnnotatedPacingType> {
+        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+    }
+
+    /// Returns a reference to the `Expression` representing the filter condition if it exists
+    pub(crate) fn filter<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.filter.map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a reference to the `Expression` representing the close condition if it exists
+    pub(crate) fn close<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.close.map(|eid| hir.expression(eid))
+    }
+}
+
 /// Information regarding the spawning behavior of a stream
 #[derive(Debug, Clone)]
 pub(crate) struct SpawnTemplate {
