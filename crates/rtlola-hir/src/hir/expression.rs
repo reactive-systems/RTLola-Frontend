@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::iter::FromIterator;
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
@@ -458,7 +457,7 @@ impl ExpressionContext {
                         .and_then(|st| st.condition)
                         .map(|eid| hir.expression(eid));
                     let cond_match = match (cur_spawn_cond, target_spawn_cond) {
-                        (Some(e1), Some(e2)) if e1.value_eq_ignore_parameters(e2) => true,
+                        (Some(e1), Some(e2)) => e1.value_eq_ignore_parameters(e2),
                         (None, None) => true,
                         _ => false,
                     };

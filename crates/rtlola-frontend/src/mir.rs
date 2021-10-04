@@ -761,32 +761,28 @@ impl RtLolaMir {
 
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` an output stream in the layer.
     pub fn get_event_driven_layers(&self) -> Vec<Vec<Task>> {
-        let event_driven_spawns: Vec<&OutputStream> = self
+        let event_driven_spawns = self
             .outputs
             .iter()
-            .filter(|o| matches!(o.instance_template.spawn.pacing, PacingType::Event(_)))
-            .collect();
+            .filter(|o| matches!(o.instance_template.spawn.pacing, PacingType::Event(_)));
 
-        if self.event_driven.is_empty() && event_driven_spawns.is_empty() {
+        // Peekable is fine because the filter above does not have side effects
+        if self.event_driven.is_empty() && event_driven_spawns.peekable().peek().is_none(){
             return vec![];
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers: Vec<(usize, Task)> = self
+        let streams_with_layers = self
             .event_driven
             .iter()
             .map(|s| s.reference)
-            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())))
-            .collect();
+            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())));
 
-        let spawns_with_layers: Vec<(usize, Task)> = event_driven_spawns
-            .iter()
-            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())))
-            .collect();
+        let spawns_with_layers = event_driven_spawns
+            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
 
         let tasks_with_layers: Vec<(usize, Task)> = streams_with_layers
-            .into_iter()
-            .chain(spawns_with_layers.into_iter())
+            .chain(spawns_with_layers)
             .collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be

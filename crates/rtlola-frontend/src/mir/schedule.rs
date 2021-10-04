@@ -7,9 +7,10 @@ use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
 use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
+use std::ops::Not;
 
 /// This enum represents the different tasks that have to be executed periodically.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Task {
     /// Evaluate the stream referred to by the OutputReference
     Evaluate(OutputReference),
@@ -69,10 +70,7 @@ impl Schedule {
     pub(crate) fn from(ir: &RtLolaMir) -> Result<Schedule, String> {
         let stream_periods = ir
             .time_driven
-            .iter()
-            .map(|tds| (ir.output(tds.reference), tds.period()))
-            .filter(|(o, _)| !o.is_spawned())
-            .map(|(_, period)| period);
+            .iter().filter_map(|tds| ir.output(tds.reference).is_spawned().not().then(|| tds.period()));
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.spawn.pacing {
                 Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
@@ -82,11 +80,7 @@ impl Schedule {
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                if !o.instance_template.close.has_self_reference {
-                    Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
-                } else {
-                    None
-                }
+                o.instance_template.close.has_self_reference.not().then(|| UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
             } else {
                 None
             }
@@ -175,12 +169,13 @@ impl Schedule {
             .filter(|tds| !ir.output(tds.reference).is_spawned())
         {
             let ix = s.period().get::<second>() / gcd.get::<second>();
+            // Period must be integer multiple of gcd by def of gcd
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns: Vec<(usize, UOM_Time)> = ir
+        let periodic_spawns = ir
             .outputs
             .iter()
             .filter_map(|o| {
@@ -193,10 +188,10 @@ impl Schedule {
                     },
                     _ => None,
                 }
-            })
-            .collect();
+            });
         for (out_ix, period) in periodic_spawns {
             let ix = period.get::<second>() / gcd.get::<second>();
+            // Period must be integer multiple of gcd by def of gcd
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
@@ -205,20 +200,17 @@ impl Schedule {
 
         let periodic_close = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                if !o.instance_template.close.has_self_reference {
-                    Some((
-                        o.reference.out_ix(),
-                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-                    ))
-                } else {
-                    None
-                }
+                o.instance_template.close.has_self_reference.not().then(|| (
+                    o.reference.out_ix(),
+                    UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                ))
             } else {
                 None
             }
         });
         for (out_ix, period) in periodic_close {
             let ix = period.get::<second>() / gcd.get::<second>();
+            // Period must be integer multiple of gcd by def of gcd
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
