@@ -292,7 +292,7 @@ impl NamingAnalysis {
                 }
             }
             if let Some(pt) = trigger.annotated_pacing_type.as_ref() {
-                self.check_expression(&pt);
+                self.check_expression(pt);
             }
             self.declarations.push();
             if let Err(e) = self.check_expression(&trigger.expression) {
@@ -322,12 +322,12 @@ impl NamingAnalysis {
                     }
                 }
                 if let Some(pacing) = &spawn.annotated_pacing {
-                    if let Err(e) = self.check_expression(&pacing) {
+                    if let Err(e) = self.check_expression(pacing) {
                         error.join(e);
                     }
                 }
                 if let Some(cond) = &spawn.condition {
-                    if let Err(e) = self.check_expression(&cond) {
+                    if let Err(e) = self.check_expression(cond) {
                         error.join(e);
                     }
                 }
@@ -343,7 +343,7 @@ impl NamingAnalysis {
                 }
             }
             if let Some(pt) = output.annotated_pacing_type.as_ref() {
-                if let Err(e) = self.check_expression(&pt) {
+                if let Err(e) = self.check_expression(pt) {
                     error.join(e);
                 }
             }

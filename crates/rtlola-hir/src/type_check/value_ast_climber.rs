@@ -103,36 +103,36 @@ where
     pub(crate) fn type_check(mut self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
         for input in self.hir.inputs() {
             self.input_infer(input)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         for output in self.hir.outputs() {
             self.output_infer(output)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         for trigger in self.hir.triggers() {
             self.trigger_infer(trigger)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         let tt = self
             .tyc
             .clone()
             .type_check()
-            .map_err(|e| TypeError::from(e).into_diagnostic(&[&self.key_span], &self.names))?;
+            .map_err(|e| TypeError::from(e).into_diagnostic(&[&self.key_span], self.names))?;
 
         let mut error = RtLolaError::new();
         for err in Self::check_explicit_bounds(self.annotated_checks.clone(), &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
 
         for err in Self::check_widen_exprs(self.widen_checks.clone(), &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
 
         for err in Self::post_process(self.hir, &self.node_key, &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
         Result::from(error)?;
 
@@ -344,7 +344,7 @@ where
     /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
-        let expression_key = self.expression_infer(&self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
+        let expression_key = self.expression_infer(self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
@@ -741,9 +741,9 @@ where
                     AnnotatedType::Float(_) => AbstractValueType::Float,
                     _ => unimplemented!("unsupported widening type"),
                 };
-                self.handle_annotated_type(term_key, &ty, Some(inner_expr_key))?;
+                self.handle_annotated_type(term_key, ty, Some(inner_expr_key))?;
                 self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
-                self.add_widen_check(term_key, inner_expr_key, &ty)?;
+                self.add_widen_check(term_key, inner_expr_key, ty)?;
                 //self.tyc.impose(term_key.concretizes(inner_expr_key))?;
             },
             ExpressionKind::Function(FnExprKind { name, type_param, args }) => {

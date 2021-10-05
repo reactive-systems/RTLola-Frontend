@@ -277,7 +277,7 @@ impl ActivationCondition {
         use ActivationCondition::*;
         match self {
             True => "⊤".into(),
-            Stream(sr) => stream_names[&sr].into(),
+            Stream(sr) => stream_names[sr].into(),
             Conjunction(childs) => {
                 let child_string: String = childs.iter().map(|ac| ac.to_string(stream_names)).join(" ∧ ");
                 format!("({})", child_string)

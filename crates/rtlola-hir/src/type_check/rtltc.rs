@@ -135,8 +135,8 @@ where
 impl PartialOrd for NodeId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (NodeId::Expr(a), NodeId::Expr(b)) => Some(a.cmp(&b)),
-            (NodeId::SRef(a), NodeId::SRef(b)) => Some(a.cmp(&b)),
+            (NodeId::Expr(a), NodeId::Expr(b)) => Some(a.cmp(b)),
+            (NodeId::SRef(a), NodeId::SRef(b)) => Some(a.cmp(b)),
             (NodeId::Param(_, _), _) => unreachable!(),
             (_, _) => None,
         }

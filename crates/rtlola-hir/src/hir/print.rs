@@ -15,7 +15,7 @@ impl Expression {
             StreamAccess(sref, kind, params) => {
                 format!(
                     "{}{}{}",
-                    names[&sref],
+                    names[sref],
                     if !params.is_empty() {
                         format!("({})", params.iter().map(|e| e.pretty_string(names)).join(", "))
                     } else {
@@ -68,7 +68,7 @@ impl Expression {
             },
             Widen(WidenExprKind { expr: e, ty }) => format!("{}({})", ty, e.pretty_string(names)),
             TupleAccess(e, idx) => format!("{}.{}", e.pretty_string(names), idx),
-            ParameterAccess(sref, idx) => format!("Param({}, {})", names[&sref], idx),
+            ParameterAccess(sref, idx) => format!("Param({}, {})", names[sref], idx),
         }
     }
 }

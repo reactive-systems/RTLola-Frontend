@@ -129,7 +129,7 @@ impl Ordered {
                         .neighbors_directed(node, Outgoing)
                         .map(|outgoing_neighbor| {
                             evaluation_layers
-                                .get(&spawn_graph.node_weight(outgoing_neighbor).unwrap())
+                                .get(spawn_graph.node_weight(outgoing_neighbor).unwrap())
                                 .copied()
                         })
                         .collect();
@@ -169,7 +169,7 @@ impl Ordered {
                         }) // delete self references
                         .map(|outgoing_neighbor| {
                             evaluation_layers
-                                .get(&graph.node_weight(outgoing_neighbor).unwrap())
+                                .get(graph.node_weight(outgoing_neighbor).unwrap())
                                 .copied()
                         })
                         .collect();

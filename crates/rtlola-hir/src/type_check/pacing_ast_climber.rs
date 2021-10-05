@@ -227,7 +227,7 @@ where
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
         // Type Expression Pacing
-        let exp_key = self.expression_infer(&self.hir.expr(output.sr))?;
+        let exp_key = self.expression_infer(self.hir.expr(output.sr))?;
 
         // Check if there is a type is annotated
         if let Some(ac) = &output.annotated_pacing_type {
@@ -851,17 +851,17 @@ where
     pub(crate) fn type_check(mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
         for input in self.hir.inputs() {
             self.input_infer(input)
-                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
         }
 
         for output in self.hir.outputs() {
             self.output_infer(output)
-                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
         }
 
         for trigger in self.hir.triggers() {
             self.trigger_infer(trigger)
-                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
         }
 
         let PacingTypeChecker {

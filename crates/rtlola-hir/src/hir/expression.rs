@@ -533,7 +533,7 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+                        .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
             },
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
@@ -542,7 +542,7 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+                        .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
             },
             (
                 Ite {
@@ -555,15 +555,15 @@ impl ValueEq for ExpressionKind {
                     consequence: b2,
                     alternative: b3,
                 },
-            ) => c1.value_eq(&b1, parameter_map) && c2.value_eq(&b2, parameter_map) && c3.value_eq(&b3, parameter_map),
+            ) => c1.value_eq(b1, parameter_map) && c2.value_eq(b2, parameter_map) && c3.value_eq(b3, parameter_map),
             (Tuple(args), Tuple(args2)) => {
                 args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+                        .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
             },
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(&inner2, parameter_map),
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(inner2, parameter_map),
             (
                 Function(FnExprKind { name, args, type_param }),
                 Function(FnExprKind {
@@ -578,10 +578,10 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq(&a2, parameter_map))
+                        .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
             },
             (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
-                t1 == t2 && inner.value_eq(&inner2, parameter_map)
+                t1 == t2 && inner.value_eq(inner2, parameter_map)
             },
             (
                 Default { expr, default },
@@ -589,7 +589,7 @@ impl ValueEq for ExpressionKind {
                     expr: expr2,
                     default: default2,
                 },
-            ) => expr.value_eq(&expr2, parameter_map) && default.value_eq(&default2, parameter_map),
+            ) => expr.value_eq(expr2, parameter_map) && default.value_eq(default2, parameter_map),
             _ => false,
         }
     }
@@ -605,7 +605,7 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
             },
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
@@ -614,7 +614,7 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
             },
             (
                 Ite {
@@ -628,18 +628,18 @@ impl ValueEq for ExpressionKind {
                     alternative: b3,
                 },
             ) => {
-                c1.value_eq_ignore_parameters(&b1)
-                    && c2.value_eq_ignore_parameters(&b2)
-                    && c3.value_eq_ignore_parameters(&b3)
+                c1.value_eq_ignore_parameters(b1)
+                    && c2.value_eq_ignore_parameters(b2)
+                    && c3.value_eq_ignore_parameters(b3)
             },
             (Tuple(args), Tuple(args2)) => {
                 args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
             },
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq_ignore_parameters(&inner2),
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq_ignore_parameters(inner2),
             (
                 Function(FnExprKind { name, args, type_param }),
                 Function(FnExprKind {
@@ -654,10 +654,10 @@ impl ValueEq for ExpressionKind {
                     && args
                         .iter()
                         .zip(args2.iter())
-                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(&a2))
+                        .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
             },
             (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
-                t1 == t2 && inner.value_eq_ignore_parameters(&inner2)
+                t1 == t2 && inner.value_eq_ignore_parameters(inner2)
             },
             (
                 Default { expr, default },
@@ -665,7 +665,7 @@ impl ValueEq for ExpressionKind {
                     expr: expr2,
                     default: default2,
                 },
-            ) => expr.value_eq_ignore_parameters(&expr2) && default.value_eq_ignore_parameters(&default2),
+            ) => expr.value_eq_ignore_parameters(expr2) && default.value_eq_ignore_parameters(default2),
             _ => false,
         }
     }

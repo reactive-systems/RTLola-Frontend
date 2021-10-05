@@ -50,7 +50,7 @@ impl PartialOrd for MemorizationBound {
             (Unbounded, Unbounded) => None,
             (Bounded(_), Unbounded) => Some(Ordering::Less),
             (Unbounded, Bounded(_)) => Some(Ordering::Greater),
-            (Bounded(b1), Bounded(b2)) => Some(b1.cmp(&b2)),
+            (Bounded(b1), Bounded(b2)) => Some(b1.cmp(b2)),
         }
     }
 }

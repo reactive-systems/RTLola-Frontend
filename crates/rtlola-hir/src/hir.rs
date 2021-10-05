@@ -514,7 +514,7 @@ impl InstanceTemplate {
     }
 
     /// Returns a reference to the `AnnotatedPacingType` representing the spawn pacing if it exists
-    pub(crate) fn spawn_pacing<'a, M: HirMode>(&'a self) -> Option<&'a AnnotatedPacingType> {
+    pub(crate) fn spawn_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
         self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
     }
 
@@ -704,8 +704,8 @@ impl PartialOrd for StreamReference {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(&i2)),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(&o2)),
+            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(i2)),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(o2)),
             (StreamReference::In(_), StreamReference::Out(_)) => Some(Ordering::Less),
             (StreamReference::Out(_), StreamReference::In(_)) => Some(Ordering::Greater),
         }
@@ -716,8 +716,8 @@ impl Ord for StreamReference {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => i.cmp(&i2),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => o.cmp(&o2),
+            (StreamReference::In(i), StreamReference::In(i2)) => i.cmp(i2),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => o.cmp(o2),
             (StreamReference::In(_), StreamReference::Out(_)) => Ordering::Less,
             (StreamReference::Out(_), StreamReference::In(_)) => Ordering::Greater,
         }
