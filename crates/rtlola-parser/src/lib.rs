@@ -42,7 +42,7 @@ use std::path::PathBuf;
 // Public exports
 pub mod ast;
 pub use ast::RtLolaAst;
-use rtlola_reporting::Handler;
+use rtlola_reporting::RtLolaError;
 
 #[derive(Debug, Clone)]
 /// The configuration of the parser.
@@ -80,7 +80,7 @@ impl ParserConfig {
     }
 
     /// Invokes the parser on the specification given in the configuration.
-    pub fn parse(self) -> Result<RtLolaAst, String> {
+    pub fn parse(self) -> Result<RtLolaAst, RtLolaError> {
         parse(self)
     }
 
@@ -96,29 +96,6 @@ impl ParserConfig {
 }
 
 /// Invokes the parser with the given configuration.
-pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, String> {
-    let handler = if let Some(path) = &cfg.path {
-        rtlola_reporting::Handler::new(path.clone(), cfg.spec.clone())
-    } else {
-        rtlola_reporting::Handler::without_file(cfg.spec.clone())
-    };
-
-    let spec = match crate::parse::RtLolaParser::parse(&handler, cfg) {
-        Ok(spec) => spec,
-        Err(e) => {
-            return Err(format!("error: invalid syntax:\n{}", e));
-        },
-    };
-    Ok(spec)
-}
-
-/// Invokes the parser with the given configuration and uses the provided [Handler] for error reporting.
-pub fn parse_with_handler(cfg: ParserConfig, handler: &Handler) -> Result<RtLolaAst, String> {
-    let spec = match crate::parse::RtLolaParser::parse(&handler, cfg) {
-        Ok(spec) => spec,
-        Err(e) => {
-            return Err(format!("error: invalid syntax:\n{}", e));
-        },
-    };
-    Ok(spec)
+pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
+    crate::parse::RtLolaParser::parse(cfg)
 }

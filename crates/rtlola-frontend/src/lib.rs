@@ -36,7 +36,6 @@ mod lowering;
 pub mod mir;
 
 use mir::Mir;
-use rtlola_hir::hir::TransformationErr;
 use rtlola_hir::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 
@@ -45,7 +44,7 @@ mod tests;
 
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
-use rtlola_reporting::Handler;
+use rtlola_reporting::{Handler, RtLolaError};
 
 pub use crate::mir::RtLolaMir;
 
@@ -56,7 +55,7 @@ pub use crate::mir::RtLolaMir;
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
-pub fn parse(config: ParserConfig) -> Result<RtLolaMir, FrontEndErr> {
+pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
 }
@@ -68,11 +67,17 @@ pub fn parse(config: ParserConfig) -> Result<RtLolaMir, FrontEndErr> {
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
-pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, FrontEndErr> {
+pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
     let handler = create_handler(&cfg);
-    let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
-
-    Ok(rtlola_hir::fully_analyzed(spec, &handler)?)
+    let spec = rtlola_parser::parse(cfg).map_err(|e| {
+        handler.emit_error(&e);
+        e
+    })?;
+    let hir = rtlola_hir::fully_analyzed(spec, &handler).map_err(|e| {
+        handler.emit_error(&e);
+        e
+    })?;
+    Ok(hir)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaHir<BaseMode>].
@@ -82,11 +87,17 @@ pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, 
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or the initial analysis failed
 /// due occurrences of unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr::Ast], specifically [rtlola_hir::hir::TransformationErr]).
-pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, FrontEndErr> {
+pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLolaError> {
     let handler = create_handler(&cfg);
-    let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
-
-    Ok(rtlola_hir::from_ast(spec)?)
+    let spec = rtlola_parser::parse(cfg).map_err(|e| {
+        handler.emit_error(&e);
+        e
+    })?;
+    let hir = rtlola_hir::from_ast(spec).map_err(|e| {
+        handler.emit_error(&e);
+        e
+    })?;
+    Ok(hir)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaAst].
@@ -95,9 +106,13 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, Front
 ///
 /// # Fail
 /// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]).
-pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, FrontEndErr> {
+pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     let handler = create_handler(&cfg);
-    Ok(rtlola_parser::parse_with_handler(cfg, &handler)?)
+    let ast = rtlola_parser::parse(cfg).map_err(|e| {
+        handler.emit_error(&e);
+        e
+    })?;
+    Ok(ast)
 }
 
 fn create_handler(cfg: &ParserConfig) -> Handler {
@@ -105,42 +120,5 @@ fn create_handler(cfg: &ParserConfig) -> Handler {
         rtlola_reporting::Handler::new(path.clone(), String::from(cfg.spec()))
     } else {
         rtlola_reporting::Handler::without_file(String::from(cfg.spec()))
-    }
-}
-
-/// A wrapper for the different kinds of errors that can occur in the front-end.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FrontEndErr {
-    /// Indicates a parsing error and provides a more detailed error description.  The error originates in [rtlola_parser].
-    Parser(String),
-    /// Indicates an analysis error and provides a more detailed error description (cf. [HirErr]). The error originates in [rtlola_hir].
-    Analysis(HirErr),
-}
-
-impl From<String> for FrontEndErr {
-    fn from(s: String) -> FrontEndErr {
-        Self::Parser(s)
-    }
-}
-
-impl From<HirErr> for FrontEndErr {
-    fn from(e: HirErr) -> FrontEndErr {
-        Self::Analysis(e)
-    }
-}
-
-impl From<TransformationErr> for FrontEndErr {
-    fn from(e: TransformationErr) -> FrontEndErr {
-        Self::Analysis(HirErr::from(e))
-    }
-}
-
-//TODO: Do we want something like this?
-impl std::fmt::Display for FrontEndErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::Parser(e) => write!(f, "Could not parse specification: {}", e),
-            Self::Analysis(e) => write!(f, "Specification is not valid: {:?}", e),
-        }
     }
 }

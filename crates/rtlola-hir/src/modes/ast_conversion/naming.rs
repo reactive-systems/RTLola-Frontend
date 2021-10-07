@@ -211,6 +211,9 @@ impl NamingAnalysis {
 
         // Store global declarations, i.e., constants, inputs, and outputs of the given specification
         for constant in &spec.constants {
+            self.add_decl_for(Declaration::Const(constant.clone()))
+                .err()
+                .map(|e| error.join(e));
             if let Some(ty) = constant.ty.as_ref() {
                 self.check_type(ty).err().map(|e| error.join(e));
             }

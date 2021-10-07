@@ -34,7 +34,6 @@ mod type_check;
 
 use hir::Hir;
 pub use hir::RtLolaHir;
-use modes::ast_conversion::TransformationErr;
 pub use modes::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 use rtlola_reporting::{Handler, RtLolaError};

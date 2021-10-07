@@ -146,7 +146,8 @@ impl Handler {
         }
     }
 
-    pub fn emit(&self, mut diag: Diagnostic) {
+    pub fn emit(&self, diag: &Diagnostic) {
+        let mut diag = diag.clone();
         if diag.has_indirect_span {
             diag.inner
                 .notes
@@ -155,8 +156,8 @@ impl Handler {
         self.emit_raw(diag.inner);
     }
 
-    pub fn emit_error(&self, err: RtLolaError) {
-        err.into_iter().for_each(|diag| self.emit(diag));
+    pub fn emit_error(&self, err: &RtLolaError) {
+        err.iter().for_each(|diag| self.emit(diag));
     }
 
     fn emit_raw(&self, diag: RepDiagnostic<()>) {
@@ -336,6 +337,10 @@ impl RtLolaError {
 
     pub fn join(&mut self, mut other: RtLolaError) {
         self.errors.append(&mut other.errors)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.errors.iter()
     }
 
     pub fn combine<L, R, U, F: FnOnce(L, R) -> U>(
