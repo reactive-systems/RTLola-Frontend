@@ -41,10 +41,6 @@ impl MemorizationBound {
     }
 }
 
-/// Represents the error of the memory bound analysis
-#[derive(Debug, Clone, Copy)]
-pub enum MemBoundErr {}
-
 impl PartialOrd for MemorizationBound {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;

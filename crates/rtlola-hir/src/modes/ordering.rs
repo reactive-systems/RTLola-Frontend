@@ -18,10 +18,6 @@ impl OrderedTrait for Ordered {
     }
 }
 
-/// Represents the error occuring during the evaluation order determination
-#[derive(Debug, Clone, Copy)]
-pub enum OrderErr {}
-
 /// Represents a layer indicating the position when an expression can be evaluated
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layer(usize);

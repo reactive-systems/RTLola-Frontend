@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use petgraph::algo::{has_path_connecting, is_cyclic_directed};
+use petgraph::algo::{all_simple_paths, has_path_connecting};
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
+use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, Visitable};
 use petgraph::Outgoing;
+use rtlola_reporting::{Diagnostic, RtLolaError};
 use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
@@ -200,14 +202,18 @@ pub enum DependencyErr {
     WellFormedNess,
 }
 
-type Result<T> = std::result::Result<T, DependencyErr>;
+impl DependencyErr {
+    pub(crate) fn into_diagnostic(self) -> Diagnostic {
+        todo!()
+    }
+}
 
 impl DepAna {
     /// Returns the result of the dependency analysis
     ///
     /// This function analyzes the dependencies of the given `spec`. It returns an [DependencyErr] if the specification is not well-formed.
     /// Otherwise, the function returns the dependencies in the specification, including the dependency graph.
-    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna>
+    pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna, RtLolaError>
     where
         M: HirMode,
     {
@@ -279,7 +285,7 @@ impl DepAna {
         });
 
         // Check well-formedness = no closed-walk with total weight of zero or positive
-        Self::check_well_formedness(&graph)?;
+        Self::check_well_formedness(&graph).map_err(|e| e.into_diagnostic())?;
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
@@ -365,16 +371,32 @@ impl DepAna {
         }
     }
 
+    fn is_cyclic_directed<G>(g: G) -> Result<(), (G::NodeId, G::NodeId)>
+    where
+        G: IntoNodeIdentifiers + IntoNeighbors + Visitable,
+    {
+        use petgraph::visit::{depth_first_search, DfsEvent};
+
+        depth_first_search(g, g.node_identifiers(), |event| {
+            match event {
+                DfsEvent::BackEdge(start, end) => Err((start, end)),
+                _ => Ok(()),
+            }
+        })
+    }
+
     /// Returns is the DP is well-formed, i.e., no closed-walk with total weight of zero or positive
-    fn check_well_formedness(graph: &DependencyGraph) -> Result<()> {
+    fn check_well_formedness(graph: &DependencyGraph) -> Result<(), DependencyErr> {
         let graph = graph.without_negative_offset_edges();
         let graph = graph.without_close_edges();
         // check if cyclic
-        if is_cyclic_directed(&graph) {
-            Err(DependencyErr::WellFormedNess)
-        } else {
-            Ok(())
-        }
+        Self::is_cyclic_directed(&graph).map_err(|(start, end)| {
+            let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None)
+                .next()
+                .expect("If there is a cycle with start and end, then there is a path between them");
+            dbg!(path);
+            DependencyErr::WellFormedNess
+        })
     }
 
     fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>

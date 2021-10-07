@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
-use rtlola_reporting::{Diagnostic, Handler, Span};
+use rtlola_reporting::{Diagnostic, Span};
 use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use uom::lib::collections::HashMap;
 use uom::lib::fmt::Formatter;
@@ -15,7 +15,7 @@ use crate::hir::{
     StreamReference, ValueEq,
 };
 use crate::modes::HirMode;
-use crate::type_check::rtltc::{Emittable, TypeError};
+use crate::type_check::rtltc::{Resolvable, TypeError};
 use crate::type_check::ConcretePacingType;
 
 /// The activation condition describes when an event-based stream produces a new value.
@@ -288,41 +288,36 @@ impl ActivationCondition {
     }
 }
 
-impl Emittable for PacingErrorKind {
-    fn emit(
+impl Resolvable for PacingErrorKind {
+    fn into_diagnostic(
         self,
-        handler: &Handler,
         spans: &[&HashMap<TcKey, Span>],
         names: &HashMap<StreamReference, &str>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
-    ) {
+    ) -> Diagnostic {
         let pacing_spans = spans[0];
         let exp_spans = spans[1];
         use PacingErrorKind::*;
         match self {
             FreqAnnotationNeeded(span) => {
-                handler.error_with_span(
-                    "In pacing type analysis:\nFrequency annotation needed.",
+                Diagnostic::error("In pacing type analysis:\nFrequency annotation needed.").add_span_with_label(
                     span,
                     Some("here"),
-                );
+                    true,
+                )
             },
             NeverEval(span) => {
-                Diagnostic::error(
-                    handler,
-                    "In pacing type analysis:\nThe following stream is never evaluated.",
-                )
-                .add_span_with_label(span, Some("here"), true)
-                .add_note("Help: Consider annotating a pacing type explicitly.")
-                .emit();
+                Diagnostic::error("In pacing type analysis:\nThe following stream is never evaluated.")
+                    .add_span_with_label(span, Some("here"), true)
+                    .add_note("Help: Consider annotating a pacing type explicitly.")
             },
             MalformedAc(span, reason) => {
-                handler.error_with_span(
-                    &format!("In pacing type analysis:\nMalformed activation condition: {}", reason),
-                    span,
-                    Some("here"),
-                );
+                Diagnostic::error(&format!(
+                    "In pacing type analysis:\nMalformed activation condition: {}",
+                    reason
+                ))
+                .add_span_with_label(span, Some("here"), true)
             },
             MixedEventPeriodic(absty1, absty2) => {
                 let span1 = key1.and_then(|k| pacing_spans.get(&k).cloned());
@@ -330,7 +325,6 @@ impl Emittable for PacingErrorKind {
                 let ty1 = absty1.to_pretty_string(names);
                 let ty2 = absty2.to_pretty_string(names);
                 Diagnostic::error(
-                    handler,
                     format!(
                         "In pacing type analysis:\nMixed an event and a periodic type: {} and {}",
                         ty1, ty2
@@ -338,14 +332,16 @@ impl Emittable for PacingErrorKind {
                     .as_str(),
                 )
                 .maybe_add_span_with_label(span1, Some(format!("Found {} here", ty1).as_str()), true)
-                .maybe_add_span_with_label(span2, Some(format!("and found {} here", ty2).as_str()), false)
-                .emit();
+                .maybe_add_span_with_label(
+                    span2,
+                    Some(format!("and found {} here", ty2).as_str()),
+                    false,
+                )
             },
             IncompatibleExpressions(e1, e2) => {
                 let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
                 Diagnostic::error(
-                    handler,
                     format!(
                         "In pacing type analysis:\nIncompatible expressions: {} and {}",
                         e1.to_pretty_string(names),
@@ -363,11 +359,9 @@ impl Emittable for PacingErrorKind {
                     Some(format!("and found {} here", e2.to_pretty_string(names)).as_str()),
                     false,
                 )
-                .emit();
             },
             UnintuitivePacingWarning(span, inferred) => {
                 Diagnostic::warning(
-                    handler,
                     format!(
                         "In pacing type analysis:\nInferred complex pacing type: {}",
                         inferred.to_pretty_string(names)
@@ -382,11 +376,9 @@ impl Emittable for PacingErrorKind {
                     )
                     .as_str(),
                 )
-                .emit()
             },
             Other(span, reason, causes) => {
                 Diagnostic::error(
-                    handler,
                     format!(
                         "In pacing type analysis:\n{} {}",
                         reason,
@@ -396,17 +388,18 @@ impl Emittable for PacingErrorKind {
                 )
                 .add_span_with_label(span, Some("here"), true)
                 .maybe_add_span_with_label(key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(key2.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
-                .emit();
+                .maybe_add_span_with_label(
+                    key2.and_then(|k| pacing_spans.get(&k).cloned()),
+                    Some("here"),
+                    true,
+                )
             },
             ParameterizationNotAllowed(span) => {
                 Diagnostic::error(
-                    handler,
                     "In pacing type analysis:\nSynchronous access to a parameterized stream is not allowed here.",
                 )
                 .add_span_with_label(span, Some("here"), true)
                 .add_note("Help: Consider using a hold access")
-                .emit();
             },
             ParameterizationNeeded { who, why, inferred } => {
                 let InferredTemplates { spawn, filter, close } = *inferred;
@@ -421,14 +414,13 @@ impl Emittable for PacingErrorKind {
                     filter.map_or("".into(), |filter| format!("\nfilter {}", filter.pretty_string(names)));
                 let close_str: String =
                     close.map_or("".into(), |close| format!("\nclose {}", close.pretty_string(names)));
-                Diagnostic::error(handler, "In pacing type analysis:\nParameterization needed")
+                Diagnostic::error("In pacing type analysis:\nParameterization needed")
                     .add_span_with_label(who, Some("here"), true)
                     .add_span_with_label(why, Some("As of synchronous access occurring here"), false)
                     .add_note(&format!(
                         "Help: Consider adding the following template annotations:{}{}{}",
                         spawn_str, filter_str, close_str,
                     ))
-                    .emit();
             },
             PacingTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_pretty_string(names);
@@ -436,7 +428,6 @@ impl Emittable for PacingErrorKind {
                 let bound_span = key1.map(|k| pacing_spans[&k].clone());
                 let inferred_span = key2.and_then(|k| pacing_spans.get(&k).cloned());
                 Diagnostic::error(
-                    handler,
                     format!(
                         "In pacing type analysis:\nInferred pacing type: {} but expected: {}",
                         &inferred_str, &bound_str
@@ -449,10 +440,8 @@ impl Emittable for PacingErrorKind {
                     Some(format!("Inferred {} here", inferred_str).as_str()),
                     true,
                 )
-                .emit();
             },
             SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
-                handler,
                 "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
             )
             .add_span_with_label(
@@ -467,8 +456,7 @@ impl Emittable for PacingErrorKind {
                 ),
                 true,
             )
-            .add_span_with_label(target_span, Some("Found target stream here"), false)
-            .emit(),
+            .add_span_with_label(target_span, Some("Found target stream here"), false),
         }
     }
 }

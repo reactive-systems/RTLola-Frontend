@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use rtlola_parser::ast;
 use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type};
-use rtlola_reporting::{Handler, Span};
+use rtlola_reporting::{RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
@@ -28,9 +28,9 @@ impl Hir<BaseMode> {
     /// - Checks for proper expression kinds within all expressions.
     /// - Ensures no missing expressions and inlines all constant definitions, see [Constant](crate::hir:Constant).
     /// - Assigns new expression ids to all expressions.
-    pub(crate) fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
-        let mut naming_analyzer = NamingAnalysis::new(&handler);
-        let decl_table = naming_analyzer.check(&ast);
+    pub(crate) fn from_ast(ast: RtLolaAst) -> Result<Self, RtLolaError> {
+        let mut naming_analyzer = NamingAnalysis::new();
+        let decl_table = naming_analyzer.check(&ast)?;
         let func_table: HashMap<String, FuncDecl> = decl_table
             .values()
             .filter(|decl| matches!(decl, Declaration::Func(_)))
@@ -54,7 +54,7 @@ impl Hir<BaseMode> {
             stream_by_name.insert(i.name.name.clone(), sr);
         }
         let stream_by_name = stream_by_name;
-        ExpressionTransformer::run(decl_table, stream_by_name, ast, func_table)
+        ExpressionTransformer::run(decl_table, stream_by_name, ast, func_table).map_err(|e| todo!())
     }
 }
 

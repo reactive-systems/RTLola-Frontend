@@ -37,7 +37,7 @@ pub mod mir;
 
 use mir::Mir;
 use rtlola_hir::hir::TransformationErr;
-use rtlola_hir::{BaseMode, CompleteMode, HirErr};
+use rtlola_hir::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 
 #[cfg(test)]
@@ -86,7 +86,7 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, Front
     let handler = create_handler(&cfg);
     let spec = rtlola_parser::parse_with_handler(cfg, &handler)?;
 
-    Ok(rtlola_hir::from_ast(spec, &handler)?)
+    Ok(rtlola_hir::from_ast(spec)?)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaAst].

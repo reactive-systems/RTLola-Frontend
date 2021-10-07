@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use rtlola_reporting::Span;
+use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcKey, TypeChecker, TypeTable};
 
-use super::*;
 use crate::hir::{
     self, AnnotatedPacingType, Constant, ExprId, Expression, ExpressionKind, FnExprKind, Hir, Input, Literal, Offset,
     Output, SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
@@ -564,7 +563,7 @@ where
 
     fn post_process(
         hir: &Hir<M>,
-        nid_key: HashMap<NodeId, StreamTypeKeys>,
+        nid_key: &HashMap<NodeId, StreamTypeKeys>,
         pacing_tt: &TypeTable<AbstractPacingType>,
         exp_tt: &TypeTable<AbstractExpressionType>,
     ) -> Vec<TypeError<PacingErrorKind>> {
@@ -846,89 +845,49 @@ where
     }
 
     /// The callable function to start the inference. Used by [LolaTypeChecker].
-    pub(crate) fn type_check(mut self, handler: &Handler) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
+    pub(crate) fn type_check(mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
         for input in self.hir.inputs() {
-            if let Err(e) = self.input_infer(input) {
-                e.emit(
-                    handler,
-                    &[&self.pacing_key_span, &self.expression_key_span],
-                    &self.names,
-                );
-            }
+            self.input_infer(input)
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
         }
 
         for output in self.hir.outputs() {
-            if let Err(e) = self.output_infer(output) {
-                e.emit(
-                    handler,
-                    &[&self.pacing_key_span, &self.expression_key_span],
-                    &self.names,
-                );
-            }
+            self.output_infer(output)
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
         }
 
         for trigger in self.hir.triggers() {
-            if let Err(e) = self.trigger_infer(trigger) {
-                e.emit(
-                    handler,
-                    &[&self.pacing_key_span, &self.expression_key_span],
-                    &self.names,
-                );
-            }
+            self.trigger_infer(trigger)
+                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], &self.names))?;
         }
 
-        let nid_key = self.node_key.clone();
-        let pacing_tt = match self.pacing_tyc.type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(
-                    handler,
-                    &[&self.pacing_key_span, &self.expression_key_span],
-                    &self.names,
-                );
-                return None;
-            },
-        };
-        let exp_tt = match self.expression_tyc.type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(
-                    handler,
-                    &[&self.pacing_key_span, &self.expression_key_span],
-                    &self.names,
-                );
-                return None;
-            },
-        };
+        let PacingTypeChecker {
+            hir,
+            pacing_tyc,
+            expression_tyc,
+            node_key,
+            pacing_key_span,
+            expression_key_span,
+            names,
+            annotated_checks,
+        } = self;
+        let pacing_tt = pacing_tyc.type_check().map_err(|tc_err| {
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], &names)
+        })?;
+        let exp_tt = expression_tyc.type_check().map_err(|tc_err| {
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], &names)
+        })?;
 
-        if handler.contains_error() {
-            return None;
+        let mut error = RtLolaError::new();
+        for pe in Self::check_explicit_bounds(annotated_checks, &pacing_tt) {
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], &names));
         }
+        for pe in Self::post_process(&hir, &node_key, &pacing_tt, &exp_tt) {
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], &names));
+        }
+        Result::from(error)?;
 
-        for pe in Self::check_explicit_bounds(self.annotated_checks, &pacing_tt) {
-            pe.emit(
-                handler,
-                &[&self.pacing_key_span, &self.expression_key_span],
-                &self.names,
-            );
-        }
-        if handler.contains_error() {
-            return None;
-        }
-
-        for pe in Self::post_process(&self.hir, nid_key, &pacing_tt, &exp_tt) {
-            pe.emit(
-                handler,
-                &[&self.pacing_key_span, &self.expression_key_span],
-                &self.names,
-            );
-        }
-        if handler.contains_error() {
-            return None;
-        }
-
-        let ctt: HashMap<NodeId, ConcreteStreamPacing> = self
-            .node_key
+        let ctt: HashMap<NodeId, ConcreteStreamPacing> = node_key
             .iter()
             .map(|(id, key)| {
                 let exp_pacing = pacing_tt[&key.exp_pacing].clone();
@@ -949,7 +908,7 @@ where
             })
             .collect();
 
-        Some(ctt)
+        Ok(ctt)
     }
 }
 
@@ -1008,8 +967,10 @@ mod tests {
     fn num_errors(spec: &str) -> usize {
         let (spec, handler) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&spec, &handler);
-        ltc.pacing_type_infer();
-        return handler.emitted_errors();
+        match ltc.pacing_type_infer() {
+            Ok(_) => 0,
+            Err(e) => e.num_errors(),
+        }
     }
 
     fn get_sr_for_name(hir: &RtLolaHir<BaseMode>, name: &str) -> StreamReference {
