@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::RwLock;
 
-use codespan_reporting::diagnostic::{Diagnostic as RepDiagnostic, Label, Severity};
+use codespan_reporting::diagnostic::{Diagnostic as RawDiagnostic, Label, Severity};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream, WriteColor};
@@ -146,6 +146,7 @@ impl Handler {
         }
     }
 
+    /// Emits a single [Diagnostic] to the terminal
     pub fn emit(&self, diag: &Diagnostic) {
         let mut diag = diag.clone();
         if diag.has_indirect_span {
@@ -156,11 +157,12 @@ impl Handler {
         self.emit_raw(diag.inner);
     }
 
+    /// Emits a [RTLolaError] to the console
     pub fn emit_error(&self, err: &RtLolaError) {
         err.iter().for_each(|diag| self.emit(diag));
     }
 
-    fn emit_raw(&self, diag: RepDiagnostic<()>) {
+    fn emit_raw(&self, diag: RawDiagnostic<()>) {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
@@ -192,13 +194,13 @@ impl Handler {
 
     /// Emits a simple warning with a message
     pub fn warn(&self, message: &str) {
-        self.emit_raw(RepDiagnostic::warning().with_message(message))
+        self.emit_raw(RawDiagnostic::warning().with_message(message))
     }
 
     /// Emits a warning referring to the code span `span` with and optional label `span_label`
     /// that is printed next to the code fragment
     pub fn warn_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
-        let mut diag = RepDiagnostic::warning().with_message(message);
+        let mut diag = RawDiagnostic::warning().with_message(message);
         if !span.is_unknown() {
             let mut label = Label::primary((), span.clone());
             if let Some(l) = span_label {
@@ -214,13 +216,13 @@ impl Handler {
 
     /// Emits a simple error with a message
     pub fn error(&self, message: &str) {
-        self.emit_raw(RepDiagnostic::error().with_message(message))
+        self.emit_raw(RawDiagnostic::error().with_message(message))
     }
 
     /// Emits an error referring to the code span `span` with and optional label `span_label`
     /// that is printed next to the code fragment
     pub fn error_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
-        let mut diag = RepDiagnostic::error().with_message(message);
+        let mut diag = RawDiagnostic::error().with_message(message);
         if !span.is_unknown() {
             let mut label = Label::primary((), span.clone());
             if let Some(l) = span_label {
@@ -239,7 +241,7 @@ impl Handler {
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     /// The internal representation of the diagnostic
-    pub(crate) inner: RepDiagnostic<()>,
+    pub(crate) inner: RawDiagnostic<()>,
     /// True if the diagnostic refers to at least one indirect span
     pub(crate) has_indirect_span: bool,
 }
@@ -248,7 +250,7 @@ impl Diagnostic {
     /// Creates a new warning with the message `message`
     pub fn warning(message: &str) -> Self {
         Diagnostic {
-            inner: RepDiagnostic::warning().with_message(message),
+            inner: RawDiagnostic::warning().with_message(message),
             has_indirect_span: false,
         }
     }
@@ -256,7 +258,7 @@ impl Diagnostic {
     /// Creates a new error with the message `message`
     pub fn error(message: &str) -> Self {
         Diagnostic {
-            inner: RepDiagnostic::error().with_message(message),
+            inner: RawDiagnostic::error().with_message(message),
             has_indirect_span: false,
         }
     }
@@ -308,41 +310,64 @@ impl Diagnostic {
         self
     }
 
-    pub fn into_raw(self) -> RepDiagnostic<()> {
+    /// Returns the inner representation of the diagnostic
+    pub fn into_raw(self) -> RawDiagnostic<()> {
         self.inner
     }
 }
 
 #[derive(Debug, Clone)]
+/// An error type to collect diagnostics throughout the frontend.
 pub struct RtLolaError {
     errors: Vec<Diagnostic>,
 }
 
 impl RtLolaError {
+    /// Creates a new error
     pub fn new() -> Self {
         RtLolaError { errors: vec![] }
     }
 
+    /// Adds a [Diagnostic] to the error
     pub fn add(&mut self, diag: Diagnostic) {
         self.errors.push(diag)
     }
 
+    /// Returns a slice of all [Diagnostic]s of the error
     pub fn as_slice(&self) -> &[Diagnostic] {
         self.errors.as_slice()
     }
 
+    /// Returns the number of Diagnostics with the severity error
     pub fn num_errors(&self) -> usize {
-        self.errors.len()
+        self.errors
+            .iter()
+            .filter(|e| matches!(e.inner.severity, Severity::Error))
+            .count()
     }
 
+    /// Returns the number of Diagnostics with the severity warning
+    pub fn num_warnings(&self) -> usize {
+        self.errors
+            .iter()
+            .filter(|e| matches!(e.inner.severity, Severity::Warning))
+            .count()
+    }
+
+    /// Merges to errors into one by combining the internal collections
     pub fn join(&mut self, mut other: RtLolaError) {
         self.errors.append(&mut other.errors)
     }
 
+    /// Returns an iterator over the [Diagnostic]s of the error
     pub fn iter(&self) -> impl Iterator<Item = &Diagnostic> {
         self.errors.iter()
     }
 
+    /// Combines to Results with an RtLolaError as the Error type into a single Result.
+    /// If both results are Ok then `op` is applied to these values to construct the new Ok value.
+    /// If one of the errors is Err then the Err is returned
+    /// If both Results are errors then the RtLolaErrors are merged using [RtLolaError::join] and returned.
     pub fn combine<L, R, U, F: FnOnce(L, R) -> U>(
         left: Result<L, RtLolaError>,
         right: Result<R, RtLolaError>,
@@ -356,6 +381,12 @@ impl RtLolaError {
                 Err(l)
             },
         }
+    }
+}
+
+impl Default for RtLolaError {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -393,7 +424,12 @@ impl From<Result<(), RtLolaError>> for RtLolaError {
 
 impl From<RtLolaError> for Result<(), RtLolaError> {
     fn from(e: RtLolaError) -> Self {
-        if e.errors.is_empty() {
+        if e.errors
+            .iter()
+            .filter(|e| matches!(e.inner.severity, Severity::Error))
+            .count()
+            == 0
+        {
             Ok(())
         } else {
             Err(e)
@@ -450,7 +486,7 @@ mod tests {
         let span2 = Span::Indirect(Box::new(Span::Direct { start: 20, end: 21 }));
         let span3 = Span::Direct { start: 24, end: 25 };
         handler.emit(
-            Diagnostic::error("Failed with love")
+            &Diagnostic::error("Failed with love")
                 .add_span_with_label(span1, Some("here"), true)
                 .add_span_with_label(span2, Some("and here"), false)
                 .maybe_add_span_with_label(None, Some("Maybe there is no span"), false)

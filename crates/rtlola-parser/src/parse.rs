@@ -23,7 +23,7 @@ use crate::ParserConfig;
 struct LolaParser;
 
 #[derive(Debug, Clone)]
-pub(crate) struct RtLolaParser{
+pub(crate) struct RtLolaParser {
     spec: RtLolaAst,
     config: ParserConfig,
     node_id: RefCell<NodeId>,
@@ -71,7 +71,7 @@ impl RtLolaParser {
 
     /// Runs the parser on the give spec.
     pub(crate) fn parse_spec(mut self) -> Result<RtLolaAst, RtLolaError> {
-        let mut pairs = LolaParser::parse(Rule::Spec, &self.config.spec).map_err(|e| to_rtlola_error(e))?;
+        let mut pairs = LolaParser::parse(Rule::Spec, &self.config.spec).map_err(to_rtlola_error)?;
         assert!(pairs.clone().count() == 1, "Spec must not be empty.");
         let spec_pair = pairs.next().unwrap();
         assert!(spec_pair.as_rule() == Rule::Spec);
@@ -97,7 +97,7 @@ impl RtLolaParser {
                     }
                 },
                 Rule::Trigger => {
-                    match self.parse_trigger(pair){
+                    match self.parse_trigger(pair) {
                         Ok(trigger) => self.spec.trigger.push(Rc::new(trigger)),
                         Err(e) => error.join(e),
                     }
@@ -234,7 +234,13 @@ impl RtLolaParser {
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
             let expr = self.build_expression_ast(pair.into_inner());
             pair = pairs.next().expect("mismatch between grammar and AST");
-            expr.map_or_else(|e| {error.join(e); None}, Some)
+            expr.map_or_else(
+                |e| {
+                    error.join(e);
+                    None
+                },
+                Some,
+            )
         } else {
             None
         };
@@ -242,7 +248,13 @@ impl RtLolaParser {
         let spawn = if let Rule::SpawnDecl = pair.as_rule() {
             let spawn_spec = self.parse_spawn_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
-            spawn_spec.map_or_else(|e| {error.join(e); None}, Some)
+            spawn_spec.map_or_else(
+                |e| {
+                    error.join(e);
+                    None
+                },
+                Some,
+            )
         } else {
             None
         };
@@ -250,7 +262,13 @@ impl RtLolaParser {
         let filter = if let Rule::FilterDecl = pair.as_rule() {
             let filter_spec = self.parse_filter_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
-            filter_spec.map_or_else(|e| {error.join(e); None}, Some)
+            filter_spec.map_or_else(
+                |e| {
+                    error.join(e);
+                    None
+                },
+                Some,
+            )
         } else {
             None
         };
@@ -258,7 +276,13 @@ impl RtLolaParser {
         let close = if let Rule::CloseDecl = pair.as_rule() {
             let close_spec = self.parse_close_spec(pair);
             pair = pairs.next().expect("mismatch between grammar and AST");
-            close_spec.map_or_else(|e| {error.join(e); None}, Some)
+            close_spec.map_or_else(
+                |e| {
+                    error.join(e);
+                    None
+                },
+                Some,
+            )
         } else {
             None
         };
@@ -317,7 +341,13 @@ impl RtLolaParser {
             if let Rule::ActivationCondition = pair.as_rule() {
                 let expr = self.build_expression_ast(pair.into_inner());
                 next_pair = spawn_children.next();
-                expr.map_or_else(|e| {error.join(e); None}, Some)
+                expr.map_or_else(
+                    |e| {
+                        error.join(e);
+                        None
+                    },
+                    Some,
+                )
             } else {
                 None
             }
@@ -330,7 +360,13 @@ impl RtLolaParser {
                 let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
                 let target_exp = self.build_expression_ast(target_pair.into_inner());
                 next_pair = spawn_children.next();
-                target_exp.map_or_else(|e| {error.join(e); None}, Some)
+                target_exp.map_or_else(
+                    |e| {
+                        error.join(e);
+                        None
+                    },
+                    Some,
+                )
             } else {
                 None
             }
@@ -346,7 +382,13 @@ impl RtLolaParser {
             };
             let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
             let condition_exp = self.build_expression_ast(condition_pair.into_inner());
-            let condition = condition_exp.map_or_else(|e| {error.join(e); None}, Some);
+            let condition = condition_exp.map_or_else(
+                |e| {
+                    error.join(e);
+                    None
+                },
+                Some,
+            );
             (condition, is_if)
         } else {
             (None, false)
@@ -558,7 +600,10 @@ impl RtLolaParser {
 
     #[allow(clippy::vec_box)]
     fn parse_vec_of_expressions(&self, pairs: Pairs<'_, Rule>) -> Result<Vec<Expression>, RtLolaError> {
-        let (exprs, errs): (Vec<Result<Expression, RtLolaError>>, Vec<Result<Expression, RtLolaError>>) = pairs.map(|expr| self.build_expression_ast(expr.into_inner())).partition(Result::is_ok);
+        type ExprRes = Result<Expression, RtLolaError>;
+        let (exprs, errs): (Vec<ExprRes>, Vec<ExprRes>) = pairs
+            .map(|expr| self.build_expression_ast(expr.into_inner()))
+            .partition(Result::is_ok);
         Result::from(errs.into_iter().flat_map(Result::unwrap_err).collect::<RtLolaError>())?;
         Ok(exprs.into_iter().map(Result::unwrap).collect())
     }
@@ -605,7 +650,11 @@ impl RtLolaParser {
             name: fun_name,
             arg_names,
         };
-        Ok(Expression::new(self.next_id(), ExpressionKind::Function(name, type_params, args), span))
+        Ok(Expression::new(
+            self.next_id(),
+            ExpressionKind::Function(name, type_params, args),
+            span,
+        ))
     }
 
     /**
@@ -921,7 +970,11 @@ impl RtLolaParser {
             Rule::Tuple => {
                 let elements = self.parse_vec_of_expressions(pair.into_inner())?;
                 assert!(elements.len() != 1, "Tuples may not have exactly one element.");
-                Ok(Expression::new(self.next_id(), ExpressionKind::Tuple(elements), span.into()))
+                Ok(Expression::new(
+                    self.next_id(),
+                    ExpressionKind::Tuple(elements),
+                    span.into(),
+                ))
             },
             Rule::Expr => self.build_expression_ast(pair.into_inner()),
             Rule::FunctionExpr => self.build_function_expression(pair, span.into()),
@@ -1057,19 +1110,16 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
 
 #[cfg(test)]
 mod tests {
-
-    use std::path::PathBuf;
-
     use pest::{consumes_to, parses_to};
 
     use super::*;
 
-    fn create_parser( spec: &str) -> RtLolaParser{
+    fn create_parser(spec: &str) -> RtLolaParser {
         RtLolaParser::new(ParserConfig::for_string(spec.into()))
     }
 
     fn parse(spec: &str) -> RtLolaAst {
-        super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{}", e))
+        super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
     }
 
     fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
@@ -1109,8 +1159,7 @@ mod tests {
     #[test]
     fn parse_constant_ast() {
         let spec = "constant five : Int := 5";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1122,8 +1171,7 @@ mod tests {
     #[test]
     fn parse_constant_double() {
         let spec = "constant fiveoh: Double := 5.0";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1152,8 +1200,7 @@ mod tests {
     #[test]
     fn parse_input_ast() {
         let spec = "input a: Int, b: Int, c: Bool";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::InputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1201,13 +1248,12 @@ mod tests {
     #[test]
     fn parse_output_ast() {
         let spec = "output out: Int := in + 1";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::OutputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let ast = parser.parse_output(pair);
+        let ast = parser.parse_output(pair).unwrap();
         assert_eq!(format!("{}", ast), spec)
     }
 
@@ -1233,52 +1279,48 @@ mod tests {
     #[test]
     fn parse_trigger_ast() {
         let spec = "trigger in ≠ out \"some message\"";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::Trigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let ast = parser.parse_trigger(pair);
+        let ast = parser.parse_trigger(pair).unwrap();
         assert_eq!(format!("{}", ast), "trigger in ≠ out \"some message\"")
     }
 
     #[test]
     fn parse_expression() {
         let content = "in + 1";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
-        let parser = create_parser(&handler, content);
+        let parser = create_parser(content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let ast = parser.build_expression_ast(expr.into_inner());
+        let ast = parser.build_expression_ast(expr.into_inner()).unwrap();
         assert_eq!(format!("{}", ast), content)
     }
 
     #[test]
     fn parse_expression_precedence() {
         let content = "(a ∨ b ∧ c)";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
-        let parser = create_parser(&handler, content);
+        let parser = create_parser(content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let ast = parser.build_expression_ast(expr.into_inner());
+        let ast = parser.build_expression_ast(expr.into_inner()).unwrap();
         assert_eq!(format!("{}", ast), content)
     }
 
     #[test]
     fn parse_missing_closing_parenthesis() {
         let content = "(a ∨ b ∧ c";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), content.into());
-        let parser = create_parser(&handler, content);
+        let parser = create_parser(content);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let ast = parser.build_expression_ast(expr.into_inner());
+        let ast = parser.build_expression_ast(expr.into_inner()).unwrap();
         assert_eq!(format!("{}", ast), content)
     }
 
@@ -1374,8 +1416,7 @@ mod tests {
     #[test]
     fn build_trigger_message_with_info_streams_faulty() {
         let spec = "trigger in > 5 (i, o, x)\n";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
+        let parser = create_parser(spec);
         assert!(matches!(parser.parse_spec(), Err(_)));
     }
 
@@ -1547,10 +1588,11 @@ mod tests {
     #[test]
     fn spawn_no_target_no_condition() {
         let spec = "output x spawn := 5\n";
-        let handler = Handler::new(PathBuf::from("parser/test".to_string()), spec.into());
-        let parser = create_parser(&handler, spec);
-        parser.parse_spec().unwrap_or_else(|e| panic!("{}", e));
-        assert_eq!(handler.emitted_errors(), 1);
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => assert_eq!(e.num_errors(), 1),
+        }
     }
 
     #[test]

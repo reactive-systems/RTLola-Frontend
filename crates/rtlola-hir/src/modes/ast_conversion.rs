@@ -329,7 +329,7 @@ impl ExpressionTransformer {
             TypeKind::Tuple(vec) => {
                 let inner: Result<Vec<AnnotatedType>, String> =
                     vec.iter().map(|inner| Self::annotated_type(inner)).collect();
-                inner.map(|inner| AnnotatedType::Tuple(inner))
+                inner.map(AnnotatedType::Tuple)
             },
             TypeKind::Optional(inner) => Self::annotated_type(inner).map(|inner| AnnotatedType::Option(inner.into())),
             TypeKind::Simple(string) => {
@@ -871,19 +871,14 @@ impl ExpressionTransformer {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use rtlola_parser::ast::WindowOperation;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::hir::StreamAccessKind;
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         crate::from_ast(ast).unwrap()
     }
 
@@ -902,7 +897,7 @@ mod tests {
         output p (x,y) := x
         output t := (1,3)
         output t1 := t.0
-        output off := o.defaults(to:2)
+        output def := o.defaults(to:2)
         output off := o.offset(by:-1)
         output w := o2.aggregate(over:3s , using: sum)";
         let _ir = obtain_expressions(spec);

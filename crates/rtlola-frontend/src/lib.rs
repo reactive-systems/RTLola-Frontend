@@ -73,7 +73,7 @@ pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, 
         handler.emit_error(&e);
         e
     })?;
-    let hir = rtlola_hir::fully_analyzed(spec, &handler).map_err(|e| {
+    let hir = rtlola_hir::fully_analyzed(spec).map_err(|e| {
         handler.emit_error(&e);
         e
     })?;

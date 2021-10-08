@@ -4,7 +4,7 @@ mod rtltc;
 mod value_ast_climber;
 mod value_types;
 
-use rtlola_reporting::{Handler, RtLolaError};
+use rtlola_reporting::RtLolaError;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use self::pacing_types::ActivationCondition;
@@ -15,11 +15,11 @@ use crate::type_check::rtltc::LolaTypeChecker;
 /// Checks all types of in the [Hir] and returns a [Typed] struct, containing all type information.
 /// In case of a type error a string with sparse error description is returned and the [Handler] emits
 /// detailed error information.
-pub(crate) fn type_check<M>(hir: &Hir<M>, handler: &Handler) -> Result<Typed, RtLolaError>
+pub(crate) fn type_check<M>(hir: &Hir<M>) -> Result<Typed, RtLolaError>
 where
     M: HirMode + 'static,
 {
-    let mut tyc = LolaTypeChecker::new(hir, handler);
+    let mut tyc = LolaTypeChecker::new(hir);
     tyc.check()
 }
 

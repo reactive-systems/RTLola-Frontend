@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
+use itertools::Itertools;
 use petgraph::algo::{all_simple_paths, has_path_connecting};
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableGraph;
 use petgraph::visit::{IntoNeighbors, IntoNodeIdentifiers, Visitable};
 use petgraph::Outgoing;
-use rtlola_reporting::{Diagnostic, RtLolaError};
+use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
@@ -194,17 +195,43 @@ impl DepAnaTrait for DepAna {
 }
 
 /// Represents the error of the dependency analysis
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DependencyErr {
     /// Represents the error that the well-formedness condition is not satisfied.
     ///
     /// This error indicates that the given specification is not well-formed, i.e., the dependency graph contains a non-negative cycle.
-    WellFormedNess,
+    WellFormedNess(Vec<SRef>),
 }
 
 impl DependencyErr {
-    pub(crate) fn into_diagnostic(self) -> Diagnostic {
-        todo!()
+    pub(crate) fn into_diagnostic<M: HirMode>(self, hir: &Hir<M>) -> Diagnostic {
+        let names = hir.names();
+        let spans: HashMap<SRef, Span> = hir
+            .inputs()
+            .map(|i| (i.sr, i.span.clone()))
+            .chain(hir.outputs().map(|o| (o.sr, o.span.clone())))
+            .collect();
+        match self {
+            DependencyErr::WellFormedNess(mut cycle) => {
+                if cycle.len() > 2 {
+                    // Not a self-loop so add first node to end again
+                    cycle.push(cycle[0]);
+                }
+                let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
+                let mut diag = Diagnostic::error(&format!(
+                    "Specification is not well-formed: Found dependency cycle: {}",
+                    cycle_string
+                ));
+                for stream in cycle.iter().take(cycle.len() - 1) {
+                    diag = diag.add_span_with_label(
+                        spans[stream].clone(),
+                        Some(&format!("Stream {} found here", names[stream])),
+                        true,
+                    );
+                }
+                diag
+            },
+        }
     }
 }
 
@@ -285,7 +312,7 @@ impl DepAna {
         });
 
         // Check well-formedness = no closed-walk with total weight of zero or positive
-        Self::check_well_formedness(&graph).map_err(|e| e.into_diagnostic())?;
+        Self::check_well_formedness(&graph).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
@@ -394,8 +421,8 @@ impl DepAna {
             let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None)
                 .next()
                 .expect("If there is a cycle with start and end, then there is a path between them");
-            dbg!(path);
-            DependencyErr::WellFormedNess
+            let streams: Vec<SRef> = path.iter().map(|id| graph[*id]).collect();
+            DependencyErr::WellFormedNess(streams)
         })
     }
 
@@ -472,10 +499,7 @@ impl DepAna {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::modes::BaseMode;
@@ -491,10 +515,8 @@ mod tests {
             HashMap<SRef, Vec<(SRef, WRef)>>,
         )>,
     ) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler).unwrap();
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast).unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (

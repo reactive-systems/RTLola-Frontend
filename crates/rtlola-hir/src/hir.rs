@@ -311,6 +311,14 @@ impl<M: HirMode> Hir<M> {
             },
         }
     }
+
+    /// Generates a map from a [StreamReference] to the name of the corresponding stream.
+    pub fn names(&self) -> HashMap<SRef, &str> {
+        self.inputs()
+            .map(|i| (i.sr, i.name.as_str()))
+            .chain(self.outputs().map(|o| (o.sr, o.name.as_str())))
+            .collect()
+    }
 }
 
 /// A collection of maps for expression-related lookups, i.e., expressions, functions, and windows.

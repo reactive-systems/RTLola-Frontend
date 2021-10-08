@@ -886,11 +886,9 @@ where
 #[cfg(test)]
 mod value_type_tests {
     use std::collections::HashMap;
-    use std::path::PathBuf;
 
     use rtlola_parser::ast::RtLolaAst;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use crate::hir::{ExprId, RtLolaHir, StreamReference};
     use crate::modes::BaseMode;
@@ -899,7 +897,6 @@ mod value_type_tests {
 
     struct TestBox {
         hir: RtLolaHir<BaseMode>,
-        handler: Handler,
     }
 
     impl TestBox {
@@ -913,20 +910,18 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
+        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };
-        let hir = crate::from_ast(ast, &handler).unwrap();
+        let hir = crate::from_ast(ast).unwrap();
         //let mut dec = na.check(&spec);
-        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
-        TestBox { hir, handler }
+        TestBox { hir }
     }
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, ConcreteValueType>) {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.hir);
         let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
         let tt_result = ltc.value_type_infer(&pacing_tt);
         let tt = tt_result.expect("Expect Valid Input - Value Type check failed");
@@ -935,9 +930,8 @@ mod value_type_tests {
 
     fn num_errors(spec: &str) -> usize {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.hir);
         let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
-        let tt_result = ltc.value_type_infer(&pt);
         match ltc.value_type_infer(&pt) {
             Ok(_) => 0,
             Err(e) => e.num_errors(),

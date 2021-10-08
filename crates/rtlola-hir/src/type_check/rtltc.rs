@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use rtlola_reporting::{Diagnostic, Handler, RtLolaError, Span};
+use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
 
 use crate::hir::{ExprId, Hir, StreamReference};
@@ -18,8 +18,6 @@ where
 {
     /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
-    /// The given [Handler] used for exact error reporting.
-    pub(crate) handler: &'a Handler,
     /// A stream nme lookup table, generated for the input `Hir`.
     pub(crate) names: HashMap<StreamReference, &'a str>,
 }
@@ -74,13 +72,11 @@ where
     M: HirMode + 'static,
 {
     /// Constructs a new [LolaTypeChecker] given a `Hir`and `Handler`. Names table is constructed during call.
-    pub(crate) fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
-        let names: HashMap<StreamReference, &str> = hir
-            .inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(hir.outputs().map(|o| (o.sr, o.name.as_str())))
-            .collect();
-        LolaTypeChecker { hir, handler, names }
+    pub(crate) fn new(hir: &'a Hir<M>) -> Self {
+        LolaTypeChecker {
+            hir,
+            names: hir.names(),
+        }
     }
 
     /// Performs the complete type check procedure and a new HirMode or an error string.
@@ -147,32 +143,28 @@ impl PartialOrd for NodeId {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use rtlola_parser::ast::RtLolaAst;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use crate::hir::RtLolaHir;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::LolaTypeChecker;
 
-    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
-        let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
+    fn setup_ast(spec: &str) -> RtLolaHir<BaseMode> {
+        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };
-        let hir = crate::from_ast(ast, &handler).unwrap();
-        (hir, handler)
+        let hir = crate::from_ast(ast).unwrap();
+        hir
     }
 
     #[test]
     fn type_table_creation() {
         let spec =  "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
-        let (hir, handler) = setup_ast(spec);
+        let hir = setup_ast(spec);
 
-        let mut tyc = LolaTypeChecker::new(&hir, &handler);
+        let mut tyc = LolaTypeChecker::new(&hir);
         tyc.check().unwrap();
     }
 }

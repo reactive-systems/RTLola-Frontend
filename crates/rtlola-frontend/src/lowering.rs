@@ -34,24 +34,21 @@ impl Mir {
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
-        let outputs = hir
-            .outputs()
-            .map(|o| {
-                let sr = o.sr();
-                mir::OutputStream {
-                    name: o.name.clone(),
-                    ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    expr: Self::lower_expr(&hir, hir.expr(sr)),
-                    instance_template: Self::lower_instance_template(&hir, sr),
-                    accesses: hir.direct_accesses(sr),
-                    accessed_by: hir.direct_accessed_by(sr),
-                    aggregated_by: hir.aggregated_by(sr),
-                    memory_bound: hir.memory_bound(sr),
-                    layer: hir.stream_layers(sr),
-                    reference: sr,
-                }
-            })
-            .collect::<Vec<mir::OutputStream>>();
+        let outputs = hir.outputs().map(|o| {
+            let sr = o.sr();
+            mir::OutputStream {
+                name: o.name.clone(),
+                ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
+                expr: Self::lower_expr(&hir, hir.expr(sr)),
+                instance_template: Self::lower_instance_template(&hir, sr),
+                accesses: hir.direct_accesses(sr),
+                accessed_by: hir.direct_accessed_by(sr),
+                aggregated_by: hir.aggregated_by(sr),
+                memory_bound: hir.memory_bound(sr),
+                layer: hir.stream_layers(sr),
+                reference: sr,
+            }
+        });
         let (trigger_streams, triggers): (Vec<mir::OutputStream>, Vec<mir::Trigger>) = hir
             .triggers()
             .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
@@ -80,7 +77,6 @@ impl Mir {
             })
             .unzip();
         let outputs = outputs
-            .into_iter()
             .chain(trigger_streams.into_iter())
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
@@ -444,12 +440,9 @@ impl Mir {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use rtlola_parser::ParserConfig;
-    use rtlola_reporting::Handler;
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
 
@@ -457,11 +450,10 @@ mod tests {
     use crate::mir::IntTy::Int8;
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
         let ast = ParserConfig::for_string(spec.into())
             .parse()
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = rtlola_hir::fully_analyzed(ast, &handler).expect("Invalid AST:");
+            .unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = rtlola_hir::fully_analyzed(ast).expect("Invalid AST:");
         (hir.clone(), Mir::from_hir(hir))
     }
 

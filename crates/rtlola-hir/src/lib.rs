@@ -36,7 +36,7 @@ use hir::Hir;
 pub use hir::RtLolaHir;
 pub use modes::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
-use rtlola_reporting::{Handler, RtLolaError};
+use rtlola_reporting::RtLolaError;
 
 /// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir).
 ///
@@ -57,13 +57,13 @@ pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
 /// - Memory analysis (see [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
 ///
 /// This function returns the fully analysed [RtLolaHir](crate::hir::RtLolaHir)  which can be lowered into the [Mir](rtlola-frontend::Mir).
-pub fn fully_analyzed(ast: RtLolaAst, handler: &Handler) -> Result<Hir<CompleteMode>, RtLolaError> {
-    Ok(Hir::<BaseMode>::from_ast(ast)?
-        .analyze_dependencies(handler)?
-        .check_types(handler)?
-        .determine_evaluation_order(handler)?
-        .determine_memory_bounds(handler)?
-        .finalize(handler)?)
+pub fn fully_analyzed(ast: RtLolaAst) -> Result<Hir<CompleteMode>, RtLolaError> {
+    Hir::<BaseMode>::from_ast(ast)?
+        .analyze_dependencies()?
+        .check_types()?
+        .determine_evaluation_order()?
+        .determine_memory_bounds()?
+        .finalize()
 }
 
 #[macro_use]

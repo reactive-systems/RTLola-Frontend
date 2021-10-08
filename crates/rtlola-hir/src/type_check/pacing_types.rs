@@ -534,8 +534,7 @@ impl std::fmt::Display for Freq {
                 write!(
                     f,
                     "{}",
-                    freq.clone()
-                        .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    (*freq).into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
                 )
             },
         }
@@ -759,7 +758,7 @@ impl ConcretePacingType {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
             ConcretePacingType::FixedPeriodic(freq) => {
-                freq.clone()
+                (*freq)
                     .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
                     .to_string()
             },

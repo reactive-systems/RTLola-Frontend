@@ -212,10 +212,7 @@ impl Ordered {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::modes::BaseMode;
@@ -224,14 +221,12 @@ mod tests {
         ref_event_layers: HashMap<SRef, StreamLayers>,
         ref_periodic_layers: HashMap<SRef, StreamLayers>,
     ) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies(&handler)
+            .analyze_dependencies()
             .unwrap()
-            .check_types(&handler)
+            .check_types()
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered {

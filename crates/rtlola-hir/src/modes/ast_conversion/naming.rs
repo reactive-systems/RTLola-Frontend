@@ -185,7 +185,7 @@ impl NamingAnalysis {
             }
         }
 
-        Ok(())
+        Result::from(error)
     }
 
     /// Entry method, checks that every identifier in the given spec is bound.
@@ -211,19 +211,23 @@ impl NamingAnalysis {
 
         // Store global declarations, i.e., constants, inputs, and outputs of the given specification
         for constant in &spec.constants {
-            self.add_decl_for(Declaration::Const(constant.clone()))
-                .err()
-                .map(|e| error.join(e));
+            if let Err(e) = self.add_decl_for(Declaration::Const(constant.clone())) {
+                error.join(e);
+            }
             if let Some(ty) = constant.ty.as_ref() {
-                self.check_type(ty).err().map(|e| error.join(e));
+                if let Err(e) = self.check_type(ty) {
+                    error.join(e);
+                }
             }
         }
 
         for input in &spec.inputs {
-            self.add_decl_for(Declaration::In(input.clone()))
-                .err()
-                .map(|e| error.join(e));
-            self.check_type(&input.ty).err().map(|e| error.join(e));
+            if let Err(e) = self.add_decl_for(Declaration::In(input.clone())) {
+                error.join(e);
+            }
+            if let Err(e) = self.check_type(&input.ty) {
+                error.join(e);
+            }
 
             // check types for parametric inputs
             self.declarations.push();
@@ -239,22 +243,26 @@ impl NamingAnalysis {
 
         for output in &spec.outputs {
             if output.params.is_empty() {
-                self.add_decl_for(Declaration::Out(output.clone()))
-                    .err()
-                    .map(|e| error.join(e));
-            } else {
-                self.add_decl_for(Declaration::ParamOut(output.clone()))
-                    .err()
-                    .map(|e| error.join(e));
+                if let Err(e) = self.add_decl_for(Declaration::Out(output.clone())) {
+                    error.join(e);
+                }
+            } else if let Err(e) = self.add_decl_for(Declaration::ParamOut(output.clone())) {
+                error.join(e);
             }
             // Check annotated type if existing
             if let Some(output_ty) = output.annotated_type.as_ref() {
-                self.check_type(output_ty).err().map(|e| error.join(e));
+                if let Err(e) = self.check_type(output_ty) {
+                    error.join(e);
+                }
             }
         }
 
-        self.check_outputs(&spec).err().map(|e| error.join(e));
-        self.check_triggers(&spec).err().map(|e| error.join(e));
+        if let Err(e) = self.check_outputs(&spec) {
+            error.join(e);
+        }
+        if let Err(e) = self.check_triggers(&spec) {
+            error.join(e);
+        }
 
         Result::from(error)?;
         Ok(self.result.clone())
@@ -284,7 +292,9 @@ impl NamingAnalysis {
                 }
             }
             self.declarations.push();
-            self.check_expression(&trigger.expression).err().map(|e| error.join(e));
+            if let Err(e) = self.check_expression(&trigger.expression) {
+                error.join(e);
+            }
             self.declarations.pop();
         }
         Result::from(error)
@@ -304,26 +314,40 @@ impl NamingAnalysis {
             error.join(para_errors);
             if let Some(spawn) = &output.spawn {
                 if let Some(target) = &spawn.target {
-                    self.check_expression(target).err().map(|e| error.join(e));
+                    if let Err(e) = self.check_expression(target) {
+                        error.join(e);
+                    }
                 }
                 if let Some(pacing) = &spawn.annotated_pacing {
-                    self.check_expression(&pacing).err().map(|e| error.join(e));
+                    if let Err(e) = self.check_expression(&pacing) {
+                        error.join(e);
+                    }
                 }
                 if let Some(cond) = &spawn.condition {
-                    self.check_expression(&cond).err().map(|e| error.join(e));
+                    if let Err(e) = self.check_expression(&cond) {
+                        error.join(e);
+                    }
                 }
             }
             if let Some(filter) = &output.filter {
-                self.check_expression(&filter.target).err().map(|e| error.join(e));
+                if let Err(e) = self.check_expression(&filter.target) {
+                    error.join(e);
+                }
             }
             if let Some(close) = &output.close {
-                self.check_expression(&close.target).err().map(|e| error.join(e));
+                if let Err(e) = self.check_expression(&close.target) {
+                    error.join(e);
+                }
             }
             if let Some(pt) = output.annotated_pacing_type.as_ref() {
-                self.check_expression(&pt).err().map(|e| error.join(e));
+                if let Err(e) = self.check_expression(&pt) {
+                    error.join(e);
+                }
             }
             self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
-            self.check_expression(&output.expression).err().map(|e| error.join(e));
+            if let Err(e) = self.check_expression(&output.expression) {
+                error.join(e);
+            }
             self.declarations.pop();
         }
         error.into()
@@ -601,18 +625,14 @@ impl From<FunctionName> for crate::hir::FunctionName {
 #[cfg(test)]
 mod tests {
 
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
-        let handler = Handler::new(PathBuf::new(), content.into());
-        let ast = parse_with_handler(ParserConfig::for_string(content.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let mut naming_analyzer = NamingAnalysis::new(&handler);
+        let ast = parse(ParserConfig::for_string(content.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let mut naming_analyzer = NamingAnalysis::new();
         match naming_analyzer.check(&ast) {
             Ok(_) => 0,
             Err(e) => e.num_errors(),

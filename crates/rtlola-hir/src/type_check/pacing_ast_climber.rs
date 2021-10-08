@@ -795,8 +795,7 @@ where
                     o.instance_template.close.map(NodeId::Expr),
                 ]
             })
-            .filter(Option::is_some)
-            .map(Option::unwrap)
+            .flatten()
             .collect();
 
         for node in nodes_to_check {
@@ -914,13 +913,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use rtlola_parser::ast::RtLolaAst;
     use rtlola_parser::ParserConfig;
-    use rtlola_reporting::{Handler, Span};
+    use rtlola_reporting::Span;
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
 
@@ -953,20 +950,18 @@ mod tests {
         }};
     }
 
-    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
-        let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst =
-            match rtlola_parser::parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
-                Ok(s) => s,
-                Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
-            };
-        let hir = crate::from_ast(ast, &handler).unwrap();
-        (hir, handler)
+    fn setup_ast(spec: &str) -> RtLolaHir<BaseMode> {
+        let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
+            Ok(s) => s,
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
+        };
+        let hir = crate::from_ast(ast).unwrap();
+        hir
     }
 
     fn num_errors(spec: &str) -> usize {
-        let (spec, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&spec, &handler);
+        let spec = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&spec);
         match ltc.pacing_type_infer() {
             Ok(_) => 0,
             Err(e) => e.num_errors(),
@@ -987,8 +982,8 @@ mod tests {
     #[test]
     fn test_input_simple() {
         let spec = "input i: Int8";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
@@ -1000,8 +995,8 @@ mod tests {
     #[test]
     fn test_output_simple() {
         let spec = "input a: Int8\n input b: Int8 \n output o := a + b";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
@@ -1015,8 +1010,8 @@ mod tests {
     #[test]
     fn test_trigger_simple() {
         let spec = "input a: Int8\n trigger a == 42";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
@@ -1029,8 +1024,8 @@ mod tests {
     #[test]
     fn test_disjunction_annotated() {
         let spec = "input a: Int32\ninput b: Int32\noutput x @(a || b) := 1";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         let ac_a = ActivationCondition::Stream(get_sr_for_name(&hir, "a"));
         let ac_b = ActivationCondition::Stream(get_sr_for_name(&hir, "b"));
@@ -1044,8 +1039,8 @@ mod tests {
     #[test]
     fn test_frequency_simple() {
         let spec = "output a: UInt8 @10Hz := 0";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
@@ -1057,8 +1052,8 @@ mod tests {
     #[test]
     fn test_frequency_conjunction() {
         let spec = "output a: Int32 @10Hz := 0\noutput b: Int32 @5Hz := 0\noutput x := a+b";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -1080,8 +1075,8 @@ mod tests {
     #[test]
     fn test_normalization_event_streams() {
         let spec = "input a: Int32\ninput b: Int32\ninput c: Int32\noutput x := a + b\noutput y := x + x + c";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
         // node ids can be verified using `rtlola-analyze spec.lola ast`
@@ -1173,8 +1168,8 @@ mod tests {
     #[test]
     fn test_1hz_meet() {
         let spec = "input i: Int64\noutput a @ 5Hz := 42\noutput b @ 2Hz := 1337\noutput c := a + b";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -1187,8 +1182,8 @@ mod tests {
     #[test]
     fn test_0_1hz_meet() {
         let spec = "input i: Int64\noutput a @ 2Hz := 42\noutput b @ 0.3Hz := 1337\noutput c := a + b";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -1207,8 +1202,8 @@ mod tests {
     #[test]
     fn test_trigonometric() {
         let spec = "import math\ninput i: UInt8\noutput o: Float32 @i := sin(2.0)";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -1220,8 +1215,8 @@ mod tests {
     #[test]
     fn test_tuple() {
         let spec = "input i: UInt8\noutput out: (Int8, Bool) @i:= (14, false)";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -1233,8 +1228,8 @@ mod tests {
     #[test]
     fn test_tuple_access() {
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].1";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -1246,8 +1241,8 @@ mod tests {
     #[test]
     fn test_input_offset() {
         let spec = "input a: UInt8\n output b: UInt8 := a[3].defaults(to: 10)";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
         assert_eq!(
@@ -1259,8 +1254,8 @@ mod tests {
     #[test]
     fn test_window() {
         let spec = "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over: 3s, using: Σ)";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(num_errors(spec), 0);
 
@@ -1349,8 +1344,8 @@ mod tests {
     #[test]
     fn test_spawn_simple() {
         let spec = "input x:Int8\noutput a (p: Int8) @1Hz spawn with (x) if false := p";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1371,8 +1366,8 @@ mod tests {
     #[test]
     fn test_spawn_simple2() {
         let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8, p2:Bool) @1Hz spawn with (x, y) if y := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1393,8 +1388,8 @@ mod tests {
     #[test]
     fn test_spawn_simple3() {
         let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn with (x) if y := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1415,8 +1410,8 @@ mod tests {
     #[test]
     fn test_spawn_unless() {
         let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn with (x) unless y := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1463,8 +1458,8 @@ mod tests {
     fn test_spawn_annotated() {
         let spec =
             "input x:Int8\ninput y:Bool\ninput z:String\noutput a (p1: Int8) @1Hz spawn @(x&y&z) with (x) if y := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1486,8 +1481,8 @@ mod tests {
     #[test]
     fn test_filter_simple() {
         let spec = "input b:Bool\noutput a filter b := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1517,8 +1512,8 @@ mod tests {
     #[test]
     fn test_close_simple() {
         let spec = "input b:Bool\noutput a @1Hz close b := 5";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
         assert_eq!(0, num_errors(spec));
 
@@ -1586,8 +1581,8 @@ mod tests {
             input z:Int8\n\
             output a(p:Int8) @x spawn with (x) if y:= p\n\
             output b(p:Int8) spawn with (z) if y := a(x)";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let b = tt[&get_node_for_name(&hir, "b")].clone();
@@ -1641,8 +1636,8 @@ mod tests {
             output a filter y := x\n\
             output b filter y := a";
         assert_eq!(0, num_errors(spec));
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let b = tt[&get_node_for_name(&hir, "b")].clone();
@@ -1692,8 +1687,8 @@ mod tests {
             output a close y := x\n\
             output b close y := a";
         assert_eq!(0, num_errors(spec));
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let b = tt[&get_node_for_name(&hir, "b")].clone();
@@ -1820,8 +1815,8 @@ mod tests {
             output a(p:Int8) spawn with (x) := p + x\n\
             output b := a(x).hold().defaults(to: 0)";
         assert_eq!(0, num_errors(spec));
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let b = tt[&get_node_for_name(&hir, "b")].clone();
@@ -1897,8 +1892,8 @@ mod tests {
             input y:Bool\n\
             output a(p:Int8) spawn with (x) if y filter !y close y := p + x
         ";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let filter = tt[&NodeId::Expr(hir.outputs[0].instance_template.filter.unwrap())].clone();
@@ -1960,8 +1955,8 @@ mod tests {
             input z:Bool\n\
             output a(p:Int8) spawn with (x) if y filter y close z := p + x
         ";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.unwrap())].clone();
@@ -1991,8 +1986,8 @@ mod tests {
             input y:Bool\n\
             output a(p:Int8) spawn with (x) if y filter y close a(x) := p + x
         ";
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.unwrap())].clone();
@@ -2059,8 +2054,8 @@ mod tests {
             trigger @1Hz x.hold(or: false)
         ";
         assert_eq!(0, num_errors(spec));
-        let (hir, handler) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let hir = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let trigger = tt[&NodeId::SRef(hir.triggers[0].sr)].clone();
