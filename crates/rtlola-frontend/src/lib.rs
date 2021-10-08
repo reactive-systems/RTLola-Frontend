@@ -51,8 +51,8 @@ pub use crate::mir::RtLolaMir;
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///
 /// # Fail
-/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
-/// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
+/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
+/// due to a semantic error such as inconsistent types or unknown identifiers.
 pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
@@ -63,8 +63,8 @@ pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///
 /// # Fail
-/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
-/// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
+/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
+/// due to a semantic error such as inconsistent types or unknown identifiers.
 pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
     let spec = rtlola_parser::parse(cfg)?;
     rtlola_hir::fully_analyzed(spec)
@@ -75,8 +75,8 @@ pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, 
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///
 /// # Fail
-/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or the initial analysis failed
-/// due occurrences of unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr::Ast], specifically [rtlola_hir::hir::TransformationErr]).
+/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or the initial analysis failed
+/// due occurrences of unknown identifiers.
 pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLolaError> {
     let spec = rtlola_parser::parse(cfg)?;
     rtlola_hir::from_ast(spec)
@@ -87,7 +87,7 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLol
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///
 /// # Fail
-/// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]).
+/// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax.
 pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
