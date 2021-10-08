@@ -246,7 +246,7 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
@@ -254,16 +254,6 @@ pub struct InstanceTemplate {
     pub filter: Option<Expression>,
     /// The condition under which the stream is supposed to be closed
     pub close: Option<Expression>,
-}
-
-impl Default for InstanceTemplate {
-    fn default() -> Self {
-        InstanceTemplate {
-            spawn: SpawnTemplate::default(),
-            filter: None,
-            close: None,
-        }
-    }
 }
 
 /// Information on the spawn behavior of a stream

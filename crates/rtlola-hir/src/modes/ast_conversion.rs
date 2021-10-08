@@ -327,8 +327,7 @@ impl ExpressionTransformer {
         use rtlola_parser::ast::TypeKind;
         match &ast_ty.kind {
             TypeKind::Tuple(vec) => {
-                let inner: Result<Vec<AnnotatedType>, String> =
-                    vec.iter().map(|inner| Self::annotated_type(inner)).collect();
+                let inner: Result<Vec<AnnotatedType>, String> = vec.iter().map(Self::annotated_type).collect();
                 inner.map(AnnotatedType::Tuple)
             },
             TypeKind::Optional(inner) => Self::annotated_type(inner).map(|inner| AnnotatedType::Option(inner.into())),

@@ -25,8 +25,6 @@
     unused_qualifications
 )]
 
-use serde::{Deserialize, Serialize};
-
 pub mod hir;
 mod modes;
 mod stdlib;

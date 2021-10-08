@@ -30,8 +30,6 @@
     unused_qualifications
 )]
 
-use serde::{Deserialize, Serialize};
-
 mod lowering;
 pub mod mir;
 
@@ -44,7 +42,7 @@ mod tests;
 
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
-use rtlola_reporting::{Handler, RtLolaError};
+use rtlola_reporting::RtLolaError;
 
 pub use crate::mir::RtLolaMir;
 
@@ -68,16 +66,8 @@ pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr]).
 pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
-    let handler = create_handler(&cfg);
-    let spec = rtlola_parser::parse(cfg).map_err(|e| {
-        handler.emit_error(&e);
-        e
-    })?;
-    let hir = rtlola_hir::fully_analyzed(spec).map_err(|e| {
-        handler.emit_error(&e);
-        e
-    })?;
-    Ok(hir)
+    let spec = rtlola_parser::parse(cfg)?;
+    rtlola_hir::fully_analyzed(spec)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaHir<BaseMode>].
@@ -88,16 +78,8 @@ pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, 
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]) or the initial analysis failed
 /// due occurrences of unknown identifiers (cf. [FrontEndErr::Analysis] and [HirErr::Ast], specifically [rtlola_hir::hir::TransformationErr]).
 pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLolaError> {
-    let handler = create_handler(&cfg);
-    let spec = rtlola_parser::parse(cfg).map_err(|e| {
-        handler.emit_error(&e);
-        e
-    })?;
-    let hir = rtlola_hir::from_ast(spec).map_err(|e| {
-        handler.emit_error(&e);
-        e
-    })?;
-    Ok(hir)
+    let spec = rtlola_parser::parse(cfg)?;
+    rtlola_hir::from_ast(spec)
 }
 
 /// Attempts to parse a textual specification into an [RtLolaAst].
@@ -107,18 +89,5 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLol
 /// # Fail
 /// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax (cf. [FrontEndErr::Parser]).
 pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
-    let handler = create_handler(&cfg);
-    let ast = rtlola_parser::parse(cfg).map_err(|e| {
-        handler.emit_error(&e);
-        e
-    })?;
-    Ok(ast)
-}
-
-fn create_handler(cfg: &ParserConfig) -> Handler {
-    if let Some(path) = &cfg.path() {
-        rtlola_reporting::Handler::new(path.clone(), String::from(cfg.spec()))
-    } else {
-        rtlola_reporting::Handler::without_file(String::from(cfg.spec()))
-    }
+    rtlola_parser::parse(cfg)
 }
