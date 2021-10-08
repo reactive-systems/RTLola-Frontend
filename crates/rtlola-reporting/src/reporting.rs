@@ -157,7 +157,7 @@ impl Handler {
         self.emit_raw(diag.inner);
     }
 
-    /// Emits a [RTLolaError] to the console
+    /// Emits a [RtLolaError] to the console
     pub fn emit_error(&self, err: &RtLolaError) {
         err.iter().for_each(|diag| self.emit(diag));
     }

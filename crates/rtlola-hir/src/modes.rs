@@ -69,7 +69,7 @@ impl Hir<BaseMode> {
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     ///
     /// # Fails
-    /// The function returns a [DependencyErr] if the specification is not well-formed.
+    /// The function returns a [RtLolaError] if the specification is not well-formed.
     pub fn analyze_dependencies(self) -> Result<Hir<DepAnaMode>, RtLolaError> {
         self.progress()
     }
