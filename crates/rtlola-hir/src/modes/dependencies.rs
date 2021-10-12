@@ -213,8 +213,7 @@ impl DependencyErr {
             .collect();
         match self {
             DependencyErr::WellFormedNess(mut cycle) => {
-                if cycle.len() > 2 {
-                    // Not a self-loop so add first node to end again
+                if cycle.len() == 1 || cycle[0] != *cycle.last().expect("Cycle has at least one element") {
                     cycle.push(cycle[0]);
                 }
                 let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
