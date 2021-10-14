@@ -362,7 +362,6 @@ test:wasm:
       - crates/target/
       - $CARGO_HOME
   script:
-    - rustup update
     - rustup target add wasm32-unknown-unknown
     - rustc --version
     - cargo --version
