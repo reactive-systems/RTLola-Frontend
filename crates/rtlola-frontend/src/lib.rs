@@ -42,7 +42,7 @@ mod tests;
 
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
-use rtlola_reporting::RtLolaError;
+pub use rtlola_reporting::{Diagnostic, RawDiagnostic, RtLolaError};
 
 pub use crate::mir::RtLolaMir;
 

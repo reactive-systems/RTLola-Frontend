@@ -238,7 +238,7 @@ impl Handler {
 }
 
 /// A `Diagnostic` is more flexible way to build and output errors and warnings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
     /// The internal representation of the diagnostic
     pub(crate) inner: RawDiagnostic<()>,
@@ -316,7 +316,7 @@ impl Diagnostic {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// An error type to collect diagnostics throughout the frontend.
 pub struct RtLolaError {
     errors: Vec<Diagnostic>,

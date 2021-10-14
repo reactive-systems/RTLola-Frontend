@@ -16,6 +16,6 @@ keywords = ["reporting"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-codespan-reporting = "0.11.1" # Error Reporting
+codespan-reporting = {version = "0.11.1", features=["serialization"]} # Error Reporting
 pest = "2.1"
 serde = { version = "1.0.130", features = ["derive"] }
