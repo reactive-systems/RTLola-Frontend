@@ -6,12 +6,10 @@ use serde::{Deserialize, Serialize};
 
 mod conversion;
 mod print;
-mod syntactic_sugar;
 use std::rc::Rc;
 
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
-pub use syntactic_sugar::Desugarizer;
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the Ast node, a span, and declaration-specific components.
 ///
