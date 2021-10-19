@@ -309,10 +309,11 @@ impl Diagnostic {
         self.inner.notes.push(note.into());
         self
     }
+}
 
-    /// Returns the inner representation of the diagnostic
-    pub fn into_raw(self) -> RawDiagnostic<()> {
-        self.inner
+impl From<Diagnostic> for RawDiagnostic<()> {
+    fn from(diag: Diagnostic) -> Self {
+        diag.inner
     }
 }
 
