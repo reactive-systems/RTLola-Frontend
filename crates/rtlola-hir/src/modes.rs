@@ -22,7 +22,7 @@ use crate::type_check::{ConcreteValueType, StreamType};
 /// Each mode implements a separate trait defining the functionality that is added by the new mode, e.g., the [TypedMode] implements the [TypedTrait], providing an interface to get the types of a stream or expression.
 /// With a new mode, a compiler flag derives the functionality of the previous modes.
 /// The [RtLolaHir](crate::RtLolaHir) progesses the following modes:
-/// [BaseMode] -> [DepAnaMode] -> [TypedMode] -> [OrderedMode] -> [MemBoundMode] -> [CompleteMode]
+/// [BaseMode] -> [TypedMode] -> [DepAnaMode] -> [OrderedMode] -> [MemBoundMode] -> [CompleteMode]
 pub trait HirMode {}
 
 /// Defines the functionality to progress one mode to the next one
@@ -47,7 +47,10 @@ impl HirStage for Hir<BaseMode> {
     fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let dependencies = DepAna::analyze(&self)?;
 
-        let mode = DepAnaMode { dependencies };
+        let mode = DepAnaMode {
+            dependencies,
+            types: self.mode.types,
+        };
 
         Ok(Hir {
             inputs: self.inputs,
@@ -61,11 +64,11 @@ impl HirStage for Hir<BaseMode> {
     }
 }
 
-impl Hir<BaseMode> {
+impl Hir<TypedMode> {
     /// Returns the [RtLolaHir](crate::RtLolaHir) with additional information about the dependencies between streams
     ///
     /// The function returns the [RtLolaHir](crate::RtLolaHir) after the dependency analysis.
-    /// The new mode implements the same functionality as the [BaseMode] and additionally contains the dependencies between streams in the specification.
+    /// The new mode implements the same functionality as the [TypedMode] and additionally contains the dependencies between streams in the specification.
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     ///
     /// # Fails
@@ -92,9 +95,11 @@ pub struct DepAna {
 /// This struct represents the mode after the dependency analysis.
 /// Besides this result, this mode has the same functionality as all the previous modes.
 /// The [DepAnaTrait] defines the new functionality of the mode.
+#[covers_functionality(TypedTrait, types)]
 #[covers_functionality(DepAnaTrait, dependencies)]
 #[derive(Debug, Clone, HirMode)]
 pub struct DepAnaMode {
+    types: Typed,
     dependencies: DepAna,
 }
 
@@ -275,7 +280,7 @@ impl HirStage for Hir<TypedMode> {
     }
 }
 
-impl Hir<TypedMode> {
+impl Hir<DepAnaMode> {
     /// Returns the [RtLolaHir](crate::RtLolaHir) with the spawn and evaluation layer of each stream
     ///
     /// # Fails

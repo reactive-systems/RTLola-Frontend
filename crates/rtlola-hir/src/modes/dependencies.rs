@@ -294,7 +294,7 @@ impl DepAna {
                 })
             })
             .flatten()
-            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Spawn), tar));
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)

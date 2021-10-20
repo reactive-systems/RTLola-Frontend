@@ -310,6 +310,14 @@ mod tests {
             Rational::new($n, $d)
         };
     }
+
+    macro_rules! assert_eq_with_sort {
+        ($left:expr, $right:expr) => {
+            $left.sort();
+            $right.sort();
+            assert_eq!($left, $right)
+        };
+    }
     #[test]
     fn test_gcd() {
         assert_eq!(rational_gcd(rat!(3), rat!(18)), rat!(3));
@@ -421,8 +429,8 @@ mod tests {
                           output z spawn @0.5Hz if a.hold(or: 42) = 1337 := a - 15
        ",
         );
-        let schedule = ir.compute_schedule().expect("failed to compute schedule");
-        assert_eq!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
-        assert_eq!(schedule.deadlines[1].due, vec![Evaluate(0), Spawn(2), Close(1)]);
+        let mut schedule = ir.compute_schedule().expect("failed to compute schedule");
+        assert_eq_with_sort!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
+        assert_eq_with_sort!(schedule.deadlines[1].due, vec![Evaluate(0), Spawn(2), Close(1)]);
     }
 }

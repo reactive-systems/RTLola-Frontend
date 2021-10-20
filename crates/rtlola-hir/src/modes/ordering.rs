@@ -224,9 +224,9 @@ mod tests {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies()
-            .unwrap()
             .check_types()
+            .unwrap()
+            .analyze_dependencies()
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered {
