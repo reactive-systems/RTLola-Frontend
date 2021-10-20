@@ -263,6 +263,7 @@ mod dynaminc_memory_bound_tests {
     }
 
     #[test]
+    #[ignore = "No explicit pacing type annotation in close"]
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 10 := b + 5\noutput e(p)@b spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
@@ -481,6 +482,7 @@ mod static_memory_bound_tests {
     }
 
     #[test]
+    #[ignore = "No explicit pacing type annotation in close"]
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 10 := b + 5\noutput e(p)@b spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![

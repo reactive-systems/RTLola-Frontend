@@ -98,8 +98,14 @@ impl Ordered {
         M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Prepare graphs
-        let graph = graph.without_negative_offset_edges().without_close_edges();
-        let spawn_graph = graph.only_spawn_edges();
+        let mut graph = graph.clone();
+        let mut spawn_graph = graph.clone();
+        let graph = graph.without_negative_offset_edges();
+        let graph = graph.without_close();
+        let graph: &DependencyGraph = graph;
+        let spawn_graph = spawn_graph.only_spawn();
+        let spawn_graph: &DependencyGraph = spawn_graph;
+
         debug_assert!(
             !is_cyclic_directed(&graph),
             "This should be already checked in the dependency analysis."
@@ -578,6 +584,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "No explicit pacing type annotation in close"]
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 4 := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![

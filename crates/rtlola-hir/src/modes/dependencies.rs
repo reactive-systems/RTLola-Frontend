@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{
-    Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef, WidenExprKind,
+    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef,
+    WidenExprKind,
 };
 use crate::modes::HirMode;
 
@@ -73,7 +74,12 @@ pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 
 pub(crate) trait ExtendedDepGraph {
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
-    fn without_negative_offset_edges(&self) -> Self;
+    fn without_negative_offset_edges(&mut self) -> &mut Self;
+
+    /// Returns a new [dependency graph](DependencyGraph), in which all edges between nodes with different pacing are deleted
+    fn without_different_pacing<M>(&mut self, hir: &Hir<M>) -> &mut Self
+    where
+        M: HirMode + TypedTrait;
 
     /// Returns `true`, iff the edge weight `e` is a negative offset lookup
     fn has_negative_offset(e: &EdgeWeight) -> bool {
@@ -87,10 +93,10 @@ pub(crate) trait ExtendedDepGraph {
     }
 
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a lookup that are used in the close condition are deleted
-    fn without_close_edges(&self) -> Self;
+    fn without_close(&mut self) -> &mut Self;
 
     /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
-    fn only_spawn_edges(&self) -> Self;
+    fn only_spawn(&mut self) -> &mut Self;
 
     /// Returns two new [dependency graphs](DependencyGraph), one containing the streams with an event-based pacing type and one with a periodic pacing type
     ///
@@ -104,36 +110,102 @@ pub(crate) trait ExtendedDepGraph {
 }
 
 impl ExtendedDepGraph for DependencyGraph {
-    fn without_negative_offset_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if Self::has_negative_offset(self.edge_weight(edge_index).unwrap()) {
-                working_graph.remove_edge(edge_index);
-            }
+    fn without_negative_offset_edges(&mut self) -> &mut Self {
+        let edges_to_remove = self
+            .edge_indices()
+            .flat_map(|e_i| {
+                if Self::has_negative_offset(self.edge_weight(e_i).unwrap()) {
+                    Some(e_i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        edges_to_remove.into_iter().for_each(|e_i| {
+            let res = self.remove_edge(e_i);
+            debug_assert!(res.is_some());
         });
-        working_graph
+        self
     }
 
-    fn without_close_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if self.edge_weight(edge_index).unwrap().origin == Origin::Close {
-                working_graph.remove_edge(edge_index);
-            }
+    fn without_different_pacing<M>(&mut self, hir: &Hir<M>) -> &mut Self
+    where
+        M: HirMode + TypedTrait,
+    {
+        let edges_to_remove = self
+            .edge_indices()
+            .flat_map(|e_i| {
+                let (lhs, rhs) = self.edge_endpoints(e_i).unwrap();
+                let w = self.edge_weight(e_i).unwrap();
+                let lhs_sr = *self.node_weight(lhs).unwrap();
+                let lhs = hir.stream_type(lhs_sr);
+                let rhs = hir.stream_type(*self.node_weight(rhs).unwrap());
+                let lhs_pt = match w.origin {
+                    Origin::Spawn => lhs.spawn.0.clone(),
+                    Origin::Filter | Origin::Eval => lhs.pacing_ty,
+                    Origin::Close => hir.expr_type(lhs.close.eid).pacing_ty,
+                };
+                let rhs_pt = rhs.pacing_ty;
+                match (lhs_pt, rhs_pt) {
+                    (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => None,
+                    (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => Some(e_i),
+                    (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => Some(e_i),
+                    (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => {
+                        match (lhs.spawn.0, rhs.spawn.0) {
+                            (ConcretePacingType::Constant, ConcretePacingType::Constant) => None,
+                            (ConcretePacingType::Constant, _) => Some(e_i),
+                            (_, ConcretePacingType::Constant) => Some(e_i),
+                            _ => None,
+                        }
+                    },
+                    (ConcretePacingType::Constant, _)
+                    | (ConcretePacingType::Periodic, _)
+                    | (_, ConcretePacingType::Constant)
+                    | (_, ConcretePacingType::Periodic) => unreachable!(),
+                }
+            })
+            .collect::<Vec<_>>();
+        edges_to_remove.into_iter().for_each(|e_i| {
+            let res = self.remove_edge(e_i);
+            debug_assert!(res.is_some());
         });
-        working_graph
+        self
     }
 
-    fn only_spawn_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if self.edge_weight(edge_index).unwrap().origin == Origin::Spawn {
-            } else {
-                let res = working_graph.remove_edge(edge_index);
-                assert!(res.is_some());
-            }
+    fn without_close(&mut self) -> &mut Self {
+        let edges_to_remove = self
+            .edge_indices()
+            .flat_map(|e_i| {
+                if self.edge_weight(e_i).unwrap().origin == Origin::Close {
+                    Some(e_i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        edges_to_remove.into_iter().for_each(|e_i| {
+            let res = self.remove_edge(e_i);
+            debug_assert!(res.is_some());
         });
-        working_graph
+        self
+    }
+
+    fn only_spawn(&mut self) -> &mut Self {
+        let edges_to_remove = self
+            .edge_indices()
+            .flat_map(|e_i| {
+                if matches!(self.edge_weight(e_i).unwrap().origin, Origin::Spawn) {
+                    None
+                } else {
+                    Some(e_i)
+                }
+            })
+            .collect::<Vec<_>>();
+        edges_to_remove.into_iter().for_each(|e_i| {
+            let res = self.remove_edge(e_i);
+            debug_assert!(res.is_some());
+        });
+        self
     }
 
     fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
@@ -270,7 +342,7 @@ impl DepAna {
     /// Otherwise, the function returns the dependencies in the specification, including the dependency graph.
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna, RtLolaError>
     where
-        M: HirMode,
+        M: HirMode + TypedTrait,
     {
         let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
         let num_edges = num_nodes; // Todo: improve estimate.
@@ -423,9 +495,15 @@ impl DepAna {
     }
 
     /// Returns is the DP is well-formed, i.e., no closed-walk with total weight of zero or positive
-    fn check_well_formedness(graph: &DependencyGraph) -> Result<(), DependencyErr> {
-        let graph = graph.without_negative_offset_edges();
-        let graph = graph.without_close_edges();
+    fn check_well_formedness<M>(graph: &DependencyGraph, hir: &Hir<M>) -> Result<(), DependencyErr>
+    where
+        M: HirMode + TypedTrait,
+    {
+        let graph: &DependencyGraph = graph.clone()
+            .without_different_pacing(hir)
+            .without_negative_offset_edges()
+            .without_close();
+
         // check if cyclic
         Self::is_cyclic_directed(&graph).map_err(|(start, end)| {
             let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None)
@@ -503,7 +581,10 @@ mod tests {
         )>,
     ) {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast).unwrap();
+        let hir = Hir::<BaseMode>::from_ast(ast)
+            .unwrap()
+            .check_types()
+            .unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (
@@ -569,7 +650,11 @@ mod tests {
 
     #[test]
     fn self_loop_complex() {
-        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
+        let spec = "input a: Int8\n
+        output b: Int8 := a\n
+        output c: Int8 := b\n
+        output d: Int8 := c\n
+        output e: Int8 @1Hz := e";
         check_graph_for_spec(spec, None)
     }
 
@@ -659,7 +744,7 @@ mod tests {
 
     #[test]
     fn negative_loop() {
-        let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
+        let spec = "output a: Int8 @1Hz := a.offset(by: -1).defaults(to: 0)";
         let sname_to_sref = vec![("a", SRef::Out(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
             .into_iter()
@@ -906,7 +991,7 @@ mod tests {
 
     #[test]
     fn self_sliding_window() {
-        let spec = "output a := a.aggregate(over: 1s, using: sum)";
+        let spec = "output a @1Hz := a.aggregate(over: 1s, using: count)";
         check_graph_for_spec(spec, None);
     }
 
@@ -1026,63 +1111,16 @@ mod tests {
 
     #[test]
     fn spawn_self_loop() {
-        let spec = "input a: Int8\noutput b spawn if b > 6 := a + 5";
+        let spec = "input a: Int8\noutput b spawn @a if b.hold(or: 2) > 6 := a + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
-    fn spawn_self_negative_loop() {
-        let spec = "input a: Int8\noutput b spawn if b.offset(by: -1).defaults(to: 0) > 6 := a + 5";
-        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
-            .into_iter()
-            .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
-        let aggregated_by = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
-        check_graph_for_spec(
-            spec,
-            Some((
-                direct_accesses,
-                transitive_accesses,
-                direct_accessed_by,
-                transitive_accessed_by,
-                aggregates,
-                aggregated_by,
-            )),
-        );
-    }
-    #[test]
     fn filter_self_loop() {
-        let spec = "input a: Int8\noutput b filter b > 6 := a + 5";
+        let spec = "input a: Int8\noutput b filter b.hold(or: 2) > 6 := a + 5";
         check_graph_for_spec(spec, None);
     }
+
     #[test]
     fn close_self_loop() {
         let spec = "input a: Int8\noutput b close b > 6 := a + 5";
@@ -1133,14 +1171,81 @@ mod tests {
     }
 
     #[test]
-    fn simple_loop_with_parameter() {
-        let spec = "input a: Int8\noutput b(para) spawn with c := b(para).offset(by: -1).defaults(to: 0)\noutput c := b(5).hold().defaults(to: 0)";
+    fn simple_loop_with_parameter_event_based() {
+        let spec = "input a: Int8\n
+        output b(para) @a spawn with c := b(para).offset(by: -1).defaults(to: 0)\n
+        output c @a := b(5).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
+    fn simple_loop_with_parameter_static_and_dynamic_periodic() {
+        let spec = "input a: Int8\n
+        output b(para) @1Hz spawn with c := b(para).offset(by: -1).defaults(to: 0)\n
+        output c @1Hz := b(5).hold().defaults(to: 0)";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
     fn simple_chain_with_parameter() {
-        let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b := para + 5";
+        let spec = "input a: Int8\n
+        output b := a + 5\n
+        output c(para) @1Hz spawn with b := para + 5";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -1201,7 +1306,10 @@ mod tests {
 
     #[test]
     fn parameter_loop() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if d(para) > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\n
+        output b(para) spawn with a if d(para).hold(or: 2) > 6 := a + para\n
+        output c(para) spawn with a if a > 6 := a + b(para).hold(or: 2)\n
+        output d(para) spawn with a if a > 6 := a + c(para)";
         check_graph_for_spec(spec, None);
     }
 
@@ -1288,13 +1396,25 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_different_lookup_types() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a if a < b := p + b + f(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a if a < b := p + b + f(p).hold().defaults(to: 0)\n
+        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
+        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
+    #[ignore = "No explicit pacing type annotation in close"]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\n
+        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
+        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\n
+        output g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -1694,7 +1814,11 @@ mod tests {
 
     #[test]
     fn parameter_cross_lookup() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(e).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a := p + b\n
+        output d @1Hz := c(e).hold().defaults(to: 0)\n
+        output e @1Hz := c(d).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
 
