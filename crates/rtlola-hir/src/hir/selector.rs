@@ -76,7 +76,11 @@ impl Selectable for CloseSelector {
     fn select<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
         let output = hir.output(sref).unwrap();
-        let close_ty: Option<HirType> = output.instance_template.close.map(|eid| hir.expr_type(eid));
+        let close_ty: Option<HirType> = output
+            .instance_template
+            .close
+            .as_ref()
+            .map(|ct| hir.expr_type(ct.target));
         match self {
             CloseSelector::Any => true,
             CloseSelector::Closed => close_ty.is_some(),

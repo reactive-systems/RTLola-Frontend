@@ -4,8 +4,9 @@ use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
-    self, AnnotatedPacingType, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir, Input,
-    Literal, Offset, Output, SRef, SpawnTemplate, StreamAccessKind, StreamReference, Trigger, ValueEq,
+    self, AnnotatedPacingType, CloseTemplate, Constant, ExprId, Expression, ExpressionContext, ExpressionKind,
+    FnExprKind, Hir, Input, Literal, Offset, Output, SRef, SpawnTemplate, StreamAccessKind, StreamReference, Trigger,
+    ValueEq,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
@@ -160,7 +161,8 @@ where
                 output
                     .instance_template
                     .close
-                    .map(|id| self.hir.expression(id).span.clone())
+                    .as_ref()
+                    .map(|ct| self.hir.expression(ct.target).span.clone())
                     .unwrap_or(Span::Unknown),
             );
 
@@ -256,8 +258,8 @@ where
         }
 
         //Type close
-        if let Some(exp_id) = output.instance_template.close {
-            self.close_infer(exp_id, stream_keys, exp_key)?;
+        if let Some(close) = output.instance_template.close.as_ref() {
+            self.close_infer(close, stream_keys, exp_key)?;
         }
         Ok(())
     }
@@ -360,18 +362,32 @@ where
 
     fn close_infer(
         &mut self,
-        close_id: ExprId,
+        close: &CloseTemplate,
         stream_keys: StreamTypeKeys,
         exp_keys: StreamTypeKeys,
     ) -> Result<(), TypeError<PacingErrorKind>> {
-        let close = self.hir.expression(close_id);
-        // We have no constraints on the type of the close expression
-        self.expression_infer(close)?;
+        let close_target = self.hir.expression(close.target);
+        let close_keys = self.new_stream_key();
+
+        let inferred = self.expression_infer(close_target)?;
+        self.impose_more_concrete(close_keys, inferred)?;
+        self.node_key.insert(NodeId::Expr(close_target.eid), close_keys);
+
+        // Check if there is a pacing annotated
+        if let Some(ac) = close.pacing.as_ref() {
+            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
+
+            self.pacing_key_span.insert(close_keys.exp_pacing, span);
+            self.pacing_tyc
+                .impose(close_keys.exp_pacing.concretizes_explicit(annotated_ty))?;
+            self.bind_to_annotated_type(close_keys.exp_pacing, ac, inferred.exp_pacing)?;
+        }
+
         //Close is equal to the expression
         self.expression_tyc.impose(
             stream_keys
                 .close
-                .concretizes_explicit(AbstractExpressionType::Expression(close.clone())),
+                .concretizes_explicit(AbstractExpressionType::Expression(close_target.clone())),
         )?;
         //Close of the streams expression is more concrete than the close of the stream
         self.expression_tyc
@@ -551,8 +567,9 @@ where
         checks
             .into_iter()
             .filter_map(|(key, (bound, conflict_key))| {
-                let inferred = tt[&key].clone();
-                if inferred != bound {
+                let is = tt[&key].clone();
+                let inferred = tt[&conflict_key].clone();
+                if is != bound {
                     Some(TypeError {
                         kind: PacingErrorKind::PacingTypeMismatch(bound, inferred),
                         key1: Some(key),
@@ -667,20 +684,22 @@ where
             }
 
             //Close expression must either be non parameterized or have exactly same spawn / filter as stream and no filter
-            if let Some(close) = output.instance_template.close {
-                let keys = nid_key[&NodeId::Expr(close)];
+            if let Some(close) = output.instance_template.close.as_ref() {
+                let keys = nid_key[&NodeId::Expr(close.target)];
                 if Self::is_parameterized(keys, pacing_tt, exp_tt, exp_context)
                     && (pacing_tt[&keys.spawn.0] != output_spawn_pacing
                         || exp_tt[&keys.spawn.1].value_neq(&output_spawn_cond, exp_context)
                         || exp_tt[&keys.filter].value_neq(&output_filter, exp_context)
                         || exp_tt[&keys.close].value_neq(&output_close, exp_context))
                 {
-                    errors.push(PacingErrorKind::ParameterizationNotAllowed(hir.expression(close).span.clone()).into());
+                    errors.push(
+                        PacingErrorKind::ParameterizationNotAllowed(hir.expression(close.target).span.clone()).into(),
+                    );
                 }
             }
         }
 
-        //Check that spawn pacing is not constant / perioidc and close pacing is not periodic
+        //Check that spawn, close pacing is not constant / periodic
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
@@ -708,12 +727,14 @@ where
                     )
                 }
             }
-            if let Some(close) = output.instance_template.close {
-                let keys = nid_key[&NodeId::Expr(close)];
+            if let Some(close) = output.instance_template.close.as_ref() {
+                let keys = nid_key[&NodeId::Expr(close.target)];
                 let close_pacing = pacing_tt[&keys.exp_pacing].clone();
+                let span = hir.expression(close.target).span.clone();
                 if close_pacing == ConcretePacingType::Periodic {
-                    let span = hir.expression(close).span.clone();
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
+                } else if close_pacing == ConcretePacingType::Constant {
+                    errors.push(PacingErrorKind::NeverEval(span).into())
                 }
             }
         }
@@ -795,7 +816,7 @@ where
                 vec![
                     Some(NodeId::SRef(o.sr)),
                     o.instance_template.filter.map(NodeId::Expr),
-                    o.instance_template.close.map(NodeId::Expr),
+                    o.instance_template.close.as_ref().map(|ct| NodeId::Expr(ct.target)),
                 ]
             })
             .flatten()
@@ -1971,7 +1992,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.unwrap())].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "z")))
@@ -2005,7 +2026,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.unwrap())].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
@@ -2151,5 +2172,33 @@ mod tests {
                         output a(p:Int8) spawn with x := p + x\n\
                         output b(p:Int8) spawn with y := a(p) + y";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_annotated_close_fail() {
+        let spec = "input x:Int8\n\
+                        input y:Int8\n\
+                        output a(p:Int8) spawn with x close @x y == 5 := p + x";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_annotated_close() {
+        let spec = "input x:Int8\n\
+                        input y:Int8\n\
+                        output a(p:Int8) spawn with x close @x&y y == 5 := p + x";
+        assert_eq!(0, num_errors(spec));
+        let (hir, handler, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
+        assert_eq!(
+            close.expression_pacing,
+            ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
+                ActivationCondition::Stream(get_sr_for_name(&hir, "x")),
+                ActivationCondition::Stream(get_sr_for_name(&hir, "y"))
+            ]))
+        );
     }
 }

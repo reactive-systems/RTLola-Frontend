@@ -170,6 +170,8 @@ pub struct FilterSpec {
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub target: Expression,
+    /// The pacing type describing when the close condition is evaluated.
+    pub annotated_pacing: Option<Expression>,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration

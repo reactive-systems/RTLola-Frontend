@@ -341,6 +341,11 @@ impl NamingAnalysis {
                 if let Err(e) = self.check_expression(&close.target) {
                     error.join(e);
                 }
+                if let Some(pacing) = &close.annotated_pacing {
+                    if let Err(e) = self.check_expression(pacing) {
+                        error.join(e);
+                    }
+                }
             }
             if let Some(pt) = output.annotated_pacing_type.as_ref() {
                 if let Err(e) = self.check_expression(pt) {

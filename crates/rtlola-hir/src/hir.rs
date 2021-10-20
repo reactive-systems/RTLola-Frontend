@@ -304,7 +304,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.close.map(|e| self.expression(e)))
+                    output.and_then(|o| o.instance_template.close.as_ref().map(|e| self.expression(e.target)))
                 } else {
                     None
                 }
@@ -481,7 +481,7 @@ pub(crate) struct InstanceTemplate {
     /// The optional filter condition
     pub(crate) filter: Option<ExprId>,
     /// The optional closing condition
-    pub(crate) close: Option<ExprId>,
+    pub(crate) close: Option<CloseTemplate>,
 }
 
 impl InstanceTemplate {
@@ -525,7 +525,12 @@ impl InstanceTemplate {
 
     /// Returns a reference to the `Expression` representing the close condition if it exists
     pub(crate) fn close<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
-        self.close.map(|eid| hir.expression(eid))
+        self.close.as_ref().map(|ct| hir.expression(ct.target))
+    }
+
+    /// Returns a reference to the `AnnotatedPacingType` representing the close pacing if it exists
+    pub(crate) fn close_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
+        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
     }
 }
 
@@ -538,6 +543,15 @@ pub(crate) struct SpawnTemplate {
     pub(crate) pacing: Option<AnnotatedPacingType>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
+}
+
+/// Information regarding the closing behavior of a stream
+#[derive(Debug, Clone)]
+pub(crate) struct CloseTemplate {
+    /// The expression defining if an instance is closed
+    pub(crate) target: ExprId,
+    /// The activation condition describing when an instance is closed
+    pub(crate) pacing: Option<AnnotatedPacingType>,
 }
 
 /// Represents a trigger of an RTLola specification.

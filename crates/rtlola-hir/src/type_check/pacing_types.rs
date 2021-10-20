@@ -310,7 +310,7 @@ impl Resolvable for PacingErrorKind {
                 )
             },
             NeverEval(span) => {
-                Diagnostic::error("In pacing type analysis:\nThe following stream is never evaluated.")
+                Diagnostic::error("In pacing type analysis:\nThe following stream or expression is never evaluated.")
                     .add_span_with_label(span, Some("here"), true)
                     .add_note("Help: Consider annotating a pacing type explicitly.")
             },

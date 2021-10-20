@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression,
-    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output,
-    Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    AnnotatedPacingType, AnnotatedType, ArithLogOp, CloseTemplate, Constant as HirConstant, DiscreteAggr, ExprId,
+    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset,
+    Output, Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind,
+    Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -896,10 +897,14 @@ impl ExpressionTransformer {
                 )))
             })?,
             close: close_spec.map_or(Ok(None), |close_spec| {
-                Ok(Some(Self::insert_return(
+                let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
+                    Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
+                })?;
+                let target = Self::insert_return(
                     exprid_to_expr,
                     self.transform_expression(close_spec.target, current_output)?,
-                )))
+                );
+                Ok(Some(CloseTemplate { target, pacing }))
             })?,
         })
     }
