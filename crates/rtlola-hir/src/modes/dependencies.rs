@@ -74,10 +74,10 @@ pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 
 pub(crate) trait ExtendedDepGraph {
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
-    fn without_negative_offset_edges(&mut self) -> &mut Self;
+    fn without_negative_offset_edges(self) -> Self;
 
     /// Returns a new [dependency graph](DependencyGraph), in which all edges between nodes with different pacing are deleted
-    fn without_different_pacing<M>(&mut self, hir: &Hir<M>) -> &mut Self
+    fn without_different_pacing<M>(self, hir: &Hir<M>) -> Self
     where
         M: HirMode + TypedTrait;
 
@@ -93,10 +93,10 @@ pub(crate) trait ExtendedDepGraph {
     }
 
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a lookup that are used in the close condition are deleted
-    fn without_close(&mut self) -> &mut Self;
+    fn without_close(self) -> Self;
 
     /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
-    fn only_spawn(&mut self) -> &mut Self;
+    fn only_spawn(self) -> Self;
 
     /// Returns two new [dependency graphs](DependencyGraph), one containing the streams with an event-based pacing type and one with a periodic pacing type
     ///
@@ -110,7 +110,7 @@ pub(crate) trait ExtendedDepGraph {
 }
 
 impl ExtendedDepGraph for DependencyGraph {
-    fn without_negative_offset_edges(&mut self) -> &mut Self {
+    fn without_negative_offset_edges(mut self) -> Self {
         let edges_to_remove = self
             .edge_indices()
             .flat_map(|e_i| {
@@ -128,7 +128,7 @@ impl ExtendedDepGraph for DependencyGraph {
         self
     }
 
-    fn without_different_pacing<M>(&mut self, hir: &Hir<M>) -> &mut Self
+    fn without_different_pacing<M>(mut self, hir: &Hir<M>) -> Self
     where
         M: HirMode + TypedTrait,
     {
@@ -172,7 +172,7 @@ impl ExtendedDepGraph for DependencyGraph {
         self
     }
 
-    fn without_close(&mut self) -> &mut Self {
+    fn without_close(mut self) -> Self {
         let edges_to_remove = self
             .edge_indices()
             .flat_map(|e_i| {
@@ -190,7 +190,7 @@ impl ExtendedDepGraph for DependencyGraph {
         self
     }
 
-    fn only_spawn(&mut self) -> &mut Self {
+    fn only_spawn(mut self) -> Self {
         let edges_to_remove = self
             .edge_indices()
             .flat_map(|e_i| {
@@ -344,9 +344,6 @@ impl DepAna {
     where
         M: HirMode + TypedTrait,
     {
-        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
-        let num_edges = num_nodes; // Todo: improve estimate.
-        let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
@@ -385,7 +382,11 @@ impl DepAna {
             .chain(edges_spawn)
             .chain(edges_filter)
             .chain(edges_close)
-            .collect::<Vec<(SRef, EdgeWeight, SRef)>>(); // TODO can use this approxiamtion for the number of edges
+            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
+
+        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
+        let num_edges = edges.len();
+        let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 
         // add nodes and edges to graph
         let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
@@ -499,7 +500,8 @@ impl DepAna {
     where
         M: HirMode + TypedTrait,
     {
-        let graph: &DependencyGraph = graph.clone()
+        let graph: &DependencyGraph = &graph
+            .clone()
             .without_different_pacing(hir)
             .without_negative_offset_edges()
             .without_close();

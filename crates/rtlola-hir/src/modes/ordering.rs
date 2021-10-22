@@ -11,10 +11,7 @@ use crate::modes::{DepAnaTrait, DependencyGraph, HirMode};
 
 impl OrderedTrait for Ordered {
     fn stream_layers(&self, sr: SRef) -> StreamLayers {
-        match self.event_layers.get(&sr) {
-            Some(layer) => *layer,
-            None => self.periodic_layers[&sr],
-        }
+        self.stream_layers[&sr]
     }
 }
 
@@ -78,13 +75,8 @@ impl Ordered {
         M: HirMode + DepAnaTrait + TypedTrait,
     {
         // split graph in periodic and event-based
-        let (event_graph, periodic_graph) = spec.graph().split_graph(spec);
-        let event_layers = Self::compute_layers(spec, &event_graph, true);
-        let periodic_layers = Self::compute_layers(spec, &periodic_graph, false);
-        Ordered {
-            event_layers,
-            periodic_layers,
-        }
+        let stream_layers = Self::compute_layers(spec, &spec.graph());
+        Ordered { stream_layers }
     }
 
     /// Returns the spawn and evaluation layer of for either each event-based stream or periodic stream
@@ -93,18 +85,17 @@ impl Ordered {
     /// The first graph only contains the lookups occurring in the spawn part of the stream template.
     /// The analysis computes from this graph the spawn layers of each stream.
     /// The function computes from the second graph the evaluation layers of each stream.
-    fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph, is_event: bool) -> HashMap<SRef, StreamLayers>
+    fn compute_layers<M>(spec: &Hir<M>, graph: &DependencyGraph) -> HashMap<SRef, StreamLayers>
     where
         M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Prepare graphs
-        let mut graph = graph.clone();
-        let mut spawn_graph = graph.clone();
-        let graph = graph.without_negative_offset_edges();
-        let graph = graph.without_close();
-        let graph: &DependencyGraph = graph;
-        let spawn_graph = spawn_graph.only_spawn();
-        let spawn_graph: &DependencyGraph = spawn_graph;
+        let graph = &graph
+            .clone()
+            .without_negative_offset_edges()
+            .without_close()
+            .without_different_pacing(spec);
+        let spawn_graph = &graph.clone().only_spawn();
 
         debug_assert!(
             !is_cyclic_directed(&graph),
@@ -112,25 +103,22 @@ impl Ordered {
         );
 
         // start analysis
-        let mut evaluation_layers = if is_event {
-            spec.inputs()
-                .map(|i| (i.sr, Layer::new(0)))
-                .collect::<HashMap<SRef, Layer>>()
-        } else {
-            HashMap::new()
-        };
-        let mut spawn_layers = if is_event {
-            spec.inputs()
-                .map(|i| (i.sr, Layer::new(0)))
-                .collect::<HashMap<SRef, Layer>>()
-        } else {
-            HashMap::new()
-        };
+        let mut evaluation_layers = spec
+            .inputs()
+            .map(|i| (i.sr, Layer::new(0)))
+            .collect::<HashMap<SRef, Layer>>();
+        let mut spawn_layers = spec
+            .inputs()
+            .map(|i| (i.sr, Layer::new(0)))
+            .collect::<HashMap<SRef, Layer>>();
+
         while graph.node_count() != evaluation_layers.len() {
             // build spawn layers
             spawn_graph.node_indices().for_each(|node| {
                 let sref = spawn_graph.node_weight(node).unwrap();
+                // If we dont know the spawn layer yet
                 if !spawn_layers.contains_key(sref) {
+                    // get evaluation layer of successors
                     let neighbor_layers: Vec<_> = spawn_graph
                         .neighbors_directed(node, Outgoing)
                         .map(|outgoing_neighbor| {
@@ -161,18 +149,15 @@ impl Ordered {
             });
             graph.node_indices().for_each(|node| {
                 let sref = graph.node_weight(node).unwrap();
-                // build evaluation layers
+                // if we dont know the evaluation layer, but the spawn layer is known
                 if !evaluation_layers.contains_key(sref) && spawn_layers.contains_key(sref) {
-                    // Layer for current stream check incoming
+                    // Get evaluation layer of successors
                     let neighbor_layers: Vec<_> = graph
                         .neighbors_directed(node, Outgoing)
                         .flat_map(|outgoing_neighbor| {
-                            if outgoing_neighbor == node {
-                                None
-                            } else {
-                                Some(outgoing_neighbor)
-                            }
-                        }) // delete self references
+                            //ignore selfloops
+                            (outgoing_neighbor != node).then(|| outgoing_neighbor)
+                        })
                         .map(|outgoing_neighbor| {
                             evaluation_layers
                                 .get(graph.node_weight(outgoing_neighbor).unwrap())
@@ -180,12 +165,10 @@ impl Ordered {
                         })
                         .collect();
                     let computed_evaluation_layer = if neighbor_layers.is_empty() {
-                        if is_event {
-                            Some(Layer::new(1))
-                        } else {
-                            Some(Layer::new(0))
-                        }
+                        // There are no successors
+                        Some(Layer::new(1))
                     } else {
+                        // eval_layer = max(successor_eval_layers) + 1
                         neighbor_layers
                             .into_iter()
                             .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
@@ -199,6 +182,7 @@ impl Ordered {
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
                     if let Some(layer) = computed_evaluation_layer {
+                        // Evaluation layer has to be greater than spawn layer
                         let layer = if spawn_layers[sref] < layer {
                             layer
                         } else {
@@ -224,8 +208,7 @@ mod tests {
     use crate::modes::BaseMode;
     fn check_eval_order_for_spec(
         spec: &str,
-        ref_event_layers: HashMap<SRef, StreamLayers>,
-        ref_periodic_layers: HashMap<SRef, StreamLayers>,
+        ref_layers: HashMap<SRef, StreamLayers>,
     ) {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
@@ -236,18 +219,11 @@ mod tests {
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered {
-            event_layers,
-            periodic_layers,
+            stream_layers
         } = order;
-        assert_eq!(event_layers.len(), ref_event_layers.len());
-        event_layers.iter().for_each(|(sr, layers)| {
-            let ref_layers = &ref_event_layers[sr];
-            assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
-            assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
-        });
-        assert_eq!(periodic_layers.len(), ref_periodic_layers.len());
-        periodic_layers.iter().for_each(|(sr, layers)| {
-            let ref_layers = &ref_periodic_layers[sr];
+        assert_eq!(stream_layers.len(), ref_layers.len());
+        stream_layers.iter().for_each(|(sr, layers)| {
+            let ref_layers = &ref_layers[sr];
             assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
             assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
         });
@@ -266,8 +242,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -290,8 +265,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -307,8 +281,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -324,13 +297,9 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let event_layers = vec![
+        let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
             (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-        ]
-        .into_iter()
-        .collect();
-        let periodic_layers = vec![
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
@@ -338,7 +307,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, ref_layers)
     }
 
     #[test]
@@ -352,19 +321,15 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let event_layers = vec![
+        let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
             (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-        ]
-        .into_iter()
-        .collect();
-        let periodic_layers = vec![
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
         ]
         .into_iter()
         .collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, ref_layers)
     }
 
     #[test]
@@ -388,8 +353,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
     #[test]
     fn negative_loop_different_offsets() {
@@ -410,8 +374,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -433,8 +396,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -464,8 +426,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = HashMap::new();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -481,20 +442,16 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let event_layers = vec![
+        let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
             (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-        ]
-        .into_iter()
-        .collect();
-        let periodic_layers = vec![
             (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
         ]
         .into_iter()
         .collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, ref_layers)
     }
 
     #[test]
@@ -516,8 +473,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
     #[test]
     fn sliding_windows_chain_and_hold_lookup() {
@@ -530,17 +486,15 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let event_layers = vec![(sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0)))]
-            .into_iter()
-            .collect();
-        let periodic_layers = vec![
+        let ref_layers = vec![
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(2))),
             (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0)))
         ]
         .into_iter()
         .collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, ref_layers)
     }
 
     #[test]
@@ -556,8 +510,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -579,8 +532,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -609,8 +561,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -632,8 +583,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -657,8 +607,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -674,8 +623,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![].into_iter().collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, event_layers)
     }
 
     #[test]
@@ -686,18 +634,16 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::In(0)), ("a_counter", SRef::Out(0)), ("b", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let event_layers = vec![
+        let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
             (
                 sname_to_sref["a_counter"],
                 StreamLayers::new(Layer::new(0), Layer::new(1)),
             ),
+            (sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3)))
         ]
         .into_iter()
         .collect();
-        let periodic_layers = vec![(sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3)))]
-            .into_iter()
-            .collect();
-        check_eval_order_for_spec(spec, event_layers, periodic_layers)
+        check_eval_order_for_spec(spec, ref_layers)
     }
 }

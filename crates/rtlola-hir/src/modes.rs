@@ -293,8 +293,7 @@ impl Hir<DepAnaMode> {
 /// Represents the evaluation order
 #[derive(Debug, Clone)]
 pub struct Ordered {
-    event_layers: HashMap<SRef, StreamLayers>,
-    periodic_layers: HashMap<SRef, StreamLayers>,
+    stream_layers: HashMap<SRef, StreamLayers>,
 }
 
 /// Represents the mode after determining the evaluation order
