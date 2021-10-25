@@ -10,7 +10,7 @@ use uom::si::time::{nanosecond, second};
 use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
 
 /// This enum represents the different tasks that have to be executed periodically.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Task {
     /// Evaluate the stream referred to by the OutputReference
     Evaluate(OutputReference),

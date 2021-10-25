@@ -1412,7 +1412,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "No explicit pacing type annotation in close"]
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\n
         input b: Int8\n
@@ -1420,7 +1419,7 @@ mod tests {
         output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
         output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
         output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\n
-        output g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
+        output g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
