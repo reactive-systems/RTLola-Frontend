@@ -32,12 +32,16 @@ pub struct EdgeWeight {
     pub kind: StreamAccessKind,
 }
 
-/// Represents the orgin of a stream lookup
+/// Represents the origin of a stream lookup
 #[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
 pub enum Origin {
+    /// The access occurs in the spawn declaration.
     Spawn,
+    /// The access occurs in the filter expression.
     Filter,
+    /// The access occurs in the stream expression.
     Eval,
+    /// The access occurs in the close expression.
     Close,
 }
 

@@ -26,13 +26,13 @@ use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use crate::hir::expression::*;
 pub use crate::modes::ast_conversion::{SpawnDef, TransformationErr};
-pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight};
+pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight, Origin};
 pub use crate::modes::memory_bounds::MemorizationBound;
 pub use crate::modes::ordering::{Layer, StreamLayers};
 use crate::modes::HirMode;
 pub use crate::modes::{
     BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
-    TypedTrait,
+    TypedTrait, TypedMode
 };
 use crate::stdlib::FuncDecl;
 pub use crate::type_check::{
