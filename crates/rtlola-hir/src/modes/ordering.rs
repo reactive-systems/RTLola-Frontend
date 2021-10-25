@@ -218,9 +218,7 @@ mod tests {
             .analyze_dependencies()
             .unwrap();
         let order = Ordered::analyze(&hir);
-        let Ordered {
-            stream_layers
-        } = order;
+        let Ordered { stream_layers } = order;
         assert_eq!(stream_layers.len(), ref_layers.len());
         stream_layers.iter().for_each(|(sr, layers)| {
             let ref_layers = &ref_layers[sr];
@@ -490,7 +488,7 @@ mod tests {
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(2))),
             (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0)))
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
         ]
         .into_iter()
         .collect();
@@ -640,7 +638,7 @@ mod tests {
                 sname_to_sref["a_counter"],
                 StreamLayers::new(Layer::new(0), Layer::new(1)),
             ),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3)))
+            (sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3))),
         ]
         .into_iter()
         .collect();
