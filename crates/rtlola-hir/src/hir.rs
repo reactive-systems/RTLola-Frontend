@@ -32,7 +32,7 @@ pub use crate::modes::ordering::{Layer, StreamLayers};
 use crate::modes::HirMode;
 pub use crate::modes::{
     BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
-    TypedTrait, TypedMode
+    TypedMode, TypedTrait,
 };
 use crate::stdlib::FuncDecl;
 pub use crate::type_check::{
