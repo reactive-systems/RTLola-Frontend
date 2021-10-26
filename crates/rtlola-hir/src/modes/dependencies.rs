@@ -101,16 +101,6 @@ pub(crate) trait ExtendedDepGraph {
 
     /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
     fn only_spawn(self) -> Self;
-
-    /// Returns two new [dependency graphs](DependencyGraph), one containing the streams with an event-based pacing type and one with a periodic pacing type
-    ///
-    /// This function returns two new [dependency graphs](DependencyGraph):
-    /// The first graph consists of all streams with an event-based pacing type. Additionally, it only contains the edges between two event-based streams.
-    /// The second graph consists of all streams with a periodic pacing type. Additionally, it only contains the edges between two periodic streams.
-    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
-    where
-        M: HirMode + DepAnaTrait + TypedTrait,
-        Self: Sized;
 }
 
 impl ExtendedDepGraph for DependencyGraph {
@@ -210,44 +200,6 @@ impl ExtendedDepGraph for DependencyGraph {
             debug_assert!(res.is_some());
         });
         self
-    }
-
-    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
-    where
-        M: HirMode + DepAnaTrait + TypedTrait,
-        Self: Sized,
-    {
-        // remove edges and nodes, so mapping does not change
-        let mut event_graph = self.clone();
-        let mut periodic_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            let (src, tar) = self.edge_endpoints(edge_index).unwrap();
-            let src = self.node_weight(src).unwrap();
-            let tar = self.node_weight(tar).unwrap();
-            match (spec.is_event(*src), spec.is_event(*tar)) {
-                (true, true) => {
-                    periodic_graph.remove_edge(edge_index);
-                },
-                (false, false) => {
-                    event_graph.remove_edge(edge_index);
-                },
-                _ => {
-                    event_graph.remove_edge(edge_index);
-                    periodic_graph.remove_edge(edge_index);
-                },
-            }
-        });
-        // delete nodes
-        self.node_indices().for_each(|node_index| {
-            let node_sref = self.node_weight(node_index).unwrap();
-            if spec.is_event(*node_sref) {
-                periodic_graph.remove_node(node_index);
-            } else {
-                assert!(spec.is_periodic(*node_sref));
-                event_graph.remove_node(node_index);
-            }
-        });
-        (event_graph, periodic_graph)
     }
 }
 
