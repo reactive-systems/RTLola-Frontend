@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use rtlola_reporting::{Handler, Span};
+use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
 
 use crate::hir::{ExprId, Hir, StreamReference};
@@ -18,8 +18,6 @@ where
 {
     /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
-    /// The given [Handler] used for exact error reporting.
-    pub(crate) handler: &'a Handler,
     /// A stream nme lookup table, generated for the input `Hir`.
     pub(crate) names: HashMap<StreamReference, &'a str>,
 }
@@ -32,25 +30,24 @@ pub enum NodeId {
     Param(usize, StreamReference),
 }
 
-/// Emittable is implemented for all type checker errors and is used for generic error printing.
-pub(crate) trait Emittable {
-    fn emit(
+/// Resolvable is implemented for all type checker errors and is used for generic error printing.
+pub(crate) trait Resolvable {
+    fn into_diagnostic(
         self,
-        handler: &Handler,
         spans: &[&HashMap<TcKey, Span>],
         names: &HashMap<StreamReference, &str>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
-    );
+    ) -> Diagnostic;
 }
 
-pub(crate) struct TypeError<K: Emittable> {
+pub(crate) struct TypeError<K: Resolvable> {
     pub(crate) kind: K,
     pub(crate) key1: Option<TcKey>,
     pub(crate) key2: Option<TcKey>,
 }
 
-impl<E: Emittable> From<E> for TypeError<E> {
+impl<E: Resolvable> From<E> for TypeError<E> {
     fn from(kind: E) -> Self {
         TypeError {
             kind,
@@ -60,14 +57,13 @@ impl<E: Emittable> From<E> for TypeError<E> {
     }
 }
 
-impl<K: Emittable> TypeError<K> {
-    pub(crate) fn emit(
+impl<K: Resolvable> TypeError<K> {
+    pub(crate) fn into_diagnostic(
         self,
-        handler: &Handler,
         spans: &[&HashMap<TcKey, Span>],
         names: &HashMap<StreamReference, &str>,
-    ) {
-        self.kind.emit(handler, spans, names, self.key1, self.key2)
+    ) -> Diagnostic {
+        self.kind.into_diagnostic(spans, names, self.key1, self.key2)
     }
 }
 
@@ -76,27 +72,19 @@ where
     M: HirMode + 'static,
 {
     /// Constructs a new [LolaTypeChecker] given a `Hir`and `Handler`. Names table is constructed during call.
-    pub(crate) fn new(hir: &'a Hir<M>, handler: &'a Handler) -> Self {
-        let names: HashMap<StreamReference, &str> = hir
-            .inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(hir.outputs().map(|o| (o.sr, o.name.as_str())))
-            .collect();
-        LolaTypeChecker { hir, handler, names }
+    pub(crate) fn new(hir: &'a Hir<M>) -> Self {
+        LolaTypeChecker {
+            hir,
+            names: hir.names(),
+        }
     }
 
     /// Performs the complete type check procedure and a new HirMode or an error string.
     /// Detailed error information is emitted by the [Handler].
-    pub(crate) fn check(&mut self) -> Result<Typed, String> {
-        let pacing_tt = match self.pacing_type_infer() {
-            Some(tt) => tt,
-            None => return Err("Invalid Pacing Types".to_string()),
-        };
+    pub(crate) fn check(&mut self) -> Result<Typed, RtLolaError> {
+        let pacing_tt = self.pacing_type_infer()?;
 
-        let value_tt = match self.value_type_infer(&pacing_tt) {
-            Some(tt) => tt,
-            None => return Err("Invalid Value Types".to_string()),
-        };
+        let value_tt = self.value_type_infer(&pacing_tt)?;
 
         let mut expression_map = HashMap::new();
         let mut stream_map = HashMap::new();
@@ -127,18 +115,18 @@ where
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].
-    pub(crate) fn pacing_type_infer(&mut self) -> Option<HashMap<NodeId, ConcreteStreamPacing>> {
+    pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
         let ptc = PacingTypeChecker::new(&self.hir, &self.names);
-        ptc.type_check(self.handler)
+        ptc.type_check()
     }
 
     /// starts the value type infer part with the [ValueTypeChecker].
     pub(crate) fn value_type_infer(
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Option<HashMap<NodeId, ConcreteValueType>> {
+    ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
         let ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
-        ctx.type_check(self.handler)
+        ctx.type_check()
     }
 }
 
@@ -155,32 +143,28 @@ impl PartialOrd for NodeId {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use rtlola_parser::ast::RtLolaAst;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use crate::hir::RtLolaHir;
     use crate::modes::BaseMode;
     use crate::type_check::rtltc::LolaTypeChecker;
 
-    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, Handler) {
-        let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
+    fn setup_ast(spec: &str) -> RtLolaHir<BaseMode> {
+        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };
-        let hir = crate::from_ast(ast, &handler).unwrap();
-        (hir, handler)
+        let hir = crate::from_ast(ast).unwrap();
+        hir
     }
 
     #[test]
     fn type_table_creation() {
         let spec =  "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
-        let (hir, handler) = setup_ast(spec);
+        let hir = setup_ast(spec);
 
-        let mut tyc = LolaTypeChecker::new(&hir, &handler);
+        let mut tyc = LolaTypeChecker::new(&hir);
         tyc.check().unwrap();
     }
 }

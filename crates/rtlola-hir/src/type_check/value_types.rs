@@ -9,7 +9,7 @@ use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use super::*;
 use crate::hir::{AnnotatedType, StreamReference};
 use crate::type_check::pacing_types::Freq;
-use crate::type_check::rtltc::{Emittable, TypeError};
+use crate::type_check::rtltc::{Resolvable, TypeError};
 
 /// The error kind for all custom errors during the value type check.
 #[derive(Debug, Clone)]
@@ -357,33 +357,29 @@ impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
     }
 }
 
-impl Emittable for ValueErrorKind {
-    fn emit(
+impl Resolvable for ValueErrorKind {
+    fn into_diagnostic(
         self,
-        handler: &Handler,
         spans: &[&HashMap<TcKey, Span>],
         _names: &HashMap<StreamReference, &str>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
-    ) {
+    ) -> Diagnostic {
         let spans = spans[0];
         match self {
             ValueErrorKind::TypeClash(ty1, ty2) => {
                 let span1 = key1.and_then(|k| spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| spans.get(&k).cloned());
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nFound incompatible types: {} and {}", ty1, ty2),
                 )
                 .maybe_add_span_with_label(span1, Some(&format!("found {} here", ty1)), true)
                 .maybe_add_span_with_label(span2, Some(&format!("found {} here", ty2)), false)
-                .emit()
             },
             ValueErrorKind::TupleSize(size1, size2) => {
                 let span1 = key1.and_then(|k| spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| spans.get(&k).cloned());
                 Diagnostic::error(
-                    handler,
                     &format!(
                         "In value type analysis:\nTried to merge Tuples of different sizes {} and {}",
                         size1, size2
@@ -391,45 +387,35 @@ impl Emittable for ValueErrorKind {
                 )
                 .maybe_add_span_with_label(span1, Some(&format!("found Tuple of size {} here", size1)), true)
                 .maybe_add_span_with_label(span2, Some(&format!("found Tuple of size {} here", size2)), false)
-                .emit()
             },
             ValueErrorKind::ReificationTooWide(ty) => {
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nType {} is too wide to be concretized", ty),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .emit()
             },
             ValueErrorKind::CannotReify(ty) => {
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nType {} cannot be concretized", ty),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .add_note("Help: Consider an explicit type annotation.")
-                .emit()
             },
             ValueErrorKind::AnnotationTooWide(ty) => {
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nAnnotated Type {} is too wide", ty),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .emit()
             },
             ValueErrorKind::AnnotationInvalid(ty) => {
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nUnknown annotated type: {}", ty),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .add_note("Help: Consider an explicit type annotation.")
-                .emit()
             },
             ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => {
                 Diagnostic::error(
-                    handler,
                     "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
                 )
                 .maybe_add_span_with_label(
@@ -442,12 +428,10 @@ impl Emittable for ValueErrorKind {
                     Some(&format!("Target stream with frequency {} is found here", freq)),
                     false,
                 )
-                .emit()
             },
 
             ValueErrorKind::ExactTypeMismatch(inferred, expected) => {
                 Diagnostic::error(
-                    handler,
                     &format!(
                         "In value type analysis:\nInferred type {} but expected {}.",
                         inferred, expected
@@ -463,11 +447,9 @@ impl Emittable for ValueErrorKind {
                     Some(&format!("But inferred {} here", inferred)),
                     true,
                 )
-                .emit()
             },
             ValueErrorKind::AccessOutOfBound(ty, idx) => {
                 Diagnostic::error(
-                    handler,
                     &format!(
                         "In value type analysis:\nChild at index {} does not exists in type {}",
                         idx - 1,
@@ -475,18 +457,15 @@ impl Emittable for ValueErrorKind {
                     ),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .emit()
             },
             ValueErrorKind::ArityMismatch(ty, inferred, expected) => {
                 Diagnostic::error(
-                    handler,
                     &format!(
                         "In value type analysis:\nExpected type {} to have {} children but inferred {}",
                         ty, expected, inferred
                     ),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .emit()
             },
             ValueErrorKind::ChildConstruction(child_err, parent, idx) => {
                 let reason = match child_err.as_ref() {
@@ -495,40 +474,32 @@ impl Emittable for ValueErrorKind {
                     _ => "Unknown".to_string(),
                 };
                 Diagnostic::error(
-                    handler,
                     &format!(
                         "In value type analysis:\nCannot construct sub type of {} at index {}.\nReason: {}",
                         parent, idx, reason
                     ),
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .emit()
             },
             ValueErrorKind::UnnecessaryTypeParam(span) => {
                 Diagnostic::error(
-                    handler,
                     "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
                 )
                     .add_span_with_label(span, Some("here"), true)
-                    .emit()
             },
             ValueErrorKind::InvalidWiden(bound, inner) => {
                 Diagnostic::error(
-                    handler,
                     &format!("In value type analysis:\nInvalid application of the widen operator.\nTarget width is {} but supplied width is {}.", bound.width().unwrap_or(0), inner.width().unwrap_or(0))
                 )
                     .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Widen with traget {} is found here", bound)), false)
                     .maybe_add_span_with_label(key2.and_then(|k| spans.get(&k).cloned()), Some(&format!("Inferred type {} here", inner)), true)
-                    .emit()
             },
             ValueErrorKind::OptionNotAllowed(ty) => {
                 Diagnostic::error(
-                     handler,
                 "In value type analysis:\nAn optional type is not allowed here."
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Optional type: {} found here", ty)), true)
                     .add_note("Help: Consider using the default operator to resolve the optional.")
-                .emit()
             }
         }
     }

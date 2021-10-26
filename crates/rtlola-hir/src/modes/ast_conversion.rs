@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use rtlola_parser::ast;
 use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type};
-use rtlola_reporting::{Handler, Span};
+use rtlola_reporting::{Diagnostic, RtLolaError, Span};
+use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
@@ -27,9 +28,9 @@ impl Hir<BaseMode> {
     /// - Checks for proper expression kinds within all expressions.
     /// - Ensures no missing expressions and inlines all constant definitions, see [Constant](crate::hir:Constant).
     /// - Assigns new expression ids to all expressions.
-    pub(crate) fn from_ast(ast: RtLolaAst, handler: &Handler) -> Result<Self, TransformationErr> {
-        let mut naming_analyzer = NamingAnalysis::new(&handler);
-        let decl_table = naming_analyzer.check(&ast);
+    pub(crate) fn from_ast(ast: RtLolaAst) -> Result<Self, RtLolaError> {
+        let mut naming_analyzer = NamingAnalysis::new();
+        let decl_table = naming_analyzer.check(&ast)?;
         let func_table: HashMap<String, FuncDecl> = decl_table
             .values()
             .filter(|decl| matches!(decl, Declaration::Func(_)))
@@ -53,7 +54,7 @@ impl Hir<BaseMode> {
             stream_by_name.insert(i.name.name.clone(), sr);
         }
         let stream_by_name = stream_by_name;
-        ExpressionTransformer::run(decl_table, stream_by_name, ast, func_table)
+        ExpressionTransformer::run(decl_table, stream_by_name, ast, func_table).map_err(|e| e.into_diagnostic().into())
     }
 }
 
@@ -62,18 +63,18 @@ impl Hir<BaseMode> {
 pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
 
 /// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransformationErr {
     /// A function was found when a stream was expected.
-    InvalidIdentRef(FunctionName),
+    InvalidIdentRef(Span, FunctionName),
     /// No valid streamrefernce found while it was expected.
-    InvalidRefExpr(String),
+    InvalidRefExpr(Span, String),
     /// A declared constant had no type annotation.
     ConstantWithoutType(Span),
     /// Could not parse numeric literal.
     NonNumericInLiteral(Span),
     /// Invalid activation condition.
-    InvalidAc(String),
+    InvalidAc(Span, String),
     /// Offset expression of realtime offset could not be parsed as frequency.
     InvalidRealtimeOffset(Span),
     /// Window duration could not be parsed into correct type.
@@ -83,15 +84,78 @@ pub enum TransformationErr {
     /// Widen call expects a single type argument.
     MissingWidenArg(Span),
     /// Annotated type could not be matched.
-    InvalidTypeArgument(Type, Span),
-    /// Called functino unknown.
+    InvalidType(Type, String, Span),
+    /// Called function is unknown.
     UnknownFunction(Span),
-    /// Input stream had no type annotation.
-    MissingInputType(Span),
-    /// Object method called, currently unimplemented.
-    MethodAccess,
     /// Non duration literal with postfix found.
     InvalidLiteral(Span),
+}
+
+impl TransformationErr {
+    pub(crate) fn into_diagnostic(self) -> Diagnostic {
+        match self {
+            TransformationErr::InvalidIdentRef(span, name) => {
+                Diagnostic::error("Expected a stream reference, but found a function.").add_span_with_label(
+                    span,
+                    Some(&format!("Found function {} here", name)),
+                    true,
+                )
+            },
+            TransformationErr::InvalidRefExpr(span, reason) => {
+                Diagnostic::error(&format!("Invalid stream identifier: {}", reason)).add_span_with_label(
+                    span,
+                    Some("Found here"),
+                    true,
+                )
+            },
+            TransformationErr::ConstantWithoutType(span) => {
+                Diagnostic::error("Missing type annotation of constant stream.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            },
+            TransformationErr::NonNumericInLiteral(span) => {
+                Diagnostic::error("Invalid numeric literal.").add_span_with_label(span, Some("here"), true)
+            },
+            TransformationErr::InvalidAc(span, reason) => {
+                Diagnostic::error(&format!("Invalid frequency annotation: {}", reason)).add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            },
+            TransformationErr::InvalidRealtimeOffset(span) => {
+                Diagnostic::error("Invalid time format.").add_span_with_label(span, Some("here"), true)
+            },
+            TransformationErr::InvalidDuration(reason, span) => {
+                Diagnostic::error("Invalid window duration.").add_span_with_label(span, Some(&reason), true)
+            },
+            TransformationErr::MissingExpr(span) => {
+                Diagnostic::error("Expected an expression.").add_span_with_label(span, Some("here"), true)
+            },
+            TransformationErr::MissingWidenArg(span) => {
+                Diagnostic::error("The widen expression expects an argument.").add_span_with_label(
+                    span,
+                    Some("missing argument here"),
+                    true,
+                )
+            },
+            TransformationErr::InvalidType(ty, reason, span) => {
+                Diagnostic::error(&format!("Unknown type {}.", ty)).add_span_with_label(span, Some(&reason), true)
+            },
+            TransformationErr::UnknownFunction(span) => {
+                Diagnostic::error("Unknown function.").add_span_with_label(span, Some("Found here"), true)
+            },
+            TransformationErr::InvalidLiteral(span) => {
+                Diagnostic::error("Unit declarations are not allowed on non-time literals.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -148,20 +212,36 @@ impl ExpressionTransformer {
                 annotated_pacing_type,
                 ..
             } = (*o).clone();
-            let params: Vec<Parameter> = params
+            let params = params
                 .iter()
                 .enumerate()
                 .map(|(ix, p)| {
                     assert_eq!(ix, p.param_idx);
-                    Parameter {
-                        name: p.name.name.clone(),
-                        annotated_type: p.ty.as_ref().and_then(Self::annotated_type),
-                        idx: p.param_idx,
-                        span: p.span.clone(),
-                    }
+                    p.ty.as_ref()
+                        .map_or(Ok(None), |ty| {
+                            Self::annotated_type(ty)
+                                .map(Some)
+                                .map_err(|reason| (reason, ty.clone(), p.span.clone()))
+                        })
+                        .map(|p_ty| {
+                            Parameter {
+                                name: p.name.name.clone(),
+                                annotated_type: p_ty,
+                                idx: p.param_idx,
+                                span: p.span.clone(),
+                            }
+                        })
                 })
-                .collect();
-            let annotated_type = annotated_type.as_ref().and_then(Self::annotated_type);
+                .collect::<Result<Vec<Parameter>, (String, Type, Span)>>()
+                .map_err(|(reason, ty, span)| TransformationErr::InvalidType(ty, reason, span))?;
+            let annotated_type = annotated_type
+                .as_ref()
+                .map_or(Ok(None), |ty| {
+                    Self::annotated_type(ty)
+                        .map(Some)
+                        .map_err(|reason| (reason, ty.clone(), ty.span.clone()))
+                })
+                .map_err(|(reason, ty, span)| TransformationErr::InvalidType(ty, reason, span))?;
             let expression = self.transform_expression(expression, sr)?;
             let expr_id = expression.eid;
             exprid_to_expr.insert(expr_id, expression);
@@ -213,7 +293,7 @@ impl ExpressionTransformer {
             .map(|(ix, i)| {
                 Ok(Input {
                     annotated_type: Self::annotated_type(&i.ty)
-                        .ok_or_else(|| TransformationErr::MissingInputType(i.span.clone()))?,
+                        .map_err(|reason| TransformationErr::InvalidType(i.ty.clone(), reason, i.span.clone()))?,
                     name: i.name.name.clone(),
                     sr: SRef::In(ix),
                     span: i.span.clone(),
@@ -243,58 +323,55 @@ impl ExpressionTransformer {
         })
     }
 
-    fn annotated_type(ast_ty: &Type) -> Option<AnnotatedType> {
+    fn annotated_type(ast_ty: &Type) -> Result<AnnotatedType, String> {
         use rtlola_parser::ast::TypeKind;
         match &ast_ty.kind {
             TypeKind::Tuple(vec) => {
-                Some(AnnotatedType::Tuple(
-                    vec.iter()
-                        .map(|inner| Self::annotated_type(inner).expect("Inner types can not be missing"))
-                        .collect(),
-                ))
+                let inner: Result<Vec<AnnotatedType>, String> = vec.iter().map(Self::annotated_type).collect();
+                inner.map(AnnotatedType::Tuple)
             },
-            TypeKind::Optional(inner) => {
-                Some(AnnotatedType::Option(
-                    Self::annotated_type(inner)
-                        .expect("Inner types can not be missing")
-                        .into(),
-                ))
-            },
+            TypeKind::Optional(inner) => Self::annotated_type(inner).map(|inner| AnnotatedType::Option(inner.into())),
             TypeKind::Simple(string) => {
                 if string == "String" {
-                    return Some(AnnotatedType::String);
+                    return Ok(AnnotatedType::String);
                 }
                 if string == "Bool" {
-                    return Some(AnnotatedType::Bool);
+                    return Ok(AnnotatedType::Bool);
                 }
                 if let Some(size_str) = string.strip_prefix("Int") {
                     if string.len() == 3 {
-                        return Some(AnnotatedType::Int(64));
+                        return Ok(AnnotatedType::Int(64));
                     } else {
-                        let size: u32 = size_str.parse().expect("Invalid char followed Int type annotation");
-                        return Some(AnnotatedType::Int(size));
+                        let size: u32 = size_str
+                            .parse()
+                            .map_err(|_| "Invalid char followed Int type annotation".to_string())?;
+                        return Ok(AnnotatedType::Int(size));
                     }
                 }
                 if let Some(size_str) = string.strip_prefix("UInt") {
                     if string.len() == 4 {
-                        return Some(AnnotatedType::UInt(64));
+                        return Ok(AnnotatedType::UInt(64));
                     } else {
-                        let size: u32 = size_str.parse().expect("Invalid char followed UInt type annotation");
-                        return Some(AnnotatedType::UInt(size));
+                        let size: u32 = size_str
+                            .parse()
+                            .map_err(|_| "Invalid char followed UInt type annotation".to_string())?;
+                        return Ok(AnnotatedType::UInt(size));
                     }
                 }
                 if let Some(size_str) = string.strip_prefix("Float") {
                     if string.len() == 5 {
-                        return Some(AnnotatedType::Float(64));
+                        return Ok(AnnotatedType::Float(64));
                     } else {
-                        let size: u32 = size_str.parse().expect("Invalid char followed Float type annotation");
-                        return Some(AnnotatedType::Float(size));
+                        let size: u32 = size_str
+                            .parse()
+                            .map_err(|_| "Invalid char followed Float type annotation".to_string())?;
+                        return Ok(AnnotatedType::Float(size));
                     }
                 }
                 if string == "Bytes" {
-                    return Some(AnnotatedType::Bytes);
+                    return Ok(AnnotatedType::Bytes);
                 }
-                None
+                Err("unknown type".into())
             },
         }
     }
@@ -310,9 +387,10 @@ impl ExpressionTransformer {
                     Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                     Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
                     _ => {
-                        Err(TransformationErr::InvalidRefExpr(String::from(
-                            "Non-identifier transformed to SRef",
-                        )))
+                        Err(TransformationErr::InvalidRefExpr(
+                            expr.span.clone(),
+                            String::from("Non-identifier transformed to SRef"),
+                        ))
                     },
                 }
             },
@@ -326,10 +404,15 @@ impl ExpressionTransformer {
                                 .collect::<Result<Vec<_>, TransformationErr>>()?,
                         ))
                     },
-                    _ => Err(TransformationErr::InvalidIdentRef(name.clone())),
+                    _ => Err(TransformationErr::InvalidIdentRef(expr.span.clone(), name.clone())),
                 }
             },
-            _ => Err(TransformationErr::InvalidRefExpr(format!("{:?}", expr.kind))),
+            _ => {
+                Err(TransformationErr::InvalidRefExpr(
+                    expr.span.clone(),
+                    format!("{:?}", expr.kind),
+                ))
+            },
         }
     }
 
@@ -381,7 +464,9 @@ impl ExpressionTransformer {
     ) -> Result<AnnotatedPacingType, TransformationErr> {
         if let ast::ExpressionKind::Lit(l) = &pt_expr.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                let val = pt_expr.parse_freqspec().map_err(TransformationErr::InvalidAc)?;
+                let val = pt_expr
+                    .parse_freqspec()
+                    .map_err(|reason| TransformationErr::InvalidAc(pt_expr.span.clone(), reason))?;
                 return Ok(AnnotatedPacingType::Frequency {
                     span: pt_expr.span.clone(),
                     value: val,
@@ -421,7 +506,7 @@ impl ExpressionTransformer {
                             c.ty.as_ref()
                                 .ok_or_else(|| TransformationErr::ConstantWithoutType(span.clone()))?;
                         let annotated_type = Self::annotated_type(ty)
-                            .ok_or_else(|| TransformationErr::ConstantWithoutType(span.clone()))?;
+                            .map_err(|reason| TransformationErr::InvalidType(ty.clone(), reason, span.clone()))?;
                         ExpressionKind::LoadConstant(HirConstant::Inlined(Inlined {
                             lit: self.transform_literal(&c.literal)?,
                             ty: annotated_type,
@@ -658,7 +743,7 @@ impl ExpressionTransformer {
                         ty: match type_param.get(0) {
                             Some(t) => {
                                 Self::annotated_type(t)
-                                    .ok_or_else(|| TransformationErr::InvalidTypeArgument(t.clone(), span.clone()))?
+                                    .map_err(|reason| TransformationErr::InvalidType(t.clone(), reason, span.clone()))?
                             },
                             None => todo!("error case"),
                         },
@@ -671,7 +756,7 @@ impl ExpressionTransformer {
                             .into_iter()
                             .map(|t| {
                                 Self::annotated_type(&t)
-                                    .ok_or_else(|| TransformationErr::InvalidTypeArgument(t, span.clone()))
+                                    .map_err(|reason| TransformationErr::InvalidType(t, reason, span.clone()))
                             })
                             .collect::<Result<Vec<_>, TransformationErr>>()?,
                     }))
@@ -785,19 +870,15 @@ impl ExpressionTransformer {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use rtlola_parser::ast::WindowOperation;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::hir::StreamAccessKind;
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        crate::from_ast(ast, &handler).unwrap()
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        crate::from_ast(ast).unwrap()
     }
 
     #[test]
@@ -815,7 +896,7 @@ mod tests {
         output p (x,y) := x
         output t := (1,3)
         output t1 := t.0
-        output off := o.defaults(to:2)
+        output def := o.defaults(to:2)
         output off := o.offset(by:-1)
         output w := o2.aggregate(over:3s , using: sum)";
         let _ir = obtain_expressions(spec);

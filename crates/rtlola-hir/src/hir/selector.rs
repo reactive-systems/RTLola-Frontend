@@ -347,11 +347,8 @@ impl<'a, M: HirMode + TypedTrait> StreamSelector<'a, M, Dynamic> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use itertools::Itertools;
     use rtlola_parser::ParserConfig;
-    use rtlola_reporting::Handler;
 
     use super::*;
     use crate::CompleteMode;
@@ -374,11 +371,10 @@ mod tests {
             output f (p: Int8) spawn @1Hz with i.aggregate(over:1s, using: sum) close i = 8 := i\n\
             output g filter i = 5 := i + 5";
 
-        let handler = Handler::new(PathBuf::new(), spec.into());
         let ast = ParserConfig::for_string(spec.into())
             .parse()
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = crate::fully_analyzed(ast, &handler).expect("Invalid Spec");
+            .unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = crate::fully_analyzed(ast).expect("Invalid Spec");
         hir
     }
 

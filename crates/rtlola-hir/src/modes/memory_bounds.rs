@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use num::abs;
+use serde::{Deserialize, Serialize};
 
 use crate::hir::{Hir, SRef};
 use crate::modes::dependencies::EdgeWeight;
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
 /// This enum indicates how much memory is required to store a stream.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum MemorizationBound {
     /// The required memory might exceed any bound.
     Unbounded,
@@ -39,10 +40,6 @@ impl MemorizationBound {
         }
     }
 }
-
-/// Represents the error of the memory bound analysis
-#[derive(Debug, Clone, Copy)]
-pub enum MemBoundErr {}
 
 impl PartialOrd for MemorizationBound {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -135,24 +132,19 @@ impl MemBound {
 
 #[cfg(test)]
 mod dynaminc_memory_bound_tests {
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::modes::BaseMode;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies(&handler)
+            .analyze_dependencies()
             .unwrap()
-            .check_types(&handler)
+            .check_types()
             .unwrap()
-            .determine_evaluation_order(&handler)
+            .determine_evaluation_order()
             .unwrap();
         let bounds = MemBound::analyze(&hir, true);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
@@ -358,24 +350,19 @@ mod dynaminc_memory_bound_tests {
 
 #[cfg(test)]
 mod static_memory_bound_tests {
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::modes::BaseMode;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies(&handler)
+            .analyze_dependencies()
             .unwrap()
-            .check_types(&handler)
+            .check_types()
             .unwrap()
-            .determine_evaluation_order(&handler)
+            .determine_evaluation_order()
             .unwrap();
         let bounds = MemBound::analyze(&hir, false);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());

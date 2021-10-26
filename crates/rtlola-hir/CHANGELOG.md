@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - Unreleased
 
+### Changed
+- Error are now collected and returned, not directly emitted.
+- Most interface functions do not depend on the Handler anymore.
+
 ### Added
 - New window operations: last, median, nth-percentile, variance, standard deviation, covariance
 - Added StreamSelector to select classes of streams

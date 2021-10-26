@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use rtlola_reporting::{Handler, Span};
+use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
@@ -100,59 +100,48 @@ where
         }
     }
 
-    pub(crate) fn type_check(mut self, handler: &Handler) -> Option<HashMap<NodeId, ConcreteValueType>> {
+    pub(crate) fn type_check(mut self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
         for input in self.hir.inputs() {
-            if let Err(e) = self.input_infer(input) {
-                e.emit(handler, &[&self.key_span], &self.names)
-            }
+            self.input_infer(input)
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
         }
 
         for output in self.hir.outputs() {
-            if let Err(e) = self.output_infer(output) {
-                e.emit(handler, &[&self.key_span], &self.names)
-            }
+            self.output_infer(output)
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
         }
 
         for trigger in self.hir.triggers() {
-            if let Err(e) = self.trigger_infer(trigger) {
-                e.emit(handler, &[&self.key_span], &self.names)
-            }
+            self.trigger_infer(trigger)
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
         }
 
-        if handler.contains_error() {
-            return None;
-        }
+        let tt = self
+            .tyc
+            .clone()
+            .type_check()
+            .map_err(|e| TypeError::from(e).into_diagnostic(&[&self.key_span], &self.names))?;
 
-        let tt = match self.tyc.clone().type_check() {
-            Ok(t) => t,
-            Err(e) => {
-                TypeError::from(e).emit(handler, &[&self.key_span], &self.names);
-                return None;
-            },
-        };
-
+        let mut error = RtLolaError::new();
         for err in Self::check_explicit_bounds(self.annotated_checks.clone(), &tt) {
-            err.emit(handler, &[&self.key_span], &self.names);
+            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
         }
 
         for err in Self::check_widen_exprs(self.widen_checks.clone(), &tt) {
-            err.emit(handler, &[&self.key_span], &self.names);
+            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
         }
 
         for err in Self::post_process(self.hir, &self.node_key, &tt) {
-            err.emit(handler, &[&self.key_span], &self.names);
+            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
         }
-
-        if handler.contains_error() {
-            return None;
-        }
+        Result::from(error)?;
 
         let result_map = self
             .node_key
             .into_iter()
             .map(|(node, key)| (node, tt[&key].clone()))
             .collect();
-        Some(result_map)
+        Ok(result_map)
     }
 
     fn match_const_literal(&self, lit: &Literal) -> AbstractValueType {
@@ -897,11 +886,9 @@ where
 #[cfg(test)]
 mod value_type_tests {
     use std::collections::HashMap;
-    use std::path::PathBuf;
 
     use rtlola_parser::ast::RtLolaAst;
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use crate::hir::{ExprId, RtLolaHir, StreamReference};
     use crate::modes::BaseMode;
@@ -910,7 +897,6 @@ mod value_type_tests {
 
     struct TestBox {
         hir: RtLolaHir<BaseMode>,
-        handler: Handler,
     }
 
     impl TestBox {
@@ -924,48 +910,38 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let handler = Handler::new(PathBuf::from("test"), spec.into());
-        let ast: RtLolaAst = match parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler) {
+        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {}", spec, e),
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };
-        let hir = crate::from_ast(ast, &handler).unwrap();
+        let hir = crate::from_ast(ast).unwrap();
         //let mut dec = na.check(&spec);
-        assert!(!handler.contains_error(), "Spec produces errors in naming analysis.");
-        TestBox { hir, handler }
-    }
-
-    fn complete_check(spec: &str) -> usize {
-        let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
-        let pacing_tt = ltc.pacing_type_infer().unwrap();
-        assert!(ltc.value_type_infer(&pacing_tt).is_some());
-        test_box.handler.emitted_errors()
+        TestBox { hir }
     }
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, ConcreteValueType>) {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.hir);
         let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
         let tt_result = ltc.value_type_infer(&pacing_tt);
-        assert!(tt_result.is_some(), "Expect Valid Input - Value Type check failed");
-        let tt = tt_result.expect("ensured by assertion");
+        let tt = tt_result.expect("Expect Valid Input - Value Type check failed");
         (test_box, tt)
     }
 
-    fn check_expect_error(spec: &str) -> TestBox {
+    fn num_errors(spec: &str) -> usize {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir, &test_box.handler);
+        let mut ltc = LolaTypeChecker::new(&test_box.hir);
         let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
-        let tt_result = ltc.value_type_infer(&pt);
-        assert!(tt_result.is_none(), "Expected error in value type result");
-        test_box
+        match ltc.value_type_infer(&pt) {
+            Ok(_) => 0,
+            Err(e) => e.num_errors(),
+        }
     }
 
     #[test]
     fn simple_input() {
         let spec = "input i: Int8";
-        assert_eq!(0, complete_check(spec));
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
@@ -976,7 +952,6 @@ mod value_type_tests {
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(input_sr)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer8);
-        assert_eq!(0, complete_check(spec));
     }
 
     #[test]
@@ -987,7 +962,6 @@ mod value_type_tests {
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(input_sr)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer32);
-        assert_eq!(0, complete_check(spec));
     }
 
     #[test]
@@ -1001,7 +975,6 @@ mod value_type_tests {
         assert_eq!(result_map[&NodeId::SRef(input_i_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(input_i1_id)], ConcreteValueType::Integer16);
         assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer16);
-        assert_eq!(0, complete_check(spec));
     }
 
     #[test]
@@ -1010,7 +983,6 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(o1_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(o2_sr)], ConcreteValueType::Integer8);
     }
@@ -1020,7 +992,6 @@ mod value_type_tests {
         let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true) := 1";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer8);
     }
 
@@ -1029,8 +1000,6 @@ mod value_type_tests {
         let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true) := a";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
-        assert_eq!(0, complete_check(spec));
-        assert_eq!(0, tb.handler.emitted_errors());
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::UInteger8);
     }
 
@@ -1040,7 +1009,6 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.output("x");
         let output_2_id = tb.output("y");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_2_id)], ConcreteValueType::Integer8);
     }
@@ -1048,15 +1016,13 @@ mod value_type_tests {
     #[test]
     fn parametric_declaration_param_two_many() {
         let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true, false) := a";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn parametric_declaration_param_two_few() {
         let spec = "output x(a: UInt8, b: Bool, c:String) @1Hz spawn @1Hz with (5, true) := a";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1064,7 +1030,6 @@ mod value_type_tests {
         let spec = "output x (a, b) @1Hz spawn @1Hz with (5, true) := 42";
         let (tb, result_map) = check_value_type(spec);
         let x = tb.output("x");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::Param(0, x)], ConcreteValueType::Integer64);
         assert_eq!(result_map[&NodeId::Param(1, x)], ConcreteValueType::Bool);
     }
@@ -1074,7 +1039,6 @@ mod value_type_tests {
         let spec = "constant c: Float32 := 2.1 output o @1Hz := c";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(sr)], ConcreteValueType::Float32);
     }
 
@@ -1084,7 +1048,6 @@ mod value_type_tests {
         let spec = "constant c: Float16 := 2.1 output o @1Hz := c";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(sr)], ConcreteValueType::Float32);
     }
 
@@ -1093,29 +1056,25 @@ mod value_type_tests {
         let spec = "constant c: Int8 := 3 output o @1Hz := c";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(sr)], ConcreteValueType::Integer8);
     }
 
     #[test]
     fn simple_const_faulty() {
         let spec = "constant c: Int8 := true output o @1Hz := c";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_signedness() {
         let spec = "constant c: UInt8 := -2 output o @1Hz := c";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_incorrect_float() {
         let spec = "constant c: UInt8 := 2.3 output o @1Hz := c";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1126,22 +1085,20 @@ mod value_type_tests {
             "constant c: UInt16 := 1\noutput o: UInt64 @1Hz:= widen<UInt64>(c)",
             "constant c: Float32 := 1.0\noutput o: Float64 @1Hz:= widen<Float64>(c)",
         ] {
-            assert_eq!(0, complete_check(spec));
+            assert_eq!(0, num_errors(spec));
         }
     }
 
     #[test]
     fn simple_invalid_conversion() {
         let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := c";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn simple_invalid_widening() {
         let spec = "constant c: Int32 := 1\noutput o: Int8 @1Hz := widen<Int8>(c)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1149,7 +1106,6 @@ mod value_type_tests {
         let spec = "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen<Int32>(d)";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(sr)], ConcreteValueType::Integer32);
     }
 
@@ -1158,7 +1114,6 @@ mod value_type_tests {
         let spec = "trigger false";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
     }
 
@@ -1167,15 +1122,13 @@ mod value_type_tests {
         let spec = "trigger false \"alert always\"";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
     }
 
     #[test]
     fn faulty_trigger() {
         let spec = "trigger 1";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1183,7 +1136,6 @@ mod value_type_tests {
         let spec = "output o: Int8 @1Hz := 3 + 5";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.hir.outputs().next().unwrap().sr;
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
 
@@ -1193,7 +1145,6 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
         let in_id = tb.input("i");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
     }
@@ -1205,7 +1156,6 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
         let out_id_2 = tb.output("u");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Bool);
         assert_eq!(result_map[&NodeId::SRef(out_id_2)], ConcreteValueType::Bool);
     }
@@ -1215,8 +1165,7 @@ mod value_type_tests {
         // The negation should return a bool even if the underlying expression is wrong.
         // Thus, there is only one error here.
         let spec = "output o: Bool @1Hz:= !3";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1246,8 +1195,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn simple_binary_faulty() {
         let spec = "output o: Float32 @1Hz := false + 2.5";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1255,7 +1203,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o: Int8 @1Hz := if false then 1 else 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
 
@@ -1264,7 +1211,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output e :Int8 @1Hz := if 1 == 0 then 0 else -1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("e");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
 
@@ -1273,22 +1219,19 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
 
     #[test]
     fn test_ite_condition_faulty() {
         let spec = "output o: UInt8 @1Hz := if 3 then 1 else 1";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_ite_arms_incompatible() {
         let spec = "output o: UInt8 @1Hz := if true then 1 else false";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1297,7 +1240,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
         let in_id = tb.input("s");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Bool);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::TString);
     }
@@ -1308,7 +1250,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o @1Hz := 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(0, complete_check(spec));
         let res_type = &result_map[&NodeId::SRef(out_id)];
         assert!(*res_type == ConcreteValueType::Integer32 || *res_type == ConcreteValueType::Integer64);
     }
@@ -1319,7 +1260,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         let in_id = tb.input("a");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
     }
@@ -1327,8 +1267,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_input_lookup_faulty() {
         let spec = "input a: UInt8\n output b: Float64 := a";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1337,7 +1276,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::UInteger8);
     }
@@ -1345,8 +1283,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_stream_lookup_faulty() {
         let spec = "input a: UInt8\n output b: Float64 := a";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1355,7 +1292,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         let in_id = tb.output("a");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
     }
@@ -1366,7 +1302,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("a");
         let out_id = tb.output("sum");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1374,8 +1309,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_stream_lookup_dft_fault() {
         let spec = "output a: UInt8 @1Hz:= 3\n output b: Bool := a[-1].defaults(to: false)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
@@ -1384,7 +1318,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Bool);
     }
@@ -1393,8 +1326,7 @@ output o_9: Bool @i_0 := true  && true";
     //#[ignore] // paramertic streams need new design after syntax revision
     fn test_filter_type_faulty() {
         let spec = "input in: Int8\n output a: Int8 filter in := 3";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1403,7 +1335,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Bool);
     }
@@ -1412,8 +1343,7 @@ output o_9: Bool @i_0 := true  && true";
     fn test_close_type_faulty() {
         //Close condition non boolean type
         let spec = "input in: Int8\n output a: Int8 @1Hz close in := 3";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1423,7 +1353,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
     }
@@ -1431,8 +1360,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_param_spec_faulty() {
         let spec = "output a(p1: Int8): Int8 @1Hz spawn @1Hz with false := 3";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1441,7 +1369,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
         let in_id = tb.input("i");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
@@ -1449,16 +1376,14 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_param_inferred_conflicting() {
         let spec = "input i: Int8\ninput j: UInt8\noutput x(param): Int8 spawn @1Hz with 3 := i\noutput y: Int8 := x(i).hold().defaults(to: 42)\noutput z: Int8 := x(j).hold().defaults(to: 42)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_lookup_incomp() {
         let spec =
             "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 42 := 3\n output b: UInt8 @1Hz := a(3).hold().defaults(to:3)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1466,7 +1391,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output out: (Int8, Bool) @1Hz:= (14, false)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(
             result_map[&NodeId::SRef(out_id)],
             ConcreteValueType::Tuple(vec![ConcreteValueType::Integer8, ConcreteValueType::Bool])
@@ -1476,8 +1400,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_tuple_faulty() {
         let spec = "output out: (Int8, Bool) @1Hz := (14, 3)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1486,7 +1409,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(
             result_map[&NodeId::SRef(in_id)],
             ConcreteValueType::Tuple(vec![ConcreteValueType::Integer8, ConcreteValueType::Bool])
@@ -1498,15 +1420,13 @@ output o_9: Bool @i_0 := true  && true";
     fn test_tuple_access_faulty_type() {
         //TODO optional result at offset zero
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in[0].0";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_tuple_access_faulty_len() {
         let spec = "input in: (Int8, Bool)\noutput out: Bool := in.2";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1514,7 +1434,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input in: Int8\noutput out: Int8 := in.offset(by: -1).defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(
             result_map[&NodeId::Expr(ExprId(1))],
@@ -1525,8 +1444,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_optional_type_faulty() {
         let spec = "input in: Int8\noutput out: Int8? := in";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1536,7 +1454,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("a");
         let out_id = tb.output("b");
-        //assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1547,7 +1464,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         let input_type = ConcreteValueType::Tuple(vec![
             ConcreteValueType::Integer8,
             ConcreteValueType::Tuple(vec![ConcreteValueType::UInteger8, ConcreteValueType::Bool]),
@@ -1562,7 +1478,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
         let in_id = tb.input("in");
-        assert_eq!(0, complete_check(spec));
         let input_type = ConcreteValueType::Tuple(vec![
             ConcreteValueType::Integer8,
             ConcreteValueType::Tuple(vec![ConcreteValueType::UInteger8, ConcreteValueType::Bool]),
@@ -1576,7 +1491,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output out: Bool @1Hz := (5, (7.0, true)).1.1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Bool);
     }
 
@@ -1590,7 +1504,6 @@ output o_9: Bool @i_0 := true  && true";
             ConcreteValueType::Integer64,
             ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Bool]),
         ]);
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out2)], tuple_type);
         assert_eq!(result_map[&NodeId::SRef(out1)], ConcreteValueType::Bool);
     }
@@ -1598,7 +1511,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_faulty_option_access() {
         let spec = "input x:Int32\noutput out @1Hz := x.hold().0";
-        check_expect_error(spec);
+        assert_ne!(0, num_errors(spec));
     }
 
     #[test]
@@ -1607,7 +1520,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer64);
     }
@@ -1618,7 +1530,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
@@ -1626,8 +1537,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_window_faulty() {
         let spec = "input in: Int8\n output out: Bool @5Hz := in.aggregate(over: 3s, using: Σ)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1638,7 +1548,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
     }
@@ -1651,7 +1560,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1664,7 +1572,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1673,18 +1580,15 @@ output o_9: Bool @i_0 := true  && true";
     fn test_aggregation_integer_integral() {
         let spec =
                             "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
         let spec =
             "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
         let spec =
             "input in: UInt8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
         let spec =
@@ -1692,7 +1596,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1703,7 +1606,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
@@ -1714,7 +1616,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1725,7 +1626,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1737,7 +1637,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1750,7 +1649,6 @@ output o_9: Bool @i_0 := true  && true";
         let in2_id = tb.input("in2");
         let t_id = tb.output("t");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float32);
         assert_eq!(
@@ -1763,15 +1661,13 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_cov_result_type_check() {
         let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float32 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_cov_int() {
         let spec = "input in: Float32\n input in2: Int64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: cov).defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1780,7 +1676,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1788,8 +1683,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_new_aggr_function_missing_default() {
         let spec = "input in: Float32\n output out: Float64 @5Hz := in.aggregate(over: 3s, using: σ²)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1798,7 +1692,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("velo");
         let out_id = tb.output("avg");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
@@ -1810,7 +1703,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
     }
@@ -1821,7 +1713,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to:0) + 1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer32);
     }
 
@@ -1835,7 +1726,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
         let out_id2 = tb.output("x_diff");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer32);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer32);
     }
@@ -1847,7 +1737,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
     }
@@ -1859,7 +1748,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
     }
@@ -1870,7 +1758,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1881,7 +1768,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1893,7 +1779,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1904,7 +1789,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger32);
     }
@@ -1914,41 +1798,37 @@ output o_9: Bool @i_0 := true  && true";
         // this should fail in type checking as the value type of `c` cannot be determined.
         // it currently fails because default expects a optional value
         let spec = "output c @1Hz := c.defaults(to:0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_simple_annotated() {
         let spec = "output c: Int8 @1Hz := 42";
-        assert_eq!(0, complete_check(spec));
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
     fn test_simple_annotated2() {
         let spec = "output c: Int8 @1Hz := widen<Int32>(42)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn function_to_many_type_args() {
         let spec = "import math output c: Int32 @1Hz := max<Int16,Int16>(13,42)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn math_function_wrong_arg_type() {
         let spec = "import math output c @1Hz := sqrt(13.37) + cos(13)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_matches() {
         let spec = "import regex\ninput s: String\ninput b: Bytes\noutput c: Bool := s.matches<String>(regex:\"hello\") && b.matches<Bytes>(regex:\"world\")";
-        assert_eq!(0, complete_check(spec));
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
@@ -1956,29 +1836,25 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\ninput s: Int16\ninput b: Int16\noutput c := max(s, b)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("c");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
     }
 
     #[test]
     fn test_error_msg_bounds() {
         let spec = "input a: UInt8\noutput b: UInt16 := if true then a else a[-1].defaults(to: 0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_error_msg_bounds2() {
         let spec = "output a: UInt8 @1Hz := 5\noutput b: UInt16 := if true then a else a[-1].defaults(to: 0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_error_faulty_widen() {
         let spec = "input a: Int32\noutput b: Int16 := widen<Int16>(a)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1986,7 +1862,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\ninput a: Float32\noutput b := sqrt(a)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
 
@@ -1995,7 +1870,6 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\nconstant x: Float32 := 5.0\noutput b @1Hz := abs(x)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
 
@@ -2010,7 +1884,7 @@ output o_9: Bool @i_0 := true  && true";
         output lat_diff: Float64 := lat - lat.offset(by: -1).defaults(to: lat)\n\
         output yaw: Float64 := if lon_diff = 0.0 then 0.0 else arctan(lat_diff / lon_diff)\n\
         output head_wind: Bool @ 1Hz := (w_dir.hold().defaults(to: 0.0) - yaw.hold().defaults(to: 0.0)) < 0.2";
-        assert_eq!(0, complete_check(spec));
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
@@ -2020,14 +1894,13 @@ output o_9: Bool @i_0 := true  && true";
                         output b : Float64 := arctan(a)\n\
                         output c : Float64 := sin(a)\n\
                         ";
-        assert_eq!(0, complete_check(spec));
+        assert_eq!(0, num_errors(spec));
     }
 
     #[test]
     fn test_no_optional_stream() {
         let spec = "input  a : Float64\n\
                          output b := a.offset(by:-1)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 }

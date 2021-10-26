@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use petgraph::algo::is_cyclic_directed;
 use petgraph::Outgoing;
+use serde::{Deserialize, Serialize};
 
 use super::{Ordered, OrderedTrait, TypedTrait};
 use crate::hir::{Hir, SRef};
@@ -17,16 +18,12 @@ impl OrderedTrait for Ordered {
     }
 }
 
-/// Represents the error occuring during the evaluation order determination
-#[derive(Debug, Clone, Copy)]
-pub enum OrderErr {}
-
 /// Represents a layer indicating the position when an expression can be evaluated
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layer(usize);
 
 /// Wrapper to collect the layer when a stream instance is spawned and evaluated
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamLayers {
     spawn: Layer,
     evaluation: Layer,
@@ -215,10 +212,7 @@ impl Ordered {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use rtlola_parser::{parse_with_handler, ParserConfig};
-    use rtlola_reporting::Handler;
+    use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
     use crate::modes::BaseMode;
@@ -227,14 +221,12 @@ mod tests {
         ref_event_layers: HashMap<SRef, StreamLayers>,
         ref_periodic_layers: HashMap<SRef, StreamLayers>,
     ) {
-        let handler = Handler::new(PathBuf::new(), spec.into());
-        let ast = parse_with_handler(ParserConfig::for_string(spec.to_string()), &handler)
-            .unwrap_or_else(|e| panic!("{}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast, &handler)
+        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies(&handler)
+            .analyze_dependencies()
             .unwrap()
-            .check_types(&handler)
+            .check_types()
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered {

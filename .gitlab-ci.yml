@@ -325,7 +325,7 @@ test:nightly:
       - crates/target/
       - $CARGO_HOME
   variables:
-    RUSTFLAGS: "-Zinstrument-coverage"
+    RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   script:
     - (rm -r ./target/debug/coverage/) || true
@@ -349,6 +349,23 @@ test:nightly:
     reports:
       junit: crates/results.xml
 
+test:wasm:
+  stage: additional-test
+  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  tags:
+    - docker
+  image: rust:latest
+  cache:
+    key: "wasm"
+    policy: pull-push
+    paths:
+      - crates/target/
+      - $CARGO_HOME
+  script:
+    - rustup target add wasm32-unknown-unknown
+    - rustc --version
+    - cargo --version
+    - cargo check --target wasm32-unknown-unknown
 
 ####### Use cargo to test the docs for broken links #######
 

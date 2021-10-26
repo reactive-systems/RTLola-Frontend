@@ -14,4 +14,6 @@
 )]
 
 mod reporting;
+
+pub use codespan_reporting::diagnostic::Diagnostic as RawDiagnostic;
 pub use reporting::*;

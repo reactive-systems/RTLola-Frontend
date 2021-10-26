@@ -6,11 +6,9 @@ pub(crate) mod types;
 
 use std::collections::HashMap;
 
-use rtlola_reporting::Handler;
+use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyErr, DependencyGraph, Streamdependencies, Windowdependencies};
-use self::memory_bounds::MemBoundErr;
-use self::ordering::OrderErr;
+use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies};
 use self::types::HirType;
 use crate::hir::{ExprId, Hir, SRef, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
@@ -29,14 +27,11 @@ pub trait HirMode {}
 
 /// Defines the functionality to progress one mode to the next one
 pub trait HirStage: Sized {
-    /// Defines the Error type of the `progress` function
-    type Error;
-
     /// Defines the next mode that is produced by the `progress` function
     type NextStage: HirMode;
 
     /// Returns an [RtLolaHir](crate::RtLolaHir) with additional functionality
-    fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error>;
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError>;
 }
 
 /// Represents the first stage in the [RtLolaHir](crate::RtLolaHir)(crate::RtLolaHir)
@@ -47,10 +42,9 @@ pub trait HirStage: Sized {
 pub struct BaseMode {}
 
 impl HirStage for Hir<BaseMode> {
-    type Error = DependencyErr;
     type NextStage = DepAnaMode;
 
-    fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let dependencies = DepAna::analyze(&self)?;
 
         let mode = DepAnaMode { dependencies };
@@ -75,9 +69,9 @@ impl Hir<BaseMode> {
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     ///
     /// # Fails
-    /// The function returns a [DependencyErr] if the specification is not well-formed.
-    pub fn analyze_dependencies(self, handler: &Handler) -> Result<Hir<DepAnaMode>, DependencyErr> {
-        self.progress(handler)
+    /// The function returns a [RtLolaError] if the specification is not well-formed.
+    pub fn analyze_dependencies(self) -> Result<Hir<DepAnaMode>, RtLolaError> {
+        self.progress()
     }
 }
 
@@ -152,11 +146,10 @@ pub trait DepAnaTrait {
 }
 
 impl HirStage for Hir<DepAnaMode> {
-    type Error = String;
     type NextStage = TypedMode;
 
-    fn progress(self, handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
-        let tts = crate::type_check::type_check(&self, handler)?;
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let tts = crate::type_check::type_check(&self)?;
 
         let mode = TypedMode {
             dependencies: self.mode.dependencies,
@@ -184,8 +177,8 @@ impl Hir<DepAnaMode> {
     ///
     /// # Fails
     /// The function fails if the type checker finds a type error in the specification and returns a string with a detailed description.
-    pub fn check_types(self, handler: &Handler) -> Result<Hir<TypedMode>, String> {
-        self.progress(handler)
+    pub fn check_types(self) -> Result<Hir<TypedMode>, RtLolaError> {
+        self.progress()
     }
 }
 
@@ -259,10 +252,9 @@ pub trait TypedTrait {
 }
 
 impl HirStage for Hir<TypedMode> {
-    type Error = OrderErr;
     type NextStage = OrderedMode;
 
-    fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let order = Ordered::analyze(&self);
 
         let mode = OrderedMode {
@@ -288,8 +280,8 @@ impl Hir<TypedMode> {
     ///
     /// # Fails
     /// The function fails if the evaluation order cannot be determined.
-    pub fn determine_evaluation_order(self, handler: &Handler) -> Result<Hir<OrderedMode>, OrderErr> {
-        self.progress(handler)
+    pub fn determine_evaluation_order(self) -> Result<Hir<OrderedMode>, RtLolaError> {
+        self.progress()
     }
 }
 
@@ -326,10 +318,9 @@ pub trait OrderedTrait {
 }
 
 impl HirStage for Hir<OrderedMode> {
-    type Error = MemBoundErr;
     type NextStage = MemBoundMode;
 
-    fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let memory = MemBound::analyze(&self, false);
 
         let mode = MemBoundMode {
@@ -356,8 +347,8 @@ impl Hir<OrderedMode> {
     ///     
     /// # Fails
     /// The function fails if the memory cannot be determined.
-    pub fn determine_memory_bounds(self, handler: &Handler) -> Result<Hir<MemBoundMode>, MemBoundErr> {
-        self.progress(handler)
+    pub fn determine_memory_bounds(self) -> Result<Hir<MemBoundMode>, RtLolaError> {
+        self.progress()
     }
 }
 
@@ -395,10 +386,9 @@ pub trait MemBoundTrait {
 }
 
 impl HirStage for Hir<MemBoundMode> {
-    type Error = CompletionErr;
     type NextStage = CompleteMode;
 
-    fn progress(self, _handler: &Handler) -> Result<Hir<Self::NextStage>, Self::Error> {
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let mode = CompleteMode {
             dependencies: self.mode.dependencies,
             types: self.mode.types,
@@ -418,17 +408,14 @@ impl HirStage for Hir<MemBoundMode> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum CompletionErr {}
-
 impl Hir<MemBoundMode> {
     /// Returns the [RtLolaHir](crate::RtLolaHir) in the last mode
     ///
     /// The function returns the [RtLolaHir](crate::RtLolaHir) in the [CompleteMode].
     /// This mode indicates that the [RtLolaHir](crate::RtLolaHir) has passed all analyzes and now contains all information.
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
-    pub fn finalize(self, handler: &Handler) -> Result<Hir<CompleteMode>, CompletionErr> {
-        self.progress(handler)
+    pub fn finalize(self) -> Result<Hir<CompleteMode>, RtLolaError> {
+        self.progress()
     }
 }
 

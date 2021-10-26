@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use rtlola_reporting::Span;
+use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use crate::hir::expression::*;
@@ -310,6 +311,14 @@ impl<M: HirMode> Hir<M> {
             },
         }
     }
+
+    /// Generates a map from a [StreamReference] to the name of the corresponding stream.
+    pub fn names(&self) -> HashMap<SRef, &str> {
+        self.inputs()
+            .map(|i| (i.sr, i.name.as_str()))
+            .chain(self.outputs().map(|o| (o.sr, o.name.as_str())))
+            .collect()
+    }
 }
 
 /// A collection of maps for expression-related lookups, i.e., expressions, functions, and windows.
@@ -569,7 +578,7 @@ impl AnnotatedType {
 }
 
 /// Allows for referencing a window instance.
-#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WindowReference {
     /// Refers to a sliding window
     Sliding(usize),
@@ -595,7 +604,7 @@ pub type InputReference = usize;
 pub type OutputReference = usize;
 
 /// Allows for referencing a stream within the specification.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StreamReference {
     /// References an input stream.
     In(InputReference),

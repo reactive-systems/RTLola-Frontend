@@ -24,3 +24,5 @@ rtlola-reporting = { path = "../rtlola-reporting" }
 num = "0.3.1"     # infinite precision rationals
 uom = { version = "0.31.1", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
 lazy_static = "1.3.0" # lazy_static! macro
+serde = { version = "1.0.130", features = ["derive"] }
+num-rational = { version = "*", features = ["serde"] }
