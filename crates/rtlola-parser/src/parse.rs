@@ -782,24 +782,12 @@ impl RtLolaParser {
                                                     i.name.as_str().chars().skip("pctl".len()).all(|c| c.is_numeric()) => {
                                                     let n_string = i.name.as_str().to_string();
                                                     let n_string: String = n_string.chars().skip("pctl".len()).collect();
-                                                    let percentile: usize = match n_string.parse::<usize>() {
-                                                        Ok(u) => u,
-                                                        Err(_e) => {
-                                                            self.handler.error_with_span(
-                                                                &format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string),
-                                                                i.span.clone(),
-                                                                Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
-                                                            );
-                                                            std::process::exit(1)
-                                                        }
-                                                    };
+                                                    let percentile: usize = n_string.parse::<usize>().map_err(|_|
+                                                        RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
+                                                    )?;
                                                     if percentile > 100{
-                                                        self.handler.error_with_span(
-                                                            &format!("unknown aggregation function {}, invalid percentile suffix", i.name),
-                                                            i.span.clone(),
-                                                            Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"),
-                                                        );
-                                                        std::process::exit(1);
+                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label( i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+
                                                     }
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
@@ -813,11 +801,8 @@ impl RtLolaParser {
                                         };
                                         if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
-                                                self.handler.warn_with_span(
-                                                    "discrete window operation: last has same semantics as .offset(by:-1) and is more expensive",
-                                                    args[1].span.clone(),
-                                                    Some("don't use last for discrete windows")
-                                                )
+                                                // Todo: This should be a warning
+                                                return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
                                             }
                                             ExpressionKind::DiscreteWindowAggregation {
                                                 expr: inner,

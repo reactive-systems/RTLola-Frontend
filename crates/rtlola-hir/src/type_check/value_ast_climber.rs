@@ -1606,7 +1606,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
@@ -1617,7 +1616,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1628,7 +1626,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
     }
@@ -1640,7 +1637,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1653,7 +1649,6 @@ output o_9: Bool @i_0 := true  && true";
         let in2_id = tb.input("in2");
         let t_id = tb.output("t");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float32);
         assert_eq!(
@@ -1666,15 +1661,13 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_cov_result_type_check() {
         let spec = "input in: Float32\n input in2: Float64\noutput t:= (in,in2)\n output out: Float32 @5Hz := t.aggregate(over: 3s, using: covariance).defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_cov_int() {
         let spec = "input in: Float32\n input in2: Int64\noutput t:= (in,in2)\n output out: Float64 @5Hz := t.aggregate(over: 3s, using: cov).defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1683,7 +1676,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(0, complete_check(spec));
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
     }
@@ -1691,8 +1683,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_new_aggr_function_missing_default() {
         let spec = "input in: Float32\n output out: Float64 @5Hz := in.aggregate(over: 3s, using: σ²)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
