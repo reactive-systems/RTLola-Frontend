@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use itertools::Itertools;
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
@@ -1946,16 +1947,14 @@ output o_9: Bool @i_0 := true  && true";
     fn test_no_optional_spawn_target() {
         let spec = "input  a : Float64\n\
                          output b(p) spawn with a.offset(by: -1) := a + p.defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_no_optional_spawn_target_tuple() {
         let spec = "input  a : Float64\n\
                          output b(p, q) spawn with (42, a.offset(by: -1)) := a + q.defaults(to: 0.0)";
-        let tb = check_expect_error(spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1964,21 +1963,18 @@ output o_9: Bool @i_0 := true  && true";
         for swf in functions {
             let spec = format!(
                 "input  a : Int32\n\
-                          output b @2Hz := a.aggregate(over_exactly: 1s, using: {})",
+                 output b @2Hz := a.aggregate(over_exactly: 1s, using: {})",
                 swf
             );
-            let tb = check_expect_error(&spec);
-            assert_eq!(1, tb.handler.emitted_errors());
+            assert_eq!(1, num_errors(&spec));
         }
 
         let spec = "input  a : Bool\n\
                           output b @2Hz := a.aggregate(over_exactly: 1s, using: conjunction)";
-        let tb = check_expect_error(&spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
 
         let spec = "input  a : Bool\n\
                           output b @2Hz := a.aggregate(over_exactly: 1s, using: disjunction)";
-        let tb = check_expect_error(&spec);
-        assert_eq!(1, tb.handler.emitted_errors());
+        assert_eq!(1, num_errors(spec));
     }
 }

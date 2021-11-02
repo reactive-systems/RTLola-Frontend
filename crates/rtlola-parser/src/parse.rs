@@ -440,7 +440,7 @@ impl RtLolaParser {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner());
+                let expr = self.build_expression_ast(pair.into_inner())?;
                 next_pair = children.next();
                 Some(expr)
             } else {

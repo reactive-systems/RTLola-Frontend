@@ -257,10 +257,10 @@ impl NamingAnalysis {
             }
         }
 
-        if let Err(e) = self.check_outputs(&spec) {
+        if let Err(e) = self.check_outputs(spec) {
             error.join(e);
         }
-        if let Err(e) = self.check_triggers(&spec) {
+        if let Err(e) = self.check_triggers(spec) {
             error.join(e);
         }
 
@@ -292,7 +292,9 @@ impl NamingAnalysis {
                 }
             }
             if let Some(pt) = trigger.annotated_pacing_type.as_ref() {
-                self.check_expression(pt);
+                if let Err(e) = self.check_expression(pt) {
+                    error.join(e);
+                }
             }
             self.declarations.push();
             if let Err(e) = self.check_expression(&trigger.expression) {
@@ -311,7 +313,7 @@ impl NamingAnalysis {
             let para_errors = output
                 .params
                 .iter()
-                .flat_map(|param| self.check_param(&param).err())
+                .flat_map(|param| self.check_param(param).err())
                 .flatten()
                 .collect::<RtLolaError>();
             error.join(para_errors);

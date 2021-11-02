@@ -761,7 +761,7 @@ impl Offset {
         }
     }
 
-    pub(crate) fn to_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
         match self {
             Offset::PastDiscrete(o) => MemorizationBound::Bounded(*o) + MemorizationBound::default_value(dynamic),
             Offset::FutureDiscrete(_) => unimplemented!(),

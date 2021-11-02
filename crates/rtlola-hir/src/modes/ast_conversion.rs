@@ -164,6 +164,35 @@ impl TransformationErr {
                     true,
                 )
             },
+            TransformationErr::MissingArguments(span) => {
+                Diagnostic::error("An access to a parameterized output stream is missing its arguments.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
+            TransformationErr::MissingSpawn(span) => {
+                Diagnostic::error("The following stream has parameters but no spawn target.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+                    .add_note("Help: Add a spawn declaration of the form: spawn with (exp1, ..., exp_n) if ...")
+            }
+            TransformationErr::MissingParameters(span) => {
+                Diagnostic::error("The following stream has a spawn declaration but no parameters.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
+            TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn target expressions. Found {} parameters and {} spawn targets", paras, targets)).add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
         }
     }
 }
@@ -912,6 +941,8 @@ impl ExpressionTransformer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use rtlola_parser::ast::WindowOperation;
     use rtlola_parser::{parse, ParserConfig};
 

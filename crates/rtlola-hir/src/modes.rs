@@ -42,6 +42,107 @@ pub trait HirStage: Sized {
 pub struct BaseMode {}
 
 impl HirStage for Hir<BaseMode> {
+    type NextStage = TypedMode;
+
+    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let tts = crate::type_check::type_check(&self)?;
+
+        let mode = TypedMode { types: tts };
+
+        Ok(Hir {
+            inputs: self.inputs,
+            outputs: self.outputs,
+            triggers: self.triggers,
+            next_output_ref: self.next_output_ref,
+            next_input_ref: self.next_input_ref,
+            expr_maps: self.expr_maps,
+            mode,
+        })
+    }
+}
+
+impl Hir<BaseMode> {
+    /// Returns the [RtLolaHir](crate::RtLolaHir) with the type information for each stream and expression
+    ///
+    /// The function returns the [RtLolaHir](crate::RtLolaHir) after the type analysis.
+    /// The new mode implements the same functionality as the [BaseMode] and additionally holds for each stream and expression its [StreamType].
+    /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
+    ///
+    /// # Fails
+    /// The function fails if the type checker finds a type error in the specification and returns a string with a detailed description.
+    pub fn check_types(self) -> Result<Hir<TypedMode>, RtLolaError> {
+        self.progress()
+    }
+}
+
+/// Represents the results of the type checker
+#[derive(Debug, Clone)]
+pub struct Typed {
+    stream_types: HashMap<SRef, StreamType>,
+    expression_types: HashMap<ExprId, StreamType>,
+    param_types: HashMap<(SRef, usize), ConcreteValueType>,
+}
+
+/// Represents the mode after the type checker call
+///
+/// This struct represents the mode after the type checker call.
+/// Besides this result, this mode has the same functionality as all the previous modes.
+/// The [TypedTrait] defines the new functionality of the mode.
+#[covers_functionality(TypedTrait, types)]
+#[derive(Debug, Clone, HirMode)]
+pub struct TypedMode {
+    types: Typed,
+}
+
+impl Typed {
+    pub(crate) fn new(
+        stream_types: HashMap<SRef, StreamType>,
+        expression_types: HashMap<ExprId, StreamType>,
+        param_types: HashMap<(SRef, usize), ConcreteValueType>,
+    ) -> Self {
+        Typed {
+            stream_types,
+            expression_types,
+            param_types,
+        }
+    }
+}
+
+/// Describes the functionality of a mode after checking and inferring types
+#[mode_functionality]
+pub trait TypedTrait {
+    /// Returns the [StreamType] of the given stream
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
+    fn stream_type(&self, sr: SRef) -> HirType;
+
+    /// Returns true if the given stream has a periodic evaluation pacing
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
+    fn is_periodic(&self, sr: SRef) -> bool;
+
+    /// Returns true if the given stream has a event-based evaluation pacing
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
+    fn is_event(&self, sr: SRef) -> bool;
+
+    /// Returns the [StreamType] of the given expression
+    ///
+    /// # Panic
+    /// The function panics if the [ExprId] is invalid.
+    fn expr_type(&self, eid: ExprId) -> HirType;
+
+    /// Returns the [ConcreteValueType] of the `idx` parameter of the `sr` stream template
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) or the index is invalid.
+    fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType;
+}
+
+impl HirStage for Hir<TypedMode> {
     type NextStage = DepAnaMode;
 
     fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
@@ -151,112 +252,6 @@ pub trait DepAnaTrait {
 }
 
 impl HirStage for Hir<DepAnaMode> {
-    type NextStage = TypedMode;
-
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
-        let tts = crate::type_check::type_check(&self)?;
-
-        let mode = TypedMode {
-            dependencies: self.mode.dependencies,
-            types: tts,
-        };
-
-        Ok(Hir {
-            inputs: self.inputs,
-            outputs: self.outputs,
-            triggers: self.triggers,
-            next_output_ref: self.next_output_ref,
-            next_input_ref: self.next_input_ref,
-            expr_maps: self.expr_maps,
-            mode,
-        })
-    }
-}
-
-impl Hir<DepAnaMode> {
-    /// Returns the [RtLolaHir](crate::RtLolaHir) with the type information for each stream and expression
-    ///
-    /// The function returns the [RtLolaHir](crate::RtLolaHir) after the type analysis.
-    /// The new mode implements the same functionality as the [DepAnaMode] and additionally holds for each stream and expression its [StreamType].
-    /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
-    ///
-    /// # Fails
-    /// The function fails if the type checker finds a type error in the specification and returns a string with a detailed description.
-    pub fn check_types(self) -> Result<Hir<TypedMode>, RtLolaError> {
-        self.progress()
-    }
-}
-
-/// Represents the results of the type checker
-#[derive(Debug, Clone)]
-pub struct Typed {
-    stream_types: HashMap<SRef, StreamType>,
-    expression_types: HashMap<ExprId, StreamType>,
-    param_types: HashMap<(SRef, usize), ConcreteValueType>,
-}
-
-/// Represents the mode after the type checker call
-///
-/// This struct represents the mode after the type checker call.
-/// Besides this result, this mode has the same functionality as all the previous modes.
-/// The [TypedTrait] defines the new functionality of the mode.
-#[covers_functionality(DepAnaTrait, dependencies)]
-#[covers_functionality(TypedTrait, types)]
-#[derive(Debug, Clone, HirMode)]
-pub struct TypedMode {
-    dependencies: DepAna,
-    types: Typed,
-}
-
-impl Typed {
-    pub(crate) fn new(
-        stream_types: HashMap<SRef, StreamType>,
-        expression_types: HashMap<ExprId, StreamType>,
-        param_types: HashMap<(SRef, usize), ConcreteValueType>,
-    ) -> Self {
-        Typed {
-            stream_types,
-            expression_types,
-            param_types,
-        }
-    }
-}
-
-/// Describes the functionality of a mode after checking and inferring types
-#[mode_functionality]
-pub trait TypedTrait {
-    /// Returns the [StreamType] of the given stream
-    ///
-    /// # Panic
-    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
-    fn stream_type(&self, sr: SRef) -> HirType;
-
-    /// Returns true if the given stream has a periodic evaluation pacing
-    ///
-    /// # Panic
-    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
-    fn is_periodic(&self, sr: SRef) -> bool;
-
-    /// Returns true if the given stream has a event-based evaluation pacing
-    ///
-    /// # Panic
-    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
-    fn is_event(&self, sr: SRef) -> bool;
-
-    /// Returns the [StreamType] of the given expression
-    ///
-    /// # Panic
-    /// The function panics if the [ExprId] is invalid.
-    fn expr_type(&self, eid: ExprId) -> HirType;
-
-    /// Returns the [ConcreteValueType] of the `idx` parameter of the `sr` stream template
-    ///
-    /// # Panic
-    /// The function panics if the [StreamReference](crate::hir::StreamReference) or the index is invalid.
-    fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType;
-}
-
-impl HirStage for Hir<TypedMode> {
     type NextStage = OrderedMode;
 
     fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
@@ -348,7 +343,7 @@ impl HirStage for Hir<OrderedMode> {
 
 impl Hir<OrderedMode> {
     /// Returns the [RtLolaHir](crate::RtLolaHir) with the memory-bound for each stream
-    ///     
+    ///
     /// # Fails
     /// The function fails if the memory cannot be determined.
     pub fn determine_memory_bounds(self) -> Result<Hir<MemBoundMode>, RtLolaError> {

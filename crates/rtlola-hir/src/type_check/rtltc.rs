@@ -118,7 +118,7 @@ where
 
     /// starts the value type infer part with the [PacingTypeChecker].
     pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
-        let ptc = PacingTypeChecker::new(&self.hir, &self.names);
+        let ptc = PacingTypeChecker::new(self.hir, &self.names);
         ptc.type_check()
     }
 
@@ -127,7 +127,7 @@ where
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
-        let ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
+        let ctx = ValueTypeChecker::new(self.hir, &self.names, pacing_tt);
         ctx.type_check()
     }
 }

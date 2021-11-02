@@ -60,13 +60,13 @@ impl EdgeWeight {
     }
 
     /// Returns the memory bound of the [EdgeWeight]
-    pub(crate) fn to_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
         match self.kind {
             StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
                 MemorizationBound::default_value(dynamic)
             },
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
-            StreamAccessKind::Offset(o) => o.to_memory_bound(dynamic),
+            StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
         }
     }
 }
@@ -105,20 +105,7 @@ pub(crate) trait ExtendedDepGraph {
 
 impl ExtendedDepGraph for DependencyGraph {
     fn without_negative_offset_edges(mut self) -> Self {
-        let edges_to_remove = self
-            .edge_indices()
-            .flat_map(|e_i| {
-                if Self::has_negative_offset(self.edge_weight(e_i).unwrap()) {
-                    Some(e_i)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        edges_to_remove.into_iter().for_each(|e_i| {
-            let res = self.remove_edge(e_i);
-            debug_assert!(res.is_some());
-        });
+        self.retain_edges(|graph, e| !Self::has_negative_offset(graph.edge_weight(e).unwrap()));
         self
     }
 
@@ -126,79 +113,46 @@ impl ExtendedDepGraph for DependencyGraph {
     where
         M: HirMode + TypedTrait,
     {
-        let edges_to_remove = self
-            .edge_indices()
-            .flat_map(|e_i| {
-                let (lhs, rhs) = self.edge_endpoints(e_i).unwrap();
-                let w = self.edge_weight(e_i).unwrap();
-                let lhs_sr = *self.node_weight(lhs).unwrap();
-                let lhs = hir.stream_type(lhs_sr);
-                let rhs = hir.stream_type(*self.node_weight(rhs).unwrap());
-                let lhs_pt = match w.origin {
-                    Origin::Spawn => lhs.spawn.0.clone(),
-                    Origin::Filter | Origin::Eval => lhs.pacing_ty,
-                    Origin::Close => hir.expr_type(lhs.close.eid).pacing_ty,
-                };
-                let rhs_pt = rhs.pacing_ty;
-                match (lhs_pt, rhs_pt) {
-                    (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => None,
-                    (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => Some(e_i),
-                    (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => Some(e_i),
-                    (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => {
-                        match (lhs.spawn.0, rhs.spawn.0) {
-                            (ConcretePacingType::Constant, ConcretePacingType::Constant) => None,
-                            (ConcretePacingType::Constant, _) => Some(e_i),
-                            (_, ConcretePacingType::Constant) => Some(e_i),
-                            _ => None,
-                        }
-                    },
-                    (ConcretePacingType::Constant, _)
-                    | (ConcretePacingType::Periodic, _)
-                    | (_, ConcretePacingType::Constant)
-                    | (_, ConcretePacingType::Periodic) => unreachable!(),
-                }
-            })
-            .collect::<Vec<_>>();
-        edges_to_remove.into_iter().for_each(|e_i| {
-            let res = self.remove_edge(e_i);
-            debug_assert!(res.is_some());
+        self.retain_edges(|g, e_i| {
+            let (lhs, rhs) = g.edge_endpoints(e_i).unwrap();
+            let w = g.edge_weight(e_i).unwrap();
+            let lhs_sr = *g.node_weight(lhs).unwrap();
+            let lhs = hir.stream_type(lhs_sr);
+            let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
+            let lhs_pt = match w.origin {
+                Origin::Spawn => lhs.spawn.0.clone(),
+                Origin::Filter | Origin::Eval => lhs.pacing_ty,
+                Origin::Close => hir.expr_type(lhs.close.eid).pacing_ty,
+            };
+            let rhs_pt = rhs.pacing_ty;
+            match (lhs_pt, rhs_pt) {
+                (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
+                (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
+                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
+                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => {
+                    match (lhs.spawn.0, rhs.spawn.0) {
+                        (ConcretePacingType::Constant, ConcretePacingType::Constant) => true,
+                        (ConcretePacingType::Constant, _) => false,
+                        (_, ConcretePacingType::Constant) => false,
+                        _ => true,
+                    }
+                },
+                (ConcretePacingType::Constant, _)
+                | (ConcretePacingType::Periodic, _)
+                | (_, ConcretePacingType::Constant)
+                | (_, ConcretePacingType::Periodic) => unreachable!(),
+            }
         });
         self
     }
 
     fn without_close(mut self) -> Self {
-        let edges_to_remove = self
-            .edge_indices()
-            .flat_map(|e_i| {
-                if self.edge_weight(e_i).unwrap().origin == Origin::Close {
-                    Some(e_i)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        edges_to_remove.into_iter().for_each(|e_i| {
-            let res = self.remove_edge(e_i);
-            debug_assert!(res.is_some());
-        });
+        self.retain_edges(|g, e_i| g.edge_weight(e_i).unwrap().origin != Origin::Close);
         self
     }
 
     fn only_spawn(mut self) -> Self {
-        let edges_to_remove = self
-            .edge_indices()
-            .flat_map(|e_i| {
-                if matches!(self.edge_weight(e_i).unwrap().origin, Origin::Spawn) {
-                    None
-                } else {
-                    Some(e_i)
-                }
-            })
-            .collect::<Vec<_>>();
-        edges_to_remove.into_iter().for_each(|e_i| {
-            let res = self.remove_edge(e_i);
-            debug_assert!(res.is_some());
-        });
+        self.retain_edges(|g, e_i| g.edge_weight(e_i).unwrap().origin == Origin::Spawn);
         self
     }
 }
@@ -347,11 +301,11 @@ impl DepAna {
         // add nodes and edges to graph
         let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
         edges.iter().for_each(|(src, w, tar)| {
-            graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());
+            graph.add_edge(node_mapping[src], node_mapping[tar], *w);
         });
 
         // Check well-formedness = no closed-walk with total weight of zero or positive
-        Self::check_well_formedness(&graph).map_err(|e| e.into_diagnostic(spec))?;
+        Self::check_well_formedness(&graph, spec).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
@@ -539,10 +493,7 @@ mod tests {
         )>,
     ) {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast)
-            .unwrap()
-            .check_types()
-            .unwrap();
+        let hir = Hir::<BaseMode>::from_ast(ast).unwrap().check_types().unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (

@@ -894,20 +894,21 @@ where
             expression_key_span,
             names,
             annotated_checks,
+            exp_context,
         } = self;
         let pacing_tt = pacing_tyc.type_check().map_err(|tc_err| {
-            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], &names)
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], names)
         })?;
         let exp_tt = expression_tyc.type_check().map_err(|tc_err| {
-            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], &names)
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], names)
         })?;
 
         let mut error = RtLolaError::new();
         for pe in Self::check_explicit_bounds(annotated_checks, &pacing_tt) {
-            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], &names));
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], names));
         }
-        for pe in Self::post_process(&hir, &node_key, &pacing_tt, &exp_tt) {
-            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], &names));
+        for pe in Self::post_process(hir, &node_key, &pacing_tt, &exp_tt, &exp_context) {
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], names));
         }
         Result::from(error)?;
 
@@ -2093,7 +2094,7 @@ mod tests {
             trigger @1Hz x.hold(or: false)
         ";
         assert_eq!(0, num_errors(spec));
-        let (hir, ctx) = setup_ast(spec);
+        let (hir, _) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
@@ -2188,8 +2189,8 @@ mod tests {
                         input y:Int8\n\
                         output a(p:Int8) spawn with x close @x&y y == 5 := p + x";
         assert_eq!(0, num_errors(spec));
-        let (hir, handler, _) = setup_ast(spec);
-        let mut ltc = LolaTypeChecker::new(&hir, &handler);
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
         let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();

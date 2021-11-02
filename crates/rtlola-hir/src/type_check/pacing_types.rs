@@ -479,7 +479,7 @@ impl Resolvable for PacingErrorKind {
                 let own_expr = own_spawn_expr.pretty_string(names);
                 let supplied = arg.pretty_string(names);
 
-                Diagnostic::error(handler,
+                Diagnostic::error(
                     "In pacing type analysis:\nInvalid argument for synchronized access:"
                 )
                 .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({})", target_expr)), false)
@@ -490,19 +490,17 @@ impl Resolvable for PacingErrorKind {
                     .add_note("Note: Each parameter of the accessed stream requires a counterpart which is a parameter of the accessing stream.")
             },
             NonParamInSyncAccess(span) => {
-                Diagnostic::error(handler,
+                Diagnostic::error(
                                   "In pacing type analysis:\nOnly parameters are allowed as arguments when synchronously accessing a stream:"
                 )
                     .add_span_with_label(span, Some("Found an expression that is not a parameter here"), true)
-                    .emit()
             },
             ParameterAmountMismatch { target_span, exp_span, given_num, expected_num} => {
-                Diagnostic::error(handler,
+                Diagnostic::error(
                                   "In pacing type analysis:\nMismatch between number of given arguments and expected spawn arguments:"
                 )
                     .add_span_with_label(exp_span, Some(&format!("Got {} arguments here.", given_num)), true)
                     .add_span_with_label(target_span, Some(&format!("Expected {} arguments here.", expected_num)), false)
-                    .emit()
             }
         }
     }

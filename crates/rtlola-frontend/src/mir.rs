@@ -246,7 +246,7 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
@@ -297,7 +297,7 @@ impl Default for CloseTemplate {
 }
 
 /// Information on the close behavior of a stream
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FilterTemplate {
     /// The `target` expression needs to be evaluated whenever the stream with this FilterTemplate is supposed to be evaluated.  The result of the evaluation constitutes whether the stream is actually evaluated.
     pub target: Option<Expression>,

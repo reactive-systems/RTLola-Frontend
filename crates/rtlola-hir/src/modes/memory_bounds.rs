@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Add;
 
-use num::abs;
 use serde::{Deserialize, Serialize};
 
 use crate::hir::{Hir, SRef};
@@ -102,7 +101,7 @@ impl MemBound {
             .collect::<HashMap<SRef, MemorizationBound>>();
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
-            let cur_edge_bound = spec.graph().edge_weight(edge_index).unwrap().to_memory_bound(dynamic);
+            let cur_edge_bound = spec.graph().edge_weight(edge_index).unwrap().as_memory_bound(dynamic);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
@@ -128,9 +127,9 @@ mod dynaminc_memory_bound_tests {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies()
-            .unwrap()
             .check_types()
+            .unwrap()
+            .analyze_dependencies()
             .unwrap()
             .determine_evaluation_order()
             .unwrap();
@@ -346,9 +345,9 @@ mod static_memory_bound_tests {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .analyze_dependencies()
-            .unwrap()
             .check_types()
+            .unwrap()
+            .analyze_dependencies()
             .unwrap()
             .determine_evaluation_order()
             .unwrap();
