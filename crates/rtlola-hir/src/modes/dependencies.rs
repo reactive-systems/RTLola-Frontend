@@ -120,7 +120,7 @@ impl ExtendedDepGraph for DependencyGraph {
             let lhs = hir.stream_type(lhs_sr);
             let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
             let lhs_pt = match w.origin {
-                Origin::Spawn => lhs.spawn.0.clone(),
+                Origin::Spawn => lhs.spawn.0,
                 Origin::Filter | Origin::Eval => lhs.pacing_ty,
                 Origin::Close => hir.expr_type(lhs.close.eid).pacing_ty,
             };
@@ -129,14 +129,7 @@ impl ExtendedDepGraph for DependencyGraph {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
                 (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
                 (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => {
-                    match (lhs.spawn.0, rhs.spawn.0) {
-                        (ConcretePacingType::Constant, ConcretePacingType::Constant) => true,
-                        (ConcretePacingType::Constant, _) => false,
-                        (_, ConcretePacingType::Constant) => false,
-                        _ => true,
-                    }
-                },
+                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => true,
                 (ConcretePacingType::Constant, _)
                 | (ConcretePacingType::Periodic, _)
                 | (_, ConcretePacingType::Constant)
@@ -1090,36 +1083,36 @@ mod tests {
     #[test]
     fn simple_loop_with_parameter_static_and_dynamic_periodic() {
         let spec = "input a: Int8\n
-        output b(para) @1Hz spawn with c := b(para).offset(by: -1).defaults(to: 0)\n
+        output b(para) @1Hz spawn with a := b(para).offset(by: -1).defaults(to: 0)\n
         output c @1Hz := b(5).hold().defaults(to: 0)";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![
             (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
             (sname_to_sref["c"], vec![sname_to_sref["b"]]),
         ]
         .into_iter()
         .collect();
         let transitive_accesses = vec![
             (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["a"]]),
         ]
         .into_iter()
         .collect();
         let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
             (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
+            (sname_to_sref["c"], vec![]),
         ]
         .into_iter()
         .collect();
         let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["a"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
             (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![]),
         ]
         .into_iter()
         .collect();
