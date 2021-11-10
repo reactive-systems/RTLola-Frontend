@@ -817,7 +817,7 @@ impl RtLolaParser {
                                         if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
-                                                return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
+                                                // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
                                             }
                                             ExpressionKind::DiscreteWindowAggregation {
                                                 expr: inner,
