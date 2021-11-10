@@ -26,13 +26,13 @@ use uom::si::rational64::Frequency as UOM_Frequency;
 
 pub use crate::hir::expression::*;
 pub use crate::modes::ast_conversion::{SpawnDef, TransformationErr};
-pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight};
+pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight, Origin};
 pub use crate::modes::memory_bounds::MemorizationBound;
 pub use crate::modes::ordering::{Layer, StreamLayers};
 use crate::modes::HirMode;
 pub use crate::modes::{
     BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
-    TypedTrait,
+    TypedMode, TypedTrait,
 };
 use crate::stdlib::FuncDecl;
 pub use crate::type_check::{
@@ -304,7 +304,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.close.map(|e| self.expression(e)))
+                    output.and_then(|o| o.instance_template.close.as_ref().map(|e| self.expression(e.target)))
                 } else {
                     None
                 }
@@ -481,7 +481,57 @@ pub(crate) struct InstanceTemplate {
     /// The optional filter condition
     pub(crate) filter: Option<ExprId>,
     /// The optional closing condition
-    pub(crate) close: Option<ExprId>,
+    pub(crate) close: Option<CloseTemplate>,
+}
+
+impl InstanceTemplate {
+    /// Returns a reference to the `Expression` representing the spawn target if it exists
+    pub(crate) fn spawn_target<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.spawn
+            .as_ref()
+            .and_then(|st| st.target)
+            .map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a vector of `Expression` references representing the expressions with which the parameters of the stream are initialized
+    pub(crate) fn spawn_arguments<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Vec<&'a Expression> {
+        self.spawn_target(hir)
+            .map(|se| {
+                match &se.kind {
+                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                    _ => vec![se],
+                }
+            })
+            .unwrap_or_else(Vec::new)
+    }
+
+    /// Returns a reference to the `Expression` representing the spawn condition if it exists
+    pub(crate) fn spawn_condition<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.spawn
+            .as_ref()
+            .and_then(|st| st.condition)
+            .map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a reference to the `AnnotatedPacingType` representing the spawn pacing if it exists
+    pub(crate) fn spawn_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
+        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+    }
+
+    /// Returns a reference to the `Expression` representing the filter condition if it exists
+    pub(crate) fn filter<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.filter.map(|eid| hir.expression(eid))
+    }
+
+    /// Returns a reference to the `Expression` representing the close condition if it exists
+    pub(crate) fn close<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+        self.close.as_ref().map(|ct| hir.expression(ct.target))
+    }
+
+    /// Returns a reference to the `AnnotatedPacingType` representing the close pacing if it exists
+    pub(crate) fn close_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
+        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
+    }
 }
 
 /// Information regarding the spawning behavior of a stream
@@ -493,6 +543,15 @@ pub(crate) struct SpawnTemplate {
     pub(crate) pacing: Option<AnnotatedPacingType>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
+}
+
+/// Information regarding the closing behavior of a stream
+#[derive(Debug, Clone)]
+pub(crate) struct CloseTemplate {
+    /// The expression defining if an instance is closed
+    pub(crate) target: ExprId,
+    /// The activation condition describing when an instance is closed
+    pub(crate) pacing: Option<AnnotatedPacingType>,
 }
 
 /// Represents a trigger of an RTLola specification.
@@ -659,8 +718,8 @@ impl PartialOrd for StreamReference {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(&i2)),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(&o2)),
+            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(i2)),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(o2)),
             (StreamReference::In(_), StreamReference::Out(_)) => Some(Ordering::Less),
             (StreamReference::Out(_), StreamReference::In(_)) => Some(Ordering::Greater),
         }
@@ -671,8 +730,8 @@ impl Ord for StreamReference {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => i.cmp(&i2),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => o.cmp(&o2),
+            (StreamReference::In(i), StreamReference::In(i2)) => i.cmp(i2),
+            (StreamReference::Out(o), StreamReference::Out(o2)) => o.cmp(o2),
             (StreamReference::In(_), StreamReference::Out(_)) => Ordering::Less,
             (StreamReference::Out(_), StreamReference::In(_)) => Ordering::Greater,
         }
@@ -680,7 +739,7 @@ impl Ord for StreamReference {
 }
 
 /// Offset used in the lookup expression
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
     FutureDiscrete(u32),
@@ -690,6 +749,26 @@ pub enum Offset {
     FutureRealTime(Duration),
     /// A non-negative real-time offset, e.g., `0`, `4min`, `2.3h`
     PastRealTime(Duration),
+}
+
+impl Offset {
+    /// Returns `true`, iff the Offset is negative
+    pub(crate) fn has_negative_offset(&self) -> bool {
+        match self {
+            Offset::FutureDiscrete(_) | Offset::FutureRealTime(_) => false,
+            Offset::PastDiscrete(o) => *o != 0,
+            Offset::PastRealTime(o) => o.as_nanos() != 0,
+        }
+    }
+
+    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+        match self {
+            Offset::PastDiscrete(o) => MemorizationBound::Bounded(*o) + MemorizationBound::default_value(dynamic),
+            Offset::FutureDiscrete(_) => unimplemented!(),
+            Offset::FutureRealTime(_) => unimplemented!(),
+            Offset::PastRealTime(_) => unimplemented!(),
+        }
+    }
 }
 
 impl PartialOrd for Offset {

@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
@@ -31,7 +32,7 @@ pub enum NodeId {
 }
 
 /// Resolvable is implemented for all type checker errors and is used for generic error printing.
-pub(crate) trait Resolvable {
+pub(crate) trait Resolvable: Debug {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
@@ -41,6 +42,7 @@ pub(crate) trait Resolvable {
     ) -> Diagnostic;
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct TypeError<K: Resolvable> {
     pub(crate) kind: K,
     pub(crate) key1: Option<TcKey>,
@@ -116,7 +118,7 @@ where
 
     /// starts the value type infer part with the [PacingTypeChecker].
     pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
-        let ptc = PacingTypeChecker::new(&self.hir, &self.names);
+        let ptc = PacingTypeChecker::new(self.hir, &self.names);
         ptc.type_check()
     }
 
@@ -125,7 +127,7 @@ where
         &self,
         pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
-        let ctx = ValueTypeChecker::new(&self.hir, &self.names, pacing_tt);
+        let ctx = ValueTypeChecker::new(self.hir, &self.names, pacing_tt);
         ctx.type_check()
     }
 }
@@ -133,8 +135,8 @@ where
 impl PartialOrd for NodeId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (NodeId::Expr(a), NodeId::Expr(b)) => Some(a.cmp(&b)),
-            (NodeId::SRef(a), NodeId::SRef(b)) => Some(a.cmp(&b)),
+            (NodeId::Expr(a), NodeId::Expr(b)) => Some(a.cmp(b)),
+            (NodeId::SRef(a), NodeId::SRef(b)) => Some(a.cmp(b)),
             (NodeId::Param(_, _), _) => unreachable!(),
             (_, _) => None,
         }

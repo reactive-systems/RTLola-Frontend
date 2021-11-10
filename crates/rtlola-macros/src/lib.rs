@@ -157,9 +157,9 @@ pub fn covers_functionality(attr: TokenStream, input: TokenStream) -> TokenStrea
         })
         .expect("accessor not found in struct");
 
-    let sub_inner_name = generate_inner_name(&sub_trait_name);
-    let sub_wrapper_name = generate_wrapper_name(&sub_trait_name);
-    let sub_inner_fn_name = generate_wrapper_fn_name(&sub_trait_name);
+    let sub_inner_name = generate_inner_name(sub_trait_name);
+    let sub_wrapper_name = generate_wrapper_name(sub_trait_name);
+    let sub_inner_fn_name = generate_wrapper_fn_name(sub_trait_name);
 
     let mut input = clone;
     let out = quote! {

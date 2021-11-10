@@ -436,13 +436,28 @@ impl RtLolaParser {
 
         let mut children = close_pair.into_inner();
 
-        let first_child = children.next().expect("mismatch between grammar and ast");
-        let target = match first_child.as_rule() {
-            Rule::Expr => self.build_expression_ast(first_child.into_inner()),
+        let mut next_pair = children.next();
+
+        let annotated_pacing = if let Some(pair) = next_pair.clone() {
+            if let Rule::ActivationCondition = pair.as_rule() {
+                let expr = self.build_expression_ast(pair.into_inner())?;
+                next_pair = children.next();
+                Some(expr)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let target_child = next_pair.expect("mismatch between grammar and ast");
+        let target = match target_child.as_rule() {
+            Rule::Expr => self.build_expression_ast(target_child.into_inner()),
             _ => unreachable!(),
         }?;
         Ok(CloseSpec {
             target,
+            annotated_pacing,
             id: self.next_id(),
             span: span_close,
         })
@@ -802,7 +817,7 @@ impl RtLolaParser {
                                         if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
-                                                return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
+                                                // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
                                             }
                                             ExpressionKind::DiscreteWindowAggregation {
                                                 expr: inner,
@@ -1590,6 +1605,15 @@ mod tests {
     #[test]
     fn spawn_with_pacing() {
         let spec = "output x spawn @3Hz with (x) if true := 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) spawn with a = 42 := a\n\
+        output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }

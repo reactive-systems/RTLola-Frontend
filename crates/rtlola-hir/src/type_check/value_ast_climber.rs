@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use itertools::Itertools;
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
@@ -103,36 +104,36 @@ where
     pub(crate) fn type_check(mut self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
         for input in self.hir.inputs() {
             self.input_infer(input)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         for output in self.hir.outputs() {
             self.output_infer(output)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         for trigger in self.hir.triggers() {
             self.trigger_infer(trigger)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], &self.names))?;
+                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
         let tt = self
             .tyc
             .clone()
             .type_check()
-            .map_err(|e| TypeError::from(e).into_diagnostic(&[&self.key_span], &self.names))?;
+            .map_err(|e| TypeError::from(e).into_diagnostic(&[&self.key_span], self.names))?;
 
         let mut error = RtLolaError::new();
         for err in Self::check_explicit_bounds(self.annotated_checks.clone(), &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
 
         for err in Self::check_widen_exprs(self.widen_checks.clone(), &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
 
         for err in Self::post_process(self.hir, &self.node_key, &tt) {
-            error.add(err.into_diagnostic(&[&self.key_span], &self.names));
+            error.add(err.into_diagnostic(&[&self.key_span], self.names));
         }
         Result::from(error)?;
 
@@ -344,7 +345,7 @@ where
     /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
-        let expression_key = self.expression_infer(&self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
+        let expression_key = self.expression_infer(self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
@@ -491,10 +492,17 @@ where
                             },
                             //Count: Any -> uint
                             WindowOperation::Count => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Any))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                if wait {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                                    self.tyc
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                } else {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                }
                             },
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> Float   <-- currently used
@@ -531,8 +539,17 @@ where
                             WindowOperation::Conjunction | WindowOperation::Disjunction => {
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                if wait {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                    //self.tyc.impose(inner_key.equate_with(ex_key))?;
+                                    self.tyc
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                } else {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                }
                             },
                             // Float -> Option<Float>
                             WindowOperation::Variance | WindowOperation::StandardDeviation => {
@@ -725,9 +742,9 @@ where
                     AnnotatedType::Float(_) => AbstractValueType::Float,
                     _ => unimplemented!("unsupported widening type"),
                 };
-                self.handle_annotated_type(term_key, &ty, Some(inner_expr_key))?;
+                self.handle_annotated_type(term_key, ty, Some(inner_expr_key))?;
                 self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
-                self.add_widen_check(term_key, inner_expr_key, &ty)?;
+                self.add_widen_check(term_key, inner_expr_key, ty)?;
                 //self.tyc.impose(term_key.concretizes(inner_expr_key))?;
             },
             ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
@@ -867,7 +884,7 @@ where
         tt: &TypeTable<AbstractValueType>,
     ) -> Vec<TypeError<ValueErrorKind>> {
         let mut errors = vec![];
-        //Check that no output has an optional type
+        //Check that no output or spawn target has an optional type
         for output in &hir.outputs {
             let key = node_key[&NodeId::SRef(output.sr())];
             let ty: &ConcreteValueType = &tt[&key];
@@ -877,6 +894,37 @@ where
                     key1: Some(key),
                     key2: None,
                 });
+            }
+
+            if let Some(target) = output.instance_template.spawn.as_ref().and_then(|st| st.target) {
+                let key = node_key[&NodeId::Expr(target)];
+                let ty: &ConcreteValueType = &tt[&key];
+                match ty {
+                    ConcreteValueType::Tuple(child_types) => {
+                        if let ExpressionKind::Tuple(children) = &hir.expression(target).kind {
+                            if let Some((child_idx, child_ty)) = child_types
+                                .iter()
+                                .find_position(|t| matches!(t, ConcreteValueType::Option(_)))
+                            {
+                                let key = node_key[&NodeId::Expr(children[child_idx].eid)];
+                                errors.push(TypeError {
+                                    kind: ValueErrorKind::OptionNotAllowed(child_ty.clone()),
+                                    key1: Some(key),
+                                    key2: None,
+                                })
+                            }
+                        }
+                    },
+                    ConcreteValueType::Option(_) => {
+                        errors.push(TypeError {
+                            kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                            key1: Some(key),
+                            key2: None,
+                        })
+                    },
+                    _ => {},
+                }
+                if matches!(ty, ConcreteValueType::Option(_)) {}
             }
         }
         errors
@@ -979,7 +1027,10 @@ mod value_type_tests {
 
     #[test]
     fn parametric_access_default() {
-        let spec = "output i(a: Int8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true):= if b then a else 0 \n output o(x) spawn @1Hz with 42 := i(5,true).offset(by:-1).defaults(to: 42)";
+        let spec = "input x: Int8\n\
+        input y: Bool\n\
+        output i(a: Int8, b: Bool): Int8 @1Hz spawn with (x, y):= if b then a else 0\n\
+        output o(a: Int8, b: Bool) spawn with (x, y) := i(a, b).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
@@ -1011,18 +1062,6 @@ mod value_type_tests {
         let output_2_id = tb.output("y");
         assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer8);
         assert_eq!(result_map[&NodeId::SRef(output_2_id)], ConcreteValueType::Integer8);
-    }
-
-    #[test]
-    fn parametric_declaration_param_two_many() {
-        let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true, false) := a";
-        assert_eq!(1, num_errors(spec));
-    }
-
-    #[test]
-    fn parametric_declaration_param_two_few() {
-        let spec = "output x(a: UInt8, b: Bool, c:String) @1Hz spawn @1Hz with (5, true) := a";
-        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1111,7 +1150,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_trigger() {
-        let spec = "trigger false";
+        let spec = "trigger @1Hz false";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
@@ -1119,7 +1158,7 @@ mod value_type_tests {
 
     #[test]
     fn simple_trigger_message() {
-        let spec = "trigger false \"alert always\"";
+        let spec = "trigger @1Hz false \"alert always\"";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
         assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
@@ -1127,7 +1166,7 @@ mod value_type_tests {
 
     #[test]
     fn faulty_trigger() {
-        let spec = "trigger 1";
+        let spec = "trigger @1Hz 1";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1349,7 +1388,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_param_spec() {
         let spec =
-            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 3 := 3\noutput b(p:Int8): Int8 spawn @1Hz with 42 := a(3)";
+            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 3 := 3\noutput b(p:Int8): Int8 spawn @1Hz with 3 := a(p)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
@@ -1901,6 +1940,41 @@ output o_9: Bool @i_0 := true  && true";
     fn test_no_optional_stream() {
         let spec = "input  a : Float64\n\
                          output b := a.offset(by:-1)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_no_optional_spawn_target() {
+        let spec = "input  a : Float64\n\
+                         output b(p) spawn with a.offset(by: -1) := a + p.defaults(to: 0.0)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_no_optional_spawn_target_tuple() {
+        let spec = "input  a : Float64\n\
+                         output b(p, q) spawn with (42, a.offset(by: -1)) := a + q.defaults(to: 0.0)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_exact_window() {
+        let functions = vec!["min", "max", "average", "sum", "count"];
+        for swf in functions {
+            let spec = format!(
+                "input  a : Int32\n\
+                 output b @2Hz := a.aggregate(over_exactly: 1s, using: {})",
+                swf
+            );
+            assert_eq!(1, num_errors(&spec));
+        }
+
+        let spec = "input  a : Bool\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: conjunction)";
+        assert_eq!(1, num_errors(spec));
+
+        let spec = "input  a : Bool\n\
+                          output b @2Hz := a.aggregate(over_exactly: 1s, using: disjunction)";
         assert_eq!(1, num_errors(spec));
     }
 }

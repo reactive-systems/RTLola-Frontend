@@ -26,7 +26,7 @@ FilterDecl = { "filter" ~ Expr }
 
 ActivationCondition = { "@" ~ Expr }
 
-CloseDecl = { "close" ~Expr }
+CloseDecl = { "close" ~ ActivationCondition? ~Expr }
 
 IncludeStatement = { "include"~ StringLiteral}
 

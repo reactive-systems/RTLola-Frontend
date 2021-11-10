@@ -246,14 +246,14 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
     /// The condition under which the stream is not supposed to be evaluated
-    pub filter: Option<Expression>,
+    pub filter: FilterTemplate,
     /// The condition under which the stream is supposed to be closed
-    pub close: Option<Expression>,
+    pub close: CloseTemplate,
 }
 
 /// Information on the spawn behavior of a stream
@@ -272,6 +272,43 @@ impl Default for SpawnTemplate {
             target: None,
             pacing: PacingType::Constant,
             condition: None,
+        }
+    }
+}
+
+/// Information on the close behavior of a stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTemplate {
+    /// The `target` expression needs to be evaluated whenever the stream with this CloseTemplate is supposed to be closed.  The result of the evaluation constitutes whether the stream is closed.
+    pub target: Option<Expression>,
+    /// The timing of the close condition.
+    pub pacing: PacingType,
+    /// Indicates whether the close condition contains a reference to the stream it belongs to.
+    pub has_self_reference: bool,
+}
+impl Default for CloseTemplate {
+    fn default() -> Self {
+        CloseTemplate {
+            target: None,
+            pacing: PacingType::Constant,
+            has_self_reference: false,
+        }
+    }
+}
+
+/// Information on the close behavior of a stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilterTemplate {
+    /// The `target` expression needs to be evaluated whenever the stream with this FilterTemplate is supposed to be evaluated.  The result of the evaluation constitutes whether the stream is actually evaluated.
+    pub target: Option<Expression>,
+    /// The timing of the filter condition.
+    pub pacing: PacingType,
+}
+impl Default for FilterTemplate {
+    fn default() -> Self {
+        FilterTemplate {
+            target: None,
+            pacing: PacingType::Constant,
         }
     }
 }
@@ -655,6 +692,14 @@ impl RtLolaMir {
         }
     }
 
+    /// Provides immutable access to a stream.
+    pub fn stream(&self, reference: StreamReference) -> &dyn Stream {
+        match reference {
+            StreamReference::In(ix) => &self.inputs[ix],
+            StreamReference::Out(ix) => &self.outputs[ix],
+        }
+    }
+
     /// Produces an iterator over all stream references.
     pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> {
         self.input_refs()
@@ -670,6 +715,16 @@ impl RtLolaMir {
     /// Provides a collection of all event-driven output streams.
     pub fn all_event_driven(&self) -> Vec<&OutputStream> {
         self.event_driven.iter().map(|t| self.output(t.reference)).collect()
+    }
+
+    /// Return true if the specification contains any time-driven features.
+    /// This includes time-driven streams and time-driven spawn conditions.
+    pub fn has_time_driven_features(&self) -> bool {
+        !self.time_driven.is_empty()
+            || self
+                .outputs
+                .iter()
+                .any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
     }
 
     /// Provides a collection of all time-driven output streams.
@@ -705,18 +760,29 @@ impl RtLolaMir {
     }
 
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` an output stream in the layer.
-    pub fn get_event_driven_layers(&self) -> Vec<Vec<OutputReference>> {
-        if self.event_driven.is_empty() {
+    pub fn get_event_driven_layers(&self) -> Vec<Vec<Task>> {
+        let mut event_driven_spawns = self
+            .outputs
+            .iter()
+            .filter(|o| matches!(o.instance_template.spawn.pacing, PacingType::Event(_)))
+            .peekable();
+
+        // Peekable is fine because the filter above does not have side effects
+        if self.event_driven.is_empty() && event_driven_spawns.peek().is_none() {
             return vec![];
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers: Vec<(usize, OutputReference)> = self
+        let streams_with_layers = self
             .event_driven
             .iter()
             .map(|s| s.reference)
-            .map(|r| (self.output(r).eval_layer().into(), r.out_ix()))
-            .collect();
+            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())));
+
+        let spawns_with_layers =
+            event_driven_spawns.map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
+
+        let tasks_with_layers: Vec<(usize, Task)> = streams_with_layers.chain(spawns_with_layers).collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
         // layers without entries and more layers than streams.
@@ -728,13 +794,13 @@ impl RtLolaMir {
         // e) If there are some, add them as layer.
 
         // a) Find the greatest layer. Maximum must exist because vec cannot be empty.
-        let max_layer = streams_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
+        let max_layer = tasks_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
 
         let mut layers = Vec::new();
         // b) For each potential layer
         for i in 0..=max_layer {
             // c) Find streams that would be in it.
-            let in_layer_i: Vec<OutputReference> = streams_with_layers
+            let in_layer_i: Vec<Task> = tasks_with_layers
                 .iter()
                 .filter_map(|(l, r)| if *l == i { Some(*r) } else { None })
                 .collect();

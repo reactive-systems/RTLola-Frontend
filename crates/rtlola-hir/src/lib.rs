@@ -57,8 +57,8 @@ pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
 /// This function returns the fully analysed [RtLolaHir](crate::hir::RtLolaHir)  which can be lowered into the [Mir](rtlola-frontend::Mir).
 pub fn fully_analyzed(ast: RtLolaAst) -> Result<Hir<CompleteMode>, RtLolaError> {
     Hir::<BaseMode>::from_ast(ast)?
-        .analyze_dependencies()?
         .check_types()?
+        .analyze_dependencies()?
         .determine_evaluation_order()?
         .determine_memory_bounds()?
         .finalize()

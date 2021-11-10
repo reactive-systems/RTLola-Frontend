@@ -42,7 +42,7 @@ use std::path::PathBuf;
 // Public exports
 pub mod ast;
 pub use ast::RtLolaAst;
-use rtlola_reporting::RtLolaError;
+use rtlola_reporting::{Handler, RtLolaError};
 
 #[derive(Debug, Clone)]
 /// The configuration of the parser.
@@ -98,4 +98,13 @@ impl ParserConfig {
 /// Invokes the parser with the given configuration.
 pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     crate::parse::RtLolaParser::parse(cfg)
+}
+
+impl From<ParserConfig> for Handler {
+    fn from(cfg: ParserConfig) -> Self {
+        match cfg.path {
+            Some(path) => Handler::new(path, cfg.spec),
+            None => Handler::without_file(cfg.spec),
+        }
+    }
 }

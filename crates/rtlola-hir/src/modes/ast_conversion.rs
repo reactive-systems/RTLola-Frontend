@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, ArithLogOp, Constant as HirConstant, DiscreteAggr, ExprId, Expression,
-    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset, Output,
-    Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    AnnotatedPacingType, AnnotatedType, ArithLogOp, CloseTemplate, Constant as HirConstant, DiscreteAggr, ExprId,
+    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset,
+    Output, Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind,
+    Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -89,6 +90,15 @@ pub enum TransformationErr {
     UnknownFunction(Span),
     /// Non duration literal with postfix found.
     InvalidLiteral(Span),
+    /// An access to a parameterized output stream is missing its parameters
+    MissingArguments(Span),
+    /// An output stream with parameters is missing a spawn target
+    MissingSpawn(Span),
+    /// An output stream with a spawn target is missing parameters
+    MissingParameters(Span),
+    /// The number of parameters of an output differs from the number of spawn expressions.
+    /// Span of the output, number of parameters, number of spawn expressions
+    SpawnParameterMismatch(Span, usize, usize),
 }
 
 impl TransformationErr {
@@ -154,6 +164,35 @@ impl TransformationErr {
                     true,
                 )
             },
+            TransformationErr::MissingArguments(span) => {
+                Diagnostic::error("An access to a parameterized output stream is missing its arguments.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
+            TransformationErr::MissingSpawn(span) => {
+                Diagnostic::error("The following stream has parameters but no spawn target.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+                    .add_note("Help: Add a spawn declaration of the form: spawn with (exp1, ..., exp_n) if ...")
+            }
+            TransformationErr::MissingParameters(span) => {
+                Diagnostic::error("The following stream has a spawn declaration but no parameters.").add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
+            TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn target expressions. Found {} parameters and {} spawn targets", paras, targets)).add_span_with_label(
+                    span,
+                    Some("here"),
+                    true,
+                )
+            }
         }
     }
 }
@@ -248,6 +287,30 @@ impl ExpressionTransformer {
             let annotated_pacing_type = annotated_pacing_type
                 .map_or(Ok(None), |pt| self.transform_pt(&mut exprid_to_expr, pt, sr).map(Some))?;
             let instance_template = self.transform_template_spec(spawn, filter, close, &mut exprid_to_expr, sr)?;
+
+            //Check that if the output has parameters it has a spawn condition with a target and the other way around
+            if !params.is_empty() && instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
+                return Err(TransformationErr::MissingSpawn(o.span.clone()));
+            }
+            if let Some(target) = instance_template.spawn.as_ref().and_then(|s| s.target) {
+                let spawn_expr = &exprid_to_expr[&target];
+                if params.is_empty() {
+                    return Err(TransformationErr::MissingParameters(spawn_expr.span.clone()));
+                }
+                // check that they are equal length
+                let num_spawn_expr = match &spawn_expr.kind {
+                    ExpressionKind::Tuple(elements) => elements.len(),
+                    _ => 1,
+                };
+                if num_spawn_expr != params.len() {
+                    return Err(TransformationErr::SpawnParameterMismatch(
+                        o.span.clone(),
+                        params.len(),
+                        num_spawn_expr,
+                    ));
+                }
+            }
+
             hir_outputs.push(Output {
                 name: name.name,
                 sr,
@@ -386,6 +449,7 @@ impl ExpressionTransformer {
                 match &self.decl_table[&expr.id] {
                     Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                     Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
+                    Declaration::ParamOut(_) => Err(TransformationErr::MissingArguments(expr.span.clone())),
                     _ => {
                         Err(TransformationErr::InvalidRefExpr(
                             expr.span.clone(),
@@ -514,7 +578,10 @@ impl ExpressionTransformer {
                     },
 
                     Declaration::Param(p) => ExpressionKind::ParameterAccess(current_output, p.param_idx),
-                    Declaration::ParamOut(_) | Declaration::Func(_) | Declaration::Type(_) => {
+                    Declaration::ParamOut(_) => {
+                        return Err(TransformationErr::MissingArguments(span));
+                    },
+                    Declaration::Func(_) | Declaration::Type(_) => {
                         unreachable!("Identifiers can only refer to streams")
                     },
                 }
@@ -571,8 +638,8 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
-                let idx = self.sliding_windows.len();
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
+                let idx = self.discrete_windows.len();
                 let wref = WRef::Discrete(idx);
                 let duration = (*duration)
                     .parse_discrete_duration()
@@ -589,7 +656,7 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.discrete_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::Discrete(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::DiscreteWindow(WRef::Discrete(idx)), paras)
             },
             ast::ExpressionKind::SlidingWindowAggregation {
                 expr: w_expr,
@@ -597,7 +664,7 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, _) = self.get_stream_ref(&w_expr, current_output)?;
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
                 let duration = Self::parse_duration_from_expr(&*duration)
@@ -614,7 +681,7 @@ impl ExpressionTransformer {
                     eid: new_id,
                 };
                 self.sliding_windows.push(window);
-                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), Vec::new())
+                ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), paras)
             },
             ast::ExpressionKind::Binary(op, left, right) => {
                 use rtlola_parser::ast::BinOp;
@@ -859,10 +926,14 @@ impl ExpressionTransformer {
                 )))
             })?,
             close: close_spec.map_or(Ok(None), |close_spec| {
-                Ok(Some(Self::insert_return(
+                let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
+                    Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
+                })?;
+                let target = Self::insert_return(
                     exprid_to_expr,
                     self.transform_expression(close_spec.target, current_output)?,
-                )))
+                );
+                Ok(Some(CloseTemplate { target, pacing }))
             })?,
         })
     }
@@ -870,11 +941,13 @@ impl ExpressionTransformer {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use rtlola_parser::ast::WindowOperation;
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
-    use crate::hir::StreamAccessKind;
+    use crate::hir::{ExpressionContext, StreamAccessKind};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
@@ -893,7 +966,7 @@ mod tests {
         output o4 := 3 + 4
         output o5 := o
         output f := sqrt(4)
-        output p (x,y) := x
+        output p (x,y) spawn with (i,i) if true := x
         output t := (1,3)
         output t1 := t.0
         output def := o.defaults(to:2)
@@ -983,7 +1056,7 @@ mod tests {
 
     #[test]
     fn parameter_expr() {
-        let spec = "output o(a,b,c) :=  if c then a else b";
+        let spec = "output o(a,b,c) spawn @1Hz with (1, 2, 3) :=  if c then a else b";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].expr_id;
         let expr = &ir.expression(output_expr_id);
@@ -1005,7 +1078,8 @@ mod tests {
     #[test]
     fn parametrized_access() {
         use crate::hir::StreamAccessKind;
-        let spec = "output o(a,b,c) :=  if c then a else b output A := o(1,2,true).offset(by:-1)";
+        let spec =
+            "output o(a,b,c) spawn @1Hz with (1, 2, true):=  if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[1].expr_id;
         let expr = &ir.expression(output_expr_id);
@@ -1112,7 +1186,7 @@ mod tests {
     #[test]
     fn functions() {
         use crate::hir::StreamAccessKind;
-        let spec = "import math output o(a: Int) := max(3,4) output c := o(1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3:= max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
         //check that this functions exists
         let _ = ir.func_declaration("max");
@@ -1126,7 +1200,7 @@ mod tests {
 
     #[test]
     fn function_param_default() {
-        let spec = "import math output o(a: Int) := sqrt(a) output c := o(1).defaults(to:1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3 := sqrt(a) output c := o(1).defaults(to:1)";
         let ir = obtain_expressions(spec);
         //check purely for valid access
         let _ = ir.func_declaration("sqrt");
@@ -1244,5 +1318,90 @@ mod tests {
             trigger.annotated_pacing_type,
             Some(AnnotatedPacingType::Frequency { .. })
         ))
+    }
+
+    #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) spawn with a = 42 := a\n\
+        output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
+        let ir = obtain_expressions(spec);
+        let expr = &ir.expression(ir.outputs[1].expr_id).kind;
+        assert!(
+            matches!(expr, ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(_), paras) if paras.len() == 1)
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_spawn() {
+        let spec = "input a: Int32\n\
+        output b (p: Bool) := a";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_parameters() {
+        let spec = "input a: Int32\n\
+        output b spawn with a := a";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_parameter_spawn_mismatch() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) spawn with a := a";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    fn test_expression_context() {
+        macro_rules! para_map {
+            ($($x:expr),+ $(,)?) => (
+                vec![$($x),+].into_iter().map(|(k, set)| (k, set.into_iter().collect::<HashSet<usize>>())).collect::<HashMap<(SRef, usize), HashSet<usize>>>()
+            );
+        }
+
+        let spec = "input a: Int32\n\
+        output b (p1, p2, p3) spawn with (a, a.hold(or: 5), a.offset(by: -5).defaults(to: 7)) if a = 5 := a + p1 + p2 + p3\n\
+        output c (p1, p2, p3, p4) spawn with (a.hold(or: 5), a, a.hold(or: 5), a.offset(by: -5).defaults(to: 8)) if a = 5 := a + p1 + p2 + p3\n\
+        output d (p1, p2) spawn with (a.hold(or: 5), a) := a + p1 + p2\n";
+        let ir = obtain_expressions(spec);
+        let ctx = ExpressionContext::new(&ir);
+
+        let b = SRef::Out(0);
+        let c = SRef::Out(1);
+        let d = SRef::Out(2);
+
+        let b_map = ctx.map_for(b).clone();
+        assert_eq!(
+            b_map,
+            para_map![
+                ((b, 0), vec![0]),
+                ((b, 1), vec![1]),
+                ((b, 2), vec![2]),
+                ((c, 0), vec![1]),
+                ((c, 1), vec![0]),
+                ((c, 2), vec![1]),
+            ]
+        );
+
+        let c_map = ctx.map_for(c).clone();
+        assert_eq!(
+            c_map,
+            para_map![
+                ((c, 0), vec![0, 2]),
+                ((c, 1), vec![1]),
+                ((c, 2), vec![0, 2]),
+                ((c, 3), vec![3]),
+                ((b, 0), vec![1]),
+                ((b, 1), vec![0, 2]),
+            ]
+        );
+
+        let d_map = ctx.map_for(d).clone();
+        assert_eq!(d_map, para_map![((d, 0), vec![0]), ((d, 1), vec![1])]);
     }
 }

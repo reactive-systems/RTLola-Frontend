@@ -8,7 +8,7 @@ use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::WindowOperation;
 
 use crate::mir;
-use crate::mir::{InstanceTemplate, Mir, PacingType, SpawnTemplate};
+use crate::mir::{CloseTemplate, FilterTemplate, InstanceTemplate, Mir, PacingType, SpawnTemplate};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -191,15 +191,57 @@ impl Mir {
         let spawn_cond = hir_spawn_condition.map(|_| Self::lower_expr(hir, &spawn.1));
         let spawn_target = hir_spawn_target.map(|target| Self::lower_expr(hir, target));
         let filter = hir.filter(sr).map(|_| Self::lower_expr(hir, &filter));
+        let filter_pacing = hir
+            .filter(sr)
+            .map(|expr| {
+                match hir.expr_type(expr.id()).pacing_ty {
+                    ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(&ac)),
+                    ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(freq),
+                    ConcretePacingType::Constant => PacingType::Constant,
+                    ConcretePacingType::Periodic => {
+                        unreachable!("Ensured by pacing type checker")
+                    },
+                }
+            })
+            .unwrap_or(PacingType::Constant);
         let close = hir.close(sr).map(|_| Self::lower_expr(hir, &close));
+        let close_pacing = hir
+            .close(sr)
+            .map(|expr| {
+                match hir.expr_type(expr.id()).pacing_ty {
+                    ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(&ac)),
+                    ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(freq),
+                    ConcretePacingType::Constant => PacingType::Constant,
+                    ConcretePacingType::Periodic => {
+                        unreachable!("Ensured by pacing type checker")
+                    },
+                }
+            })
+            .unwrap_or(PacingType::Constant);
+        let close_self_ref = hir
+            .close(sr)
+            .map(|expr| {
+                matches!(
+                    hir.expr_type(expr.id()).spawn.0,
+                    ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
+                )
+            })
+            .unwrap_or(false);
         InstanceTemplate {
             spawn: SpawnTemplate {
                 target: spawn_target,
                 pacing: spawn_pacing,
                 condition: spawn_cond,
             },
-            filter,
-            close,
+            filter: FilterTemplate {
+                target: filter,
+                pacing: filter_pacing,
+            },
+            close: CloseTemplate {
+                target: close,
+                pacing: close_pacing,
+                has_self_reference: close_self_ref,
+            },
         }
     }
 
@@ -576,14 +618,14 @@ mod tests {
             PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
-            mir_d.instance_template.filter,
+            mir_d.instance_template.filter.target,
             Some(mir::Expression {
                 kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
                 ty: _,
             })
         ));
         assert!(matches!(
-            mir_d.instance_template.close,
+            mir_d.instance_template.close.target,
             Some(mir::Expression {
                 kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
                 ty: _,
@@ -623,6 +665,19 @@ mod tests {
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 1);
+    }
+
+    #[test]
+    fn test_instance_window() {
+        let spec = "input a: Int32\n\
+        output b(p: Bool) spawn with a == 42 := a\n\
+        output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
+        let (_, mir) = lower_spec(spec);
+
+        let expr = mir.outputs[1].expr.kind.clone();
+        assert!(
+            matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
+        );
     }
 
     #[test]

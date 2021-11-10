@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 use itertools::Itertools;
 use petgraph::algo::{all_simple_paths, has_path_connecting};
@@ -11,7 +10,10 @@ use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
-use crate::hir::{Expression, ExpressionKind, FnExprKind, Hir, Offset, SRef, StreamAccessKind, WRef, WidenExprKind};
+use crate::hir::{
+    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef,
+    WidenExprKind,
+};
 use crate::modes::HirMode;
 
 /// Represents the Dependency Graph
@@ -20,21 +22,53 @@ use crate::modes::HirMode;
 /// For this, the graph contains a node for each node in the specification and an edge from `source` to `target`, iff the stream `source` uses an stream value of `target`.
 /// The weight of each nodes is the stream reference representing the stream. The weight of the edges is the [kind](EdgeWeight) of the lookup.
 pub type DependencyGraph = StableGraph<SRef, EdgeWeight>;
+
 /// Represents the weights of the edges in the dependency graph
-#[derive(Hash, Clone, Debug, PartialEq, Eq)]
-pub enum EdgeWeight {
-    /// Offset weigth
-    Offset(i32),
-    /// Window weigth
-    Aggr(WRef),
-    /// Sample and hold weigth
-    Hold,
-    /// Represents the edge weight of lookups appearing in the spawn condition
-    Spawn(Box<EdgeWeight>),
-    /// Represents the edge weight of lookups appearing in the filter condition
-    Filter(Box<EdgeWeight>),
-    /// Represents the edge weight of lookups appearing in the close condition
-    Close(Box<EdgeWeight>),
+#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
+pub struct EdgeWeight {
+    /// The [Origin] of the lookup
+    pub origin: Origin,
+    /// The [StreamAccessKind] of the lookup
+    pub kind: StreamAccessKind,
+}
+
+/// Represents the origin of a stream lookup
+#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
+pub enum Origin {
+    /// The access occurs in the spawn declaration.
+    Spawn,
+    /// The access occurs in the filter expression.
+    Filter,
+    /// The access occurs in the stream expression.
+    Eval,
+    /// The access occurs in the close expression.
+    Close,
+}
+
+impl EdgeWeight {
+    /// Creates a new [EdgeWeight]
+    pub(crate) fn new(kind: StreamAccessKind, origin: Origin) -> Self {
+        EdgeWeight { kind, origin }
+    }
+
+    /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
+    pub(crate) fn window(&self) -> Option<WRef> {
+        match self.kind {
+            StreamAccessKind::Sync | StreamAccessKind::Hold | StreamAccessKind::Offset(_) => None,
+            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
+        }
+    }
+
+    /// Returns the memory bound of the [EdgeWeight]
+    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+        match self.kind {
+            StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
+                MemorizationBound::default_value(dynamic)
+            },
+            StreamAccessKind::Hold => MemorizationBound::Bounded(1),
+            StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
+        }
+    }
 }
 
 /// Represents all dependencies between streams
@@ -44,105 +78,75 @@ pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 
 pub(crate) trait ExtendedDepGraph {
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
-    fn without_negative_offset_edges(&self) -> Self;
+    fn without_negative_offset_edges(self) -> Self;
+
+    /// Returns a new [dependency graph](DependencyGraph), in which all edges between nodes with different pacing are deleted
+    fn without_different_pacing<M>(self, hir: &Hir<M>) -> Self
+    where
+        M: HirMode + TypedTrait;
 
     /// Returns `true`, iff the edge weight `e` is a negative offset lookup
     fn has_negative_offset(e: &EdgeWeight) -> bool {
-        match e {
-            EdgeWeight::Offset(o) if *o < 0 => true,
-            EdgeWeight::Spawn(s) => Self::has_negative_offset(s),
-            EdgeWeight::Filter(f) => Self::has_negative_offset(f),
-            EdgeWeight::Close(c) => Self::has_negative_offset(c),
-            _ => false,
+        match e.kind {
+            StreamAccessKind::Sync
+            | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::SlidingWindow(_)
+            | StreamAccessKind::Hold => false,
+            StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
     }
 
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a lookup that are used in the close condition are deleted
-    fn without_close_edges(&self) -> Self;
+    fn without_close(self) -> Self;
 
     /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
-    fn only_spawn_edges(&self) -> Self;
-
-    /// Returns two new [dependency graphs](DependencyGraph), one containing the streams with an event-based pacing type and one with a periodic pacing type
-    ///
-    /// This function returns two new [dependency graphs](DependencyGraph):
-    /// The first graph consists of all streams with an event-based pacing type. Additionally, it only contains the edges between two event-based streams.
-    /// The second graph consists of all streams with a periodic pacing type. Additionally, it only contains the edges between two periodic streams.
-    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
-    where
-        M: HirMode + DepAnaTrait + TypedTrait,
-        Self: Sized;
+    fn only_spawn(self) -> Self;
 }
 
 impl ExtendedDepGraph for DependencyGraph {
-    fn without_negative_offset_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if Self::has_negative_offset(self.edge_weight(edge_index).unwrap()) {
-                working_graph.remove_edge(edge_index);
-            }
-        });
-        working_graph
+    fn without_negative_offset_edges(mut self) -> Self {
+        self.retain_edges(|graph, e| !Self::has_negative_offset(graph.edge_weight(e).unwrap()));
+        self
     }
 
-    fn without_close_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if let EdgeWeight::Close(_) = self.edge_weight(edge_index).unwrap() {
-                working_graph.remove_edge(edge_index);
-            }
-        });
-        working_graph
-    }
-
-    fn only_spawn_edges(&self) -> Self {
-        let mut working_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            if let EdgeWeight::Spawn(_) = self.edge_weight(edge_index).unwrap() {
-            } else {
-                let res = working_graph.remove_edge(edge_index);
-                assert!(res.is_some());
-            }
-        });
-        working_graph
-    }
-
-    fn split_graph<M>(&self, spec: &Hir<M>) -> (Self, Self)
+    fn without_different_pacing<M>(mut self, hir: &Hir<M>) -> Self
     where
-        M: HirMode + DepAnaTrait + TypedTrait,
-        Self: Sized,
+        M: HirMode + TypedTrait,
     {
-        // remove edges and nodes, so mapping does not change
-        let mut event_graph = self.clone();
-        let mut periodic_graph = self.clone();
-        self.edge_indices().for_each(|edge_index| {
-            let (src, tar) = self.edge_endpoints(edge_index).unwrap();
-            let src = self.node_weight(src).unwrap();
-            let tar = self.node_weight(tar).unwrap();
-            match (spec.is_event(*src), spec.is_event(*tar)) {
-                (true, true) => {
-                    periodic_graph.remove_edge(edge_index);
-                },
-                (false, false) => {
-                    event_graph.remove_edge(edge_index);
-                },
-                _ => {
-                    event_graph.remove_edge(edge_index);
-                    periodic_graph.remove_edge(edge_index);
-                },
+        self.retain_edges(|g, e_i| {
+            let (lhs, rhs) = g.edge_endpoints(e_i).unwrap();
+            let w = g.edge_weight(e_i).unwrap();
+            let lhs_sr = *g.node_weight(lhs).unwrap();
+            let lhs = hir.stream_type(lhs_sr);
+            let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
+            let lhs_pt = match w.origin {
+                Origin::Spawn => lhs.spawn.0,
+                Origin::Filter | Origin::Eval => lhs.pacing_ty,
+                Origin::Close => hir.expr_type(lhs.close.eid).pacing_ty,
+            };
+            let rhs_pt = rhs.pacing_ty;
+            match (lhs_pt, rhs_pt) {
+                (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
+                (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
+                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
+                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => true,
+                (ConcretePacingType::Constant, _)
+                | (ConcretePacingType::Periodic, _)
+                | (_, ConcretePacingType::Constant)
+                | (_, ConcretePacingType::Periodic) => unreachable!(),
             }
         });
-        // delete nodes
-        self.node_indices().for_each(|node_index| {
-            let node_sref = self.node_weight(node_index).unwrap();
-            if spec.is_event(*node_sref) {
-                periodic_graph.remove_node(node_index);
-            } else {
-                assert!(spec.is_periodic(*node_sref));
-                event_graph.remove_node(node_index);
-            }
-        });
-        (event_graph, periodic_graph)
+        self
+    }
+
+    fn without_close(mut self) -> Self {
+        self.retain_edges(|g, e_i| g.edge_weight(e_i).unwrap().origin != Origin::Close);
+        self
+    }
+
+    fn only_spawn(mut self) -> Self {
+        self.retain_edges(|g, e_i| g.edge_weight(e_i).unwrap().origin == Origin::Spawn);
+        self
     }
 }
 
@@ -241,17 +245,14 @@ impl DepAna {
     /// Otherwise, the function returns the dependencies in the specification, including the dependency graph.
     pub(crate) fn analyze<M>(spec: &Hir<M>) -> Result<DepAna, RtLolaError>
     where
-        M: HirMode,
+        M: HirMode + TypedTrait,
     {
-        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
-        let num_edges = num_nodes; // Todo: improve estimate.
-        let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| Self::collect_edges(spec, sr, spec.expr(sr)))
-            .map(|(src, w, tar)| (src, Self::stream_access_kind_to_edge_weight(w), tar));
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
@@ -265,53 +266,39 @@ impl DepAna {
                 })
             })
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Spawn(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Spawn), tar));
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(spec, sr, filter)))
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Filter(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(spec, sr, close)))
             .flatten()
-            .map(|(src, w, tar)| {
-                (
-                    src,
-                    EdgeWeight::Close(Box::new(Self::stream_access_kind_to_edge_weight(w))),
-                    tar,
-                )
-            });
+            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
         let edges = edges_expr
             .chain(edges_spawn)
             .chain(edges_filter)
             .chain(edges_close)
-            .collect::<Vec<(SRef, EdgeWeight, SRef)>>(); // TODO can use this approxiamtion for the number of edges
+            .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
+
+        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
+        let num_edges = edges.len();
+        let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 
         // add nodes and edges to graph
         let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
         edges.iter().for_each(|(src, w, tar)| {
-            graph.add_edge(node_mapping[src], node_mapping[tar], w.clone());
+            graph.add_edge(node_mapping[src], node_mapping[tar], *w);
         });
 
         // Check well-formedness = no closed-walk with total weight of zero or positive
-        Self::check_well_formedness(&graph).map_err(|e| e.into_diagnostic(spec))?;
+        Self::check_well_formedness(&graph, spec).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
         let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
@@ -327,14 +314,14 @@ impl DepAna {
             if !cur_accessed_by.contains(src) {
                 cur_accessed_by.push(*src);
             }
-            if let EdgeWeight::Aggr(wref) = w {
+            if let Some(wref) = w.window() {
                 let cur_aggregates = aggregates.get_mut(src).unwrap();
-                if !cur_aggregates.contains(&(*tar, *wref)) {
-                    cur_aggregates.push((*tar, *wref));
+                if !cur_aggregates.contains(&(*tar, wref)) {
+                    cur_aggregates.push((*tar, wref));
                 }
                 let cur_aggregates_by = aggregated_by.get_mut(tar).unwrap();
-                if !cur_aggregates_by.contains(&(*src, *wref)) {
-                    cur_aggregates_by.push((*src, *wref));
+                if !cur_aggregates_by.contains(&(*src, wref)) {
+                    cur_aggregates_by.push((*src, wref));
                 }
             }
         });
@@ -412,9 +399,16 @@ impl DepAna {
     }
 
     /// Returns is the DP is well-formed, i.e., no closed-walk with total weight of zero or positive
-    fn check_well_formedness(graph: &DependencyGraph) -> Result<(), DependencyErr> {
-        let graph = graph.without_negative_offset_edges();
-        let graph = graph.without_close_edges();
+    fn check_well_formedness<M>(graph: &DependencyGraph, hir: &Hir<M>) -> Result<(), DependencyErr>
+    where
+        M: HirMode + TypedTrait,
+    {
+        let graph: &DependencyGraph = &graph
+            .clone()
+            .without_different_pacing(hir)
+            .without_negative_offset_edges()
+            .without_close();
+
         // check if cyclic
         Self::is_cyclic_directed(&graph).map_err(|(start, end)| {
             let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None)
@@ -471,29 +465,6 @@ impl DepAna {
             },
         }
     }
-
-    fn stream_access_kind_to_edge_weight(w: StreamAccessKind) -> EdgeWeight {
-        match w {
-            StreamAccessKind::Sync => EdgeWeight::Offset(0),
-            StreamAccessKind::Offset(o) => {
-                match o {
-                    Offset::PastDiscrete(o) => EdgeWeight::Offset(-i32::try_from(o).unwrap()),
-                    Offset::FutureDiscrete(o) => {
-                        if o == 0 {
-                            EdgeWeight::Offset(i32::try_from(o).unwrap())
-                        } else {
-                            todo!("implement dependency analysis for positive future offsets")
-                        }
-                    },
-                    _ => todo!("implement dependency analysis for real-time offsets"),
-                }
-            },
-            StreamAccessKind::Hold => EdgeWeight::Hold,
-
-            StreamAccessKind::SlidingWindow(wref) => EdgeWeight::Aggr(wref),
-            StreamAccessKind::DiscreteWindow(wref) => EdgeWeight::Aggr(wref),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -515,7 +486,7 @@ mod tests {
         )>,
     ) {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast).unwrap();
+        let hir = Hir::<BaseMode>::from_ast(ast).unwrap().check_types().unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (
@@ -581,7 +552,11 @@ mod tests {
 
     #[test]
     fn self_loop_complex() {
-        let spec = "input a: Int8\noutput b: Int8 := a\noutput c: Int8 := b\noutput d: Int8 := c\noutput e: Int8 := e";
+        let spec = "input a: Int8\n
+        output b: Int8 := a\n
+        output c: Int8 := b\n
+        output d: Int8 := c\n
+        output e: Int8 @1Hz := e";
         check_graph_for_spec(spec, None)
     }
 
@@ -671,7 +646,7 @@ mod tests {
 
     #[test]
     fn negative_loop() {
-        let spec = "output a: Int8 := a.offset(by: -1).defaults(to: 0)";
+        let spec = "output a: Int8 @1Hz := a.offset(by: -1).defaults(to: 0)";
         let sname_to_sref = vec![("a", SRef::Out(0))].into_iter().collect::<HashMap<&str, SRef>>();
         let direct_accesses = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
             .into_iter()
@@ -918,7 +893,7 @@ mod tests {
 
     #[test]
     fn self_sliding_window() {
-        let spec = "output a := a.aggregate(over: 1s, using: sum)";
+        let spec = "output a @1Hz := a.aggregate(over: 1s, using: count)";
         check_graph_for_spec(spec, None);
     }
 
@@ -1038,63 +1013,16 @@ mod tests {
 
     #[test]
     fn spawn_self_loop() {
-        let spec = "input a: Int8\noutput b spawn if b > 6 := a + 5";
+        let spec = "input a: Int8\noutput b spawn @a if b.hold(or: 2) > 6 := a + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
-    fn spawn_self_negative_loop() {
-        let spec = "input a: Int8\noutput b spawn if b.offset(by: -1).defaults(to: 0) > 6 := a + 5";
-        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
-            .into_iter()
-            .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
-        let aggregated_by = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
-        check_graph_for_spec(
-            spec,
-            Some((
-                direct_accesses,
-                transitive_accesses,
-                direct_accessed_by,
-                transitive_accessed_by,
-                aggregates,
-                aggregated_by,
-            )),
-        );
-    }
-    #[test]
     fn filter_self_loop() {
-        let spec = "input a: Int8\noutput b filter b > 6 := a + 5";
+        let spec = "input a: Int8\noutput b filter b.hold(or: 2) > 6 := a + 5";
         check_graph_for_spec(spec, None);
     }
+
     #[test]
     fn close_self_loop() {
         let spec = "input a: Int8\noutput b close b > 6 := a + 5";
@@ -1145,14 +1073,81 @@ mod tests {
     }
 
     #[test]
-    fn simple_loop_with_parameter() {
-        let spec = "input a: Int8\noutput b(para) spawn with c := b(para).offset(by: -1).defaults(to: 0)\noutput c := b(5).hold().defaults(to: 0)";
+    fn simple_loop_with_parameter_event_based() {
+        let spec = "input a: Int8\n
+        output b(para) @a spawn with c := b(para).offset(by: -1).defaults(to: 0)\n
+        output c @a := b(5).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
+    fn simple_loop_with_parameter_static_and_dynamic_periodic() {
+        let spec = "input a: Int8\n
+        output b(para) @1Hz spawn with a := b(para).offset(by: -1).defaults(to: 0)\n
+        output c @1Hz := b(5).hold().defaults(to: 0)";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accesses = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
+            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["a"]]),
+        ]
+        .into_iter()
+        .collect();
+        let direct_accessed_by = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let transitive_accessed_by = vec![
+            (sname_to_sref["a"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregates = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        let aggregated_by = vec![
+            (sname_to_sref["a"], vec![]),
+            (sname_to_sref["b"], vec![]),
+            (sname_to_sref["c"], vec![]),
+        ]
+        .into_iter()
+        .collect();
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
     fn simple_chain_with_parameter() {
-        let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b := para + 5";
+        let spec = "input a: Int8\n
+        output b := a + 5\n
+        output c(para) @1Hz spawn with b := para + 5";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -1213,7 +1208,10 @@ mod tests {
 
     #[test]
     fn parameter_loop() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if d(para) > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\n
+        output b(para) spawn with a if d(para).hold(or: 2) > 6 := a + para\n
+        output c(para) spawn with a if a > 6 := a + b(para).hold(or: 2)\n
+        output d(para) spawn with a if a > 6 := a + c(para)";
         check_graph_for_spec(spec, None);
     }
 
@@ -1300,13 +1298,24 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_different_lookup_types() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a if a < b := p + b + f(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a if a < b := p + b + f(p).hold().defaults(to: 0)\n
+        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
+        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + 5\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close f(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\n
+        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
+        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\n
+        output g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -1706,7 +1715,11 @@ mod tests {
 
     #[test]
     fn parameter_cross_lookup() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(e).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n
+        input b: Int8\n
+        output c(p) spawn with a := p + b\n
+        output d @1Hz := c(e).hold().defaults(to: 0)\n
+        output e @1Hz := c(d).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
 
