@@ -512,26 +512,6 @@ impl InstanceTemplate {
             .and_then(|st| st.condition)
             .map(|eid| hir.expression(eid))
     }
-
-    /// Returns a reference to the `AnnotatedPacingType` representing the spawn pacing if it exists
-    pub(crate) fn spawn_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
-        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
-    }
-
-    /// Returns a reference to the `Expression` representing the filter condition if it exists
-    pub(crate) fn filter<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
-        self.filter.map(|eid| hir.expression(eid))
-    }
-
-    /// Returns a reference to the `Expression` representing the close condition if it exists
-    pub(crate) fn close<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
-        self.close.as_ref().map(|ct| hir.expression(ct.target))
-    }
-
-    /// Returns a reference to the `AnnotatedPacingType` representing the close pacing if it exists
-    pub(crate) fn close_pacing<M: HirMode>(&self) -> Option<&AnnotatedPacingType> {
-        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
-    }
 }
 
 /// Information regarding the spawning behavior of a stream

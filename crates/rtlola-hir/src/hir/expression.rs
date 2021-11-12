@@ -497,14 +497,6 @@ impl ExpressionContext {
             .map(|para_set| para_set.contains(&source_parameter))
             .unwrap_or(false)
     }
-
-    /// Extracts the parameter mapping for a single stream from the context
-    /// Query the map for a stream b with a parameter p to get the parameter q of the stream if it matches with parameter p
-    pub(crate) fn map_for(&self, stream: SRef) -> &HashMap<(SRef, usize), HashSet<usize>> {
-        self.0
-            .get(&stream)
-            .expect("Invalid initialization of ExpressionContext")
-    }
 }
 
 pub(crate) trait ValueEq {
