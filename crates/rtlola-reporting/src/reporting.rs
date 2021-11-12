@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
 // Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {

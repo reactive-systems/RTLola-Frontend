@@ -1,4 +1,4 @@
-use super::{ChangeSet, LocalChangeInstruction, SynSugar};
+use super::{ChangeSet, SynSugar};
 use crate::ast::{Expression, ExpressionKind, RtLolaAst, WindowOperation};
 
 /// Allows shorthand writing of aggregation windows as methods.
@@ -19,12 +19,10 @@ impl AggrMethodToWindow {
                     "sum" => WindowOperation::Sum,
                     "avg" => WindowOperation::Average,
                     "integral" => WindowOperation::Integral,
-                    /*
                     "var" => WindowOperation::Variance,
                     "cov" => WindowOperation::Covariance,
                     "sd" => WindowOperation::StandardDeviation,
                     "med" => WindowOperation::NthPercentile(50),
-                    */
                     _ => return ChangeSet::empty(),
                 };
                 let target_stream = base.clone();
@@ -42,7 +40,9 @@ impl AggrMethodToWindow {
                     id: new_id,
                     span: expr.span.clone(),
                 };
-                ChangeSet::single_local(LocalChangeInstruction::ReplaceExpr(new_expr))
+                let mut cs = ChangeSet::empty();
+                cs.replace_current_expression(new_expr);
+                cs
             },
             _ => ChangeSet::empty(),
         }

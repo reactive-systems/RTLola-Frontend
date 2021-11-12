@@ -235,6 +235,7 @@ impl ExpressionTransformer {
             outputs,
             trigger,
             type_declarations: _,
+            next_node_id: _,
         } = ast;
         let mut exprid_to_expr = HashMap::new();
         let mut hir_outputs = vec![];

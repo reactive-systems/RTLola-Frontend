@@ -1,14 +1,16 @@
 use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::rc::Rc;
 
 // List for all syntactic sugar transformer
 mod aggregation_method;
 use aggregation_method::AggrMethodToWindow;
 
-use crate::ast::{Expression, ExpressionKind, Input, NodeId, Output, RtLolaAst, Trigger};
+use crate::ast::{
+    CloseSpec, Expression, ExpressionKind, FilterSpec, Input, NodeId, Output, RtLolaAst, SpawnSpec, Trigger,
+};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum ChangeInstruction {
     #[allow(dead_code)] // currently unused
     ReplaceExpr(NodeId, Expression),
@@ -17,7 +19,7 @@ enum ChangeInstruction {
     #[allow(dead_code)] //currently unused
     Add(Box<Output>),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum LocalChangeInstruction {
     ReplaceExpr(Expression),
 }
@@ -31,6 +33,27 @@ struct ChangeSet {
     _local_applied_flag: bool,
     local_instructions: Option<LocalChangeInstruction>,
     global_instructions: HashSet<ChangeInstruction>,
+}
+
+/// Syntactic Sugar has to implement this trait and override methods if needed.
+///
+/// The transformer gets every single expression passed once, in an bottom up order. Afterwards every top level stream object is passed once.
+/// The [ChangeSet] can hold a single local change, a change that immediately has to be applied to the expression passed in [SynSugar::desugarize_expr],
+/// and an arbitrary number of changes that will be applied after an iteration, which is identified by the [NodeId] of the object it wants to replace.
+#[allow(unused_variables)] //allow unused arguments in the default implementation without changing the name
+trait SynSugar {
+    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
+        ChangeSet::empty()
+    }
+    fn desugarize_stream_out<'a>(&self, stream: &'a Output, ast: &'a RtLolaAst) -> ChangeSet {
+        ChangeSet::empty()
+    }
+    fn desugarize_stream_in<'a>(&self, stream: &'a Input, ast: &'a RtLolaAst) -> ChangeSet {
+        ChangeSet::empty()
+    }
+    fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
+        ChangeSet::empty()
+    }
 }
 
 /// The container for all syntactic sugar structs.
@@ -61,25 +84,99 @@ impl Desugarizer {
     pub fn remove_syn_sugar(&self, mut ast: RtLolaAst) -> RtLolaAst {
         while {
             //magic rust do-while loop
-            let (new_ast, change_flag) = self.desugarize_fp(ast);
+            let (new_ast, change_flag) = self.desugarize_fix_point(ast);
             ast = new_ast;
             change_flag
         } {} //do not remove! magic rust do-while loop
         ast
     }
 
-    fn desugarize_fp(&self, mut ast: RtLolaAst) -> (RtLolaAst, bool) {
+    fn desugarize_fix_point(&self, mut ast: RtLolaAst) -> (RtLolaAst, bool) {
         let mut change_flag = false;
         for current_sugar in self.sugar_transformers.iter() {
             let mut change_set = ChangeSet::empty();
 
             for ix in 0..ast.outputs.len() {
                 let out = &ast.outputs[ix];
-                let (new_out_expr, cs) = self.desugarize_expression(out.expression.clone(), &ast, current_sugar);
-                change_set += cs;
                 let out_clone: Output = Output::clone(&*out);
+                let Output {
+                    expression,
+                    spawn,
+                    filter,
+                    close,
+                    ..
+                } = out_clone;
+                let (new_out_expr, cs) = self.desugarize_expression(expression.clone(), &ast, current_sugar);
+                change_set += cs;
+                let new_spawn_spec = if let Some(spawn_spec) = spawn {
+                    let SpawnSpec {
+                        target,
+                        condition,
+                        annotated_pacing,
+                        is_if,
+                        id,
+                        span,
+                    } = spawn_spec;
+                    let target = target.map(|expr| {
+                        let (new_expr, spawn_cs) = self.desugarize_expression(expr, &ast, current_sugar);
+                        change_set += spawn_cs;
+                        new_expr
+                    });
+                    let condition = condition.map(|expr| {
+                        let (new_expr, spawn_cond_cs) = self.desugarize_expression(expr, &ast, current_sugar);
+                        change_set += spawn_cond_cs;
+                        new_expr
+                    });
+                    Some(SpawnSpec {
+                        target,
+                        condition,
+                        annotated_pacing,
+                        is_if,
+                        id,
+                        span,
+                    })
+                } else {
+                    None
+                };
+
+                let new_filter_spec = if let Some(filter_spec) = filter {
+                    let FilterSpec { target, id, span } = filter_spec;
+                    let (new_target, filter_cs) = self.desugarize_expression(target, &ast, current_sugar);
+                    change_set += filter_cs;
+                    Some(FilterSpec {
+                        target: new_target,
+                        id,
+                        span,
+                    })
+                } else {
+                    None
+                };
+
+                let new_close_spec = if let Some(close_spec) = close {
+                    let CloseSpec {
+                        target,
+                        id,
+                        span,
+                        annotated_pacing,
+                    } = close_spec;
+                    let (new_target, close_cs) = self.desugarize_expression(target, &ast, current_sugar);
+                    change_set += close_cs;
+                    Some(CloseSpec {
+                        target: new_target,
+                        id,
+                        span,
+                        annotated_pacing,
+                    })
+                } else {
+                    None
+                };
+
+                //let out_clone: Output = Output::clone(&*out);
                 let new_out = Output {
                     expression: new_out_expr,
+                    spawn: new_spawn_spec,
+                    filter: new_filter_spec,
+                    close: new_close_spec,
                     ..out_clone
                 };
                 ast.outputs[ix] = Rc::new(new_out);
@@ -120,31 +217,102 @@ impl Desugarizer {
                     ast.outputs.push(Rc::new(*o));
                 },
                 ChangeInstruction::ReplaceStream(id, out) => {
-                    let idx = ast.outputs.iter().position(|o| o.id == id).unwrap();
+                    // TODO: trigger? does somebody wants to replace triggers?
+                    let idx = ast
+                        .outputs
+                        .iter()
+                        .position(|o| o.id == id)
+                        .expect("Given NodeId for stream replacement did not match any output stream.");
                     assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
                     ast.outputs[idx] = Rc::new(*out);
                 },
                 ChangeInstruction::ReplaceExpr(id, expr) => {
                     for ix in 0..ast.outputs.len() {
-                        let out: &Rc<Output> = &ast.outputs[ix];
-                        let new_out_expr = self.apply_expr_global_change(id, &expr, &out.expression, &ast);
+                        let out = &ast.outputs[ix];
                         let out_clone: Output = Output::clone(&*out);
+                        let Output {
+                            expression,
+                            spawn,
+                            filter,
+                            close,
+                            ..
+                        } = out_clone;
+                        let new_out_expr = self.apply_expr_global_change(id, &expr, &expression, &ast);
+                        let new_spawn_spec = if let Some(spawn_spec) = spawn {
+                            let SpawnSpec {
+                                target,
+                                condition,
+                                annotated_pacing,
+                                is_if,
+                                id,
+                                span,
+                            } = spawn_spec;
+                            let target = target
+                                .map(|tar_expression| self.apply_expr_global_change(id, &expr, &tar_expression, &ast));
+                            let condition = condition.map(|cond_expression| {
+                                self.apply_expr_global_change(id, &expr, &cond_expression, &ast)
+                            });
+                            Some(SpawnSpec {
+                                target,
+                                condition,
+                                annotated_pacing,
+                                is_if,
+                                id,
+                                span,
+                            })
+                        } else {
+                            None
+                        };
+
+                        let new_filter_spec = if let Some(filter_spec) = filter {
+                            let FilterSpec { target, id, span } = filter_spec;
+                            let new_target = self.apply_expr_global_change(id, &expr, &target, &ast);
+                            Some(FilterSpec {
+                                target: new_target,
+                                id,
+                                span,
+                            })
+                        } else {
+                            None
+                        };
+
+                        let new_close_spec = if let Some(close_spec) = close {
+                            let CloseSpec {
+                                target,
+                                id,
+                                span,
+                                annotated_pacing,
+                            } = close_spec;
+                            let new_target = self.apply_expr_global_change(id, &expr, &target, &ast);
+                            Some(CloseSpec {
+                                target: new_target,
+                                id,
+                                span,
+                                annotated_pacing,
+                            })
+                        } else {
+                            None
+                        };
+
                         let new_out = Output {
                             expression: new_out_expr,
+                            spawn: new_spawn_spec,
+                            filter: new_filter_spec,
+                            close: new_close_spec,
                             ..out_clone
                         };
                         ast.outputs[ix] = Rc::new(new_out);
                     }
 
                     for ix in 0..ast.trigger.len() {
-                        let out: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_out_expr = self.apply_expr_global_change(id, &expr, &out.expression, &ast);
-                        let out_clone: Trigger = Trigger::clone(&*out);
-                        let new_out = Trigger {
-                            expression: new_out_expr,
-                            ..out_clone
+                        let trigger: &Rc<Trigger> = &ast.trigger[ix];
+                        let new_trigger_expr = self.apply_expr_global_change(id, &expr, &trigger.expression, &ast);
+                        let trigger_clone: Trigger = Trigger::clone(&*trigger);
+                        let new_trigger = Trigger {
+                            expression: new_trigger_expr,
+                            ..trigger_clone
                         };
-                        ast.trigger[ix] = Rc::new(new_out);
+                        ast.trigger[ix] = Rc::new(new_trigger);
                     }
                 },
             }
@@ -163,6 +331,7 @@ impl Desugarizer {
         if ast_expr.id == target_id {
             return new_expr.clone();
         }
+        let span = ast_expr.span.clone();
 
         use ExpressionKind::*;
         match &ast_expr.kind {
@@ -173,7 +342,8 @@ impl Desugarizer {
                         *op,
                         Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Field(inner, ident) => {
@@ -182,7 +352,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
                         ident.clone(),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             StreamAccess(inner, acc_kind) => {
@@ -191,7 +362,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
                         *acc_kind,
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Offset(inner, offset) => {
@@ -200,7 +372,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
                         *offset,
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             ParenthesizedExpression(lp, inner, rp) => {
@@ -210,7 +383,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
                         rp.clone(),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Binary(bin_op, left, right) => {
@@ -220,7 +394,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
                         Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Default(left, right) => {
@@ -229,7 +404,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
                         Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             DiscreteWindowAggregation {
@@ -246,7 +422,8 @@ impl Desugarizer {
                         wait: *wait,
                         aggregation: *aggregation,
                     },
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             SlidingWindowAggregation {
@@ -262,7 +439,8 @@ impl Desugarizer {
                         wait: *wait,
                         aggregation: *aggregation,
                     },
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Ite(condition, normal, alternative) => {
@@ -272,7 +450,8 @@ impl Desugarizer {
                         Box::new(self.apply_expr_global_change(target_id, new_expr, normal, ast)),
                         Box::new(self.apply_expr_global_change(target_id, new_expr, alternative, ast)),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Tuple(entries) => {
@@ -283,7 +462,8 @@ impl Desugarizer {
                             .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Function(name, types, entries) => {
@@ -296,7 +476,8 @@ impl Desugarizer {
                             .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
             Method(base, name, types, arguments) => {
@@ -310,7 +491,8 @@ impl Desugarizer {
                             .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
-                    ..ast_expr.clone()
+                    span,
+                    ..*ast_expr
                 }
             },
         }
@@ -529,23 +711,8 @@ impl Default for Desugarizer {
     }
 }
 
-#[allow(unused_variables)] //allow unused arguments in the default implementation without changing the name
-trait SynSugar {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    fn desugarize_stream_out<'a>(&self, stream: &'a Output, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    fn desugarize_stream_in<'a>(&self, stream: &'a Input, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-}
-
 impl ChangeSet {
+    /// Construct a new empty ChangeSet.
     fn empty() -> Self {
         Self {
             _local_applied_flag: false,
@@ -554,18 +721,38 @@ impl ChangeSet {
         }
     }
 
-    fn single_local(instr: LocalChangeInstruction) -> Self {
-        Self {
-            _local_applied_flag: false,
-            local_instructions: Some(instr),
-            global_instructions: HashSet::new(),
-        }
+    #[allow(dead_code)] // currently unused
+    /// Adds a stream to the Ast.
+    pub(crate) fn add_stream(&mut self, stream: Output) {
+        self.global_instructions
+            .insert(ChangeInstruction::Add(Box::new(stream)));
     }
 
+    #[allow(dead_code)] // currently unused
+    /// Replaces the expression with id 'target_id' with the given expression. Performs global ast search
+    pub(crate) fn replace_expression(&mut self, target_id: NodeId, expr: Expression) {
+        self.global_instructions
+            .insert(ChangeInstruction::ReplaceExpr(target_id, expr));
+    }
+
+    /// Replaces the current expression. Should only be called in syn_sugar.desugarize_expr(...)
+    pub(crate) fn replace_current_expression(&mut self, expr: Expression) {
+        self.local_instructions = Some(LocalChangeInstruction::ReplaceExpr(expr));
+    }
+
+    #[allow(dead_code)] // currently unused
+    /// Replaces the stream with the given NodeId with the new stream. Performs global ast search.
+    pub(crate) fn replace_sream(&mut self, target_stream: NodeId, new_stream: Output) {
+        self.global_instructions
+            .insert(ChangeInstruction::ReplaceStream(target_stream, Box::new(new_stream)));
+    }
+
+    /// Provides an Iterator over all global changes.
     fn global_iter<'a>(self) -> Box<dyn Iterator<Item = ChangeInstruction> + 'a> {
         Box::new(self.global_instructions.into_iter())
     }
 
+    /// Internal use: extracts the wanted local change and removes it from the struct.
     fn extract_local_change(&mut self) -> Option<LocalChangeInstruction> {
         let mut ret = None;
         std::mem::swap(&mut self.local_instructions, &mut ret);
@@ -608,36 +795,6 @@ impl std::ops::AddAssign<ChangeSet> for ChangeSet {
         }
     }
 }
-
-impl Hash for ChangeInstruction {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        //TODO maybe add prime_counter into hash function
-        match self {
-            ChangeInstruction::ReplaceExpr(id, exp) => {
-                id.id.hash(state);
-                exp.id.id.hash(state);
-            },
-            ChangeInstruction::ReplaceStream(id, exp) => {
-                id.id.hash(state);
-                exp.id.id.hash(state);
-            },
-            ChangeInstruction::Add(out) => out.id.id.hash(state),
-        }
-    }
-}
-
-impl PartialEq for ChangeInstruction {
-    fn eq(&self, rhs: &Self) -> bool {
-        use ChangeInstruction::*;
-        match (self, rhs) {
-            (ReplaceExpr(a, b), ReplaceExpr(x, y)) => a == x && b.id == y.id,
-            (ReplaceStream(a, b), ReplaceStream(x, y)) => a == x && b.id == y.id,
-            (Add(o), Add(o2)) => o.id == o2.id,
-            (_, _) => false,
-        }
-    }
-}
-impl Eq for ChangeInstruction {}
 
 #[cfg(test)]
 mod tests {

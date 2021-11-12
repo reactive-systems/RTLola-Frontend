@@ -2,6 +2,9 @@
 //!
 //! Every node in the abstract syntax tree is assigned a unique id and has a span referencing the node's location in the specification.
 
+use std::cell::RefCell;
+use std::hash::Hash;
+
 use serde::{Deserialize, Serialize};
 
 mod conversion;
@@ -38,6 +41,8 @@ pub struct RtLolaAst {
     pub trigger: Vec<Rc<Trigger>>,
     /// The user-defined type declarations
     pub type_declarations: Vec<TypeDeclaration>,
+    /// Next highest NodeId
+    pub next_node_id: RefCell<NodeId>,
 }
 
 impl RtLolaAst {
@@ -50,7 +55,15 @@ impl RtLolaAst {
             outputs: Vec::new(),
             trigger: Vec::new(),
             type_declarations: Vec::new(),
+            next_node_id: RefCell::new(NodeId::default()),
         }
+    }
+
+    pub(crate) fn next_id(&self) -> NodeId {
+        let res = *self.next_node_id.borrow();
+        self.next_node_id.borrow_mut().id += 1;
+        self.next_node_id.borrow_mut().prime_counter = 0;
+        res
     }
 }
 
@@ -97,7 +110,7 @@ pub struct Input {
 }
 
 /// An Ast node representing the declaration of an output stream.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Output {
     /// The name of the output stream
     pub name: Ident,
@@ -122,7 +135,7 @@ pub struct Output {
 }
 
 /// An Ast node representing the declaration of a parameter of a parametrized stream.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Parameter {
     /// The name of the parameter
     pub name: Ident,
@@ -137,7 +150,7 @@ pub struct Parameter {
 }
 
 /// An Ast node representing the declaration of a spawn condition of a stream template.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub target: Option<Expression>,
@@ -154,7 +167,7 @@ pub struct SpawnSpec {
 }
 
 /// An Ast node representing the declaration of a filter condition of a stream template
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct FilterSpec {
     /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub target: Expression,
@@ -165,7 +178,7 @@ pub struct FilterSpec {
 }
 
 /// An Ast node representing the declaration of a close condition of a stream template
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub target: Expression,
@@ -222,7 +235,7 @@ pub struct TypeDeclField {
 }
 
 /// An Ast node representing an opening or closing parenthesis.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Parenthesis {
     /// The id of the node in the Ast
     pub id: NodeId,
@@ -238,7 +251,7 @@ impl Parenthesis {
 }
 
 /// An Ast node representing the declaration of a value type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Type {
     /// The kind of the type, e.g., a tuple
     pub kind: TypeKind,
@@ -278,7 +291,7 @@ impl Type {
 }
 
 /// Ast representation of the value type of a stream
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum TypeKind {
     /// A simple type, e.g., `Int`
     Simple(String),
@@ -289,7 +302,7 @@ pub enum TypeKind {
 }
 
 /// The Ast representation of a stream expression
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Expression {
     /// The kind of the root expression, e.g., stream access
     pub kind: ExpressionKind,
@@ -307,7 +320,7 @@ impl Expression {
 }
 
 #[allow(clippy::large_enum_variant, clippy::vec_box)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 /// The Ast representation of a single expression
 pub enum ExpressionKind {
     /// A literal, e.g., `1`, `"foo"`
@@ -362,7 +375,7 @@ pub enum ExpressionKind {
     Function(FunctionName, Vec<Type>, Vec<Expression>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 /// The Ast representation of the different aggregation functions
 pub enum WindowOperation {
     /// Aggregation function to count the number of updated values on the accessed stream
@@ -396,7 +409,7 @@ pub enum WindowOperation {
 }
 
 /// Describes the operation used to access a stream
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum StreamAccessKind {
     /// Synchronous access
     Sync,
@@ -432,7 +445,7 @@ pub enum TimeUnit {
 }
 
 /// An Ast node representing the declaration of a literal
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Literal {
     /// The kind of the literal, e.g., boolean, string, numeric, ...
     pub kind: LitKind,
@@ -480,7 +493,7 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 /// The Ast representation of literals
 pub enum LitKind {
     /// A string literal (`"foo"`)
@@ -495,7 +508,7 @@ pub enum LitKind {
 }
 
 /// An Ast node representing a binary operator.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinOp {
     /// The `+` operator (addition)
     Add,
@@ -538,7 +551,7 @@ pub enum BinOp {
 }
 
 /// An Ast node representing an unary operator.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum UnOp {
     /// The `!` operator for logical inversion
     Not,
@@ -549,7 +562,7 @@ pub enum UnOp {
 }
 
 /// An Ast node representing the name of a called function and also the names of the arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct FunctionName {
     /// The name of the function
     pub name: Ident,
@@ -582,6 +595,12 @@ impl PartialEq for Ident {
     }
 }
 
+impl Hash for Ident {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -599,6 +618,15 @@ impl NodeId {
         NodeId {
             id: x as u32,
             prime_counter: 0u32,
+        }
+    }
+}
+
+impl Default for NodeId {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            prime_counter: 0,
         }
     }
 }
