@@ -40,7 +40,7 @@ struct ChangeSet {
 /// The transformer gets every single expression passed once, in an bottom up order. Afterwards every top level stream object is passed once.
 /// The [ChangeSet] can hold a single local change, a change that immediately has to be applied to the expression passed in [SynSugar::desugarize_expr],
 /// and an arbitrary number of changes that will be applied after an iteration, which is identified by the [NodeId] of the object it wants to replace.
-#[allow(unused_variables)] //allow unused arguments in the default implementation without changing the name
+#[allow(unused_variables)] // allow unused arguments in the default implementation without changing the name
 trait SynSugar {
     fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
@@ -60,7 +60,7 @@ trait SynSugar {
 ///
 /// Contains the logic on how and when to remove syntactic sugar changes.
 /// A transformer just needs to implement the SynSugar trait and be registered in the internal vector, constructed in [Desugarizer::all].
-#[allow(missing_debug_implementations)] //Contains no relevant fields, only logic. Trait object vectors are hard to print.
+#[allow(missing_debug_implementations)] // Contains no relevant fields, only logic. Trait object vectors are hard to print.
 pub struct Desugarizer {
     sugar_transformers: Vec<Box<dyn SynSugar>>,
 }
@@ -83,11 +83,11 @@ impl Desugarizer {
     /// If an Rc has a strong count greater than one.
     pub fn remove_syn_sugar(&self, mut ast: RtLolaAst) -> RtLolaAst {
         while {
-            //magic rust do-while loop
+            // magic rust do-while loop
             let (new_ast, change_flag) = self.desugarize_fix_point(ast);
             ast = new_ast;
             change_flag
-        } {} //do not remove! magic rust do-while loop
+        } {} // do not remove! magic rust do-while loop
         ast
     }
 
@@ -171,7 +171,6 @@ impl Desugarizer {
                     None
                 };
 
-                //let out_clone: Output = Output::clone(&*out);
                 let new_out = Output {
                     expression: new_out_expr,
                     spawn: new_spawn_spec,
@@ -217,7 +216,7 @@ impl Desugarizer {
                     ast.outputs.push(Rc::new(*o));
                 },
                 ChangeInstruction::ReplaceStream(id, out) => {
-                    // TODO: trigger? does somebody wants to replace triggers?
+                    // TODO: trigger? does somebody wants to replace triggers? Maybe provide additional function
                     let idx = ast
                         .outputs
                         .iter()
@@ -729,13 +728,15 @@ impl ChangeSet {
     }
 
     #[allow(dead_code)] // currently unused
-    /// Replaces the expression with id 'target_id' with the given expression. Performs global ast search
+    /// Replaces the expression with id 'target_id' with the given expression. Performs global ast search.
     pub(crate) fn replace_expression(&mut self, target_id: NodeId, expr: Expression) {
         self.global_instructions
             .insert(ChangeInstruction::ReplaceExpr(target_id, expr));
     }
 
-    /// Replaces the current expression. Should only be called in syn_sugar.desugarize_expr(...)
+    /// Replaces the current expression.
+    /// Should only be called in <T: SynSugar> T.desugarize_expr(...)
+    /// Wanted local changes will not be applied if used in other desugarize functions!
     pub(crate) fn replace_current_expression(&mut self, expr: Expression) {
         self.local_instructions = Some(LocalChangeInstruction::ReplaceExpr(expr));
     }
