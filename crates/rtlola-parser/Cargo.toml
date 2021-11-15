@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-parser"
-version = "0.1.3"
+version = "0.2.0"
 authors = [
     "Florian Kohn <florian.kohn@cispa.de>",
     "Stefan Oswald <stefan.oswald@cispa.de>",

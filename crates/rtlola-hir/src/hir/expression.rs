@@ -498,6 +498,7 @@ impl ExpressionContext {
             .unwrap_or(false)
     }
 
+    #[cfg(test)]
     /// Extracts the parameter mapping for a single stream from the context
     /// Query the map for a stream b with a parameter p to get the parameter q of the stream if it matches with parameter p
     pub(crate) fn map_for(&self, stream: SRef) -> &HashMap<(SRef, usize), HashSet<usize>> {
