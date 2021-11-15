@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2021-11-15
 
 ### Added
-- New window operations: last, median, nth-percentile, variance, standard deviation, covariance
+- support for parameterization
 
 ### Changed
 - Error are now collected and returned, not directly emitted.
 - Most interface functions do not depend on the Handler anymore.
+
+## [0.4.4] - 2021-09-30
+
+### Added
+- New window operations: last, median, nth-percentile, variance, standard deviation, covariance
 
 ## [0.4.3] - 2021-08-03
 
