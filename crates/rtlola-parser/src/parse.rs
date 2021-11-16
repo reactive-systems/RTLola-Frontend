@@ -1,6 +1,5 @@
 //! This module contains the parser for the Lola Language.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -16,6 +15,7 @@ use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 
 use super::ast::*;
 use crate::ast::Literal;
+use crate::syntactic_sugar::Desugarizer;
 use crate::ParserConfig;
 
 #[derive(Parser)]
@@ -26,7 +26,6 @@ struct LolaParser;
 pub(crate) struct RtLolaParser {
     spec: RtLolaAst,
     config: ParserConfig,
-    node_id: RefCell<NodeId>,
 }
 
 lazy_static! {
@@ -59,14 +58,15 @@ impl RtLolaParser {
         RtLolaParser {
             spec: RtLolaAst::empty(),
             config,
-            node_id: RefCell::new(NodeId::new(0)),
         }
     }
 
     /// Transforms a textual representation of a Lola specification into
     /// an AST representation.
     pub(crate) fn parse(config: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
-        RtLolaParser::new(config).parse_spec()
+        RtLolaParser::new(config)
+            .parse_spec()
+            .map(|ast| Desugarizer::all().remove_syn_sugar(ast))
     }
 
     /// Runs the parser on the give spec.
@@ -114,12 +114,6 @@ impl RtLolaParser {
         Ok(self.spec)
     }
 
-    fn next_id(&self) -> NodeId {
-        let res = *self.node_id.borrow();
-        self.node_id.borrow_mut().0 += 1;
-        res
-    }
-
     fn parse_import(&self, pair: Pair<Rule>) -> Import {
         assert_eq!(pair.as_rule(), Rule::ImportStmt);
         let span = pair.as_span().into();
@@ -127,7 +121,7 @@ impl RtLolaParser {
         let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
         Import {
             name,
-            id: self.next_id(),
+            id: self.spec.next_id(),
             span,
         }
     }
@@ -148,7 +142,7 @@ impl RtLolaParser {
         let ty = self.parse_type(pairs.next().expect("mismatch between grammar and AST"));
         let literal = self.parse_literal(pairs.next().expect("mismatch between grammar and AST"));
         Constant {
-            id: self.next_id(),
+            id: self.spec.next_id(),
             name,
             ty: Some(ty),
             literal,
@@ -184,7 +178,7 @@ impl RtLolaParser {
             let end = pair.as_span().end();
             let ty = self.parse_type(pair);
             inputs.push(Input {
-                id: self.next_id(),
+                id: self.spec.next_id(),
                 name,
                 params: params.into_iter().map(Rc::new).collect(),
                 ty,
@@ -292,7 +286,7 @@ impl RtLolaParser {
         let expression = RtLolaError::combine(exp_res, Result::from(error), |exp, _| exp)?;
 
         Ok(Output {
-            id: self.next_id(),
+            id: self.spec.next_id(),
             name,
             annotated_type,
             annotated_pacing_type,
@@ -322,7 +316,7 @@ impl RtLolaParser {
                 name,
                 ty,
                 param_idx: ix,
-                id: self.next_id(),
+                id: self.spec.next_id(),
                 span,
             });
         }
@@ -409,7 +403,7 @@ impl RtLolaParser {
             annotated_pacing,
             condition,
             is_if,
-            id: self.next_id(),
+            id: self.spec.next_id(),
             span: span_inv,
         })
     }
@@ -426,7 +420,7 @@ impl RtLolaParser {
         };
         Ok(FilterSpec {
             target,
-            id: self.next_id(),
+            id: self.spec.next_id(),
             span: span_ext,
         })
     }
@@ -458,7 +452,7 @@ impl RtLolaParser {
         Ok(CloseSpec {
             target,
             annotated_pacing,
-            id: self.next_id(),
+            id: self.spec.next_id(),
             span: span_close,
         })
     }
@@ -504,7 +498,7 @@ impl RtLolaParser {
             .unwrap_or_default();
 
         Ok(Trigger {
-            id: self.next_id(),
+            id: self.spec.next_id(),
             expression,
             annotated_pacing_type,
             message,
@@ -539,7 +533,7 @@ impl RtLolaParser {
             fields.push(Box::new(TypeDeclField {
                 name: field_name,
                 ty,
-                id: self.next_id(),
+                id: self.spec.next_id(),
                 span: pair.as_span().into(),
             }));
         }
@@ -547,7 +541,7 @@ impl RtLolaParser {
         TypeDeclaration {
             name: Some(name),
             span,
-            id: self.next_id(),
+            id: self.spec.next_id(),
             fields,
         }
     }
@@ -563,7 +557,7 @@ impl RtLolaParser {
         for pair in pair.into_inner() {
             match pair.as_rule() {
                 Rule::Ident => {
-                    return Type::new_simple(self.next_id(), pair.as_str().to_string(), pair.as_span().into());
+                    return Type::new_simple(self.spec.next_id(), pair.as_str().to_string(), pair.as_span().into());
                 },
                 Rule::Type => tuple.push(self.parse_type(pair)),
                 Rule::Optional => {
@@ -572,13 +566,14 @@ impl RtLolaParser {
                         .into_inner()
                         .next()
                         .expect("mismatch between grammar and AST: first argument is a type");
-                    let inner_ty = Type::new_simple(self.next_id(), inner.as_str().to_string(), inner.as_span().into());
-                    return Type::new_optional(self.next_id(), inner_ty, span.into());
+                    let inner_ty =
+                        Type::new_simple(self.spec.next_id(), inner.as_str().to_string(), inner.as_span().into());
+                    return Type::new_optional(self.spec.next_id(), inner_ty, span.into());
                 },
                 _ => unreachable!("{:?} is not a type, ensured by grammar", pair.as_rule()),
             }
         }
-        Type::new_tuple(self.next_id(), tuple, span.into())
+        Type::new_tuple(self.spec.next_id(), tuple, span.into())
     }
 
     /**
@@ -591,11 +586,11 @@ impl RtLolaParser {
         match inner.as_rule() {
             Rule::String => {
                 let str_rep = inner.as_str();
-                Literal::new_str(self.next_id(), str_rep, inner.as_span().into())
+                Literal::new_str(self.spec.next_id(), str_rep, inner.as_span().into())
             },
             Rule::RawString => {
                 let str_rep = inner.as_str();
-                Literal::new_raw_str(self.next_id(), str_rep, inner.as_span().into())
+                Literal::new_raw_str(self.spec.next_id(), str_rep, inner.as_span().into())
             },
             Rule::NumberLiteral => {
                 let span = inner.as_span();
@@ -605,10 +600,10 @@ impl RtLolaParser {
                 let str_rep: &str = value.as_str();
                 let unit = pairs.next().map(|unit| unit.as_str().to_string());
 
-                Literal::new_numeric(self.next_id(), str_rep, unit, span.into())
+                Literal::new_numeric(self.spec.next_id(), str_rep, unit, span.into())
             },
-            Rule::True => Literal::new_bool(self.next_id(), true, inner.as_span().into()),
-            Rule::False => Literal::new_bool(self.next_id(), false, inner.as_span().into()),
+            Rule::True => Literal::new_bool(self.spec.next_id(), true, inner.as_span().into()),
+            Rule::False => Literal::new_bool(self.spec.next_id(), false, inner.as_span().into()),
             _ => unreachable!(),
         }
     }
@@ -666,7 +661,7 @@ impl RtLolaParser {
             arg_names,
         };
         Ok(Expression::new(
-            self.next_id(),
+            self.spec.next_id(),
             ExpressionKind::Function(name, type_params, args),
             span,
         ))
@@ -726,12 +721,12 @@ impl RtLolaParser {
                                     }
                                 };
                                 let binop_expr =
-                                    Expression::new(self.next_id(), ExpressionKind::Field(inner, ident), binop_span);
+                                    Expression::new(self.spec.next_id(), ExpressionKind::Field(inner, ident), binop_span);
                                 match unop {
                                     None => return Ok(binop_expr),
                                     Some(unop) => {
                                         return Ok(Expression::new(
-                                            self.next_id(),
+                                            self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
                                         ))
@@ -761,7 +756,7 @@ impl RtLolaParser {
                                     "hold(or:)" => {
                                         assert_eq!(args.len(), 1);
                                         let lhs = Expression::new(
-                                            self.next_id(),
+                                            self.spec.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Hold),
                                             span.clone(),
                                         );
@@ -836,12 +831,12 @@ impl RtLolaParser {
                                     }
                                     _ => ExpressionKind::Method(inner, name, types, args),
                                 };
-                                let binop_expr = Expression::new(self.next_id(), kind, binop_span);
+                                let binop_expr = Expression::new(self.spec.next_id(), kind, binop_span);
                                 match unop {
                                     None => return Ok(binop_expr),
                                     Some(unop) => {
                                         return Ok(Expression::new(
-                                            self.next_id(),
+                                            self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
                                         ))
@@ -860,16 +855,16 @@ impl RtLolaParser {
                             ExpressionKind::Unary(unop, inner) => {
                                 let inner_span = inner.span.union(&rhs.span);
                                 let new_inner =
-                                    Expression::new(self.next_id(), ExpressionKind::Offset(inner, offset), inner_span);
+                                    Expression::new(self.spec.next_id(), ExpressionKind::Offset(inner, offset), inner_span);
                                 return Ok(Expression::new(
-                                    self.next_id(),
+                                    self.spec.next_id(),
                                     ExpressionKind::Unary(unop, Box::new(new_inner)),
                                     span,
                                 ));
                             }
                             _ => {
                                 return Ok(Expression::new(
-                                    self.next_id(),
+                                    self.spec.next_id(),
                                     ExpressionKind::Offset(lhs.into(), offset),
                                     span,
                                 ))
@@ -878,7 +873,7 @@ impl RtLolaParser {
                     }
                     _ => unreachable!(),
                 };
-                Ok(Expression::new(self.next_id(), ExpressionKind::Binary(op, Box::new(lhs), Box::new(rhs)), span))
+                Ok(Expression::new(self.spec.next_id(), ExpressionKind::Binary(op, Box::new(lhs), Box::new(rhs)), span))
             },
         )
     }
@@ -889,14 +884,14 @@ impl RtLolaParser {
             // Map function from `Pair` to AST data structure `Expression`
             Rule::Literal => {
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::Lit(self.parse_literal(pair)),
                     span.into(),
                 ))
             },
             Rule::Ident => {
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::Ident(self.parse_ident(&pair)),
                     span.into(),
                 ))
@@ -907,7 +902,7 @@ impl RtLolaParser {
                     "Rule::ParenthesizedExpression has a token for the (potentialy missing) opening parenthesis",
                 );
                 let opening_parenthesis = if let Rule::OpeningParenthesis = opp.as_rule() {
-                    Some(Box::new(Parenthesis::new(self.next_id(), opp.as_span().into())))
+                    Some(Box::new(Parenthesis::new(self.spec.next_id(), opp.as_span().into())))
                 } else {
                     None
                 };
@@ -920,13 +915,16 @@ impl RtLolaParser {
                     "Rule::ParenthesizedExpression has a token for the (potentialy missing) closing parenthesis",
                 );
                 let closing_parenthesis = if let Rule::ClosingParenthesis = closing.as_rule() {
-                    Some(Box::new(Parenthesis::new(self.next_id(), closing.as_span().into())))
+                    Some(Box::new(Parenthesis::new(
+                        self.spec.next_id(),
+                        closing.as_span().into(),
+                    )))
                 } else {
                     None
                 };
 
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::ParenthesizedExpression(
                         opening_parenthesis,
                         Box::new(self.build_expression_ast(inner_expression.into_inner())?),
@@ -949,7 +947,7 @@ impl RtLolaParser {
                     _ => unreachable!(),
                 };
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::Unary(operator, Box::new(operand)),
                     span.into(),
                 ))
@@ -958,7 +956,7 @@ impl RtLolaParser {
                 let mut children = self.parse_vec_of_expressions(pair.into_inner())?;
                 assert_eq!(children.len(), 3, "A ternary expression needs exactly three children.");
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::Ite(
                         Box::new(children.remove(0)),
                         Box::new(children.remove(0)),
@@ -971,7 +969,7 @@ impl RtLolaParser {
                 let elements = self.parse_vec_of_expressions(pair.into_inner())?;
                 assert!(elements.len() != 1, "Tuples may not have exactly one element.");
                 Ok(Expression::new(
-                    self.next_id(),
+                    self.spec.next_id(),
                     ExpressionKind::Tuple(elements),
                     span.into(),
                 ))
@@ -981,14 +979,23 @@ impl RtLolaParser {
             Rule::IntegerLiteral => {
                 let span: Span = span.clone().into();
                 Ok(Expression::new(
-                    self.next_id(),
-                    ExpressionKind::Lit(Literal::new_numeric(self.next_id(), pair.as_str(), None, span.clone())),
+                    self.spec.next_id(),
+                    ExpressionKind::Lit(Literal::new_numeric(
+                        self.spec.next_id(),
+                        pair.as_str(),
+                        None,
+                        span.clone(),
+                    )),
                     span,
                 ))
             },
             Rule::MissingExpression => {
                 let span = span.into();
-                Ok(Expression::new(self.next_id(), ExpressionKind::MissingExpression, span))
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::MissingExpression,
+                    span,
+                ))
             },
             _ => unreachable!("Unexpected rule when parsing expression ast: {:?}", pair.as_rule()),
         }

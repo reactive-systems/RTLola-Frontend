@@ -34,6 +34,7 @@
 //! This module provides the functionality needed to parse an RTLola specification into a [RtLolaAst].
 
 mod parse; // Shall not be exposed; use parse function instead.
+mod syntactic_sugar;
 
 use std::fs::File;
 use std::io::{self, Read};
