@@ -4,6 +4,7 @@ stages:
   - check-ignored-tests
   - test
   - additional-test
+  - check-changelog
   - docs
 
 default:
@@ -366,6 +367,64 @@ test:wasm:
     - rustc --version
     - cargo --version
     - cargo check --target wasm32-unknown-unknown
+
+
+####### Check for updated changelogs #######
+changelog:reporting:
+  tags:
+    - docker
+  only:
+    - merge_requests
+  stage: check-changelog
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_changelog.sh rtlola-reporting
+
+changelog:parser:
+  tags:
+    - docker
+  only:
+    - merge_requests
+  stage: check-changelog
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_changelog.sh rtlola-parser
+
+changelog:macros:
+  tags:
+    - docker
+  only:
+    - merge_requests
+  stage: check-changelog
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_changelog.sh rtlola-macros
+
+changelog:hir:
+  tags:
+    - docker
+  only:
+    - merge_requests
+  stage: check-changelog
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_changelog.sh rtlola-hir
+
+changelog:frontend:
+  tags:
+    - docker
+  only:
+    - merge_requests
+  stage: check-changelog
+  image: alpine:latest
+  script:
+    - apk update && apk add --no-cache bash
+    - ./check_changelog.sh rtlola-frontend
+
 
 ####### Use cargo to test the docs for broken links #######
 
