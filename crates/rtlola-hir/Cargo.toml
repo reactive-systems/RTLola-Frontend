@@ -26,6 +26,6 @@ num = "0.3.1"     # infinite precision rationals
 rtlola-reporting = "0.2.0"
 rtlola-macros = "0.1.1"
 rtlola-parser = "0.2.0"
-rusttyc = { git = "https://github.com/Schwenger/RustTyC.git", branch="context_sensitive"}
+rusttyc = "0.5.0"
 serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "0.3.2", features = ["serde"] }
