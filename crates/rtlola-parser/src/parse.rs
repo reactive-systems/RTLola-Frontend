@@ -1,6 +1,5 @@
 //! This module contains the parser for the Lola Language.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -27,7 +26,6 @@ struct LolaParser;
 pub(crate) struct RtLolaParser {
     spec: RtLolaAst,
     config: ParserConfig,
-    node_id: RefCell<NodeId>,
 }
 
 lazy_static! {
@@ -60,7 +58,6 @@ impl RtLolaParser {
         RtLolaParser {
             spec: RtLolaAst::empty(),
             config,
-            node_id: RefCell::new(NodeId::new(0)),
         }
     }
 
