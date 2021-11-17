@@ -21,6 +21,7 @@ use rtlola_reporting::Span;
 /// * [Constant] represents a constant stream.
 /// * [Input] represents an input stream.
 /// * [Output] represents an output stream.
+/// * [Mirror] represents mirror streams, a syntactic sugar for an output stream.
 /// * [Trigger] represents a trigger declaration.
 /// * [TypeDeclaration] captures a user given type declaration.
 ///
@@ -37,6 +38,8 @@ pub struct RtLolaAst {
     pub inputs: Vec<Rc<Input>>,
     /// The output stream declarations
     pub outputs: Vec<Rc<Output>>,
+    /// The mirror stream declarations
+    pub mirrors: Vec<Rc<Mirror>>,
     /// The trigger declarations
     pub trigger: Vec<Rc<Trigger>>,
     /// The user-defined type declarations
@@ -53,6 +56,7 @@ impl RtLolaAst {
             constants: Vec::new(),
             inputs: Vec::new(),
             outputs: Vec::new(),
+            mirrors: Vec::new(),
             trigger: Vec::new(),
             type_declarations: Vec::new(),
             next_node_id: RefCell::new(NodeId::default()),
@@ -131,6 +135,21 @@ pub struct Output {
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the output stream
+    pub span: Span,
+}
+
+/// Represents an output stream that mirrors another but filters them.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct Mirror {
+    /// The name of the mirror stream.
+    pub name: Ident,
+    /// The condition under which values of the target will be propagated.
+    pub filter: Expression,
+    /// The stream that is supposed to be mirrored.
+    pub target: Ident,
+    /// The id of the node in the Ast
+    pub id: NodeId,
+    /// The span in the specification declaring the parameter
     pub span: Span,
 }
 

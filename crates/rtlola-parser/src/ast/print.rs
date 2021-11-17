@@ -47,6 +47,12 @@ impl Display for Input {
     }
 }
 
+impl Display for Mirror {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "output {} mirror {} when {}", self.name, self.target, self.filter)
+    }
+}
+
 impl Display for Output {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "output {}", self.name)?;
@@ -427,6 +433,9 @@ impl Display for RtLolaAst {
         }
         for output in &self.outputs {
             writeln!(f, "{}", output)?;
+        }
+        for mirror in &self.mirrors {
+            writeln!(f, "{}", mirror)?;
         }
         for trigger in &self.trigger {
             writeln!(f, "{}", trigger)?;

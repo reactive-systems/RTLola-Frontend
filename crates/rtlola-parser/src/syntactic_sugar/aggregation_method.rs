@@ -40,9 +40,7 @@ impl AggrMethodToWindow {
                     id: new_id,
                     span: expr.span.clone(),
                 };
-                let mut cs = ChangeSet::empty();
-                cs.replace_current_expression(new_expr);
-                cs
+                ChangeSet::replace_current_expression(new_expr)
             },
             _ => ChangeSet::empty(),
         }

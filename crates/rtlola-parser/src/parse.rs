@@ -90,6 +90,12 @@ impl RtLolaParser {
                     let inputs = self.parse_inputs(pair);
                     self.spec.inputs.extend(inputs.into_iter().map(Rc::new));
                 },
+                Rule::MirrorStream => {
+                    match self.parse_mirror(pair) {
+                        Ok(mirror) => self.spec.mirrors.push(Rc::new(mirror)),
+                        Err(e) => error.join(e),
+                    }
+                },
                 Rule::OutputStream => {
                     match self.parse_output(pair) {
                         Ok(output) => self.spec.outputs.push(Rc::new(output)),
@@ -188,6 +194,31 @@ impl RtLolaParser {
 
         assert!(!inputs.is_empty());
         inputs
+    }
+
+    /**
+     * Transforms a `Rule::MirrorStream` into `Mirror` AST node.
+     * Panics if input is not `Rule::MirrorStream`.
+     * The mirror rule consists of the following tokens:
+     * - `Rule::Ident` (name)
+     * - `Rule::Ident` (target)
+     * - `Rule::Expr` (mirror condition)
+     */
+    fn parse_mirror(&self, pair: Pair<'_, Rule>) -> Result<Mirror, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::MirrorStream);
+        let span = pair.as_span().into();
+        let mut pairs = pair.into_inner();
+        let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
+        let target = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
+        let condition =
+            self.build_expression_ast(pairs.next().expect("mismatch between grammar and AST").into_inner())?;
+        Ok(Mirror {
+            name,
+            target,
+            filter: condition,
+            id: self.spec.next_id(),
+            span,
+        })
     }
 
     /**
@@ -1217,6 +1248,18 @@ mod tests {
         assert_eq!(format!("{}", inputs[0]), "input a: Int");
         assert_eq!(format!("{}", inputs[1]), "input b: Int");
         assert_eq!(format!("{}", inputs[2]), "input c: Bool");
+    }
+
+    #[test]
+    fn parse_mirror_ast() {
+        let spec = "output a mirror b when 3 > 5";
+        let parser = create_parser(spec);
+        let pair = LolaParser::parse(Rule::MirrorStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let mirror = parser.parse_mirror(pair).expect("failed to parse filter condition");
+        assert_eq!(format!("{}", mirror), "output a mirror b when 3 > 5");
     }
 
     #[test]

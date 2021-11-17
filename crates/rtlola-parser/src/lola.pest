@@ -8,7 +8,7 @@ IncompleteSpec = { SOI ~ ImportStmts ~ Declaration* }
 Spec = { SOI~ (BOM)? ~ ImportStmts ~ Declaration* ~ EOI }
 ImportStmts = _{ ImportStmt* }
 ImportStmt  = { "import " ~ Ident }
-Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | Trigger}
+Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | Trigger}
 BOM = _{"\u{FEFF}"}
 //////////////////////////////////////////////////
 /////////////////// Statements ///////////////////
@@ -37,6 +37,8 @@ ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
 OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ ActivationCondition? ~ SpawnDecl? ~ FilterDecl? ~CloseDecl? ~":="~ Expr}
+
+MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
 Trigger = { "trigger " ~ ActivationCondition? ~ Expr ~ (StringLiteral ~ IdentList?)?}
 
