@@ -982,22 +982,8 @@ mod tests {
         assert!(ast.mirrors.is_empty());
         let new = &ast.outputs[1];
         let target = &ast.outputs[0];
-        assert!(matches!(
-            &target.name,
-            Ident {
-                name,
-                ..
-            }
-            if name == &String::from("x")
-        ));
-        assert!(matches!(
-            &new.name,
-            Ident {
-                name,
-                ..
-            }
-            if name == &String::from("y")
-        ));
+        assert_eq!(target.name.name, "x");
+        assert_eq!(new.name.name, "y");
         assert_eq!(new.annotated_type, target.annotated_type);
         assert_eq!(new.annotated_pacing_type, target.annotated_pacing_type);
         assert_eq!(new.close, target.close);
