@@ -4,9 +4,11 @@ use std::rc::Rc;
 
 // List for all syntactic sugar transformer
 mod aggregation_method;
+mod delta;
 mod last;
 mod mirror;
 use aggregation_method::AggrMethodToWindow;
+use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
 
@@ -107,6 +109,7 @@ impl Desugarizer {
             Box::new(AggrMethodToWindow {}),
             Box::new(Last {}),
             Box::new(SynSugMirror {}),
+            Box::new(Delta {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -961,6 +964,14 @@ mod tests {
         assert!(
             matches!(*stream, Expression { kind: ExpressionKind::Ident(Ident { name, .. }), ..} if name == String::from("x") )
         );
+    }
+
+    #[test]
+    fn test_delta_replace() {
+        let spec = "output y := delta(x)".to_string();
+        let expected = "output y := x - x.offset(by: -1).defaults(to: 0)";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
