@@ -4,7 +4,9 @@ use std::rc::Rc;
 
 // List for all syntactic sugar transformer
 mod aggregation_method;
+mod last;
 use aggregation_method::AggrMethodToWindow;
+use last::Last;
 
 use crate::ast::{
     CloseSpec, Expression, ExpressionKind, FilterSpec, Input, NodeId, Output, RtLolaAst, SpawnSpec, Trigger,
@@ -71,7 +73,7 @@ impl Desugarizer {
     /// All transformations registered in the internal vector will be applied on the ast.
     /// New structs have to be added in this function.
     pub fn all() -> Self {
-        let all_transformers: Vec<Box<dyn SynSugar>> = vec![Box::new(AggrMethodToWindow {})];
+        let all_transformers: Vec<Box<dyn SynSugar>> = vec![Box::new(AggrMethodToWindow {}), Box::new(Last {})];
         Self {
             sugar_transformers: all_transformers,
         }
@@ -800,16 +802,14 @@ impl std::ops::AddAssign<ChangeSet> for ChangeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinOp, UnOp, WindowOperation};
+    use crate::ast::{BinOp, Ident, LitKind, Literal, Offset, UnOp, WindowOperation};
 
     #[test]
     fn test_aggr_replace() {
         let spec = "output x @ 5hz := x.count(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
         assert!(matches!(
-            new_ast.outputs[0].expression.kind,
+            ast.outputs[0].expression.kind,
             ExpressionKind::SlidingWindowAggregation {
                 aggregation: WindowOperation::Count,
                 ..
@@ -821,9 +821,7 @@ mod tests {
     fn test_aggr_replace_nested() {
         let spec = "output x @ 5hz := -x.sum(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
-        let out_kind = new_ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].expression.kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
@@ -843,9 +841,7 @@ mod tests {
     fn test_aggr_replace_multiple() {
         let spec = "output x @ 5hz := x.avg(5s) - x.integral(2.5s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
-        let out_kind = new_ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].expression.kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
         let (left, right) = if let ExpressionKind::Binary(BinOp::Sub, left, right) = out_kind {
             (left.kind, right.kind)
@@ -866,5 +862,36 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_last_replace() {
+        let spec = "output x @ 5hz := x.last(3)".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].expression.kind.clone();
+        let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
+            (access.kind, dft.kind)
+        } else {
+            panic!("Last should result in a top-level default access with its argument as default value")
+        };
+        assert!(
+            matches!(
+                &dft,
+                &ExpressionKind::Lit(Literal {
+                    kind: LitKind::Numeric(ref x, None),
+                    ..
+                }) if x == &String::from("3")
+            ),
+            "The argument of last should be the default expression."
+        );
+        let stream = if let ExpressionKind::Offset(stream, Offset::Discrete(-1)) = access {
+            stream
+        } else {
+            panic!("expected an offset expression, but found {:?}", access);
+        };
+
+        assert!(
+            matches!(*stream, Expression { kind: ExpressionKind::Ident(Ident { name, .. }), ..} if name == String::from("x") )
+        );
     }
 }
