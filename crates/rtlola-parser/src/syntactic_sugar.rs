@@ -967,7 +967,6 @@ mod tests {
     fn test_mirror_replace() {
         let spec = "output x := 3 \noutput y mirrors x when x > 5".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        println!("Spec: {}", ast);
         assert_eq!(ast.outputs.len(), 2);
         assert!(ast.mirrors.is_empty());
         let new = &ast.outputs[1];

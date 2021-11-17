@@ -3,10 +3,10 @@ use rtlola_reporting::Span;
 use super::{ChangeSet, SynSugar};
 use crate::ast::{FilterSpec, Mirror as AstMirror, Output, RtLolaAst};
 
-/// Allows for using a last(or:) function to access an element with offset -1.
+/// Enables usage of mirror streams
 ///
 /// Transforms:
-/// a.last(or: x) => a.offset(by: -1).defaults(to: x)
+/// output a mirrors b when φ → output a filter when φ := b
 #[derive(Debug, Clone)]
 pub(crate) struct Mirror {}
 

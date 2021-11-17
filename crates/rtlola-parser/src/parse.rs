@@ -1252,7 +1252,7 @@ mod tests {
 
     #[test]
     fn parse_mirror_ast() {
-        let spec = "output a mirror b when 3 > 5";
+        let spec = "output a mirrors b when 3 > 5";
         let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::MirrorStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
