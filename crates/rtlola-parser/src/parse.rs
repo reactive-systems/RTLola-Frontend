@@ -2271,4 +2271,19 @@ mod tests {
         trigger eval when b > 10 with \"test\"\n";
         cmp_ast_spec(&ast, ref_spec);
     }
+
+    #[test]
+    fn parse_unicode_identifier() {
+        parses_to! {
+            parser: LolaParser,
+            input:  "input ζ: Int32",
+            rule:   Rule::InputStream,
+            tokens: [
+                InputStream(0, 15, [
+                    Ident(6, 8, []),
+                    Type(10, 15, [Ident(10, 15, [])])
+                ]),
+            ]
+        };
+    }
 }

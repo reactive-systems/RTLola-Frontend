@@ -171,8 +171,8 @@ Optional = { Ident ~ "?" }  // Optional types are written `Int32?`
 
 // /////////////////// Names //////////////////////
 
-Ident = @{  (Letter | "_") ~ (Letter | Digit | "_" | "::")* | WindowOp}
-
+// look at https://www.unicode.org/reports/tr31/#R1 and  https://www.unicode.org/reports/tr31/#D1
+Ident = @{ (WindowOp ~ !XID_CONTINUE) | (XID_START | "_") ~ (XID_CONTINUE | "_" | "::")* }
 Parameter = { Ident } // Semantic Category
 
 // ////////////////// Symbols /////////////////////
