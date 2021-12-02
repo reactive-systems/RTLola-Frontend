@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
@@ -11,10 +13,7 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use crate::hir::{
-    AnnotatedPacingType, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, Hir, Inlined, Literal,
-    StreamAccessKind, StreamReference, ValueEq,
-};
+use crate::hir::{AnnotatedPacingType, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, ValueEq, WidenExprKind, ArithLogOp};
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
 use crate::type_check::ConcretePacingType;
@@ -50,6 +49,88 @@ pub(crate) enum AbstractPacingType {
     Any,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct HashableExpression {
+    context: &'static ExpressionContext,
+    expression: Expression,
+}
+
+impl PartialEq for HashableExpression {
+    fn eq(&self, other: &Self) -> bool {
+        self.expression.value_eq(&other.expression, self.context)
+    }
+}
+
+impl Eq for HashableExpression {}
+
+fn hash_expr_kind<H: Hasher>(kind: &ExpressionKind, state: &mut H) {
+    match kind {
+        ExpressionKind::LoadConstant(c) => {
+            1.hash(state);
+            c.hash(state);
+        },
+        ExpressionKind::ArithLog(op, args) => {
+            2.hash(state);
+            op.hash(state);
+            args.iter().for_each(|arg| hash_expr_kind(&arg.kind, state));
+        },
+        ExpressionKind::StreamAccess(target, kind, _) => {
+            // ignore parameters to fulfill:
+            // key1 == key2 -> Hash(key1) == Hash(key2)
+            3.hash(state);
+            target.hash(state);
+            kind.hash(state);
+        },
+        ExpressionKind::ParameterAccess(_, _) => {
+            // ignore actual parameter <- See above
+            4.hash(state);
+        },
+        ExpressionKind::Ite {
+            condition,
+            consequence,
+            alternative,
+        } => {
+            5.hash(state);
+            hash_expr_kind(&condition.kind, state);
+            hash_expr_kind(&consequence.kind, state);
+            hash_expr_kind(&alternative.kind, state);
+        },
+        ExpressionKind::Tuple(children) => {
+            6.hash(state);
+            children.iter().for_each(|child| hash_expr_kind(&child.kind, state))
+        },
+        ExpressionKind::TupleAccess(target, idx) => {
+            7.hash(state);
+            hash_expr_kind(&target.kind, state);
+            idx.hash(state);
+        },
+        ExpressionKind::Function(func_def) => {
+            8.hash(state);
+            let FnExprKind { name, args, type_param } = &func_def;
+            name.hash(state);
+            args.iter().for_each(|arg| hash_expr_kind(&arg.kind, state));
+            type_param.hash(state);
+        },
+        ExpressionKind::Widen(widen_kind) => {
+            9.hash(state);
+            let WidenExprKind { expr, ty } = &widen_kind;
+            hash_expr_kind(&expr.kind, state);
+            ty.hash(state);
+        },
+        ExpressionKind::Default { expr, default } => {
+            10.hash(state);
+            hash_expr_kind(&expr.kind, state);
+            hash_expr_kind(&default.kind, state);
+        },
+    }
+}
+
+impl Hash for HashableExpression {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        hash_expr_kind(&self.expression.kind, state);
+    }
+}
+
 /// The internal representation of an expression type
 #[derive(Clone, Debug)]
 pub(crate) enum AbstractExpressionType {
@@ -57,7 +138,9 @@ pub(crate) enum AbstractExpressionType {
     Any,
     /// AnyClose is concretized into False
     AnyClose,
-    Expression(Expression),
+    Single(HashableExpression),
+    Conjunction(HashSet<HashableExpression>),
+    Disjunction(HashSet<HashableExpression>),
 }
 
 /// The internal representation of the overall Stream pacing
@@ -84,7 +167,8 @@ pub(crate) struct InferredTemplates {
     pub(crate) close: Option<Expression>,
 }
 
-/// The [PacingErrorKind] helps to distinguish errors during reporting.
+/// The [PacingErrorKind] helps to distinguish errors
+/// during reporting.
 #[derive(Debug)]
 pub(crate) enum PacingErrorKind {
     FreqAnnotationNeeded(Span),
@@ -812,6 +896,92 @@ impl std::fmt::Display for AbstractExpressionType {
     }
 }
 
+impl AbstractExpressionType {
+    fn flatten_ands(exp: &Expression) -> Vec<Expression> {
+        match &exp.kind {
+            ExpressionKind::ArithLog(op, args) => match op {
+                ArithLogOp::And => todo!(),
+                ArithLogOp::Or |
+                ArithLogOp::Not |
+                ArithLogOp::Neg |
+                ArithLogOp::Add |
+                ArithLogOp::Sub |
+                ArithLogOp::Mul |
+                ArithLogOp::Div |
+                ArithLogOp::Rem |
+                ArithLogOp::Pow |
+                ArithLogOp::BitXor |
+                ArithLogOp::BitAnd |
+                ArithLogOp::BitOr |
+                ArithLogOp::BitNot |
+                ArithLogOp::Shl |
+                ArithLogOp::Shr |
+                ArithLogOp::Eq |
+                ArithLogOp::Lt |
+                ArithLogOp::Le |
+                ArithLogOp::Ne |
+                ArithLogOp::Ge |
+                ArithLogOp::Gt => vec![exp.clone()]
+            },
+            ExpressionKind::LoadConstant(_)
+            | ExpressionKind::Default { .. }
+            | ExpressionKind::Widen(_)
+            | ExpressionKind::Function(_)
+            | ExpressionKind::TupleAccess(_, _)
+            | ExpressionKind::Tuple(_)
+            | ExpressionKind::Ite { .. }
+            | ExpressionKind::StreamAccess(_, _, _)
+            | ExpressionKind::ParameterAccess(_, _) => vec![exp.clone()],
+        }
+    }
+
+    pub(crate) fn from_expression(exp: &Expression, context: &ExpressionContext) -> AbstractAxpressionType {
+        match &exp.kind {
+            ExpressionKind::ArithLog(op, args) => match op {
+                ArithLogOp::And => {}
+                ArithLogOp::Or => {}
+                ArithLogOp::Not |
+                ArithLogOp::Neg |
+                ArithLogOp::Add |
+                ArithLogOp::Sub |
+                ArithLogOp::Mul |
+                ArithLogOp::Div |
+                ArithLogOp::Rem |
+                ArithLogOp::Pow |
+                ArithLogOp::BitXor |
+                ArithLogOp::BitAnd |
+                ArithLogOp::BitOr |
+                ArithLogOp::BitNot |
+                ArithLogOp::Shl |
+                ArithLogOp::Shr |
+                ArithLogOp::Eq |
+                ArithLogOp::Lt |
+                ArithLogOp::Le |
+                ArithLogOp::Ne |
+                ArithLogOp::Ge |
+                ArithLogOp::Gt => AbstractExpressionType::Single(HashableExpression {
+                    context,
+                    expression: exp.clone(),
+                })
+            },
+            ExpressionKind::LoadConstant(_)
+            | ExpressionKind::Default { .. }
+            | ExpressionKind::Widen(_)
+            | ExpressionKind::Function(_)
+            | ExpressionKind::TupleAccess(_, _)
+            | ExpressionKind::Tuple(_)
+            | ExpressionKind::Ite { .. }
+            | ExpressionKind::StreamAccess(_, _, _)
+            | ExpressionKind::ParameterAccess(_, _) => {
+                AbstractExpressionType::Single(HashableExpression {
+                    context,
+                    expression: exp.clone(),
+                })
+            },
+        }
+    }
+}
+
 impl ConcretePacingType {
     /// Pretty print function for [ConcretePacingType].
     pub fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
@@ -845,5 +1015,84 @@ impl ConcretePacingType {
                 ActivationCondition::parse(expr).map(ConcretePacingType::Event)
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hash};
+
+    use rtlola_parser::{ParserConfig, RtLolaAst};
+
+    use crate::hir::{ExpressionContext, ValueEq};
+    use crate::type_check::pacing_types::HashableExpression;
+    use crate::{BaseMode, RtLolaHir};
+
+    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, ExpressionContext) {
+        let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
+            Ok(s) => s,
+            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
+        };
+        let hir = crate::from_ast(ast).unwrap();
+        let ctx = ExpressionContext::new(&hir);
+        (hir, ctx)
+    }
+
+    #[test]
+    fn test_expression_hash_eq() {
+        let (hir, ctx) = setup_ast(
+            "\
+            input i: Int32\n\
+            output a(p: Int32) spawn with i := i + p\n\
+            output b(q: Int32) spawn with i := i + q",
+        );
+        let a_exp = hir.expression(hir.outputs[0].expr_id);
+        let b_exp = hir.expression(hir.outputs[1].expr_id);
+        assert!(a_exp.value_neq_ignore_parameters(b_exp));
+        assert!(a_exp.value_eq(b_exp, &ctx));
+        let a_hash_expr = HashableExpression {
+            context: &ctx,
+            expression: a_exp.clone(),
+        };
+
+        let b_hash_expr = HashableExpression {
+            context: &ctx,
+            expression: b_exp.clone(),
+        };
+
+        let mut hasher_a = RandomState::new().build_hasher();
+        let mut hasher_b = RandomState::new().build_hasher();
+        assert_eq!(a_hash_expr, b_hash_expr);
+        assert_eq!(a_hash_expr.hash(&mut hasher_a), b_hash_expr.hash(&mut hasher_b));
+    }
+
+    #[test]
+    fn test_expression_hash_eq_access() {
+        let (hir, ctx) = setup_ast(
+            "\
+            input i: Int32\n\
+            output a(p: Int32) spawn with i := i + p\n\
+            output b(q: Int32) spawn with i := a(q)\n\
+            output c(r: Int32) spawn with i := a(r)",
+        );
+        let b_exp = hir.expression(hir.outputs[1].expr_id);
+        let c_exp = hir.expression(hir.outputs[2].expr_id);
+        assert!(b_exp.value_neq_ignore_parameters(c_exp));
+        assert!(b_exp.value_eq(c_exp, &ctx));
+
+        let b_hash_expr = HashableExpression {
+            context: &ctx,
+            expression: b_exp.clone(),
+        };
+
+        let c_hash_expr = HashableExpression {
+            context: &ctx,
+            expression: c_exp.clone(),
+        };
+        let mut hasher_b = RandomState::new().build_hasher();
+        let mut hasher_c = RandomState::new().build_hasher();
+        assert_eq!(b_hash_expr, c_hash_expr);
+        assert_eq!(b_hash_expr.hash(&mut hasher_b), c_hash_expr.hash(&mut hasher_c));
     }
 }

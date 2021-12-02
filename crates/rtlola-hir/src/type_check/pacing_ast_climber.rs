@@ -46,7 +46,19 @@ where
     /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcretePacingType, TcKey)>,
     /// Expression context providing equivalence for parameters of different streams needed for expression equality.
-    pub(crate) exp_context: ExpressionContext,
+    pub(crate) exp_context: &'static ExpressionContext,
+    // Pointer to Expression Context on Heap. Later used to free the memory again.
+    raw_exp_context: *mut ExpressionContext,
+}
+
+impl<'a, M> Drop for PacingTypeChecker<'a, M>
+where
+    M: HirMode,
+{
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        drop(unsafe { Box::from_raw(self.raw_exp_context) });
+    }
 }
 
 impl<'a, M> PacingTypeChecker<'a, M>
@@ -57,7 +69,9 @@ where
     /// Inits all internal hash maps.
     pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
-        let exp_context = ExpressionContext::new(hir);
+        let exp_context = Box::new(ExpressionContext::new(hir));
+        let raw_exp_context = &mut *exp_context;
+        let exp_context: &'static ExpressionContext = Box::leak(exp_context);
         let pacing_tyc = TypeChecker::new();
         let expression_tyc = TypeChecker::with_context(exp_context.clone());
         let pacing_key_span = HashMap::new();
@@ -73,6 +87,7 @@ where
             names,
             annotated_checks,
             exp_context,
+            raw_exp_context,
         };
         res.generate_keys_for_streams();
         res
@@ -895,6 +910,7 @@ where
             names,
             annotated_checks,
             exp_context,
+            raw_exp_context,
         } = self;
         let pacing_tt = pacing_tyc.type_check().map_err(|tc_err| {
             TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], names)
@@ -932,6 +948,12 @@ where
                 )
             })
             .collect();
+
+        // Free Expression Context
+        #[allow(unsafe_code)]
+        unsafe {
+            Box::from_raw(raw_exp_context)
+        };
 
         Ok(ctt)
     }

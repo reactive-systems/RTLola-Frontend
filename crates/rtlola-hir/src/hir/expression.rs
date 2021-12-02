@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
@@ -191,6 +192,32 @@ pub enum Literal {
     Float(f64),
 }
 
+impl Hash for Literal {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match &self {
+            Literal::Str(str) => {
+                1.hash(state);
+                str.hash(state);
+            },
+            Literal::Bool(b) => {
+                2.hash(state);
+                b.hash(state);
+            },
+            Literal::Integer(i) => {
+                3.hash(state);
+                i.hash(state);
+            },
+            Literal::SInt(si) => {
+                4.hash(state);
+                si.hash(state);
+            },
+            Literal::Float(_) => {
+                5.hash(state);
+            },
+        }
+    }
+}
+
 impl PartialEq for Literal {
     fn eq(&self, other: &Self) -> bool {
         use self::Literal::*;
@@ -219,7 +246,7 @@ impl Eq for Literal {}
 ///               ^         ^
 ///               |         |
 ///            inlined    basic
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum Constant {
     /// Basic constants occurring in stream expressions
     Basic(Literal),
@@ -228,7 +255,7 @@ pub enum Constant {
 }
 
 /// Represents inlined constant values from constant streams
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct Inlined {
     /// The value of the constant
     pub lit: Literal,
@@ -257,7 +284,7 @@ pub enum StreamAccessKind {
 }
 
 /// Contains all arithmetical and logical operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArithLogOp {
     /// The `!` operator for logical inversion
     Not,
