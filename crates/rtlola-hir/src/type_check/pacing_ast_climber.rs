@@ -69,11 +69,13 @@ where
     /// Inits all internal hash maps.
     pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
-        let exp_context = Box::new(ExpressionContext::new(hir));
-        let raw_exp_context = &mut *exp_context;
+
+        let mut exp_context = Box::new(ExpressionContext::new(hir));
+        let raw_exp_context: *mut ExpressionContext = &mut *exp_context;
         let exp_context: &'static ExpressionContext = Box::leak(exp_context);
+
         let pacing_tyc = TypeChecker::new();
-        let expression_tyc = TypeChecker::with_context(exp_context.clone());
+        let expression_tyc = TypeChecker::new();
         let pacing_key_span = HashMap::new();
         let expression_key_span = HashMap::new();
         let annotated_checks = HashMap::new();
@@ -316,12 +318,13 @@ where
             self.impose_more_concrete(spawn_condition_keys, inferred)?;
 
             //Streams spawn condition is equal to annotated condition
-            self.expression_tyc.impose(
-                stream_keys
-                    .spawn
-                    .1
-                    .concretizes_explicit(AbstractExpressionType::Expression(spawn_condition)),
-            )?;
+            todo!();
+            // self.expression_tyc.impose(
+            //     stream_keys
+            //         .spawn
+            //         .1
+            //         .concretizes_explicit(AbstractExpressionType::Expression(spawn_condition)),
+            // )?;
         }
 
         // Pacing of spawn target is more concrete than pacing of condition
@@ -356,11 +359,12 @@ where
         self.pacing_tyc
             .impose(stream_keys.exp_pacing.equate_with(filter_keys.exp_pacing))?;
         //Filter is equal to the expression
-        self.expression_tyc.impose(
-            stream_keys
-                .filter
-                .concretizes_explicit(AbstractExpressionType::Expression(filter.clone())),
-        )?;
+        // self.expression_tyc.impose(
+        //     stream_keys
+        //         .filter
+        //         .concretizes_explicit(AbstractExpressionType::Expression(filter.clone())),
+        // )?;
+        todo!();
         //Filter of the stream is more concrete than the filter of the streams expression
         self.expression_tyc
             .impose(stream_keys.filter.concretizes(exp_keys.filter))?;
@@ -399,11 +403,12 @@ where
         }
 
         //Close is equal to the expression
-        self.expression_tyc.impose(
-            stream_keys
-                .close
-                .concretizes_explicit(AbstractExpressionType::Expression(close_target.clone())),
-        )?;
+        // self.expression_tyc.impose(
+        //     stream_keys
+        //         .close
+        //         .concretizes_explicit(AbstractExpressionType::Expression(close_target.clone())),
+        // )?;
+        todo!();
         //Close of the streams expression is more concrete than the close of the stream
         self.expression_tyc
             .impose(exp_keys.close.concretizes(stream_keys.close))?;
@@ -900,31 +905,27 @@ where
                 .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
         }
 
-        let PacingTypeChecker {
-            hir,
-            pacing_tyc,
-            expression_tyc,
-            node_key,
-            pacing_key_span,
-            expression_key_span,
-            names,
-            annotated_checks,
-            exp_context,
-            raw_exp_context,
-        } = self;
+        // Todo: can we get rid of all these clones?
+        let pacing_key_span = self.pacing_key_span.clone();
+        let expression_key_span = self.expression_key_span.clone();
+        let node_key = self.node_key.clone();
+        let pacing_tyc = self.pacing_tyc.clone();
+        let expression_tyc = self.expression_tyc.clone();
+        let annotated_checks = self.annotated_checks.clone();
+
         let pacing_tt = pacing_tyc.type_check().map_err(|tc_err| {
-            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], names)
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names)
         })?;
         let exp_tt = expression_tyc.type_check().map_err(|tc_err| {
-            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], names)
+            TypeError::from(tc_err).into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names)
         })?;
 
         let mut error = RtLolaError::new();
         for pe in Self::check_explicit_bounds(annotated_checks, &pacing_tt) {
-            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], names));
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names));
         }
-        for pe in Self::post_process(hir, &node_key, &pacing_tt, &exp_tt, &exp_context) {
-            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], names));
+        for pe in Self::post_process(self.hir, &node_key, &pacing_tt, &exp_tt, self.exp_context) {
+            error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names));
         }
         Result::from(error)?;
 
@@ -948,12 +949,6 @@ where
                 )
             })
             .collect();
-
-        // Free Expression Context
-        #[allow(unsafe_code)]
-        unsafe {
-            Box::from_raw(raw_exp_context)
-        };
 
         Ok(ctt)
     }

@@ -13,7 +13,10 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use crate::hir::{AnnotatedPacingType, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, ValueEq, WidenExprKind, ArithLogOp};
+use crate::hir::{
+    AnnotatedPacingType, ArithLogOp, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir,
+    Inlined, Literal, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
+};
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
 use crate::type_check::ConcretePacingType;
@@ -132,14 +135,17 @@ impl Hash for HashableExpression {
 }
 
 /// The internal representation of an expression type
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AbstractExpressionType {
     /// Any is concretized into True
     Any,
     /// AnyClose is concretized into False
     AnyClose,
+    /// A single expression containing no boolean operators at top level
     Single(HashableExpression),
+    /// A conjunction of expressions
     Conjunction(HashSet<HashableExpression>),
+    /// A disjunction of expressions
     Disjunction(HashSet<HashableExpression>),
 }
 
@@ -335,7 +341,6 @@ impl ActivationCondition {
                 }
                 let ac_l = Self::parse(&v[0])?;
                 let ac_r = Self::parse(&v[1])?;
-                use crate::hir::ArithLogOp;
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l & ac_r),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l | ac_r),
@@ -792,7 +797,9 @@ impl PrintableVariant for AbstractExpressionType {
         match self {
             Self::Any => "Any".into(),
             Self::AnyClose => "AnyClose".into(),
-            Self::Expression(e) => e.pretty_string(names),
+            Self::Single(e) => format!("Single({})", e.expression),
+            Self::Conjunction(conjs) => format!("Conjunction({})", conjs.iter().map(|he| he.expression.pretty_string(names)).join(", ") ),
+            Self::Disjunction(disj) => format!("Disjunction({})", disj.iter().map(|he| he.expression.pretty_string(names)).join(", ") ),
         }
     }
 }
@@ -815,30 +822,30 @@ impl AbstractPacingType {
     }
 }
 
-impl ContextSensitiveVariant for AbstractExpressionType {
-    type Context = ExpressionContext;
+impl Variant for AbstractExpressionType {
     type Err = PacingErrorKind;
 
     fn top() -> Self {
         AbstractExpressionType::Any
     }
 
-    fn meet(lhs: Partial<Self>, rhs: Partial<Self>, ctx: &ExpressionContext) -> Result<Partial<Self>, Self::Err> {
+    fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
         let new_var = match (lhs.variant, rhs.variant) {
             (Self::Any, x) | (x, Self::Any) => Ok(x),
             (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
-            (Self::Expression(a), Self::Expression(b)) => {
-                if a.value_eq(&b, ctx) {
-                    Ok(Self::Expression(a))
-                } else {
-                    Err(PacingErrorKind::IncompatibleExpressions(
-                        Self::Expression(a),
-                        Self::Expression(b),
-                    ))
-                }
-            },
+            _ => todo!(),
+            // (Self::Expression(a), Self::Expression(b)) => {
+            //     if a.value_eq(&b, ctx) {
+            //         Ok(Self::Expression(a))
+            //     } else {
+            //         Err(PacingErrorKind::IncompatibleExpressions(
+            //             Self::Expression(a),
+            //             Self::Expression(b),
+            //         ))
+            //     }
+            // },
         }?;
         Ok(Partial {
             variant: new_var,
@@ -846,17 +853,8 @@ impl ContextSensitiveVariant for AbstractExpressionType {
         })
     }
 
-    fn arity(&self, _ctx: &ExpressionContext) -> Arity {
+    fn arity(&self) -> Arity {
         Arity::Fixed(0)
-    }
-
-    fn equal(this: &Self, that: &Self, ctx: &Self::Context) -> bool {
-        match (this, that) {
-            (AbstractExpressionType::Expression(e1), AbstractExpressionType::Expression(e2)) => e1.value_eq(e2, ctx),
-            (AbstractExpressionType::Any, AbstractExpressionType::Any)
-            | (AbstractExpressionType::AnyClose, AbstractExpressionType::AnyClose) => true,
-            _ => false,
-        }
     }
 }
 
@@ -881,7 +879,8 @@ impl Constructable for AbstractExpressionType {
                     span: Span::Unknown,
                 })
             },
-            Self::Expression(e) => Ok(e.clone()),
+            _ => todo!(),
+            // Self::Expression(e) => Ok(e.clone()),
         }
     }
 }
@@ -891,78 +890,97 @@ impl std::fmt::Display for AbstractExpressionType {
         match self {
             Self::Any => write!(f, "Any"),
             Self::AnyClose => write!(f, "AnyClose"),
-            Self::Expression(e) => write!(f, "Exp({})", e),
+            Self::Single(e) => write!(f, "Single({})", e.expression),
+            Self::Conjunction(conjs) => write!(f, "Conjunction({})", conjs.iter().map(|he| format!("{}", he.expression)).join(", ") ),
+            Self::Disjunction(disj) => write!(f, "Disjunction({})", disj.iter().map(|he| format!("{}", he.expression)).join(", ") ),
         }
     }
 }
 
 impl AbstractExpressionType {
-    fn flatten_ands(exp: &Expression) -> Vec<Expression> {
-        match &exp.kind {
-            ExpressionKind::ArithLog(op, args) => match op {
-                ArithLogOp::And => todo!(),
-                ArithLogOp::Or |
-                ArithLogOp::Not |
-                ArithLogOp::Neg |
-                ArithLogOp::Add |
-                ArithLogOp::Sub |
-                ArithLogOp::Mul |
-                ArithLogOp::Div |
-                ArithLogOp::Rem |
-                ArithLogOp::Pow |
-                ArithLogOp::BitXor |
-                ArithLogOp::BitAnd |
-                ArithLogOp::BitOr |
-                ArithLogOp::BitNot |
-                ArithLogOp::Shl |
-                ArithLogOp::Shr |
-                ArithLogOp::Eq |
-                ArithLogOp::Lt |
-                ArithLogOp::Le |
-                ArithLogOp::Ne |
-                ArithLogOp::Ge |
-                ArithLogOp::Gt => vec![exp.clone()]
+    /// Joins self with other
+    fn join<F>(self, other: Self, single_constructor: F) -> AbstractExpressionType
+    where F: Fn(HashSet<HashableExpression>) -> AbstractExpressionType
+    {
+        use AbstractExpressionType::*;
+        match (self, other) {
+            (Any, _)
+            | (_, Any)
+            | (AnyClose, _)
+            | (_, AnyClose)
+            | (Conjunction(_), Disjunction(_))
+            | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Single"),
+            (Single(a), Single(b)) => single_constructor(vec![a, b].into_iter().collect()),
+            (Single(this), Conjunction(mut other)) |
+            (Conjunction(mut other), Single(this))=> {
+                other.insert(this);
+                Conjunction(other)
             },
-            ExpressionKind::LoadConstant(_)
-            | ExpressionKind::Default { .. }
-            | ExpressionKind::Widen(_)
-            | ExpressionKind::Function(_)
-            | ExpressionKind::TupleAccess(_, _)
-            | ExpressionKind::Tuple(_)
-            | ExpressionKind::Ite { .. }
-            | ExpressionKind::StreamAccess(_, _, _)
-            | ExpressionKind::ParameterAccess(_, _) => vec![exp.clone()],
+            (Single(this), Disjunction(mut other))
+            | (Disjunction(mut other), Single(this)) => {
+                other.insert(this);
+                Disjunction(other)
+            }
+            (Conjunction(mut this) , Conjunction(other)) => {
+                this.extend(other);
+                Conjunction(this)
+            },
+            (Disjunction(mut this), Disjunction(other)) => {
+                this.extend(other);
+                Disjunction(this)
+            },
         }
     }
 
-    pub(crate) fn from_expression(exp: &Expression, context: &ExpressionContext) -> AbstractAxpressionType {
+    /// Flattens the expression tree from a /\ (b /\ c) to conjunction(a,b,c)
+    /// target determines whether a conjunction or disjunction is considered
+    /// None -> Not determined yet
+    /// Some(true) -> Conjunction
+    /// Some(false) -> Disjunction
+    fn flatten_expr(exp: &Expression, target: Option<bool>, context: &'static ExpressionContext) -> Self {
         match &exp.kind {
-            ExpressionKind::ArithLog(op, args) => match op {
-                ArithLogOp::And => {}
-                ArithLogOp::Or => {}
-                ArithLogOp::Not |
-                ArithLogOp::Neg |
-                ArithLogOp::Add |
-                ArithLogOp::Sub |
-                ArithLogOp::Mul |
-                ArithLogOp::Div |
-                ArithLogOp::Rem |
-                ArithLogOp::Pow |
-                ArithLogOp::BitXor |
-                ArithLogOp::BitAnd |
-                ArithLogOp::BitOr |
-                ArithLogOp::BitNot |
-                ArithLogOp::Shl |
-                ArithLogOp::Shr |
-                ArithLogOp::Eq |
-                ArithLogOp::Lt |
-                ArithLogOp::Le |
-                ArithLogOp::Ne |
-                ArithLogOp::Ge |
-                ArithLogOp::Gt => AbstractExpressionType::Single(HashableExpression {
-                    context,
-                    expression: exp.clone(),
-                })
+            ExpressionKind::ArithLog(op, args) => {
+                match (op, target) {
+                    (ArithLogOp::And, None) | (ArithLogOp::And, Some(true)) => {
+                        let left = Self::flatten_expr(&args[0], Some(true), context);
+                        let right = Self::flatten_expr(&args[1], Some(true), context);
+                        left.join(right, AbstractExpressionType::Conjunction)
+                    },
+                    (ArithLogOp::Or, None) | (ArithLogOp::Or, Some(false)) => {
+                        let left = Self::flatten_expr(&args[0], Some(false), context);
+                        let right = Self::flatten_expr(&args[1], Some(false), context);
+                        left.join(right, AbstractExpressionType::Disjunction)
+                    },
+                    (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Self::Single(HashableExpression {
+                        context,
+                        expression: exp.clone(),
+                    }),
+                    (ArithLogOp::Not, _)
+                    | (ArithLogOp::Neg, _)
+                    | (ArithLogOp::Add, _)
+                    | (ArithLogOp::Sub, _)
+                    | (ArithLogOp::Mul, _)
+                    | (ArithLogOp::Div, _)
+                    | (ArithLogOp::Rem, _)
+                    | (ArithLogOp::Pow, _)
+                    | (ArithLogOp::BitXor, _)
+                    | (ArithLogOp::BitAnd, _)
+                    | (ArithLogOp::BitOr, _)
+                    | (ArithLogOp::BitNot, _)
+                    | (ArithLogOp::Shl, _)
+                    | (ArithLogOp::Shr, _)
+                    | (ArithLogOp::Eq, _)
+                    | (ArithLogOp::Lt, _)
+                    | (ArithLogOp::Le, _)
+                    | (ArithLogOp::Ne, _)
+                    | (ArithLogOp::Ge, _)
+                    | (ArithLogOp::Gt, _) => {
+                        Self::Single(HashableExpression {
+                            context,
+                            expression: exp.clone(),
+                        })
+                    },
+                }
             },
             ExpressionKind::LoadConstant(_)
             | ExpressionKind::Default { .. }
@@ -973,12 +991,16 @@ impl AbstractExpressionType {
             | ExpressionKind::Ite { .. }
             | ExpressionKind::StreamAccess(_, _, _)
             | ExpressionKind::ParameterAccess(_, _) => {
-                AbstractExpressionType::Single(HashableExpression {
+                Self::Single(HashableExpression {
                     context,
                     expression: exp.clone(),
                 })
             },
         }
+    }
+
+    pub(crate) fn from_expression(exp: &Expression, context: &'static ExpressionContext) -> Self {
+        Self::flatten_expr(exp, None, context)
     }
 }
 
@@ -1021,43 +1043,68 @@ impl ConcretePacingType {
 #[cfg(test)]
 mod tests {
     use std::collections::hash_map::RandomState;
+    use std::collections::HashMap;
     use std::hash::{BuildHasher, Hash};
 
     use rtlola_parser::{ParserConfig, RtLolaAst};
 
-    use crate::hir::{ExpressionContext, ValueEq};
-    use crate::type_check::pacing_types::HashableExpression;
+    use crate::hir::{ExpressionContext, SRef, ValueEq};
+    use crate::type_check::pacing_types::{AbstractExpressionType, HashableExpression, PrintableVariant};
     use crate::{BaseMode, RtLolaHir};
 
-    fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, ExpressionContext) {
-        let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
-            Ok(s) => s,
-            Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
-        };
-        let hir = crate::from_ast(ast).unwrap();
-        let ctx = ExpressionContext::new(&hir);
-        (hir, ctx)
+    struct TestEnv {
+        hir: RtLolaHir<BaseMode>,
+        ctx: &'static ExpressionContext,
+        raw_ctx: *mut ExpressionContext,
+    }
+
+    impl TestEnv {
+        fn from_spec(spec: &str) -> Self {
+            let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
+                Ok(s) => s,
+                Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
+            };
+            let hir = crate::from_ast(ast).unwrap();
+
+            let mut exp_context = Box::new(ExpressionContext::new(&hir));
+            let raw_ctx: *mut ExpressionContext = &mut *exp_context;
+            let ctx: &'static ExpressionContext = Box::leak(exp_context);
+
+            TestEnv{
+                hir,
+                ctx,
+                raw_ctx,
+            }
+
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            #[allow(unsafe_code)]
+            drop(unsafe { Box::from_raw(self.raw_ctx) });
+        }
     }
 
     #[test]
     fn test_expression_hash_eq() {
-        let (hir, ctx) = setup_ast(
+        let env = TestEnv::from_spec(
             "\
             input i: Int32\n\
             output a(p: Int32) spawn with i := i + p\n\
             output b(q: Int32) spawn with i := i + q",
         );
-        let a_exp = hir.expression(hir.outputs[0].expr_id);
-        let b_exp = hir.expression(hir.outputs[1].expr_id);
+        let a_exp = env.hir.expression(env.hir.outputs[0].expr_id);
+        let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
         assert!(a_exp.value_neq_ignore_parameters(b_exp));
-        assert!(a_exp.value_eq(b_exp, &ctx));
+        assert!(a_exp.value_eq(b_exp, env.ctx));
         let a_hash_expr = HashableExpression {
-            context: &ctx,
+            context: env.ctx,
             expression: a_exp.clone(),
         };
 
         let b_hash_expr = HashableExpression {
-            context: &ctx,
+            context: env.ctx,
             expression: b_exp.clone(),
         };
 
@@ -1069,25 +1116,25 @@ mod tests {
 
     #[test]
     fn test_expression_hash_eq_access() {
-        let (hir, ctx) = setup_ast(
+        let env = TestEnv::from_spec(
             "\
             input i: Int32\n\
             output a(p: Int32) spawn with i := i + p\n\
             output b(q: Int32) spawn with i := a(q)\n\
             output c(r: Int32) spawn with i := a(r)",
         );
-        let b_exp = hir.expression(hir.outputs[1].expr_id);
-        let c_exp = hir.expression(hir.outputs[2].expr_id);
+        let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
+        let c_exp = env.hir.expression(env.hir.outputs[2].expr_id);
         assert!(b_exp.value_neq_ignore_parameters(c_exp));
-        assert!(b_exp.value_eq(c_exp, &ctx));
+        assert!(b_exp.value_eq(c_exp, env.ctx));
 
         let b_hash_expr = HashableExpression {
-            context: &ctx,
+            context: env.ctx,
             expression: b_exp.clone(),
         };
 
         let c_hash_expr = HashableExpression {
-            context: &ctx,
+            context: env.ctx,
             expression: c_exp.clone(),
         };
         let mut hasher_b = RandomState::new().build_hasher();
