@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
@@ -54,13 +55,13 @@ pub(crate) enum AbstractPacingType {
 
 #[derive(Debug, Clone)]
 pub(crate) struct HashableExpression {
-    context: &'static ExpressionContext,
+    context: Rc<ExpressionContext>,
     expression: Expression,
 }
 
 impl PartialEq for HashableExpression {
     fn eq(&self, other: &Self) -> bool {
-        self.expression.value_eq(&other.expression, self.context)
+        self.expression.value_eq(&other.expression, self.context.as_ref())
     }
 }
 
@@ -141,12 +142,12 @@ pub(crate) enum AbstractExpressionType {
     Any,
     /// AnyClose is concretized into False
     AnyClose,
-    /// A single expression containing no boolean operators at top level
-    Single(HashableExpression),
-    /// A conjunction of expressions
+    /// A conjunction of expressions.
     Conjunction(HashSet<HashableExpression>),
     /// A disjunction of expressions
     Disjunction(HashSet<HashableExpression>),
+    /// A single expression that is neither a conjunction nor a disjunction.
+    Mixed(HashableExpression),
 }
 
 /// The internal representation of the overall Stream pacing
@@ -797,9 +798,19 @@ impl PrintableVariant for AbstractExpressionType {
         match self {
             Self::Any => "Any".into(),
             Self::AnyClose => "AnyClose".into(),
-            Self::Single(e) => format!("Single({})", e.expression),
-            Self::Conjunction(conjs) => format!("Conjunction({})", conjs.iter().map(|he| he.expression.pretty_string(names)).join(", ") ),
-            Self::Disjunction(disj) => format!("Disjunction({})", disj.iter().map(|he| he.expression.pretty_string(names)).join(", ") ),
+            Self::Mixed(e) => format!("Mixed({})", e.expression),
+            Self::Conjunction(conjs) => {
+                format!(
+                    "Conjunction({})",
+                    conjs.iter().map(|he| he.expression.pretty_string(names)).join(", ")
+                )
+            },
+            Self::Disjunction(disj) => {
+                format!(
+                    "Disjunction({})",
+                    disj.iter().map(|he| he.expression.pretty_string(names)).join(", ")
+                )
+            },
         }
     }
 }
@@ -836,16 +847,16 @@ impl Variant for AbstractExpressionType {
             (Self::Any, x) | (x, Self::Any) => Ok(x),
             (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
             _ => todo!(),
-            // (Self::Expression(a), Self::Expression(b)) => {
-            //     if a.value_eq(&b, ctx) {
-            //         Ok(Self::Expression(a))
-            //     } else {
-            //         Err(PacingErrorKind::IncompatibleExpressions(
-            //             Self::Expression(a),
-            //             Self::Expression(b),
-            //         ))
-            //     }
-            // },
+            /* (Self::Expression(a), Self::Expression(b)) => {
+             *     if a.value_eq(&b, ctx) {
+             *         Ok(Self::Expression(a))
+             *     } else {
+             *         Err(PacingErrorKind::IncompatibleExpressions(
+             *             Self::Expression(a),
+             *             Self::Expression(b),
+             *         ))
+             *     }
+             * }, */
         }?;
         Ok(Partial {
             variant: new_var,
@@ -890,17 +901,30 @@ impl std::fmt::Display for AbstractExpressionType {
         match self {
             Self::Any => write!(f, "Any"),
             Self::AnyClose => write!(f, "AnyClose"),
-            Self::Single(e) => write!(f, "Single({})", e.expression),
-            Self::Conjunction(conjs) => write!(f, "Conjunction({})", conjs.iter().map(|he| format!("{}", he.expression)).join(", ") ),
-            Self::Disjunction(disj) => write!(f, "Disjunction({})", disj.iter().map(|he| format!("{}", he.expression)).join(", ") ),
+            Self::Mixed(e) => write!(f, "Mixed({})", e.expression),
+            Self::Conjunction(conjs) => {
+                write!(
+                    f,
+                    "Conjunction({})",
+                    conjs.iter().map(|he| format!("{}", he.expression)).join(", ")
+                )
+            },
+            Self::Disjunction(disj) => {
+                write!(
+                    f,
+                    "Disjunction({})",
+                    disj.iter().map(|he| format!("{}", he.expression)).join(", ")
+                )
+            },
         }
     }
 }
 
 impl AbstractExpressionType {
     /// Joins self with other
-    fn join<F>(self, other: Self, single_constructor: F) -> AbstractExpressionType
-    where F: Fn(HashSet<HashableExpression>) -> AbstractExpressionType
+    fn join<F>(self, other: Self, mixed_constructor: F) -> AbstractExpressionType
+    where
+        F: Fn(HashSet<HashableExpression>) -> AbstractExpressionType,
     {
         use AbstractExpressionType::*;
         match (self, other) {
@@ -910,18 +934,16 @@ impl AbstractExpressionType {
             | (_, AnyClose)
             | (Conjunction(_), Disjunction(_))
             | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Single"),
-            (Single(a), Single(b)) => single_constructor(vec![a, b].into_iter().collect()),
-            (Single(this), Conjunction(mut other)) |
-            (Conjunction(mut other), Single(this))=> {
+            (Mixed(a), Mixed(b)) => mixed_constructor(vec![a, b].into_iter().collect()),
+            (Mixed(this), Conjunction(mut other)) | (Conjunction(mut other), Mixed(this)) => {
                 other.insert(this);
                 Conjunction(other)
             },
-            (Single(this), Disjunction(mut other))
-            | (Disjunction(mut other), Single(this)) => {
+            (Mixed(this), Disjunction(mut other)) | (Disjunction(mut other), Mixed(this)) => {
                 other.insert(this);
                 Disjunction(other)
-            }
-            (Conjunction(mut this) , Conjunction(other)) => {
+            },
+            (Conjunction(mut this), Conjunction(other)) => {
                 this.extend(other);
                 Conjunction(this)
             },
@@ -932,31 +954,77 @@ impl AbstractExpressionType {
         }
     }
 
-    /// Flattens the expression tree from a /\ (b /\ c) to conjunction(a,b,c)
+    fn contains_and_or(exp: &Expression) -> bool {
+        match &exp.kind {
+            ExpressionKind::ArithLog(op, args) => {
+                match op {
+                    ArithLogOp::Not => Self::contains_and_or(&args[0]),
+                    ArithLogOp::And | ArithLogOp::Or => true,
+                    ArithLogOp::Sub
+                    | ArithLogOp::Mul
+                    | ArithLogOp::Div
+                    | ArithLogOp::Rem
+                    | ArithLogOp::Pow
+                    | ArithLogOp::Add
+                    | ArithLogOp::Neg
+                    | ArithLogOp::BitXor
+                    | ArithLogOp::BitAnd
+                    | ArithLogOp::BitOr
+                    | ArithLogOp::BitNot
+                    | ArithLogOp::Shl
+                    | ArithLogOp::Shr
+                    | ArithLogOp::Eq
+                    | ArithLogOp::Lt
+                    | ArithLogOp::Le
+                    | ArithLogOp::Ne
+                    | ArithLogOp::Ge
+                    | ArithLogOp::Gt => false,
+                }
+            },
+            ExpressionKind::LoadConstant(_)
+            | ExpressionKind::StreamAccess(_, _, _)
+            | ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::Ite { .. }
+            | ExpressionKind::Tuple(_)
+            | ExpressionKind::TupleAccess(_, _)
+            | ExpressionKind::Function(_)
+            | ExpressionKind::Widen(_)
+            | ExpressionKind::Default { .. } => false,
+        }
+    }
+
+    /// Tries to parse the expression tree from a /\ (b /\ c) to conjunction(a,b,c)
     /// target determines whether a conjunction or disjunction is considered
+    /// If conjunctions and disjunctions are mixed, Err is returned
     /// None -> Not determined yet
     /// Some(true) -> Conjunction
     /// Some(false) -> Disjunction
-    fn flatten_expr(exp: &Expression, target: Option<bool>, context: &'static ExpressionContext) -> Self {
+    fn parse_pure(exp: &Expression, target: Option<bool>, context: Rc<ExpressionContext>) -> Result<Self, ()> {
         match &exp.kind {
             ExpressionKind::ArithLog(op, args) => {
                 match (op, target) {
                     (ArithLogOp::And, None) | (ArithLogOp::And, Some(true)) => {
-                        let left = Self::flatten_expr(&args[0], Some(true), context);
-                        let right = Self::flatten_expr(&args[1], Some(true), context);
-                        left.join(right, AbstractExpressionType::Conjunction)
+                        let left = Self::parse_pure(&args[0], Some(true), context.clone())?;
+                        let right = Self::parse_pure(&args[1], Some(true), context)?;
+                        Ok(left.join(right, AbstractExpressionType::Conjunction))
                     },
                     (ArithLogOp::Or, None) | (ArithLogOp::Or, Some(false)) => {
-                        let left = Self::flatten_expr(&args[0], Some(false), context);
-                        let right = Self::flatten_expr(&args[1], Some(false), context);
-                        left.join(right, AbstractExpressionType::Disjunction)
+                        let left = Self::parse_pure(&args[0], Some(false), context.clone())?;
+                        let right = Self::parse_pure(&args[1], Some(false), context)?;
+                        Ok(left.join(right, AbstractExpressionType::Disjunction))
                     },
-                    (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Self::Single(HashableExpression {
-                        context,
-                        expression: exp.clone(),
-                    }),
-                    (ArithLogOp::Not, _)
-                    | (ArithLogOp::Neg, _)
+                    (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Err(()),
+                    (ArithLogOp::Not, _) => {
+                        if Self::contains_and_or(exp) {
+                            Err(())
+                        } else {
+                            Ok(Self::Mixed(HashableExpression {
+                                context,
+                                expression: exp.clone(),
+                            }))
+                        }
+                    },
+                    (ArithLogOp::Neg, _)
                     | (ArithLogOp::Add, _)
                     | (ArithLogOp::Sub, _)
                     | (ArithLogOp::Mul, _)
@@ -975,10 +1043,10 @@ impl AbstractExpressionType {
                     | (ArithLogOp::Ne, _)
                     | (ArithLogOp::Ge, _)
                     | (ArithLogOp::Gt, _) => {
-                        Self::Single(HashableExpression {
+                        Ok(Self::Mixed(HashableExpression {
                             context,
                             expression: exp.clone(),
-                        })
+                        }))
                     },
                 }
             },
@@ -991,16 +1059,21 @@ impl AbstractExpressionType {
             | ExpressionKind::Ite { .. }
             | ExpressionKind::StreamAccess(_, _, _)
             | ExpressionKind::ParameterAccess(_, _) => {
-                Self::Single(HashableExpression {
+                Ok(Self::Mixed(HashableExpression {
                     context,
                     expression: exp.clone(),
-                })
+                }))
             },
         }
     }
 
-    pub(crate) fn from_expression(exp: &Expression, context: &'static ExpressionContext) -> Self {
-        Self::flatten_expr(exp, None, context)
+    pub(crate) fn from_expression(exp: &Expression, context: Rc<ExpressionContext>) -> Self {
+        Self::parse_pure(exp, None, context.clone()).unwrap_or_else(|_| {
+            AbstractExpressionType::Mixed(HashableExpression {
+                context,
+                expression: exp.clone(),
+            })
+        })
     }
 }
 
@@ -1043,19 +1116,18 @@ impl ConcretePacingType {
 #[cfg(test)]
 mod tests {
     use std::collections::hash_map::RandomState;
-    use std::collections::HashMap;
     use std::hash::{BuildHasher, Hash};
 
     use rtlola_parser::{ParserConfig, RtLolaAst};
 
-    use crate::hir::{ExpressionContext, SRef, ValueEq};
-    use crate::type_check::pacing_types::{AbstractExpressionType, HashableExpression, PrintableVariant};
+    use crate::hir::{ExpressionContext, ValueEq};
+    use crate::type_check::pacing_types::{HashableExpression, AbstractExpressionType};
     use crate::{BaseMode, RtLolaHir};
+    use std::rc::Rc;
 
     struct TestEnv {
         hir: RtLolaHir<BaseMode>,
-        ctx: &'static ExpressionContext,
-        raw_ctx: *mut ExpressionContext,
+        ctx: Rc<ExpressionContext>,
     }
 
     impl TestEnv {
@@ -1066,23 +1138,9 @@ mod tests {
             };
             let hir = crate::from_ast(ast).unwrap();
 
-            let mut exp_context = Box::new(ExpressionContext::new(&hir));
-            let raw_ctx: *mut ExpressionContext = &mut *exp_context;
-            let ctx: &'static ExpressionContext = Box::leak(exp_context);
+            let ctx = Rc::new(ExpressionContext::new(&hir));
 
-            TestEnv{
-                hir,
-                ctx,
-                raw_ctx,
-            }
-
-        }
-    }
-
-    impl Drop for TestEnv {
-        fn drop(&mut self) {
-            #[allow(unsafe_code)]
-            drop(unsafe { Box::from_raw(self.raw_ctx) });
+            TestEnv { hir, ctx }
         }
     }
 
@@ -1097,9 +1155,9 @@ mod tests {
         let a_exp = env.hir.expression(env.hir.outputs[0].expr_id);
         let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
         assert!(a_exp.value_neq_ignore_parameters(b_exp));
-        assert!(a_exp.value_eq(b_exp, env.ctx));
+        assert!(a_exp.value_eq(b_exp, env.ctx.as_ref()));
         let a_hash_expr = HashableExpression {
-            context: env.ctx,
+            context: env.ctx.clone(),
             expression: a_exp.clone(),
         };
 
@@ -1126,10 +1184,10 @@ mod tests {
         let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
         let c_exp = env.hir.expression(env.hir.outputs[2].expr_id);
         assert!(b_exp.value_neq_ignore_parameters(c_exp));
-        assert!(b_exp.value_eq(c_exp, env.ctx));
+        assert!(b_exp.value_eq(c_exp, env.ctx.as_ref()));
 
         let b_hash_expr = HashableExpression {
-            context: env.ctx,
+            context: env.ctx.clone(),
             expression: b_exp.clone(),
         };
 
@@ -1141,5 +1199,34 @@ mod tests {
         let mut hasher_c = RandomState::new().build_hasher();
         assert_eq!(b_hash_expr, c_hash_expr);
         assert_eq!(b_hash_expr.hash(&mut hasher_b), c_hash_expr.hash(&mut hasher_c));
+    }
+
+    #[test]
+    fn test_expression_type_parsing() {
+        let env = TestEnv::from_spec(
+            "\
+            input i1: Bool\n\
+            input i2: Bool\n\
+            input i3: Bool\n\
+            input i4: Bool\n\
+            input i5: Bool\n\
+            output a := i1 && i2 && i3 && i4 && i5\n\
+            output b := i1 || i2 || i3 || i4 || i5\n\
+            output c := i1 && !i2 && i3\n\
+            output d := i1 && i2 || i3\n\
+            output e := i1 && !(i2 && i3)",
+        );
+        let a_exp = env.hir.expression(env.hir.outputs[0].expr_id);
+        let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
+        let c_exp = env.hir.expression(env.hir.outputs[2].expr_id);
+        let d_exp = env.hir.expression(env.hir.outputs[3].expr_id);
+        let e_exp = env.hir.expression(env.hir.outputs[4].expr_id);
+
+
+        assert!(matches!(AbstractExpressionType::from_expression(a_exp, env.ctx.clone()), AbstractExpressionType::Conjunction(_)));
+        assert!(matches!(AbstractExpressionType::from_expression(b_exp, env.ctx.clone()), AbstractExpressionType::Disjunction(_)));
+        assert!(matches!(AbstractExpressionType::from_expression(c_exp, env.ctx.clone()), AbstractExpressionType::Conjunction(_)));
+        assert!(matches!(AbstractExpressionType::from_expression(d_exp, env.ctx.clone()), AbstractExpressionType::Mixed(_)));
+        assert!(matches!(AbstractExpressionType::from_expression(e_exp, env.ctx), AbstractExpressionType::Mixed(_)));
     }
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcKey, TypeChecker, TypeTable};
@@ -46,19 +47,7 @@ where
     /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcretePacingType, TcKey)>,
     /// Expression context providing equivalence for parameters of different streams needed for expression equality.
-    pub(crate) exp_context: &'static ExpressionContext,
-    // Pointer to Expression Context on Heap. Later used to free the memory again.
-    raw_exp_context: *mut ExpressionContext,
-}
-
-impl<'a, M> Drop for PacingTypeChecker<'a, M>
-where
-    M: HirMode,
-{
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        drop(unsafe { Box::from_raw(self.raw_exp_context) });
-    }
+    pub(crate) exp_context: Rc<ExpressionContext>,
 }
 
 impl<'a, M> PacingTypeChecker<'a, M>
@@ -70,10 +59,7 @@ where
     pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
         let node_key = HashMap::new();
 
-        let mut exp_context = Box::new(ExpressionContext::new(hir));
-        let raw_exp_context: *mut ExpressionContext = &mut *exp_context;
-        let exp_context: &'static ExpressionContext = Box::leak(exp_context);
-
+        let exp_context = Rc::new(ExpressionContext::new(hir));
         let pacing_tyc = TypeChecker::new();
         let expression_tyc = TypeChecker::new();
         let pacing_key_span = HashMap::new();
@@ -89,7 +75,6 @@ where
             names,
             annotated_checks,
             exp_context,
-            raw_exp_context,
         };
         res.generate_keys_for_streams();
         res
@@ -924,7 +909,7 @@ where
         for pe in Self::check_explicit_bounds(annotated_checks, &pacing_tt) {
             error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names));
         }
-        for pe in Self::post_process(self.hir, &node_key, &pacing_tt, &exp_tt, self.exp_context) {
+        for pe in Self::post_process(self.hir, &node_key, &pacing_tt, &exp_tt, self.exp_context.as_ref()) {
             error.add(pe.into_diagnostic(&[&pacing_key_span, &expression_key_span], self.names));
         }
         Result::from(error)?;
