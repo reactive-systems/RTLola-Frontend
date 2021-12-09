@@ -6,7 +6,6 @@ use std::rc::Rc;
 use itertools::Itertools;
 use num::{CheckedDiv, Integer};
 use rtlola_reporting::{Diagnostic, Span};
-use rusttyc::types::ContextSensitiveVariant;
 use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 use uom::lib::collections::HashMap;
 use uom::lib::fmt::Formatter;
@@ -135,19 +134,26 @@ impl Hash for HashableExpression {
     }
 }
 
-/// The internal representation of an expression type
+/// The internal representation of a semantic type. The bool flag is Some(true) if the type is associated with a close condition. None is used as the top element.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AbstractExpressionType {
+pub(crate) struct AbstractSemanticType {
+    pub(crate) is_close: Option<bool>,
+    pub(crate) kind: SemanticTypeKind,
+}
+
+/// The internal representation of an expression type kind
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SemanticTypeKind {
     /// Any is concretized into True
     Any,
-    /// AnyClose is concretized into False
-    AnyClose,
     /// A conjunction of expressions.
     Conjunction(HashSet<HashableExpression>),
     /// A disjunction of expressions
     Disjunction(HashSet<HashableExpression>),
-    /// A single expression that is neither a conjunction nor a disjunction.
+    /// A single expression that is neither a pure conjunction nor a pure disjunction.
     Mixed(HashableExpression),
+    /// A single expression that contains no conjunction or disjunction.
+    Literal(HashableExpression),
 }
 
 /// The internal representation of the overall Stream pacing
@@ -182,7 +188,8 @@ pub(crate) enum PacingErrorKind {
     NeverEval(Span),
     MalformedAc(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
-    IncompatibleExpressions(AbstractExpressionType, AbstractExpressionType),
+    IncompatibleExpressions(AbstractSemanticType, AbstractSemanticType),
+    SemanticTypeMismatch(AbstractSemanticType, AbstractSemanticType),
     ParameterizationNeeded {
         who: Span,
         why: Span,
@@ -543,6 +550,25 @@ impl Resolvable for PacingErrorKind {
                     true,
                 )
             },
+            SemanticTypeMismatch(bound, inferred) => {
+                let bound_str = bound.to_pretty_string(names);
+                let inferred_str = inferred.to_pretty_string(names);
+                let bound_span = key1.map(|k| exp_spans[&k].clone());
+                let inferred_span = key2.and_then(|k| exp_spans.get(&k).cloned());
+                Diagnostic::error(
+                    format!(
+                        "In pacing type analysis:\nInferred semantic type: {} but expected: {}",
+                        &inferred_str, &bound_str
+                    )
+                    .as_str(),
+                )
+                .maybe_add_span_with_label(bound_span, Some(format!("Expected {} here", bound_str).as_str()), true)
+                .maybe_add_span_with_label(
+                    inferred_span,
+                    Some(format!("Inferred {} here", inferred_str).as_str()),
+                    true,
+                )
+            },
             SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
                 "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
             )
@@ -600,9 +626,7 @@ pub(crate) trait PrintableVariant: Debug {
     fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String;
 }
 
-impl<V: 'static + ContextSensitiveVariant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>>
-    for TypeError<PacingErrorKind>
-{
+impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
     fn from(err: TcErr<V>) -> TypeError<PacingErrorKind> {
         match err {
             TcErr::KeyEquation(k1, k2, err) => {
@@ -793,21 +817,24 @@ impl PrintableVariant for AbstractPacingType {
     }
 }
 
-impl PrintableVariant for AbstractExpressionType {
+impl PrintableVariant for AbstractSemanticType {
     fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
-        match self {
-            Self::Any => "Any".into(),
-            Self::AnyClose => "AnyClose".into(),
-            Self::Mixed(e) => format!("Mixed({})", e.expression),
-            Self::Conjunction(conjs) => {
+        let close = if self.is_close.unwrap_or(false) { "Close" } else { "" };
+        match &self.kind {
+            SemanticTypeKind::Any => format!("Any{}", close),
+            SemanticTypeKind::Mixed(e) => format!("{}Mixed({})", close, e.expression.pretty_string(names)),
+            SemanticTypeKind::Literal(e) => format!("{}Literal({})", close, e.expression.pretty_string(names)),
+            SemanticTypeKind::Conjunction(conjs) => {
                 format!(
-                    "Conjunction({})",
+                    "{}Conjunction({})",
+                    close,
                     conjs.iter().map(|he| he.expression.pretty_string(names)).join(", ")
                 )
             },
-            Self::Disjunction(disj) => {
+            SemanticTypeKind::Disjunction(disj) => {
                 format!(
-                    "Disjunction({})",
+                    "{}Disjunction({})",
+                    close,
                     disj.iter().map(|he| he.expression.pretty_string(names)).join(", ")
                 )
             },
@@ -833,31 +860,95 @@ impl AbstractPacingType {
     }
 }
 
-impl Variant for AbstractExpressionType {
+impl Variant for AbstractSemanticType {
     type Err = PacingErrorKind;
 
     fn top() -> Self {
-        AbstractExpressionType::Any
+        AbstractSemanticType {
+            is_close: None,
+            kind: SemanticTypeKind::Any,
+        }
     }
 
     fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
-        let new_var = match (lhs.variant, rhs.variant) {
-            (Self::Any, x) | (x, Self::Any) => Ok(x),
-            (Self::AnyClose, x) | (x, Self::AnyClose) => Ok(x),
-            _ => todo!(),
-            /* (Self::Expression(a), Self::Expression(b)) => {
-             *     if a.value_eq(&b, ctx) {
-             *         Ok(Self::Expression(a))
-             *     } else {
-             *         Err(PacingErrorKind::IncompatibleExpressions(
-             *             Self::Expression(a),
-             *             Self::Expression(b),
-             *         ))
-             *     }
-             * }, */
-        }?;
+
+        let new_var = match (lhs.variant.is_close, rhs.variant.is_close) {
+            (None, None) => {
+                assert_eq!(lhs.variant.kind, SemanticTypeKind::Any);
+                assert_eq!(rhs.variant.kind, SemanticTypeKind::Any);
+                lhs.variant
+            },
+            (None, Some(_)) => {
+                assert_eq!(lhs.variant.kind, SemanticTypeKind::Any);
+                rhs.variant
+            },
+            (Some(_), None) => {
+                assert_eq!(rhs.variant.kind, SemanticTypeKind::Any);
+                lhs.variant
+            },
+            (Some(is_close_l), Some(is_close_r)) => {
+                assert_eq!(is_close_l, is_close_r);
+                let new_var_kind = match (lhs.variant.kind.clone(), rhs.variant.kind.clone()) {
+                    (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(x),
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
+                        Ok(SemanticTypeKind::Literal(a))
+                    },
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if is_close_l => {
+                        Ok(SemanticTypeKind::Disjunction(vec![a, b].into_iter().collect()))
+                    },
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => {
+                        Ok(SemanticTypeKind::Conjunction(vec![a, b].into_iter().collect()))
+                    },
+                    (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
+                        if a == b {
+                            Ok(SemanticTypeKind::Mixed(a))
+                        } else {
+                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                        }
+                    },
+                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(conjs))
+                    | (SemanticTypeKind::Conjunction(conjs), SemanticTypeKind::Literal(he)) => {
+                        if conjs.contains(&he) {
+                            Ok(SemanticTypeKind::Conjunction(conjs))
+                        } else {
+                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                        }
+                    },
+                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(disjs))
+                    | (SemanticTypeKind::Disjunction(disjs), SemanticTypeKind::Literal(he)) => {
+                        if disjs.contains(&he) {
+                            Ok(SemanticTypeKind::Literal(he))
+                        } else {
+                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                        }
+                    },
+                    (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
+                        Ok(SemanticTypeKind::Conjunction(&left | &right))
+                    },
+                    (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
+                        let intersection: HashSet<HashableExpression> = &left & &right;
+                        match intersection.len() {
+                            0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
+                            1 => Ok(SemanticTypeKind::Literal(intersection.into_iter().next().unwrap())),
+                            _ => Ok(SemanticTypeKind::Disjunction(intersection)),
+                        }
+                    },
+                    (SemanticTypeKind::Conjunction(_), _)
+                    | (_, SemanticTypeKind::Conjunction(_))
+                    | (SemanticTypeKind::Mixed(_), _)
+                    | (_, SemanticTypeKind::Mixed(_)) => {
+                        Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                    },
+                }?;
+                AbstractSemanticType {
+                    is_close: Some(is_close_l),
+                    kind: new_var_kind,
+                }
+            },
+        };
+
         Ok(Partial {
             variant: new_var,
             least_arity: 0,
@@ -869,50 +960,78 @@ impl Variant for AbstractExpressionType {
     }
 }
 
-impl Constructable for AbstractExpressionType {
+impl Constructable for AbstractSemanticType {
     type Type = Expression;
 
     fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
         assert!(children.is_empty(), "suspicious children");
 
-        match self {
-            Self::Any => {
+        match &self.kind {
+            SemanticTypeKind::Any if !self.is_close.unwrap_or(false) => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
                     eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
-            Self::AnyClose => {
+            SemanticTypeKind::Any => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
                     eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
-            _ => todo!(),
-            // Self::Expression(e) => Ok(e.clone()),
+            SemanticTypeKind::Conjunction(conjs) => {
+                assert!(conjs.len() >= 2);
+                let mut conjs = conjs.iter();
+                let first = conjs.next().map(|he| he.expression.clone()).unwrap();
+                Ok(conjs.fold(first, |acc, he| {
+                    let span = acc.span.union(&he.expression.span);
+                    Expression {
+                        kind: ExpressionKind::ArithLog(ArithLogOp::And, vec![acc, he.expression.clone()]),
+                        eid: ExprId(u32::MAX),
+                        span,
+                    }
+                }))
+            },
+            SemanticTypeKind::Disjunction(disjs) => {
+                assert!(disjs.len() >= 2);
+                let mut disjs = disjs.iter();
+                let first = disjs.next().map(|he| he.expression.clone()).unwrap();
+                Ok(disjs.fold(first, |acc, he| {
+                    let span = acc.span.union(&he.expression.span);
+                    Expression {
+                        kind: ExpressionKind::ArithLog(ArithLogOp::Or, vec![acc, he.expression.clone()]),
+                        eid: ExprId(u32::MAX),
+                        span,
+                    }
+                }))
+            },
+            SemanticTypeKind::Mixed(he) | SemanticTypeKind::Literal(he) => Ok(he.expression.clone()),
         }
     }
 }
 
-impl std::fmt::Display for AbstractExpressionType {
+impl std::fmt::Display for AbstractSemanticType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Any => write!(f, "Any"),
-            Self::AnyClose => write!(f, "AnyClose"),
-            Self::Mixed(e) => write!(f, "Mixed({})", e.expression),
-            Self::Conjunction(conjs) => {
+        let close = if self.is_close.unwrap_or(false) { "Close" } else { "" };
+        match &self.kind {
+            SemanticTypeKind::Any => write!(f, "{}Any", close),
+            SemanticTypeKind::Mixed(e) => write!(f, "{}Mixed({})", close, e.expression),
+            SemanticTypeKind::Literal(e) => write!(f, "{}Literal({})", close, e.expression),
+            SemanticTypeKind::Conjunction(conjs) => {
                 write!(
                     f,
-                    "Conjunction({})",
+                    "{}Conjunction({})",
+                    close,
                     conjs.iter().map(|he| format!("{}", he.expression)).join(", ")
                 )
             },
-            Self::Disjunction(disj) => {
+            SemanticTypeKind::Disjunction(disj) => {
                 write!(
                     f,
-                    "Disjunction({})",
+                    "{}Disjunction({})",
+                    close,
                     disj.iter().map(|he| format!("{}", he.expression)).join(", ")
                 )
             },
@@ -920,26 +1039,26 @@ impl std::fmt::Display for AbstractExpressionType {
     }
 }
 
-impl AbstractExpressionType {
+impl SemanticTypeKind {
     /// Joins self with other
-    fn join<F>(self, other: Self, mixed_constructor: F) -> AbstractExpressionType
+    fn join<F>(self, other: Self, literal_constructor: F) -> SemanticTypeKind
     where
-        F: Fn(HashSet<HashableExpression>) -> AbstractExpressionType,
+        F: Fn(HashSet<HashableExpression>) -> SemanticTypeKind,
     {
-        use AbstractExpressionType::*;
+        use SemanticTypeKind::*;
         match (self, other) {
             (Any, _)
             | (_, Any)
-            | (AnyClose, _)
-            | (_, AnyClose)
+            | (_, Mixed(_))
+            | (Mixed(_), _)
             | (Conjunction(_), Disjunction(_))
             | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Single"),
-            (Mixed(a), Mixed(b)) => mixed_constructor(vec![a, b].into_iter().collect()),
-            (Mixed(this), Conjunction(mut other)) | (Conjunction(mut other), Mixed(this)) => {
+            (Literal(a), Literal(b)) => literal_constructor(vec![a, b].into_iter().collect()),
+            (Literal(this), Conjunction(mut other)) | (Conjunction(mut other), Literal(this)) => {
                 other.insert(this);
                 Conjunction(other)
             },
-            (Mixed(this), Disjunction(mut other)) | (Disjunction(mut other), Mixed(this)) => {
+            (Literal(this), Disjunction(mut other)) | (Disjunction(mut other), Literal(this)) => {
                 other.insert(this);
                 Disjunction(other)
             },
@@ -953,7 +1072,9 @@ impl AbstractExpressionType {
             },
         }
     }
+}
 
+impl AbstractSemanticType {
     fn contains_and_or(exp: &Expression) -> bool {
         match &exp.kind {
             ExpressionKind::ArithLog(op, args) => {
@@ -999,26 +1120,30 @@ impl AbstractExpressionType {
     /// None -> Not determined yet
     /// Some(true) -> Conjunction
     /// Some(false) -> Disjunction
-    fn parse_pure(exp: &Expression, target: Option<bool>, context: Rc<ExpressionContext>) -> Result<Self, ()> {
+    fn parse_pure(
+        exp: &Expression,
+        target: Option<bool>,
+        context: Rc<ExpressionContext>,
+    ) -> Result<SemanticTypeKind, ()> {
         match &exp.kind {
             ExpressionKind::ArithLog(op, args) => {
                 match (op, target) {
                     (ArithLogOp::And, None) | (ArithLogOp::And, Some(true)) => {
                         let left = Self::parse_pure(&args[0], Some(true), context.clone())?;
                         let right = Self::parse_pure(&args[1], Some(true), context)?;
-                        Ok(left.join(right, AbstractExpressionType::Conjunction))
+                        Ok(left.join(right, SemanticTypeKind::Conjunction))
                     },
                     (ArithLogOp::Or, None) | (ArithLogOp::Or, Some(false)) => {
                         let left = Self::parse_pure(&args[0], Some(false), context.clone())?;
                         let right = Self::parse_pure(&args[1], Some(false), context)?;
-                        Ok(left.join(right, AbstractExpressionType::Disjunction))
+                        Ok(left.join(right, SemanticTypeKind::Disjunction))
                     },
                     (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Err(()),
                     (ArithLogOp::Not, _) => {
                         if Self::contains_and_or(exp) {
                             Err(())
                         } else {
-                            Ok(Self::Mixed(HashableExpression {
+                            Ok(SemanticTypeKind::Literal(HashableExpression {
                                 context,
                                 expression: exp.clone(),
                             }))
@@ -1043,7 +1168,7 @@ impl AbstractExpressionType {
                     | (ArithLogOp::Ne, _)
                     | (ArithLogOp::Ge, _)
                     | (ArithLogOp::Gt, _) => {
-                        Ok(Self::Mixed(HashableExpression {
+                        Ok(SemanticTypeKind::Literal(HashableExpression {
                             context,
                             expression: exp.clone(),
                         }))
@@ -1059,7 +1184,7 @@ impl AbstractExpressionType {
             | ExpressionKind::Ite { .. }
             | ExpressionKind::StreamAccess(_, _, _)
             | ExpressionKind::ParameterAccess(_, _) => {
-                Ok(Self::Mixed(HashableExpression {
+                Ok(SemanticTypeKind::Literal(HashableExpression {
                     context,
                     expression: exp.clone(),
                 }))
@@ -1067,13 +1192,17 @@ impl AbstractExpressionType {
         }
     }
 
-    pub(crate) fn from_expression(exp: &Expression, context: Rc<ExpressionContext>) -> Self {
-        Self::parse_pure(exp, None, context.clone()).unwrap_or_else(|_| {
-            AbstractExpressionType::Mixed(HashableExpression {
+    pub(crate) fn from_expression(exp: &Expression, context: Rc<ExpressionContext>, is_close: bool) -> Self {
+        let kind = Self::parse_pure(exp, None, context.clone()).unwrap_or_else(|_| {
+            SemanticTypeKind::Mixed(HashableExpression {
                 context,
                 expression: exp.clone(),
             })
-        })
+        });
+        AbstractSemanticType {
+            is_close: Some(is_close),
+            kind,
+        }
     }
 }
 
@@ -1117,13 +1246,13 @@ impl ConcretePacingType {
 mod tests {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hash};
+    use std::rc::Rc;
 
     use rtlola_parser::{ParserConfig, RtLolaAst};
 
     use crate::hir::{ExpressionContext, ValueEq};
-    use crate::type_check::pacing_types::{HashableExpression, AbstractExpressionType};
+    use crate::type_check::pacing_types::{AbstractSemanticType, HashableExpression, SemanticTypeKind};
     use crate::{BaseMode, RtLolaHir};
-    use std::rc::Rc;
 
     struct TestEnv {
         hir: RtLolaHir<BaseMode>,
@@ -1214,19 +1343,39 @@ mod tests {
             output b := i1 || i2 || i3 || i4 || i5\n\
             output c := i1 && !i2 && i3\n\
             output d := i1 && i2 || i3\n\
-            output e := i1 && !(i2 && i3)",
+            output e := i1 && !(i2 && i3)\n\
+            output f := !i1",
         );
         let a_exp = env.hir.expression(env.hir.outputs[0].expr_id);
         let b_exp = env.hir.expression(env.hir.outputs[1].expr_id);
         let c_exp = env.hir.expression(env.hir.outputs[2].expr_id);
         let d_exp = env.hir.expression(env.hir.outputs[3].expr_id);
         let e_exp = env.hir.expression(env.hir.outputs[4].expr_id);
+        let f_exp = env.hir.expression(env.hir.outputs[5].expr_id);
 
-
-        assert!(matches!(AbstractExpressionType::from_expression(a_exp, env.ctx.clone()), AbstractExpressionType::Conjunction(_)));
-        assert!(matches!(AbstractExpressionType::from_expression(b_exp, env.ctx.clone()), AbstractExpressionType::Disjunction(_)));
-        assert!(matches!(AbstractExpressionType::from_expression(c_exp, env.ctx.clone()), AbstractExpressionType::Conjunction(_)));
-        assert!(matches!(AbstractExpressionType::from_expression(d_exp, env.ctx.clone()), AbstractExpressionType::Mixed(_)));
-        assert!(matches!(AbstractExpressionType::from_expression(e_exp, env.ctx), AbstractExpressionType::Mixed(_)));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(a_exp, env.ctx.clone(), false).kind,
+            SemanticTypeKind::Conjunction(_)
+        ));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(b_exp, env.ctx.clone(), false).kind,
+            SemanticTypeKind::Disjunction(_)
+        ));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(c_exp, env.ctx.clone(), false).kind,
+            SemanticTypeKind::Conjunction(_)
+        ));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(d_exp, env.ctx.clone(), false).kind,
+            SemanticTypeKind::Mixed(_)
+        ));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(e_exp, env.ctx.clone(), false).kind,
+            SemanticTypeKind::Mixed(_)
+        ));
+        assert!(matches!(
+            AbstractSemanticType::from_expression(f_exp, env.ctx, false).kind,
+            SemanticTypeKind::Literal(_)
+        ));
     }
 }
