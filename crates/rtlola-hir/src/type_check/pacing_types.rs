@@ -908,13 +908,10 @@ impl Variant for AbstractSemanticType {
                             Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
                         }
                     },
-                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(conjs))
-                    | (SemanticTypeKind::Conjunction(conjs), SemanticTypeKind::Literal(he)) => {
-                        if conjs.contains(&he) {
-                            Ok(SemanticTypeKind::Conjunction(conjs))
-                        } else {
-                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
-                        }
+                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(mut conjs))
+                    | (SemanticTypeKind::Conjunction(mut conjs), SemanticTypeKind::Literal(he)) => {
+                        conjs.insert(he);
+                        Ok(SemanticTypeKind::Conjunction(conjs))
                     },
                     (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(disjs))
                     | (SemanticTypeKind::Disjunction(disjs), SemanticTypeKind::Literal(he)) => {

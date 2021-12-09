@@ -2267,4 +2267,16 @@ mod tests {
             ]))
         );
     }
+
+    #[test]
+    fn test_filter_advanced() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x filter a := 5\n\
+        output y filter b && c := 42\n\
+        output z filter a && b && c := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
 }
