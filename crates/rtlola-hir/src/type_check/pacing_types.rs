@@ -136,9 +136,13 @@ impl Hash for HashableExpression {
 
 /// The internal representation of a semantic type. The bool flag is Some(true) if the type is associated with a close condition. None is used as the top element.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AbstractSemanticType {
-    pub(crate) is_close: Option<bool>,
-    pub(crate) kind: SemanticTypeKind,
+pub(crate) enum AbstractSemanticType {
+    /// Not known yet. Used by the Typechecker as a default Top element.
+    Any,
+    /// The top element is concretized to false.
+    Negative(SemanticTypeKind),
+    /// The top element is concretized to true.
+    Positive(SemanticTypeKind),
 }
 
 /// The internal representation of an expression type kind
@@ -819,22 +823,26 @@ impl PrintableVariant for AbstractPacingType {
 
 impl PrintableVariant for AbstractSemanticType {
     fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
-        let close = if self.is_close.unwrap_or(false) { "Close" } else { "" };
-        match &self.kind {
-            SemanticTypeKind::Any => format!("Any{}", close),
-            SemanticTypeKind::Mixed(e) => format!("{}Mixed({})", close, e.expression.pretty_string(names)),
-            SemanticTypeKind::Literal(e) => format!("{}Literal({})", close, e.expression.pretty_string(names)),
+        let (prefix, kind) = match &self {
+            AbstractSemanticType::Any => return "Any".into(),
+            AbstractSemanticType::Negative(kind) => ("Close", kind),
+            AbstractSemanticType::Positive(kind) => ("Filter", kind),
+        };
+        match kind {
+            SemanticTypeKind::Any => format!("Any{}", prefix),
+            SemanticTypeKind::Mixed(e) => format!("{}Mixed({})", prefix, e.expression.pretty_string(names)),
+            SemanticTypeKind::Literal(e) => format!("{}Literal({})", prefix, e.expression.pretty_string(names)),
             SemanticTypeKind::Conjunction(conjs) => {
                 format!(
                     "{}Conjunction({})",
-                    close,
+                    prefix,
                     conjs.iter().map(|he| he.expression.pretty_string(names)).join(", ")
                 )
             },
             SemanticTypeKind::Disjunction(disj) => {
                 format!(
                     "{}Disjunction({})",
-                    close,
+                    prefix,
                     disj.iter().map(|he| he.expression.pretty_string(names)).join(", ")
                 )
             },
@@ -864,46 +872,39 @@ impl Variant for AbstractSemanticType {
     type Err = PacingErrorKind;
 
     fn top() -> Self {
-        AbstractSemanticType {
-            is_close: None,
-            kind: SemanticTypeKind::Any,
-        }
+        AbstractSemanticType::Any
     }
 
     fn meet(lhs: Partial<Self>, rhs: Partial<Self>) -> Result<Partial<Self>, Self::Err> {
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
 
-        let new_var = match (lhs.variant.is_close, rhs.variant.is_close) {
-            (None, None) => {
-                assert_eq!(lhs.variant.kind, SemanticTypeKind::Any);
-                assert_eq!(rhs.variant.kind, SemanticTypeKind::Any);
-                lhs.variant
+        let new_var = match (lhs.variant.clone(), rhs.variant.clone()) {
+            (Self::Any, other) | (other, Self::Any) => {
+                return Ok(Partial {
+                    variant: other,
+                    least_arity: 0,
+                })
             },
-            (None, Some(_)) => {
-                assert_eq!(lhs.variant.kind, SemanticTypeKind::Any);
-                rhs.variant
+            (Self::Positive(_), Self::Negative(_)) | (Self::Negative(_), Self::Positive(_)) => {
+                unreachable!("Positive and Negative semantic types should never be combined")
             },
-            (Some(_), None) => {
-                assert_eq!(rhs.variant.kind, SemanticTypeKind::Any);
-                lhs.variant
-            },
-            (Some(is_close_l), Some(is_close_r)) => {
-                assert_eq!(is_close_l, is_close_r);
-                let new_var_kind = match (lhs.variant.kind.clone(), rhs.variant.kind.clone()) {
-                    (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(x),
+
+            // Lattice for positive types
+            (Self::Positive(l_kind), Self::Positive(r_kind)) => {
+                match (l_kind, r_kind) {
+                    (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(AbstractSemanticType::Positive(x)),
                     (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
-                        Ok(SemanticTypeKind::Literal(a))
-                    },
-                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if is_close_l => {
-                        Ok(SemanticTypeKind::Disjunction(vec![a, b].into_iter().collect()))
+                        Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(a)))
                     },
                     (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => {
-                        Ok(SemanticTypeKind::Conjunction(vec![a, b].into_iter().collect()))
+                        Ok(AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(
+                            vec![a, b].into_iter().collect(),
+                        )))
                     },
                     (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
                         if a == b {
-                            Ok(SemanticTypeKind::Mixed(a))
+                            Ok(AbstractSemanticType::Positive(SemanticTypeKind::Mixed(a)))
                         } else {
                             Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
                         }
@@ -911,25 +912,35 @@ impl Variant for AbstractSemanticType {
                     (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(mut conjs))
                     | (SemanticTypeKind::Conjunction(mut conjs), SemanticTypeKind::Literal(he)) => {
                         conjs.insert(he);
-                        Ok(SemanticTypeKind::Conjunction(conjs))
+                        Ok(AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(conjs)))
                     },
                     (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(disjs))
                     | (SemanticTypeKind::Disjunction(disjs), SemanticTypeKind::Literal(he)) => {
                         if disjs.contains(&he) {
-                            Ok(SemanticTypeKind::Literal(he))
+                            Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(he)))
                         } else {
                             Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
                         }
                     },
                     (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
-                        Ok(SemanticTypeKind::Conjunction(&left | &right))
+                        Ok(AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(
+                            &left | &right,
+                        )))
                     },
                     (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
                         let intersection: HashSet<HashableExpression> = &left & &right;
                         match intersection.len() {
                             0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
-                            1 => Ok(SemanticTypeKind::Literal(intersection.into_iter().next().unwrap())),
-                            _ => Ok(SemanticTypeKind::Disjunction(intersection)),
+                            1 => {
+                                Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(
+                                    intersection.into_iter().next().unwrap(),
+                                )))
+                            },
+                            _ => {
+                                Ok(AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(
+                                    intersection,
+                                )))
+                            },
                         }
                     },
                     (SemanticTypeKind::Conjunction(_), _)
@@ -938,13 +949,71 @@ impl Variant for AbstractSemanticType {
                     | (_, SemanticTypeKind::Mixed(_)) => {
                         Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
                     },
-                }?;
-                AbstractSemanticType {
-                    is_close: Some(is_close_l),
-                    kind: new_var_kind,
                 }
             },
-        };
+
+            // Lattice for negative Types
+            (Self::Negative(l_kind), Self::Negative(r_kind)) => {
+                match (l_kind, r_kind) {
+                    (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(AbstractSemanticType::Negative(x)),
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(a)))
+                    },
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => {
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
+                            vec![a, b].into_iter().collect(),
+                        )))
+                    },
+                    (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
+                        if a == b {
+                            Ok(AbstractSemanticType::Negative(SemanticTypeKind::Mixed(a)))
+                        } else {
+                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                        }
+                    },
+                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(conjs))
+                    | (SemanticTypeKind::Conjunction(conjs), SemanticTypeKind::Literal(he)) => {
+                        if conjs.contains(&he) {
+                            Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(he)))
+                        } else {
+                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                        }
+                    },
+                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(mut disjs))
+                    | (SemanticTypeKind::Disjunction(mut disjs), SemanticTypeKind::Literal(he)) => {
+                        disjs.insert(he);
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(disjs)))
+                    },
+                    (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
+                        let intersection: HashSet<HashableExpression> = &left & &right;
+                        match intersection.len() {
+                            0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
+                            1 => {
+                                Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(
+                                    intersection.into_iter().next().unwrap(),
+                                )))
+                            },
+                            _ => {
+                                Ok(AbstractSemanticType::Negative(SemanticTypeKind::Conjunction(
+                                    intersection,
+                                )))
+                            },
+                        }
+                    },
+                    (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
+                            &left | &right,
+                        )))
+                    },
+                    (SemanticTypeKind::Conjunction(_), _)
+                    | (_, SemanticTypeKind::Conjunction(_))
+                    | (SemanticTypeKind::Mixed(_), _)
+                    | (_, SemanticTypeKind::Mixed(_)) => {
+                        Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                    },
+                }
+            },
+        }?;
 
         Ok(Partial {
             variant: new_var,
@@ -963,22 +1032,34 @@ impl Constructable for AbstractSemanticType {
     fn construct(&self, children: &[Self::Type]) -> Result<Self::Type, Self::Err> {
         assert!(children.is_empty(), "suspicious children");
 
-        match &self.kind {
-            SemanticTypeKind::Any if !self.is_close.unwrap_or(false) => {
+        let (is_negative, kind) = match &self {
+            AbstractSemanticType::Any => {
+                return Err(PacingErrorKind::Other(
+                    Span::Unknown,
+                    "Cannot concretize semantic type 'Any'".into(),
+                    vec![],
+                ))
+            },
+            AbstractSemanticType::Negative(kind) => (true, kind),
+            AbstractSemanticType::Positive(kind) => (false, kind),
+        };
+
+        match (is_negative, kind) {
+            (false, SemanticTypeKind::Any) => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
                     eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
-            SemanticTypeKind::Any => {
+            (true, SemanticTypeKind::Any) => {
                 Ok(Expression {
                     kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
                     eid: ExprId(u32::MAX),
                     span: Span::Unknown,
                 })
             },
-            SemanticTypeKind::Conjunction(conjs) => {
+            (_, SemanticTypeKind::Conjunction(conjs)) => {
                 assert!(conjs.len() >= 2);
                 let mut conjs = conjs.iter();
                 let first = conjs.next().map(|he| he.expression.clone()).unwrap();
@@ -991,7 +1072,7 @@ impl Constructable for AbstractSemanticType {
                     }
                 }))
             },
-            SemanticTypeKind::Disjunction(disjs) => {
+            (_, SemanticTypeKind::Disjunction(disjs)) => {
                 assert!(disjs.len() >= 2);
                 let mut disjs = disjs.iter();
                 let first = disjs.next().map(|he| he.expression.clone()).unwrap();
@@ -1004,23 +1085,29 @@ impl Constructable for AbstractSemanticType {
                     }
                 }))
             },
-            SemanticTypeKind::Mixed(he) | SemanticTypeKind::Literal(he) => Ok(he.expression.clone()),
+            (_, SemanticTypeKind::Mixed(he)) | (_, SemanticTypeKind::Literal(he)) => Ok(he.expression.clone()),
         }
     }
 }
 
 impl std::fmt::Display for AbstractSemanticType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let close = if self.is_close.unwrap_or(false) { "Close" } else { "" };
-        match &self.kind {
-            SemanticTypeKind::Any => write!(f, "{}Any", close),
-            SemanticTypeKind::Mixed(e) => write!(f, "{}Mixed({})", close, e.expression),
-            SemanticTypeKind::Literal(e) => write!(f, "{}Literal({})", close, e.expression),
+        let (prefix, kind) = match &self {
+            AbstractSemanticType::Any => {
+                return write!(f, "Any");
+            },
+            AbstractSemanticType::Negative(kind) => ("Close", kind),
+            AbstractSemanticType::Positive(kind) => ("Filter", kind),
+        };
+        match kind {
+            SemanticTypeKind::Any => write!(f, "{}Any", prefix),
+            SemanticTypeKind::Mixed(e) => write!(f, "{}Mixed({})", prefix, e.expression),
+            SemanticTypeKind::Literal(e) => write!(f, "{}Literal({})", prefix, e.expression),
             SemanticTypeKind::Conjunction(conjs) => {
                 write!(
                     f,
                     "{}Conjunction({})",
-                    close,
+                    prefix,
                     conjs.iter().map(|he| format!("{}", he.expression)).join(", ")
                 )
             },
@@ -1028,7 +1115,7 @@ impl std::fmt::Display for AbstractSemanticType {
                 write!(
                     f,
                     "{}Disjunction({})",
-                    close,
+                    prefix,
                     disj.iter().map(|he| format!("{}", he.expression)).join(", ")
                 )
             },
@@ -1189,17 +1276,24 @@ impl AbstractSemanticType {
         }
     }
 
-    pub(crate) fn from_expression(exp: &Expression, context: Rc<ExpressionContext>, is_close: bool) -> Self {
+    pub(crate) fn for_close(exp: &Expression, context: Rc<ExpressionContext>) -> Self {
         let kind = Self::parse_pure(exp, None, context.clone()).unwrap_or_else(|_| {
             SemanticTypeKind::Mixed(HashableExpression {
                 context,
                 expression: exp.clone(),
             })
         });
-        AbstractSemanticType {
-            is_close: Some(is_close),
-            kind,
-        }
+        AbstractSemanticType::Negative(kind)
+    }
+
+    pub(crate) fn for_filter(exp: &Expression, context: Rc<ExpressionContext>) -> Self {
+        let kind = Self::parse_pure(exp, None, context.clone()).unwrap_or_else(|_| {
+            SemanticTypeKind::Mixed(HashableExpression {
+                context,
+                expression: exp.clone(),
+            })
+        });
+        AbstractSemanticType::Positive(kind)
     }
 }
 
@@ -1351,28 +1445,28 @@ mod tests {
         let f_exp = env.hir.expression(env.hir.outputs[5].expr_id);
 
         assert!(matches!(
-            AbstractSemanticType::from_expression(a_exp, env.ctx.clone(), false).kind,
-            SemanticTypeKind::Conjunction(_)
+            AbstractSemanticType::for_filter(a_exp, env.ctx.clone()),
+            AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(_))
         ));
         assert!(matches!(
-            AbstractSemanticType::from_expression(b_exp, env.ctx.clone(), false).kind,
-            SemanticTypeKind::Disjunction(_)
+            AbstractSemanticType::for_filter(b_exp, env.ctx.clone()),
+            AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(_))
         ));
         assert!(matches!(
-            AbstractSemanticType::from_expression(c_exp, env.ctx.clone(), false).kind,
-            SemanticTypeKind::Conjunction(_)
+            AbstractSemanticType::for_filter(c_exp, env.ctx.clone()),
+            AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(_))
         ));
         assert!(matches!(
-            AbstractSemanticType::from_expression(d_exp, env.ctx.clone(), false).kind,
-            SemanticTypeKind::Mixed(_)
+            AbstractSemanticType::for_filter(d_exp, env.ctx.clone()),
+            AbstractSemanticType::Positive(SemanticTypeKind::Mixed(_))
         ));
         assert!(matches!(
-            AbstractSemanticType::from_expression(e_exp, env.ctx.clone(), false).kind,
-            SemanticTypeKind::Mixed(_)
+            AbstractSemanticType::for_filter(e_exp, env.ctx.clone()),
+            AbstractSemanticType::Positive(SemanticTypeKind::Mixed(_))
         ));
         assert!(matches!(
-            AbstractSemanticType::from_expression(f_exp, env.ctx, false).kind,
-            SemanticTypeKind::Literal(_)
+            AbstractSemanticType::for_filter(f_exp, env.ctx),
+            AbstractSemanticType::Positive(SemanticTypeKind::Literal(_))
         ));
     }
 }

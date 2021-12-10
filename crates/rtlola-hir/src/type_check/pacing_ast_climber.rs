@@ -86,16 +86,21 @@ where
 
     fn new_stream_key(&mut self) -> StreamTypeKeys {
         let close = self.expression_tyc.new_term_key();
+        let spawn = self.expression_tyc.new_term_key();
+        let filter = self.expression_tyc.new_term_key();
         self.expression_tyc
-            .impose(close.concretizes_explicit(AbstractSemanticType {
-                is_close: Some(true),
-                kind: SemanticTypeKind::Any,
-            }))
+            .impose(close.concretizes_explicit(AbstractSemanticType::Negative(SemanticTypeKind::Any)))
+            .expect("close key cannot be bound otherwise yet");
+        self.expression_tyc
+            .impose(spawn.concretizes_explicit(AbstractSemanticType::Positive(SemanticTypeKind::Any)))
+            .expect("close key cannot be bound otherwise yet");
+        self.expression_tyc
+            .impose(filter.concretizes_explicit(AbstractSemanticType::Positive(SemanticTypeKind::Any)))
             .expect("close key cannot be bound otherwise yet");
         StreamTypeKeys {
             exp_pacing: self.pacing_tyc.new_term_key(),
-            spawn: (self.pacing_tyc.new_term_key(), self.expression_tyc.new_term_key()),
-            filter: self.expression_tyc.new_term_key(),
+            spawn: (self.pacing_tyc.new_term_key(), spawn),
+            filter,
             close,
         }
     }
@@ -209,14 +214,13 @@ where
 
     /// Binds the key to the given annotated expression type
     fn bind_to_annotated_exp_type(&mut self, target: TcKey, bound: &Expression, conflict_key: TcKey, is_close: bool) {
-        self.annotated_exp_checks.insert(
-            target,
-            (
-                is_close,
-                AbstractSemanticType::from_expression(bound, self.exp_context.clone(), is_close),
-                conflict_key,
-            ),
-        );
+        let parsed = if is_close {
+            AbstractSemanticType::for_close(bound, self.exp_context.clone())
+        } else {
+            AbstractSemanticType::for_filter(bound, self.exp_context.clone())
+        };
+        self.annotated_exp_checks
+            .insert(target, (is_close, parsed, conflict_key));
     }
 
     fn input_infer(&mut self, input: &Input) -> Result<(), TypeError<PacingErrorKind>> {
@@ -324,9 +328,15 @@ where
 
             //Streams spawn condition is equal to annotated condition
             self.bind_to_annotated_exp_type(stream_keys.spawn.1, spawn_condition, exp_keys.spawn.1, false);
-            self.expression_tyc.impose(stream_keys.spawn.1.concretizes_explicit(
-                AbstractSemanticType::from_expression(spawn_condition, self.exp_context.clone(), false),
-            ))?;
+            self.expression_tyc.impose(
+                stream_keys
+                    .spawn
+                    .1
+                    .concretizes_explicit(AbstractSemanticType::for_filter(
+                        spawn_condition,
+                        self.exp_context.clone(),
+                    )),
+            )?;
         }
 
         // Pacing of spawn target is more concrete than pacing of condition
@@ -366,11 +376,7 @@ where
         self.expression_tyc.impose(
             stream_keys
                 .filter
-                .concretizes_explicit(AbstractSemanticType::from_expression(
-                    filter,
-                    self.exp_context.clone(),
-                    false,
-                )),
+                .concretizes_explicit(AbstractSemanticType::for_filter(filter, self.exp_context.clone())),
         )?;
 
         //Filter of the stream is more concrete than the filter of the streams expression
@@ -415,11 +421,7 @@ where
         self.expression_tyc.impose(
             stream_keys
                 .close
-                .concretizes_explicit(AbstractSemanticType::from_expression(
-                    close_target,
-                    self.exp_context.clone(),
-                    true,
-                )),
+                .concretizes_explicit(AbstractSemanticType::for_close(close_target, self.exp_context.clone())),
         )?;
 
         //Close of the streams expression is more concrete than the close of the stream
@@ -616,8 +618,16 @@ where
         let exp_errs = exp_checks
             .into_iter()
             .filter_map(|(key, (is_close, bound, conflict_key))| {
-                let is = AbstractSemanticType::from_expression(&exp_tt[&key], ctx.clone(), is_close);
-                let inferred = AbstractSemanticType::from_expression(&exp_tt[&conflict_key], ctx.clone(), is_close);
+                let is = if is_close {
+                    AbstractSemanticType::for_close(&exp_tt[&key], ctx.clone())
+                } else {
+                    AbstractSemanticType::for_filter(&exp_tt[&key], ctx.clone())
+                };
+                let inferred = if is_close {
+                    AbstractSemanticType::for_close(&exp_tt[&conflict_key], ctx.clone())
+                } else {
+                    AbstractSemanticType::for_filter(&exp_tt[&conflict_key], ctx.clone())
+                };
                 if is != bound {
                     if !is_close {
                         Some(TypeError {
@@ -2278,5 +2288,205 @@ mod tests {
         output y filter b && c := 42\n\
         output z filter a && b && c := x + y";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_mixed() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x filter a && (b || c) := 5\n\
+        output y filter a && (b || c) := 42\n\
+        output z filter a && (b || c) := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_advanced_fail() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x filter a := 5\n\
+        output y filter b && c := 42\n\
+        output z := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_advanced_fail2() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x filter a := 5\n\
+        output y filter b && c := 42\n\
+        output z filter d := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_disjunction() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x filter a || b:= 5\n\
+        output y filter b || c:= 42\n\
+        output z filter b := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_disjunction2() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x filter a || b || d:= 5\n\
+        output y filter b || d || c:= 42\n\
+        output z filter b || d := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_filter_disjunction_fail() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x filter a || b || d:= 5\n\
+        output y filter b || d || c:= 42\n\
+        output z filter c || d := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_advanced() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a spawn if a := 5\n\
+        output y @a spawn if b && c := 42\n\
+        output z @a spawn if a && b && c := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_advanced_fail() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a spawn if a := 5\n\
+        output y @a spawn if b && c := 42\n\
+        output z @a := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_advanced_fail2() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x @a spawn if a := 5\n\
+        output y @a spawn if b && c := 42\n\
+        output z @a spawn if d := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_disjunction() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x @a spawn if a || b:= 5\n\
+        output y @a spawn if b || c:= 42\n\
+        output z @a spawn if b := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_disjunction2() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x @a spawn if a || b || d:= 5\n\
+        output y @a spawn if b || d || c:= 42\n\
+        output z @a spawn if b || d := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_spawn_cond_disjunction_fail() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        input d:Bool\n\
+        output x @a spawn if a || b || d:= 5\n\
+        output y @a spawn if b || d || c:= 42\n\
+        output z @a spawn if c || d := x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_close_advanced() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a close a := 5\n\
+        output y @a close b || c := 42\n\
+        output z @a close a || b || c := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_close_conjunction() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a close a && b := 5\n\
+        output y @a close b && c := 42\n\
+        output z @a close b := x + y";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_close_conjunction_fail() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a close a && b := 5\n\
+        output y @a close b && c := 42\n\
+        output z @a close b && c:= x + y";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_close_advanced_fail2() {
+        let spec = "\
+        input a:Bool\n\
+        input b:Bool\n\
+        input c:Bool\n\
+        output x @a close a := 5\n\
+        output y @a close b || c := 42\n\
+        output z @a close a || b := x + y";
+        assert_eq!(1, num_errors(spec));
     }
 }
