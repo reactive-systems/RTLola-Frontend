@@ -618,32 +618,29 @@ where
         let exp_errs = exp_checks
             .into_iter()
             .filter_map(|(key, (is_close, bound, conflict_key))| {
-                let is = if is_close {
-                    AbstractSemanticType::for_close(&exp_tt[&key], ctx.clone())
+                if is_close {
+                    let is = AbstractSemanticType::for_close(&exp_tt[&key], ctx.clone());
+                    if is != bound {
+                        Some(TypeError {
+                            kind: PacingErrorKind::SemanticTypeMismatch(bound, is),
+                            key1: Some(conflict_key),
+                            key2: Some(key),
+                        })
+                    } else {
+                        None
+                    }
                 } else {
-                    AbstractSemanticType::for_filter(&exp_tt[&key], ctx.clone())
-                };
-                let inferred = if is_close {
-                    AbstractSemanticType::for_close(&exp_tt[&conflict_key], ctx.clone())
-                } else {
-                    AbstractSemanticType::for_filter(&exp_tt[&conflict_key], ctx.clone())
-                };
-                if is != bound {
-                    if !is_close {
+                    let is = AbstractSemanticType::for_filter(&exp_tt[&key], ctx.clone());
+                    let inferred = AbstractSemanticType::for_filter(&exp_tt[&conflict_key], ctx.clone());
+                    if is != bound {
                         Some(TypeError {
                             kind: PacingErrorKind::SemanticTypeMismatch(bound, inferred),
                             key1: Some(key),
                             key2: Some(conflict_key),
                         })
                     } else {
-                        Some(TypeError {
-                            kind: PacingErrorKind::SemanticTypeMismatch(bound, is),
-                            key1: Some(conflict_key),
-                            key2: Some(key),
-                        })
+                        None
                     }
-                } else {
-                    None
                 }
             });
         pacing_errs.chain(exp_errs).collect()
@@ -1066,7 +1063,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&spec);
         match ltc.pacing_type_infer() {
             Ok(_) => 0,
-            Err(e) => e.num_errors(),
+            Err(e) => dbg!(e).num_errors(),
         }
     }
 

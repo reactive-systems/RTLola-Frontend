@@ -919,16 +919,17 @@ impl Variant for AbstractSemanticType {
                         if disjs.contains(&he) {
                             Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(he)))
                         } else {
+                            // The typecheck is a quasi-syntactic check. We could continue the analysis here, but we chose not to.
                             Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
                         }
                     },
                     (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
                         Ok(AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(
-                            &left | &right,
+                            left.union(&right).cloned().collect(),
                         )))
                     },
                     (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
-                        let intersection: HashSet<HashableExpression> = &left & &right;
+                        let intersection: HashSet<HashableExpression> = left.intersection(&right).cloned().collect();
                         match intersection.len() {
                             0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
                             1 => {
@@ -985,7 +986,7 @@ impl Variant for AbstractSemanticType {
                         Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(disjs)))
                     },
                     (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
-                        let intersection: HashSet<HashableExpression> = &left & &right;
+                        let intersection: HashSet<HashableExpression> = left.intersection(&right).cloned().collect();
                         match intersection.len() {
                             0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
                             1 => {
@@ -1002,7 +1003,7 @@ impl Variant for AbstractSemanticType {
                     },
                     (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
                         Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
-                            &left | &right,
+                            left.union(&right).cloned().collect(),
                         )))
                     },
                     (SemanticTypeKind::Conjunction(_), _)
@@ -1136,7 +1137,7 @@ impl SemanticTypeKind {
             | (_, Mixed(_))
             | (Mixed(_), _)
             | (Conjunction(_), Disjunction(_))
-            | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Single"),
+            | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Literals"),
             (Literal(a), Literal(b)) => literal_constructor(vec![a, b].into_iter().collect()),
             (Literal(this), Conjunction(mut other)) | (Conjunction(mut other), Literal(this)) => {
                 other.insert(this);
