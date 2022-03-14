@@ -429,7 +429,7 @@ impl Mir {
             ArithLogOp::BitAnd => mir::ArithLogOp::BitAnd,
             ArithLogOp::BitOr => mir::ArithLogOp::BitOr,
             ArithLogOp::BitNot => mir::ArithLogOp::BitNot,
-            ArithLogOp::Shl => mir::ArithLogOp::Shr,
+            ArithLogOp::Shl => mir::ArithLogOp::Shl,
             ArithLogOp::Shr => mir::ArithLogOp::Shr,
             ArithLogOp::Eq => mir::ArithLogOp::Eq,
             ArithLogOp::Lt => mir::ArithLogOp::Lt,
