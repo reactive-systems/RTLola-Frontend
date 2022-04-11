@@ -176,8 +176,8 @@ impl Mir {
             value_ty: _,
             pacing_ty: _,
             spawn,
-            filter,
-            close,
+            filter: _,
+            close: _,
         } = hir.stream_type(sr);
         let spawn_pacing = match &spawn.0 {
             ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(ac)),
@@ -188,9 +188,9 @@ impl Mir {
             },
         };
         let (hir_spawn_target, hir_spawn_condition) = hir.spawn(sr).unwrap_or((None, None));
-        let spawn_cond = hir_spawn_condition.map(|_| Self::lower_expr(hir, &spawn.1));
+        let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, expr));
         let spawn_target = hir_spawn_target.map(|target| Self::lower_expr(hir, target));
-        let filter = hir.filter(sr).map(|_| Self::lower_expr(hir, &filter));
+        let filter = hir.filter(sr).map(|expr| Self::lower_expr(hir, expr));
         let filter_pacing = hir
             .filter(sr)
             .map(|expr| {
@@ -204,7 +204,7 @@ impl Mir {
                 }
             })
             .unwrap_or(PacingType::Constant);
-        let close = hir.close(sr).map(|_| Self::lower_expr(hir, &close));
+        let close = hir.close(sr).map(|expr| Self::lower_expr(hir, expr));
         let close_pacing = hir
             .close(sr)
             .map(|expr| {
