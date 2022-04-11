@@ -122,7 +122,10 @@ impl ExtendedDepGraph for DependencyGraph {
             let lhs_pt = match w.origin {
                 Origin::Spawn => lhs.spawn.0,
                 Origin::Filter | Origin::Eval => lhs.pacing_ty,
-                Origin::Close => hir.expr_type(hir.close(lhs_sr).expect("close expression to exist for close edge").eid).pacing_ty,
+                Origin::Close => {
+                    hir.expr_type(hir.close(lhs_sr).expect("close expression to exist for close edge").eid)
+                        .pacing_ty
+                },
             };
             let rhs_pt = rhs.pacing_ty;
             match (lhs_pt, rhs_pt) {
@@ -154,25 +157,25 @@ impl DepAnaTrait for DepAna {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
         self.direct_accesses
             .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+            .map_or(Vec::new(), |accesses| accesses.to_vec())
     }
 
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef> {
         self.transitive_accesses
             .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+            .map_or(Vec::new(), |accesses| accesses.to_vec())
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.direct_accessed_by.get(&who).map_or(Vec::new(), |accessed_by| {
-            accessed_by.iter().copied().collect::<Vec<SRef>>()
-        })
+        self.direct_accessed_by
+            .get(&who)
+            .map_or(Vec::new(), |accessed_by| accessed_by.to_vec())
     }
 
     fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef> {
         self.transitive_accessed_by
             .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().copied().collect::<Vec<SRef>>())
+            .map_or(Vec::new(), |accesses| accesses.to_vec())
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
@@ -427,8 +430,7 @@ impl DepAna {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
                 let mut args = args
                     .iter()
-                    .map(|arg| Self::collect_edges(spec, src, arg))
-                    .flatten()
+                    .flat_map(|arg| Self::collect_edges(spec, src, arg))
                     .collect::<Vec<(SRef, StreamAccessKind, SRef)>>();
                 args.push((src, *stream_access_kind, *target));
                 args

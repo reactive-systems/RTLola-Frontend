@@ -564,7 +564,7 @@ impl Trigger {
         Self {
             info_streams: infos,
             annotated_pacing_type: pt,
-            message: msg.unwrap_or_else(String::new),
+            message: msg.unwrap_or_default(),
             expr_id,
             sr,
             span,
