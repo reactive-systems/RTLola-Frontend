@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Changes for syntactic sugar base
+- Semantic types now match pseudo-semantically based on Conjunctions and Disjunctions
 
 ## [0.3.0] - 2021-11-15
 
