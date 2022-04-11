@@ -378,7 +378,7 @@ changelog:reporting:
   stage: check-changelog
   image: alpine:latest
   script:
-    - apk update && apk add --no-cache bash
+    - apk update && apk add --no-cache bash git
     - ./check_changelog.sh rtlola-reporting
 
 changelog:parser:
@@ -389,7 +389,7 @@ changelog:parser:
   stage: check-changelog
   image: alpine:latest
   script:
-    - apk update && apk add --no-cache bash
+    - apk update && apk add --no-cache bash git
     - ./check_changelog.sh rtlola-parser
 
 changelog:macros:
@@ -400,7 +400,7 @@ changelog:macros:
   stage: check-changelog
   image: alpine:latest
   script:
-    - apk update && apk add --no-cache bash
+    - apk update && apk add --no-cache bash git
     - ./check_changelog.sh rtlola-macros
 
 changelog:hir:
@@ -411,7 +411,7 @@ changelog:hir:
   stage: check-changelog
   image: alpine:latest
   script:
-    - apk update && apk add --no-cache bash
+    - apk update && apk add --no-cache bash git
     - ./check_changelog.sh rtlola-hir
 
 changelog:frontend:
@@ -422,7 +422,7 @@ changelog:frontend:
   stage: check-changelog
   image: alpine:latest
   script:
-    - apk update && apk add --no-cache bash
+    - apk update && apk add --no-cache bash git
     - ./check_changelog.sh rtlola-frontend
 
 
