@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-frontend"
-version = "0.5.2"
+version = "0.5.3"
 authors = [
     "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <florian.kohn@cispa.de>",
