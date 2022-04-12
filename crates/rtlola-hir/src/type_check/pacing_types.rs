@@ -145,6 +145,16 @@ pub(crate) enum AbstractSemanticType {
     Positive(SemanticTypeKind),
 }
 
+impl AbstractSemanticType {
+    pub(crate) fn negative_top() -> AbstractSemanticType {
+        AbstractSemanticType::Negative(SemanticTypeKind::Any)
+    }
+
+    pub(crate) fn positive_top() -> AbstractSemanticType {
+        AbstractSemanticType::Positive(SemanticTypeKind::Any)
+    }
+}
+
 /// The internal representation of an expression type kind
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SemanticTypeKind {
