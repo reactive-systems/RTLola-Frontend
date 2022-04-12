@@ -2486,4 +2486,11 @@ mod tests {
         output z @a close a || b := x + y";
         assert_eq!(1, num_errors(spec));
     }
+
+    #[test]
+    fn close_self_ref() {
+        let spec = "input a: Int32\n\
+                  output b(p: Bool) spawn with a == 42 filter !p || a == 42 close b(p) == 1337:= a";
+        assert_eq!(0, num_errors(spec));
+    }
 }
