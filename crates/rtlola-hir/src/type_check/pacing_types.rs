@@ -13,7 +13,10 @@ use uom::num_rational::Ratio;
 use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use crate::hir::{AnnotatedPacingType, ArithLogOp, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir, Inlined, Literal, StreamAccessKind, StreamReference, WidenExprKind, ValueEq};
+use crate::hir::{
+    AnnotatedPacingType, ArithLogOp, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir,
+    Inlined, Literal, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
+};
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
 use crate::type_check::ConcretePacingType;
@@ -143,30 +146,12 @@ pub(crate) enum AbstractSemanticType {
 }
 
 impl AbstractSemanticType {
-    pub(crate) fn negative_top(context: Rc<ExpressionContext>) -> AbstractSemanticType {
-        let kind_false = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false)));
-        let exr_false = Expression{
-            kind: kind_false,
-            eid: ExprId(u32::MAX),
-            span: Span::Unknown
-        };
-        AbstractSemanticType::Negative(SemanticTypeKind::Literal(HashableExpression{
-            context,
-            expression: exr_false
-        }))
+    pub(crate) fn negative_top() -> AbstractSemanticType {
+        AbstractSemanticType::Negative(SemanticTypeKind::Any)
     }
 
-    pub(crate) fn positive_top(context: Rc<ExpressionContext>) -> AbstractSemanticType {
-        let kind_false = ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true)));
-        let exr_false = Expression{
-            kind: kind_false,
-            eid: ExprId(u32::MAX),
-            span: Span::Unknown
-        };
-        AbstractSemanticType::Negative(SemanticTypeKind::Literal(HashableExpression{
-            context,
-            expression: exr_false
-        }))
+    pub(crate) fn positive_top() -> AbstractSemanticType {
+        AbstractSemanticType::Positive(SemanticTypeKind::Any)
     }
 }
 

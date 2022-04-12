@@ -332,15 +332,6 @@ pub enum ArithLogOp {
     Gt,
 }
 
-impl ArithLogOp {
-    pub(crate) fn is_commutative(&self) -> bool {
-        match self {
-            ArithLogOp::Add | ArithLogOp::Mul | ArithLogOp::And | ArithLogOp::Or | ArithLogOp::BitXor | ArithLogOp::BitAnd | ArithLogOp::BitOr | ArithLogOp::Eq | ArithLogOp::Ne => true,
-            ArithLogOp::Not | ArithLogOp::Neg | ArithLogOp::Sub | ArithLogOp::Div | ArithLogOp::Rem | ArithLogOp::Pow | ArithLogOp::BitNot | ArithLogOp::Shl | ArithLogOp::Shr | ArithLogOp::Lt | ArithLogOp::Le | ArithLogOp::Ge | ArithLogOp::Gt => false,
-        }
-    }
-}
-
 /// Functionality of [sliding window](SlidingAggr) and [discrete window](DiscreteAggr) aggregations
 pub trait WindowAggregation: Debug + Copy {
     /// Returns wheter or not the first aggregated value will be produced immediately or wheter the window waits
@@ -567,18 +558,10 @@ impl ValueEq for ExpressionKind {
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2
                     && args.len() == args2.len()
-                    && if op.is_commutative() {
-                        // When the operator is commutative we have to ignore the order of the arguments
-                        args.iter()
-                            .all(|a| args2.iter().any(|a2| a.value_eq(a2, parameter_map)))
-                            && args2
-                                .iter()
-                                .all(|a| args.iter().any(|a2| a.value_eq(a2, parameter_map)))
-                    } else {
-                        args.iter()
-                            .zip(args2.iter())
-                            .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
-                    }
+                    && args
+                        .iter()
+                        .zip(args2.iter())
+                        .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
             },
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
