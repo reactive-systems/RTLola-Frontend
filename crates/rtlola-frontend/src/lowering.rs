@@ -21,7 +21,7 @@ impl Mir {
                 mir::InputStream {
                     name: i.name.clone(),
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    accessed_by: hir.direct_accesses(sr),
+                    accessed_by: hir.direct_accessed_by(sr),
                     aggregated_by: hir.aggregated_by(sr),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
@@ -41,7 +41,7 @@ impl Mir {
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                 expr: Self::lower_expr(&hir, hir.expr(sr)),
                 instance_template: Self::lower_instance_template(&hir, sr),
-                accesses: hir.direct_accesses(sr),
+                accesses: Self::lower_accessed_streams(hir.direct_accesses(sr)),
                 accessed_by: hir.direct_accessed_by(sr),
                 aggregated_by: hir.aggregated_by(sr),
                 memory_bound: hir.memory_bound(sr),
@@ -66,7 +66,7 @@ impl Mir {
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                     expr: Self::lower_expr(&hir, hir.expr(sr)),
                     instance_template: InstanceTemplate::default(),
-                    accesses: hir.direct_accesses(sr),
+                    accesses: Self::lower_accessed_streams(hir.direct_accesses(sr)),
                     accessed_by: hir.direct_accessed_by(sr),
                     aggregated_by: hir.aggregated_by(sr),
                     memory_bound: hir.memory_bound(sr),
@@ -477,6 +477,15 @@ impl Mir {
                 unreachable!("Real-time Lookups should be already transformed to discrete lookups.")
             },
         }
+    }
+
+    fn lower_accessed_streams(
+        accessed_streams: Vec<(StreamReference, StreamAccessKind)>,
+    ) -> Vec<(StreamReference, mir::StreamAccessKind)> {
+        accessed_streams
+            .into_iter()
+            .map(|(sref, kind)| (sref, Self::lower_stream_access_kind(kind)))
+            .collect()
     }
 }
 

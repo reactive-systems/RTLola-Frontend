@@ -217,7 +217,7 @@ pub struct OutputStream {
     /// The stream expression
     pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
-    pub accesses: Vec<StreamReference>,
+    pub accesses: Vec<(StreamReference, StreamAccessKind)>,
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Vec<StreamReference>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.

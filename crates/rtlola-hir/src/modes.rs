@@ -8,9 +8,9 @@ use std::collections::HashMap;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies};
+use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies, Streamaccesses};
 use self::types::HirType;
-use crate::hir::{ExprId, Hir, SRef, WRef};
+use crate::hir::{ExprId, Hir, SRef, WRef, StreamAccessKind};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
@@ -182,7 +182,7 @@ impl Hir<TypedMode> {
 /// Represents the results of the dependency analysis
 #[derive(Debug, Clone)]
 pub struct DepAna {
-    direct_accesses: Streamdependencies,
+    direct_accesses: Streamaccesses,
     transitive_accesses: Streamdependencies,
     direct_accessed_by: Streamdependencies,
     transitive_accessed_by: Streamdependencies,
@@ -212,7 +212,7 @@ pub trait DepAnaTrait {
     /// The function returns all streams that are direct accessed by `who`.
     /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
-    fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
+    fn direct_accesses(&self, who: SRef) -> Vec<(SRef, StreamAccessKind)>;
 
     /// Returns all streams that are transitive accessed by `who`
     ///

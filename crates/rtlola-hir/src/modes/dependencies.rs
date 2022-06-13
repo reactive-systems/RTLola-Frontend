@@ -73,6 +73,8 @@ impl EdgeWeight {
 
 /// Represents all dependencies between streams
 pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
+/// Represents all accesses of a stream with the stream access kind
+pub(crate) type Streamaccesses = HashMap<SRef, Vec<(SRef, StreamAccessKind)>>;
 /// Represents all dependencies between streams in which a window lookup is used
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 
@@ -154,7 +156,7 @@ impl ExtendedDepGraph for DependencyGraph {
 }
 
 impl DepAnaTrait for DepAna {
-    fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
+    fn direct_accesses(&self, who: SRef) -> Vec<(SRef, StreamAccessKind)> {
         self.direct_accesses
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.to_vec())
@@ -303,15 +305,16 @@ impl DepAna {
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph, spec).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
-        let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut direct_accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();
-            if !cur_accesses.contains(tar) {
-                cur_accesses.push(*tar);
+            let access = (*tar, w.kind);
+            if !cur_accesses.contains(&access) {
+                cur_accesses.push(access);
             }
             let cur_accessed_by = direct_accessed_by.get_mut(tar).unwrap();
             if !cur_accessed_by.contains(src) {
@@ -504,7 +507,7 @@ mod tests {
                 assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
                 accesses_hir
                     .iter()
-                    .for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
+                    .for_each(|sr| assert!(accesses_reference.contains(&sr.0), "sr: {}", sr.0));
             });
             deps.transitive_accesses.iter().for_each(|(sr, accesses_hir)| {
                 let accesses_reference = transitive_accesses.get(sr).unwrap();
