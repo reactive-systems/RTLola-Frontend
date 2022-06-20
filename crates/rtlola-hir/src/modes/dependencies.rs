@@ -346,34 +346,8 @@ impl DepAna {
                 }
             }
         });
-        let direct_accesses = direct_accesses
-            .into_iter()
-            .map(|(to, sources)| {
-                let groups = sources
-                    .into_iter()
-                    .sorted_by_key(|(target, _)| *target)
-                    .group_by(|(target, _)| *target);
-                let sources = groups
-                    .into_iter()
-                    .map(|(target, access_kinds)| (target, access_kinds.map(|(_, kind)| kind).collect::<Vec<_>>()))
-                    .collect();
-                (to, sources)
-            })
-            .collect();
-        let direct_accessed_by = direct_accessed_by
-            .into_iter()
-            .map(|(src, targets)| {
-                let groups = targets
-                    .into_iter()
-                    .sorted_by_key(|(target, _)| *target)
-                    .group_by(|(target, _)| *target);
-                let targets = groups
-                    .into_iter()
-                    .map(|(target, access_kinds)| (target, access_kinds.map(|(_, kind)| kind).collect::<Vec<_>>()))
-                    .collect();
-                (src, targets)
-            })
-            .collect();
+        let direct_accesses = Self::group_access_kinds(direct_accesses);
+        let direct_accessed_by = Self::group_access_kinds(direct_accessed_by);
         let transitive_accesses = graph
             .node_indices()
             .map(|from_index| {
@@ -407,6 +381,21 @@ impl DepAna {
             aggregates,
             graph,
         })
+    }
+
+    fn group_access_kinds(accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>>) -> HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>> {
+            accesses.into_iter()
+            .map(|(sr, accesses)| {
+                let groups = accesses
+                    .into_iter()
+                    .sorted_by_key(|(target, _)| *target)
+                    .group_by(|(target, _)| *target);
+                let targets = groups
+                    .into_iter()
+                    .map(|(target, access_kinds)| (target, access_kinds.map(|(_, kind)| kind).collect::<Vec<_>>()))
+                    .collect();
+                (sr, targets)
+            }).collect()
     }
 
     fn has_transitive_connection(graph: &DependencyGraph, from: NodeIndex, to: NodeIndex) -> bool {
