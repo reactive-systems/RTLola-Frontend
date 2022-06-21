@@ -10,7 +10,7 @@ use rtlola_reporting::RtLolaError;
 
 use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies, Transitivedependencies};
 use self::types::HirType;
-use crate::hir::{ExprId, Hir, SRef, WRef, StreamAccessKind};
+use crate::hir::{ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
