@@ -539,7 +539,7 @@ mod tests {
                 assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
                 accesses_hir
                     .iter()
-                    .for_each(|sr| assert!(accesses_reference.contains(&sr.0), "sr: {}", sr.0));
+                    .for_each(|(sr,_)| assert!(accesses_reference.contains(&sr), "sr: {}", sr));
             });
             deps.transitive_accesses.iter().for_each(|(sr, accesses_hir)| {
                 let accesses_reference = transitive_accesses.get(sr).unwrap();
