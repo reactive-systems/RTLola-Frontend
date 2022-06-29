@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn check_stream_with_parameter() {
         let spec = "input a: Int8\n\
-        output d(para) @a spawn with a if a > 6 := para";
+        output d(para) spawn with a when a > 6 eval @a with para";
         let (hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn check_spawn_filter_close() {
         let spec = "input a: Int8\n\
-        output d @a spawn @1Hz if a.hold().defaults(to:0) > 6 filter a = 42 close a = 1337 := a";
+        output d spawn @1Hz when a.hold().defaults(to:0) > 6 eval @a when a = 42 with a close when a = 1337";
         let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn test_instance_window() {
         let spec = "input a: Int32\n\
-        output b(p: Bool) spawn with a == 42 := a\n\
+        output b(p: Bool) spawn with a == 42 eval with a\n\
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 

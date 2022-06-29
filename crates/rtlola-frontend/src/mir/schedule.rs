@@ -425,8 +425,8 @@ mod tests {
         let ir = to_ir(
             "input a:UInt64\n\
                           output x @1Hz := a.hold(or: 42)\n\
-                          output y close x = 42 := a\n\
-                          output z spawn @0.5Hz if a.hold(or: 42) = 1337 := a - 15
+                          output y close when x = 42 eval with a\n\
+                          output z spawn @0.5Hz when a.hold(or: 42) = 1337 eval with a - 15
        ",
         );
         let mut schedule = ir.compute_schedule().expect("failed to compute schedule");
