@@ -62,22 +62,16 @@ impl Display for Output {
         if let Some(ty) = &self.annotated_type {
             write!(f, ": {}", ty)?;
         }
-        match &self.annotated_pacing_type {
-            None => {},
-            Some(pt) => {
-                write!(f, " @ {}", pt)?;
-            },
-        }
         if let Some(spawn) = &self.spawn {
             write!(f, " {}", spawn)?;
         }
-        if let Some(filter) = &self.filter {
-            write!(f, " {}", filter)?;
+        for eval_spec in self.eval.iter() {
+            write!(f, " {}", eval_spec)?;
         }
         if let Some(close) = &self.close {
             write!(f, " {}", close)?;
         }
-        write!(f, " := {}", self.expression)
+        Ok(())
     }
 }
 
@@ -98,25 +92,37 @@ impl Display for SpawnSpec {
         if let Some(pt) = &self.annotated_pacing {
             write!(f, " @{}", pt)?;
         }
+        if let Some(condition) = &self.condition {
+            write!(f, " when {}", condition)?;
+        }
         if let Some(target) = &self.target {
             write!(f, " with {}", target)?;
-        }
-        if let Some(condition) = &self.condition {
-            write!(f, " {} {}", if self.is_if { "if" } else { "unless" }, condition)?;
         }
         Ok(())
     }
 }
 
-impl Display for FilterSpec {
+impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "filter {}", &self.target)
+        if self.filter.is_some() || self.eval_expression.is_some() || self.annotated_pacing.is_some() {
+            write!(f, "eval")?;
+        }
+        if let Some(pt) = &self.annotated_pacing {
+            write!(f, " @{}", pt)?;
+        }
+        if let Some(when) = &self.filter {
+            write!(f, " when {}", when)?;
+        }
+        if let Some(exp) = &self.eval_expression {
+            write!(f, " with {}", exp)?;
+        }
+        Ok(())
     }
 }
 
 impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "close {}", self.target)
+        write!(f, "close when {}", self.target)
     }
 }
 

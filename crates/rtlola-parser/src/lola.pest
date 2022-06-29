@@ -17,16 +17,19 @@ BOM = _{"\u{FEFF}"}
 ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
-SpawnDecl = { "spawn"~ ActivationCondition? ~SpawnWith? ~(SpawnIf | SpawnUnless)? }
-SpawnIf = { "if" ~Expr }
-SpawnUnless = { "unless" ~Expr }
-SpawnWith = {"with " ~Expr }
-
-FilterDecl = { "filter" ~ Expr }
+SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen| SpawnWith){0,2} }
+SpawnWith = { "with" ~Expr }
+SpawnWhen = { "when " ~Expr }
 
 ActivationCondition = { "@" ~ Expr }
 
-CloseDecl = { "close" ~ ActivationCondition? ~Expr }
+CloseDecl = { "close" ~ ActivationCondition? ~ "when" ~Expr }
+
+
+EvalDecl = { "eval" ~ ActivationCondition? ~ EvalWhen? ~ EvalWith? } //(EvalWhen? ~ EvalWith? | EvalWhit? ~ EvalWhen?) }
+EvalWhen = { "when" ~ Expr}
+EvalWith = { "with" ~ Expr}
+SimpleEvalDecl = { ActivationCondition? ~ ":=" ~ Expr }
 
 IncludeStatement = { "include"~ StringLiteral}
 
@@ -36,7 +39,9 @@ ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
 InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
-OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ ActivationCondition? ~ SpawnDecl? ~ FilterDecl? ~CloseDecl? ~":="~ Expr}
+OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ 
+ ((EvalDecl| SpawnDecl| CloseDecl)+| SimpleEvalDecl)
+}
 
 MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
