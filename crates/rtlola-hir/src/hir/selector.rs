@@ -76,11 +76,7 @@ impl Selectable for CloseSelector {
     fn select<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
         let output = hir.output(sref).unwrap();
-        let close_ty: Option<HirType> = output
-            .instance_template
-            .close
-            .as_ref()
-            .map(|ct| hir.expr_type(ct.target));
+        let close_ty: Option<HirType> = output.close().map(|ct| hir.expr_type(ct.target));
         match self {
             CloseSelector::Any => true,
             CloseSelector::Closed => close_ty.is_some(),
@@ -100,7 +96,7 @@ impl Selectable for CloseSelector {
                     .unwrap_or(false)
             },
             CloseSelector::AnyPeriodic => close_ty.map(|t| t.pacing_ty.is_periodic()).unwrap_or(false),
-            CloseSelector::NotClosed => output.instance_template.close.is_none(),
+            CloseSelector::NotClosed => output.close().is_none(),
         }
     }
 }

@@ -215,9 +215,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    let id = output
-                        .expect("Accessing non-existing Output-Stream")
-                        .expression();
+                    let id = output.expect("Accessing non-existing Output-Stream").expression();
                     self.expression(id)
                 } else {
                     let tr = self.triggers.iter().find(|tr| tr.sr == sr);
@@ -264,7 +262,7 @@ impl<M: HirMode> Hir<M> {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.and_then(|o| {
-                        o.instance_template.spawn.as_ref().map(|st| {
+                        o.spawn().map(|st| {
                             (
                                 st.target.map(|e| self.expression(e)),
                                 st.condition.map(|e| self.expression(e)),
@@ -306,7 +304,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.close.as_ref().map(|e| self.expression(e.target)))
+                    output.and_then(|o| o.close().map(|e| self.expression(e.target)))
                 } else {
                     None
                 }
@@ -436,6 +434,16 @@ impl Output {
         self.instance_template.eval.annotated_pacing_type.as_ref()
     }
 
+    /// Returns the SpawnTemplate of the stream
+    pub(crate) fn spawn(&self) -> Option<&SpawnTemplate> {
+        self.instance_template.spawn.as_ref()
+    }
+
+    /// Returns the CloseTemplate of the stream
+    pub(crate) fn close(&self) -> Option<&CloseTemplate> {
+        self.instance_template.close.as_ref()
+    }
+
     /// Yields the span referring to a part of the specification from which this stream originated.
     pub fn span(&self) -> Span {
         self.span.clone()
@@ -486,7 +494,7 @@ pub(crate) enum AnnotatedPacingType {
 pub(crate) struct InstanceTemplate {
     /// The optional information on the spawning behavior of the stream
     pub(crate) spawn: Option<SpawnTemplate>,
-    /// The optional filter condition
+    /// The information regarding evaluation and filter condition of the stream
     pub(crate) eval: EvalTemplate,
     /// The optional closing condition
     pub(crate) close: Option<CloseTemplate>,

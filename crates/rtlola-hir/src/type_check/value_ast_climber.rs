@@ -896,7 +896,7 @@ where
                 });
             }
 
-            if let Some(target) = output.instance_template.spawn.as_ref().and_then(|st| st.target) {
+            if let Some(target) = output.spawn().and_then(|st| st.target) {
                 let key = node_key[&NodeId::Expr(target)];
                 let ty: &ConcreteValueType = &tt[&key];
                 match ty {

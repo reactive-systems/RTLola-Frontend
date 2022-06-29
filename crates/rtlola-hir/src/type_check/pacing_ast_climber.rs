@@ -144,9 +144,7 @@ where
             self.pacing_key_span.insert(
                 key.spawn.0,
                 output
-                    .instance_template
-                    .spawn
-                    .as_ref()
+                    .spawn()
                     .and_then(|spawn| spawn.target)
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
@@ -154,9 +152,7 @@ where
             self.expression_key_span.insert(
                 key.spawn.1,
                 output
-                    .instance_template
-                    .spawn
-                    .as_ref()
+                    .spawn()
                     .and_then(|spawn| spawn.condition)
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
@@ -171,9 +167,7 @@ where
             self.expression_key_span.insert(
                 key.close,
                 output
-                    .instance_template
-                    .close
-                    .as_ref()
+                    .close()
                     .map(|ct| self.hir.expression(ct.target).span.clone())
                     .unwrap_or(Span::Unknown),
             );
@@ -272,7 +266,7 @@ where
         }
 
         // Type spawn condition
-        if let Some(spawn) = output.instance_template.spawn.as_ref() {
+        if let Some(spawn) = output.spawn() {
             self.spawn_infer(spawn, stream_keys, exp_key)?;
         }
 
@@ -282,7 +276,7 @@ where
         }
 
         //Type close
-        if let Some(close) = output.instance_template.close.as_ref() {
+        if let Some(close) = output.close() {
             self.close_infer(close, stream_keys, exp_key)?;
         }
         Ok(())
@@ -706,7 +700,7 @@ where
             let output_filter = &exp_tt[&output_keys.filter].variant;
             let output_close = &exp_tt[&output_keys.close].variant;
 
-            if let Some(template) = output.instance_template.spawn.as_ref() {
+            if let Some(template) = output.spawn() {
                 //Spawn target
                 if let Some(target) = template.target {
                     let keys = nid_key[&NodeId::Expr(target)];
@@ -742,7 +736,7 @@ where
             }
 
             //Close expression must either be non parameterized or have exactly same spawn / filter as stream and no filter
-            if let Some(close) = output.instance_template.close.as_ref() {
+            if let Some(close) = output.close() {
                 let keys = nid_key[&NodeId::Expr(close.target)];
                 if Self::is_parameterized(keys, pacing_tt, exp_tt)
                     && (pacing_tt[&keys.spawn.0] != output_spawn_pacing
@@ -761,7 +755,7 @@ where
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
-            if let Some(template) = output.instance_template.spawn.as_ref() {
+            if let Some(template) = output.spawn() {
                 if spawn_pacing == ConcretePacingType::Constant || spawn_pacing == ConcretePacingType::Periodic {
                     let span = template
                         .pacing
@@ -785,7 +779,7 @@ where
                     )
                 }
             }
-            if let Some(close) = output.instance_template.close.as_ref() {
+            if let Some(close) = output.close() {
                 let keys = nid_key[&NodeId::Expr(close.target)];
                 let close_pacing = pacing_tt[&keys.exp_pacing].clone();
                 let span = hir.expression(close.target).span.clone();
@@ -808,14 +802,13 @@ where
             let filter_type = &exp_tt[&keys.filter].variant;
             let close_type = &exp_tt[&keys.close].variant;
 
-            let spawn_pacing = (output.instance_template.spawn.is_none()
-                && spawn_pacing != ConcretePacingType::Constant)
-                .then(|| spawn_pacing);
+            let spawn_pacing =
+                (output.spawn().is_none() && spawn_pacing != ConcretePacingType::Constant).then(|| spawn_pacing);
             let spawn_cond = (output.instance_template.spawn_condition(hir).is_none() && spawn_cond != &positive_top)
                 .then(|| spawn_cond.construct(&[]).expect("variant to not be any"));
             let filter = (output.filter().is_none() && filter_type != &positive_top)
                 .then(|| filter_type.construct(&[]).expect("variant to not be any"));
-            let close = (output.instance_template.close.is_none() && close_type != &negative_top)
+            let close = (output.close().is_none() && close_type != &negative_top)
                 .then(|| close_type.construct(&[]).expect("variant to not be any"));
 
             if spawn_pacing.is_some() || spawn_cond.is_some() || filter.is_some() || close.is_some() {
@@ -837,7 +830,7 @@ where
 
         //Warning unintuitive spawn type
         for output in hir.outputs() {
-            if let Some(template) = output.instance_template.spawn.as_ref() {
+            if let Some(template) = output.spawn() {
                 if let Some(target_id) = template.target {
                     let target_type = pacing_tt[&nid_key[&NodeId::Expr(target_id)].exp_pacing].clone();
                     let spawn_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].spawn.0].clone();
@@ -871,7 +864,7 @@ where
                 vec![
                     Some(NodeId::SRef(o.sr)),
                     o.filter().map(NodeId::Expr),
-                    o.instance_template.close.as_ref().map(|ct| NodeId::Expr(ct.target)),
+                    o.close().map(|ct| NodeId::Expr(ct.target)),
                 ]
             })
             .flatten()
@@ -2061,7 +2054,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "z")))
@@ -2095,7 +2088,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
@@ -2261,7 +2254,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].instance_template.close.as_ref().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
