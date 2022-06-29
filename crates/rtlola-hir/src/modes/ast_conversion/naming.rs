@@ -334,11 +334,6 @@ impl NamingAnalysis {
                     }
                 }
             }
-            if let Some(filter) = &output.filter {
-                if let Err(e) = self.check_expression(&filter.target) {
-                    error.join(e);
-                }
-            }
             if let Some(close) = &output.close {
                 if let Err(e) = self.check_expression(&close.target) {
                     error.join(e);
@@ -349,16 +344,31 @@ impl NamingAnalysis {
                     }
                 }
             }
-            if let Some(pt) = output.annotated_pacing_type.as_ref() {
-                if let Err(e) = self.check_expression(pt) {
-                    error.join(e);
+
+            assert!(
+                output.eval.len() <= 1,
+                "Multiple eval conditions should be removed during desugarization."
+            );
+            if let Some(eval_spec) = &output.eval.get(0) {
+                if let Some(pt) = eval_spec.annotated_pacing.as_ref() {
+                    if let Err(e) = self.check_expression(pt) {
+                        error.join(e);
+                    }
                 }
+                if let Some(filter_expr) = &eval_spec.filter {
+                    if let Err(e) = self.check_expression(filter_expr) {
+                        error.join(e);
+                    }
+                }
+
+                self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
+                if let Some(eval_expr) = &eval_spec.eval_expression {
+                    if let Err(e) = self.check_expression(eval_expr) {
+                        error.join(e);
+                    }
+                }
+                self.declarations.pop();
             }
-            self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
-            if let Err(e) = self.check_expression(&output.expression) {
-                error.join(e);
-            }
-            self.declarations.pop();
         }
         error.into()
     }
@@ -693,7 +703,7 @@ mod tests {
 
     #[test]
     fn template_spec_is_also_tested() {
-        assert_eq!(1, number_of_naming_errors("output a spawn with b := 3"))
+        assert_eq!(1, number_of_naming_errors("output a spawn with b eval with 3"))
     }
 
     #[test]

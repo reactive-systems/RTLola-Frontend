@@ -46,8 +46,8 @@ impl Selectable for FilterSelector {
         let output = hir.output(sref).unwrap();
         match self {
             FilterSelector::Any => true,
-            FilterSelector::Filtered => output.instance_template.filter.is_some(),
-            FilterSelector::Unfiltered => output.instance_template.filter.is_none(),
+            FilterSelector::Filtered => output.filter().is_some(),
+            FilterSelector::Unfiltered => output.filter().is_none(),
         }
     }
 }
@@ -367,13 +367,13 @@ mod tests {
 
     fn get_hir() -> Hir<CompleteMode> {
         let spec = "input i: Int8\n\
-            output a @1Hz := true\n\
-            output b @1Hz spawn if i = 5 filter i.hold(or: 0) = 5 := 42\n\
-            output c (p) spawn @1Hz with i.hold(or: 0) := i + p\n\
-            output d spawn if i = 8 close a := i\n\
-            output e @1Hz spawn if i = 3 filter i.hold(or: 1) % 2 = 0 close e := true\n\
-            output f (p: Int8) spawn @1Hz with i.aggregate(over:1s, using: sum) close i = 8 := i\n\
-            output g filter i = 5 := i + 5";
+        output a eval @1Hz with true\n\
+        output b spawn when i = 5 eval @1Hz when i.hold(or: 0) = 5 with 42\n\
+        output c (p) spawn @1Hz with i.hold(or: 0) eval with i + p\n\
+        output d spawn when i = 8 eval with i close when a\n\
+        output e spawn when i = 3 eval @1Hz when i.hold(or: 1) % 2 = 0 with true close when e \n\
+        output f (p: Int8) spawn @1Hz with i.aggregate(over:1s, using: sum) eval with i close when i = 8\n\
+        output g eval when i = 5 with i + 5";
 
         let ast = ParserConfig::for_string(spec.into())
             .parse()

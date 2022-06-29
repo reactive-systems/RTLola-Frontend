@@ -164,8 +164,7 @@ where
             self.expression_key_span.insert(
                 key.filter,
                 output
-                    .instance_template
-                    .filter
+                    .filter()
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
             );
@@ -257,7 +256,7 @@ where
         let exp_key = self.expression_infer(self.hir.expr(output.sr))?;
 
         // Check if there is a type is annotated
-        if let Some(ac) = &output.annotated_pacing_type {
+        if let Some(ac) = &output.pacing_type() {
             let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
 
@@ -278,7 +277,7 @@ where
         }
 
         // Type filter
-        if let Some(exp_id) = output.instance_template.filter {
+        if let Some(exp_id) = output.filter() {
             self.filter_infer(exp_id, stream_keys, exp_key)?;
         }
 
@@ -728,7 +727,7 @@ where
                 }
             }
             //Filter expression must have exactly same spawn / close as stream and no filter
-            if let Some(filter) = output.instance_template.filter {
+            if let Some(filter) = output.filter() {
                 let keys = nid_key[&NodeId::Expr(filter)];
 
                 let positive_top = AbstractSemanticType::positive_top();
@@ -803,7 +802,7 @@ where
         let positive_top = AbstractSemanticType::positive_top();
         let negative_top = AbstractSemanticType::negative_top();
         for output in hir.outputs() {
-            let keys = nid_key[&NodeId::Expr(output.expr_id)];
+            let keys = nid_key[&NodeId::Expr(output.expression())];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
             let spawn_cond = &exp_tt[&keys.spawn.1].variant;
             let filter_type = &exp_tt[&keys.filter].variant;
@@ -814,7 +813,7 @@ where
                 .then(|| spawn_pacing);
             let spawn_cond = (output.instance_template.spawn_condition(hir).is_none() && spawn_cond != &positive_top)
                 .then(|| spawn_cond.construct(&[]).expect("variant to not be any"));
-            let filter = (output.instance_template.filter.is_none() && filter_type != &positive_top)
+            let filter = (output.filter().is_none() && filter_type != &positive_top)
                 .then(|| filter_type.construct(&[]).expect("variant to not be any"));
             let close = (output.instance_template.close.is_none() && close_type != &negative_top)
                 .then(|| close_type.construct(&[]).expect("variant to not be any"));
@@ -823,7 +822,7 @@ where
                 errors.push(
                     PacingErrorKind::ParameterizationNeeded {
                         who: output.span.clone(),
-                        why: hir.expression(output.expr_id).span.clone(),
+                        why: hir.expression(output.expression()).span.clone(),
                         inferred: Box::new(InferredTemplates {
                             spawn_pacing,
                             spawn_cond,
@@ -857,9 +856,9 @@ where
 
         //Warning unintuitive exp pacing
         for output in hir.outputs() {
-            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.expr_id)].exp_pacing].clone();
+            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.expression())].exp_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].exp_pacing].clone();
-            if output.annotated_pacing_type.is_none() && exp_pacing != stream_pacing {
+            if output.pacing_type().is_none() && exp_pacing != stream_pacing {
                 errors.push(PacingErrorKind::UnintuitivePacingWarning(output.span.clone(), stream_pacing).into());
             }
         }
@@ -871,7 +870,7 @@ where
             .flat_map(|o| {
                 vec![
                     Some(NodeId::SRef(o.sr)),
-                    o.instance_template.filter.map(NodeId::Expr),
+                    o.filter().map(NodeId::Expr),
                     o.instance_template.close.as_ref().map(|ct| NodeId::Expr(ct.target)),
                 ]
             })
@@ -1439,7 +1438,7 @@ mod tests {
 
     #[test]
     fn test_spawn_simple() {
-        let spec = "input x:Int8\noutput a (p: Int8) @1Hz spawn with (x) if false := p";
+        let spec = "input x:Int8\noutput a (p: Int8) spawn with (x) when false eval @1Hz with p";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1462,7 +1461,7 @@ mod tests {
 
     #[test]
     fn test_spawn_simple2() {
-        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8, p2:Bool) @1Hz spawn with (x, y) if y := 5";
+        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8, p2:Bool) spawn with (x, y) when y eval @1Hz with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1485,7 +1484,7 @@ mod tests {
 
     #[test]
     fn test_spawn_simple3() {
-        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn with (x) if y := 5";
+        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) spawn with (x) when y eval @1Hz with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1508,7 +1507,7 @@ mod tests {
 
     #[test]
     fn test_spawn_unless() {
-        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn with (x) unless y := 5";
+        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) spawn with (x) when !y eval @1Hz with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1538,26 +1537,26 @@ mod tests {
 
     #[test]
     fn test_spawn_fail() {
-        let spec = "input x:Int8\noutput y @1Hz := false\noutput a (p1: Int8) @1Hz spawn with (x) if y := 5";
+        let spec = "input x:Int8\noutput y @1Hz := false\noutput a (p1: Int8) spawn with (x) when y eval @1Hz with 5";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_spawn_annotated_fail1() {
-        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn @x with (x) if y := 5";
+        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) spawn @x with (x) when y eval @1Hz with 5";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_spawn_annotated_fail2() {
-        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) @1Hz spawn @1Hz with (x) if y := 5";
+        let spec = "input x:Int8\ninput y:Bool\noutput a (p1: Int8) spawn @1Hz with (x) when y eval @1Hz with 5";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_spawn_annotated() {
         let spec =
-            "input x:Int8\ninput y:Bool\ninput z:String\noutput a (p1: Int8) @1Hz spawn @(x&y&z) with (x) if y := 5";
+            "input x:Int8\ninput y:Bool\ninput z:String\noutput a (p1: Int8) spawn @(x&y&z) with (x) when y eval @1Hz with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1581,7 +1580,7 @@ mod tests {
 
     #[test]
     fn test_filter_simple() {
-        let spec = "input b:Bool\noutput a filter b := 5";
+        let spec = "input b:Bool\noutput a eval when b with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1601,19 +1600,19 @@ mod tests {
 
     #[test]
     fn test_filter_fail() {
-        let spec = "input b:Bool\noutput a @1Hz filter b := 5";
+        let spec = "input b:Bool\noutput a eval @1Hz when b with 5";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_filter_fail2() {
-        let spec = "input b:Bool\noutput x @1Hz := 5\noutput a filter b := x";
+        let spec = "input b:Bool\noutput x @1Hz := 5\noutput a eval when b with x";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_close_simple() {
-        let spec = "input b:Bool\noutput a @1Hz close b := 5";
+        let spec = "input b:Bool\noutput a close when b eval @1Hz with 5";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1631,8 +1630,8 @@ mod tests {
     fn test_sync_access_wrong_args() {
         let spec = "input x:Int8\n\
             input y:Bool\n\
-            output a(p:Int8) @x spawn with (x) if y:= 5\n\
-            output b(p:Int8) spawn with (x) if y := a(x+5)";
+            output a(p:Int8) spawn with (x) when y eval @x with 5\n\
+            output b(p:Int8) spawn with (x) when y eval with a(x+5)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1641,8 +1640,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p1:Int8, p2:Int8) @x spawn with (x, x) if y:= 5\n\
-            output b(p:Int8) spawn with (x) if y := a(x, x+42)";
+            output a(p1:Int8, p2:Int8) spawn with (x, x) when y eval @x with 5\n\
+            output b(p:Int8) spawn with (x) when y eval with a(x, x+42)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1651,8 +1650,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p1:Int8, p2:Int8) @x spawn with (x, x) if y:= 5\n\
-            output b(p:Int8) spawn with (x) if !y := a(x, x)";
+            output a(p1:Int8, p2:Int8) spawn with (x, x) when y eval @x with 5\n\
+            output b(p:Int8) spawn with (x) when !y eval with a(x, x)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1662,8 +1661,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p1:Int8, p2:Int8) @x spawn with (x, x) if y:= 5\n\
-            output b(p:Int8) spawn @(z&y) with (z) if y := a(x, x)";
+            output a(p1:Int8, p2:Int8) spawn with (x, x) when y eval @x with 5\n\
+            output b(p:Int8) spawn @(z&y) with (z) when y eval with a(x, x)";
         assert_eq!(1, num_errors(spec));
     }
     #[test]
@@ -1671,7 +1670,7 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p1:Int8, p2:Int8) @x spawn with (x, x) if y:= 5\n\
+            output a(p1:Int8, p2:Int8) spawn with (x, x) when y eval @x with 5\n\
             output b := a(x, x)";
         assert_eq!(1, num_errors(spec));
     }
@@ -1681,8 +1680,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p:Int8) @x spawn with (x) if y:= p\n\
-            output b(p:Int8) spawn with (x) if y := a(p)";
+            output a(p:Int8) spawn with (x) when y eval @x with p\n\
+            output b(p:Int8) spawn with (x) when y eval with a(p)";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
@@ -1736,8 +1735,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a filter y := x\n\
-            output b filter y := a";
+            output a eval when y with x\n\
+            output b eval when y with a";
         assert_eq!(0, num_errors(spec));
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -1767,7 +1766,7 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a filter y := x\n\
+            output a eval when y with x\n\
             output b := a";
         assert_eq!(1, num_errors(spec));
     }
@@ -1778,8 +1777,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Bool\n\
-            output a filter y := x\n\
-            output b filter z := a";
+            output a eval when y with x\n\
+            output b eval when z with a";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1788,8 +1787,8 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a close y := x\n\
-            output b close y := a";
+            output a close when y eval with x\n\
+            output b close when y eval with a";
         assert_eq!(0, num_errors(spec));
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -1812,7 +1811,7 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a close y := x\n\
+            output a close when y eval with x\n\
             output b := a";
         assert_eq!(1, num_errors(spec));
     }
@@ -1823,8 +1822,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Bool\n\
-            output a close y := x\n\
-            output b close z := a";
+            output a close when y eval with x\n\
+            output b close when z eval with a";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1834,8 +1833,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p)";
+            output a(p:Int8) spawn with (x) when y close when z=42 eval when !y with p\n\
+            output b(p:Int8) spawn with (x) when y close when z=42 eval when !y with a(p)";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1845,7 +1844,7 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
+            output a(p:Int8) spawn with (x) when y close when z=42 eval when !y with p\n\
             output b := a(x)";
         assert_eq!(1, num_errors(spec));
     }
@@ -1856,8 +1855,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with a(x) := x";
+            output a(p:Int8) spawn with (x) when y close when z=42 eval when !y with p\n\
+            output b(p:Int8) spawn with a(x) eval with x";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1867,8 +1866,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with z if a(x) := x";
+            output a(p:Int8) spawn with (x) when y close when z=42 eval when !y with p\n\
+            output b(p:Int8) spawn with z when a(x) eval with x";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1878,8 +1877,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b filter a(x) := x";
+            output a(p:Int8) spawn with (x) when y eval when !y with p close when z=42\n\
+            output b eval when a(x) with x";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1889,8 +1888,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b close a(x) := x";
+            output a(p:Int8) spawn with (x) when y eval when !y with p close when z=42\n\
+            output b close when a(x) eval with x";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1900,7 +1899,7 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
+            output a(p:Int8) spawn with (x) when y eval when !y with p close when z=42\n\
             trigger a(x)";
         assert_eq!(1, num_errors(spec));
     }
@@ -1909,7 +1908,7 @@ mod tests {
     fn test_parametric_hold_access() {
         let spec = "
             input x:Int8\n\
-            output a(p:Int8) spawn with (x) := p + x\n\
+            output a(p:Int8) spawn with (x) eval with p + x\n\
             output b := a(x).hold().defaults(to: 0)";
         assert_eq!(0, num_errors(spec));
         let (hir, ctx) = setup_ast(spec);
@@ -1946,8 +1945,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p).offset(by: -1).defaults(to: 0)";
+            output a(p:Int8) spawn with (x) when y eval when !y with p close when z=42\n\
+            output b(p:Int8) spawn with (x) when y eval when !y with a(p).offset(by: -1).defaults(to: 0) close when z=42";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1957,9 +1956,9 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (x) if y filter !y close z=42 := a(p)\n\
-            output c(p) spawn @(x&y&z) with x if y filter !y close z=42 := a(p) + b(p)";
+            output a(p:Int8) spawn with (x) when y close when z=42 eval when !y with p\n\
+            output b(p:Int8) spawn with (x) when y close when z=42 eval when !y with a(p)\n\
+            output c(p) spawn @(x&y&z) with x when y close when z=42 eval when !y with a(p) + b(p)";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -1969,9 +1968,9 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y filter !y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter !y close z=1337 := p+42\n\
-            output c spawn @(x&y&z) if y filter !y close z=42 := a(x) + b(z)";
+            output a(p:Int8) spawn with (x) when y eval when !y with p close when z=42\n\
+            output b(p:Int8) spawn with (z) when y eval when !y with p+42 close when z=1337 \n\
+            output c spawn @(x&y&z) when y close when z=42  eval when !y with a(x) + b(z)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1980,7 +1979,7 @@ mod tests {
         let spec = "
             input i: Bool\n\
             output a @5Hz := 42\n\
-            output b @5Hz spawn if i := a
+            output b spawn when i eval @5Hz with a
         ";
         assert_eq!(1, num_errors(spec));
     }
@@ -1990,13 +1989,13 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p:Int8) spawn with (x) if y filter !y close y := p + x
+            output a(p:Int8) spawn with (x) when y close when y eval when !y with p + x
         ";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let filter = tt[&NodeId::Expr(hir.outputs[0].instance_template.filter.unwrap())].clone();
+        let filter = tt[&NodeId::Expr(hir.outputs[0].filter().unwrap())].clone();
         assert_eq!(
             filter.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
@@ -2034,8 +2033,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if y close z=42 := p+x\n\
-            output b(p:Int8) spawn with (x) if y filter a(p) close z=42 := p+42";
+            output a(p:Int8) spawn with (x) when y close when z=42 eval with p+x\n\
+            output b(p:Int8) spawn with (x) when y close when z=42 eval when a(p) with p+42";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2045,8 +2044,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (z) if !y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter a(z) close z=1337 := p+42";
+            output a(p:Int8) spawn with (z) when !y close when z=42 eval with p\n\
+            output b(p:Int8) spawn with (z) when y close when z=1337 eval when a(z) with p+42";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2056,7 +2055,7 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Bool\n\
-            output a(p:Int8) spawn with (x) if y filter y close z := p + x
+            output a(p:Int8) spawn with (x) when y eval when y with p + x close when z
         ";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -2090,7 +2089,7 @@ mod tests {
         let spec = "
             input x:Int8\n\
             input y:Bool\n\
-            output a(p:Int8) spawn with (x) if y filter y close a(p) := p + x
+            output a(p:Int8) spawn with (x) when y eval when y with p + x close when a(p)
         ";
         let (hir, ctx) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -2142,8 +2141,8 @@ mod tests {
             input x:Int8\n\
             input y:Bool\n\
             input z:Int8\n\
-            output a(p:Int8) spawn with (x) if !y filter y close z=42 := p\n\
-            output b(p:Int8) spawn with (z) if y filter !y close a(x) := p+42";
+            output a(p:Int8) spawn with (x) when !y eval when y with p close when z=42\n\
+            output b(p:Int8) spawn with (z) when y eval when !y with p+42 close when a(x)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2151,7 +2150,7 @@ mod tests {
     fn test_delay() {
         let spec = "
             input x:Int8\n\
-            output a @1Hz spawn if x=42 close if true then true else a := x.aggregate(over: 1s, using: sum) > 1337
+            output a spawn when x=42 close when if true then true else a eval @1Hz with x.aggregate(over: 1s, using: sum) > 1337
         ";
         assert_eq!(0, num_errors(spec));
     }
@@ -2187,7 +2186,7 @@ mod tests {
     fn test_dynamic_close_static_freq() {
         let spec = "input i: Int8\n\
         output a @1Hz := true\n\
-        output b @1Hz spawn if i = 5 close b = 7 & a := 42";
+        output b spawn when i = 5 close when b = 7 & a eval @1Hz with 42";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2204,7 +2203,7 @@ mod tests {
     fn test_self_ref_counter() {
         let spec = "
             input x: Int32\n\
-            output a (p: Int32) @1Hz spawn with x := a(p).offset(by: -1).defaults(to: 0) + 1
+            output a (p: Int32) spawn with x eval @1Hz with a(p).offset(by: -1).defaults(to: 0) + 1
         ";
         assert_eq!(0, num_errors(spec));
     }
@@ -2213,8 +2212,8 @@ mod tests {
     fn test_broken_access() {
         let spec = "input x:Int8\n\
                         input y:Int8\n\
-                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
-                        output b(p:Int8) spawn with y if x % 2 == 0 := a(x) + y";
+                        output a(p:Int8) spawn with x when x % 2 == 0 eval with p + x\n\
+                        output b(p:Int8) spawn with y when x % 2 == 0 eval with a(x) + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2222,16 +2221,16 @@ mod tests {
     fn test_broken_access2() {
         let spec = "input x:Int8\n\
                         input y:Int8\n\
-                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
-                        output b(p:Int8) spawn with y if x % 2 == 0 := a(p) + y";
+                        output a(p:Int8) spawn with x when x % 2 == 0 eval with p + x\n\
+                        output b(p:Int8) spawn with y when x % 2 == 0 eval with a(p) + y";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_broken_access3() {
         let spec = "input x:Int8\n\
-                        output a(p:Int8) spawn with x if x % 2 == 0 := p + x\n\
-                        output b(p:Int8) spawn with x := a(p)";
+                        output a(p:Int8) spawn with x when x % 2 == 0 eval with p + x\n\
+                        output b(p:Int8) spawn with x eval with a(p)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2239,8 +2238,8 @@ mod tests {
     fn test_self_access_faulty() {
         let spec = "input x:Int8\n\
                         input y:Int8\n\
-                        output a(p:Int8) spawn with x := p + x\n\
-                        output b(p:Int8) spawn with y := a(p) + y";
+                        output a(p:Int8) spawn with x eval with p + x\n\
+                        output b(p:Int8) spawn with y eval with a(p) + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2248,7 +2247,7 @@ mod tests {
     fn test_annotated_close_fail() {
         let spec = "input x:Int8\n\
                         input y:Int8\n\
-                        output a(p:Int8) spawn with x close @x y == 5 := p + x";
+                        output a(p:Int8) spawn with x close @x when y == 5 eval with p + x";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2256,7 +2255,7 @@ mod tests {
     fn test_annotated_close() {
         let spec = "input x:Int8\n\
                         input y:Int8\n\
-                        output a(p:Int8) spawn with x close @x&y y == 5 := p + x";
+                        output a(p:Int8) spawn with x close @x&y when y == 5 eval with p + x";
         assert_eq!(0, num_errors(spec));
         let (hir, _) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
@@ -2278,9 +2277,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x filter a := 5\n\
-        output y filter b && c := 42\n\
-        output z filter a && b && c := x + y";
+        output x eval when a with 5\n\
+        output y eval when b && c with 42\n\
+        output z eval when a && b && c with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2290,9 +2289,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x filter a && (b || c) := 5\n\
-        output y filter a && (b || c) := 42\n\
-        output z filter a && (b || c) := x + y";
+        output x eval when a && (b || c) with 5\n\
+        output y eval when a && (b || c) with 42\n\
+        output z eval when a && (b || c) with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2302,8 +2301,8 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x filter a := 5\n\
-        output y filter b && c := 42\n\
+        output x eval when a with 5\n\
+        output y eval when b && c with 42\n\
         output z := x + y";
         assert_eq!(1, num_errors(spec));
     }
@@ -2315,9 +2314,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x filter a := 5\n\
-        output y filter b && c := 42\n\
-        output z filter d := x + y";
+        output x eval when a with 5\n\
+        output y eval when b && c with 42\n\
+        output z eval when d with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2328,9 +2327,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x filter a || b:= 5\n\
-        output y filter b || c:= 42\n\
-        output z filter b := x + y";
+        output x eval when a || b with 5\n\
+        output y eval when b || c with 42\n\
+        output z eval when b with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2341,9 +2340,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x filter a || b || d:= 5\n\
-        output y filter b || d || c:= 42\n\
-        output z filter b || d := x + y";
+        output x eval when a || b || d with 5\n\
+        output y eval when b || d || c with 42\n\
+        output z eval when b || d with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2354,9 +2353,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x filter a || b || d:= 5\n\
-        output y filter b || d || c:= 42\n\
-        output z filter c || d := x + y";
+        output x eval when a || b || d with 5\n\
+        output y eval when b || d || c with 42\n\
+        output z eval when c || d with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2366,9 +2365,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a spawn if a := 5\n\
-        output y @a spawn if b && c := 42\n\
-        output z @a spawn if a && b && c := x + y";
+        output x spawn when a eval @a with 5\n\
+        output y spawn when b && c eval @a with 42\n\
+        output z spawn when a && b && c eval @a with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2378,9 +2377,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a spawn if a := 5\n\
-        output y @a spawn if b && c := 42\n\
-        output z @a := x + y";
+        output x spawn when a eval @a with 5\n\
+        output y spawn when b && c eval @a with 42\n\
+        output z := x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2391,9 +2390,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x @a spawn if a := 5\n\
-        output y @a spawn if b && c := 42\n\
-        output z @a spawn if d := x + y";
+        output x spawn when a eval @a with 5\n\
+        output y spawn when b && c eval @a with 42\n\
+        output z spawn when d eval @a with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2404,9 +2403,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x @a spawn if a || b:= 5\n\
-        output y @a spawn if b || c:= 42\n\
-        output z @a spawn if b := x + y";
+        output x spawn when a || b eval @a with 5\n\
+        output y spawn when b || c eval @a with 42\n\
+        output z spawn when b eval @a with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2417,9 +2416,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x @a spawn if a || b || d:= 5\n\
-        output y @a spawn if b || d || c:= 42\n\
-        output z @a spawn if b || d := x + y";
+        output x spawn when a || b || d eval @a with 5\n\
+        output y spawn when b || d || c eval @a with 42\n\
+        output z spawn when b || d eval @a with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2430,9 +2429,9 @@ mod tests {
         input b:Bool\n\
         input c:Bool\n\
         input d:Bool\n\
-        output x @a spawn if a || b || d:= 5\n\
-        output y @a spawn if b || d || c:= 42\n\
-        output z @a spawn if c || d := x + y";
+        output x spawn when a || b || d eval @a with 5\n\
+        output y spawn when b || d || c eval @a with 42\n\
+        output z spawn when c || d eval @a with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2442,9 +2441,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a close a := 5\n\
-        output y @a close b || c := 42\n\
-        output z @a close a || b || c := x + y";
+        output x close when a eval @a with 5\n\
+        output y close when b || c eval @a with 42\n\
+        output z close when a || b || c eval @a with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2454,9 +2453,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a close a && b := 5\n\
-        output y @a close b && c := 42\n\
-        output z @a close b := x + y";
+        output x close when a && b eval @a with 5\n\
+        output y close when b && c eval @a with 42\n\
+        output z close when b eval @a with x + y";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2466,9 +2465,9 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a close a && b := 5\n\
-        output y @a close b && c := 42\n\
-        output z @a close b && c:= x + y";
+        output x close when a && b eval @a with 5\n\
+        output y close when b && c eval @a with 42\n\
+        output z close when b && c eval @a with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -2478,16 +2477,16 @@ mod tests {
         input a:Bool\n\
         input b:Bool\n\
         input c:Bool\n\
-        output x @a close a := 5\n\
-        output y @a close b || c := 42\n\
-        output z @a close a || b := x + y";
+        output x close when a eval @a with 5\n\
+        output y close when b || c eval @a with 42\n\
+        output z close when a || b eval @a with x + y";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn close_self_ref() {
         let spec = "input a: Int32\n\
-                  output b(p: Bool) spawn with a == 42 filter !p || a == 42 close b(p) == 1337:= a";
+                  output b(p: Bool) spawn with a == 42 close when b(p) == 1337 eval when !p || a == 42 with a";
         assert_eq!(0, num_errors(spec));
     }
 }

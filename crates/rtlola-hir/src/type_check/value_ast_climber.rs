@@ -1029,8 +1029,8 @@ mod value_type_tests {
     fn parametric_access_default() {
         let spec = "input x: Int8\n\
         input y: Bool\n\
-        output i(a: Int8, b: Bool): Int8 @1Hz spawn with (x, y):= if b then a else 0\n\
-        output o(a: Int8, b: Bool) spawn with (x, y) := i(a, b).offset(by:-1).defaults(to: 42)";
+        output i(a: Int8, b: Bool): Int8 spawn with (x, y) eval @1Hz with if b then a else 0\n\
+        output o(a: Int8, b: Bool) spawn with (x, y) eval with i(a, b).offset(by:-1).defaults(to: 42)";
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
@@ -1040,7 +1040,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration_x() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true) := 1";
+        let spec = "output x(a: UInt8, b: Bool): Int8 spawn @1Hz with (5, true) eval @1Hz with 1";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer8);
@@ -1048,7 +1048,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration_param_infer() {
-        let spec = "output x(a: UInt8, b: Bool) @1Hz spawn @1Hz with (5, true) := a";
+        let spec = "output x(a: UInt8, b: Bool) spawn @1Hz with (5, true) eval @1Hz with a";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
         assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::UInteger8);
@@ -1056,7 +1056,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration() {
-        let spec = "output x(a: UInt8, b: Bool): Int8 @1Hz spawn @1Hz with (5, true) := 1 output y @1Hz := x(1, false).hold().defaults(to:5)";
+        let spec = "output x(a: UInt8, b: Bool): Int8 spawn @1Hz with (5, true) eval @1Hz with 1 output y @1Hz := x(1, false).hold().defaults(to:5)";
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.output("x");
         let output_2_id = tb.output("y");
@@ -1066,7 +1066,7 @@ mod value_type_tests {
 
     #[test]
     fn parametric_declaration_param_infer2() {
-        let spec = "output x (a, b) @1Hz spawn @1Hz with (5, true) := 42";
+        let spec = "output x (a, b) spawn @1Hz with (5, true) eval @1Hz with 42";
         let (tb, result_map) = check_value_type(spec);
         let x = tb.output("x");
         assert_eq!(result_map[&NodeId::Param(0, x)], ConcreteValueType::Integer64);
@@ -1353,7 +1353,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
     fn test_filter_type() {
-        let spec = "input in: Bool\n output a: Int8 filter in := 3";
+        let spec = "input in: Bool\n output a: Int8 eval when in with 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1364,13 +1364,13 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     //#[ignore] // paramertic streams need new design after syntax revision
     fn test_filter_type_faulty() {
-        let spec = "input in: Int8\n output a: Int8 filter in := 3";
+        let spec = "input in: Int8\n output a: Int8 eval when in with 3";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_close_type() {
-        let spec = "input in: Bool\n output a: Int8 @1Hz close in := 3";
+        let spec = "input in: Bool\n output a: Int8 close when in eval @1Hz with 3";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
@@ -1381,14 +1381,14 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_close_type_faulty() {
         //Close condition non boolean type
-        let spec = "input in: Int8\n output a: Int8 @1Hz close in := 3";
+        let spec = "input in: Int8\n output a: Int8 close when in eval @1Hz with 3";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_param_spec() {
         let spec =
-            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 3 := 3\noutput b(p:Int8): Int8 spawn @1Hz with 3 := a(p)";
+            "output a(p1: Int8): Int8 spawn @1Hz with 3 eval @1Hz with 3\noutput b(p:Int8): Int8 spawn @1Hz with 3 eval with a(p)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
@@ -1398,13 +1398,13 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_param_spec_faulty() {
-        let spec = "output a(p1: Int8): Int8 @1Hz spawn @1Hz with false := 3";
+        let spec = "output a(p1: Int8): Int8 spawn @1Hz with false eval @1Hz with 3";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_param_inferred() {
-        let spec = "input i: Int8\noutput x(param): Int8 spawn with i := i";
+        let spec = "input i: Int8\noutput x(param): Int8 spawn with i eval with i";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
         let in_id = tb.input("i");
@@ -1414,14 +1414,14 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_param_inferred_conflicting() {
-        let spec = "input i: Int8\ninput j: UInt8\noutput x(param): Int8 spawn @1Hz with 3 := i\noutput y: Int8 := x(i).hold().defaults(to: 42)\noutput z: Int8 := x(j).hold().defaults(to: 42)";
+        let spec = "input i: Int8\ninput j: UInt8\noutput x(param): Int8 spawn @1Hz with 3 eval with i\noutput y: Int8 := x(i).hold().defaults(to: 42)\noutput z: Int8 := x(j).hold().defaults(to: 42)";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_lookup_incomp() {
         let spec =
-            "output a(p1: Int8): Int8 @1Hz spawn @1Hz with 42 := 3\n output b: UInt8 @1Hz := a(3).hold().defaults(to:3)";
+            "output a(p1: Int8): Int8 spawn @1Hz with 42 eval @1Hz with 3\n output b: UInt8 @1Hz := a(3).hold().defaults(to:3)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1946,14 +1946,14 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_no_optional_spawn_target() {
         let spec = "input  a : Float64\n\
-                         output b(p) spawn with a.offset(by: -1) := a + p.defaults(to: 0.0)";
+                         output b(p) spawn with a.offset(by: -1) eval with a + p.defaults(to: 0.0)";
         assert_eq!(1, num_errors(spec));
     }
 
     #[test]
     fn test_no_optional_spawn_target_tuple() {
         let spec = "input  a : Float64\n\
-                         output b(p, q) spawn with (42, a.offset(by: -1)) := a + q.defaults(to: 0.0)";
+                         output b(p, q) spawn with (42, a.offset(by: -1)) eval with a + q.defaults(to: 0.0)";
         assert_eq!(1, num_errors(spec));
     }
 

@@ -215,7 +215,9 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    let id = output.expect("Accessing non-existing Output-Stream").expr_id;
+                    let id = output
+                        .expect("Accessing non-existing Output-Stream")
+                        .expression();
                     self.expression(id)
                 } else {
                     let tr = self.triggers.iter().find(|tr| tr.sr == sr);
@@ -236,7 +238,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    if let Some(pt) = output.and_then(|o| o.annotated_pacing_type.as_ref()) {
+                    if let Some(pt) = output.and_then(|o| o.pacing_type()) {
                         match pt {
                             AnnotatedPacingType::Expr(e) => Some(self.expression(*e)),
                             AnnotatedPacingType::Frequency { .. } => None, //May change return type
@@ -286,7 +288,7 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| o.instance_template.filter.map(|e| self.expression(e)))
+                    output.and_then(|o| o.filter().map(|e| self.expression(e)))
                 } else {
                     None
                 }
@@ -398,14 +400,10 @@ pub struct Output {
     pub name: String,
     /// The user annotated Type
     pub(crate) annotated_type: Option<AnnotatedType>,
-    /// The activation condition, which defines when a new value of a stream is computed.
-    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub(crate) params: Vec<Parameter>,
     /// The declaration of the stream template for parametrized streams, e.g., the invoke declaration.
     pub(crate) instance_template: InstanceTemplate,
-    /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
-    pub(crate) expr_id: ExprId,
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
     /// The code span the output represents
@@ -425,7 +423,17 @@ impl Output {
 
     /// Returns the id of this stream's expression.
     pub fn expression(&self) -> ExprId {
-        self.expr_id
+        self.instance_template.eval.expr
+    }
+
+    /// Returns the id of this stream's filter expression.
+    pub fn filter(&self) -> Option<ExprId> {
+        self.instance_template.eval.filter
+    }
+
+    /// Returns the annotated pacing type.
+    pub(crate) fn pacing_type(&self) -> Option<&AnnotatedPacingType> {
+        self.instance_template.eval.annotated_pacing_type.as_ref()
     }
 
     /// Yields the span referring to a part of the specification from which this stream originated.
@@ -479,7 +487,7 @@ pub(crate) struct InstanceTemplate {
     /// The optional information on the spawning behavior of the stream
     pub(crate) spawn: Option<SpawnTemplate>,
     /// The optional filter condition
-    pub(crate) filter: Option<ExprId>,
+    pub(crate) eval: EvalTemplate,
     /// The optional closing condition
     pub(crate) close: Option<CloseTemplate>,
 }
@@ -523,6 +531,17 @@ pub(crate) struct SpawnTemplate {
     pub(crate) pacing: Option<AnnotatedPacingType>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
+}
+
+/// Information regarding the evaluation and filter behavior of a stream
+#[derive(Debug, Clone)]
+pub(crate) struct EvalTemplate {
+    /// The activation condition, which defines when a new value of a stream is computed.
+    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
+    /// The expression defining when an instance is evaluated
+    pub(crate) filter: Option<ExprId>,
+    /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
+    pub(crate) expr: ExprId,
 }
 
 /// Information regarding the closing behavior of a stream
