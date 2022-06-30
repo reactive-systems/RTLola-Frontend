@@ -1297,6 +1297,13 @@ mod tests {
         super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
     }
 
+    fn parse_without_desugar(spec: &str) -> RtLolaAst {
+        let cfg = ParserConfig::for_string(spec.into());
+        RtLolaParser::new(cfg)
+            .parse_spec()
+            .unwrap_or_else(|e| panic!("{:?}", e))
+    }
+
     fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
         // Todo: Make more robust, e.g. against changes in whitespace.
         assert_eq!(format!("{}", ast), spec);
@@ -1855,7 +1862,7 @@ mod tests {
     fn multiple_eval_inputs() {
         // eval eval eval
         let spec = "output x (y: Int8) eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6\n";
-        let ast = parse(spec);
+        let ast = parse_without_desugar(spec);
         cmp_ast_spec(&ast, spec);
     }
 
@@ -1863,23 +1870,25 @@ mod tests {
     fn multiple_eval_inputs_with_spawn() {
         // eval eval eval spawn
         let spec = "output x (y: Int8) eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6 spawn when y = 17 with 42\n";
-        let ast = parse(spec);
+        let ast = parse_without_desugar(spec);
         cmp_ast_spec(&ast, "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6\n");
     }
 
     #[test]
     fn multiple_eval_inputs_with_close() {
         // close eval eval eval
-        let spec = "output x (y: Int8) close when false eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6\n";
-        let ast = parse(spec);
-        cmp_ast_spec(&ast, "output x (y: Int8) eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6 close when false\n");
+        let spec = "output x (y: Int8) close when false eval when y = 1336 with 4 eval when y = 1337 with 5 eval when y = 1338 with 6\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) eval when y = 1336 with 4 eval when y = 1337 with 5 eval when y = 1338 with 6 close when false\n");
+        let ast2 = parse(spec);
+        cmp_ast_spec(&ast2, "output x (y: Int8) eval when y = 1336 ∨ y = 1337 ∨ y = 1338 with if y = 1336 then 4 else if y = 1337 then 5 else 6 close when false\n");
     }
 
     #[test]
     fn build_full_template_spec_type_two_eval() {
         // spawn eval eval close
-        let spec = "output x (y: Int8): Bool spawn when y = 17 with 42 eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 close when false\n";
-        let ast = parse(spec);
+        let spec = "output x (y: Int8): Bool spawn when y = 17 with 42 eval @1Hz when y = 1336 with 4 eval when y = 1337 with 5 close when false\n";
+        let ast = parse_without_desugar(spec);
         cmp_ast_spec(&ast, spec);
     }
 
