@@ -94,7 +94,7 @@ impl MultipleEval {
                 (_, _) => unimplemented!("Desugarize multiple eval clauses without eval expression"),
             };
 
-             EvalSpec {
+            EvalSpec {
                 annotated_pacing: next_pt,
                 filter: next_filter,
                 eval_expression: next_eval,

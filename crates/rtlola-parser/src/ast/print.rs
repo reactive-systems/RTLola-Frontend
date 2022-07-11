@@ -122,7 +122,11 @@ impl Display for EvalSpec {
 
 impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "close when {}", self.target)
+        write!(f, "close ")?;
+        if let Some(pt) = &self.annotated_pacing {
+            write!(f, "@{} ", pt)?;
+        }
+        write!(f, "when {}", self.target)
     }
 }
 

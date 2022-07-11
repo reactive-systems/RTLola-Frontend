@@ -11,9 +11,8 @@ mod multiple_eval;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
 use last::Last;
-use multiple_eval::MultipleEval;
 use mirror::Mirror as SynSugMirror;
-
+use multiple_eval::MultipleEval;
 
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,

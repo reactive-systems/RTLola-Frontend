@@ -238,7 +238,7 @@ impl RtLolaParser {
 
         let mut error = RtLolaError::new();
         let mut eval = Vec::new();
-        let mut spawn = None;
+        let mut spawn: Option<SpawnSpec> = None;
         let mut close: Option<CloseSpec> = None;
 
         let mut pair = pairs.peek().expect("mismatch between grammar and AST");
@@ -264,10 +264,21 @@ impl RtLolaParser {
         pairs.for_each(|pair| {
             match pair.as_rule() {
                 Rule::SpawnDecl => {
-                    assert_eq!(spawn, None, "Only a single spawn valid");
+                    if let Some(old_spawn) = &spawn {
+                        let err = Diagnostic::error("Multiple Spawn clauses found").add_span_with_label(
+                            old_spawn.span.clone(),
+                            Some("already found Spawn here"),
+                            true,
+                        );
+                        let err = err.add_span_with_label(
+                            pair.as_span().into(),
+                            Some("Second Spawn clause found here"),
+                            false,
+                        );
+                        error.join(err.into());
+                    }
                     spawn = if let Rule::SpawnDecl = pair.as_rule() {
                         let spawn_spec = self.parse_spawn_spec(pair);
-                        //pair = pairs.next().expect("mismatch between grammar and AST");
                         spawn_spec.map_or_else(
                             |e| {
                                 error.join(e);
@@ -281,14 +292,14 @@ impl RtLolaParser {
                 },
                 Rule::CloseDecl => {
                     if let Some(old_close) = &close {
-                        let err = Diagnostic::error("Multiple Close conditions found").add_span_with_label(
+                        let err = Diagnostic::error("Multiple Close clauses found").add_span_with_label(
                             old_close.span.clone(),
-                            Some("already found close template here"),
+                            Some("already found Close here"),
                             true,
                         );
                         let err = err.add_span_with_label(
                             pair.as_span().into(),
-                            Some("Second Close condition found here"),
+                            Some("Second Close clause found here"),
                             false,
                         );
                         error.join(err.into());
@@ -408,12 +419,25 @@ impl RtLolaParser {
             None
         };
 
-        let mut condition = None;
-        let mut target = None;
+        let mut condition: Option<Expression> = None;
+        let mut target: Option<Expression> = None;
         for _ in 0..2 {
             if let Some(pair) = next_pair.clone() {
                 match pair.as_rule() {
                     Rule::SpawnWhen => {
+                        if let Some(old_condition) = &condition {
+                            let err = Diagnostic::error("Multiple SpawnWhen expressions found").add_span_with_label(
+                                old_condition.span.clone(),
+                                Some("already found condition here"),
+                                true,
+                            );
+                            let err = err.add_span_with_label(
+                                pair.as_span().into(),
+                                Some("Second condition found here"),
+                                false,
+                            );
+                            error.join(err.into());
+                        }
                         let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
                         let target_exp = self.build_expression_ast(target_pair.into_inner());
                         next_pair = spawn_children.next();
@@ -426,6 +450,19 @@ impl RtLolaParser {
                         )
                     },
                     Rule::SpawnWith => {
+                        if let Some(old_target) = &target {
+                            let err = Diagnostic::error("Multiple SpawnWith expressions found").add_span_with_label(
+                                old_target.span.clone(),
+                                Some("already found target expression here"),
+                                true,
+                            );
+                            let err = err.add_span_with_label(
+                                pair.as_span().into(),
+                                Some("Second expression found here"),
+                                false,
+                            );
+                            error.join(err.into());
+                        }
                         let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
                         let target_exp = self.build_expression_ast(target_pair.into_inner());
                         next_pair = spawn_children.next();
@@ -443,30 +480,6 @@ impl RtLolaParser {
                 break;
             }
         }
-
-        /*
-        let condition = if let Some(pair) = next_pair.clone() {
-            if let Rule::SpawnWhen = pair.as_rule() {
-
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-
-
-        let target = if let Some(pair) = next_pair.clone() {
-            if let Rule::SpawnWith = pair.as_rule() {
-
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-         */
 
         if target.is_none() && condition.is_none() && annotated_pacing.is_none() {
             error.add(
@@ -539,54 +552,86 @@ impl RtLolaParser {
             None
         };
 
-        let filter_expr = if let Some(pair) = next_pair.clone() {
-            if let Rule::EvalWhen = pair.as_rule() {
-                let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
-                let target_exp = self.build_expression_ast(target_pair.into_inner());
-                next_pair = children.next();
-                target_exp.map_or_else(
-                    |e| {
-                        error.join(e);
-                        None
+        let mut filter: Option<Expression> = None;
+        let mut eval_expr: Option<Expression> = None;
+        for _ in 0..2 {
+            if let Some(pair) = next_pair.clone() {
+                match pair.as_rule() {
+                    Rule::EvalWhen => {
+                        if let Some(old_filter) = &filter {
+                            let err = Diagnostic::error("Multiple filter expressions found").add_span_with_label(
+                                old_filter.span.clone(),
+                                Some("already found filter here"),
+                                true,
+                            );
+                            let err =
+                                err.add_span_with_label(pair.as_span().into(), Some("Second filter found here"), false);
+                            error.join(err.into());
+                        }
+                        let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                        let target_exp = self.build_expression_ast(target_pair.into_inner());
+                        next_pair = children.next();
+                        filter = target_exp.map_or_else(
+                            |e| {
+                                error.join(e);
+                                None
+                            },
+                            Some,
+                        )
                     },
-                    Some,
-                )
+                    Rule::EvalWith => {
+                        if let Some(old_eval) = &eval_expr {
+                            let err = Diagnostic::error("Multiple eval expressions found").add_span_with_label(
+                                old_eval.span.clone(),
+                                Some("already found target expression here"),
+                                true,
+                            );
+                            let err = err.add_span_with_label(
+                                pair.as_span().into(),
+                                Some("Second expression found here"),
+                                false,
+                            );
+                            error.join(err.into());
+                        }
+                        let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                        let target_exp = self.build_expression_ast(target_pair.into_inner());
+                        next_pair = children.next();
+                        eval_expr = target_exp.map_or_else(
+                            |e| {
+                                error.join(e);
+                                None
+                            },
+                            Some,
+                        )
+                    },
+                    _ => break,
+                }
             } else {
-                None
+                break;
             }
-        } else {
-            None
-        };
+        }
 
-        let target_child = next_pair.expect("mismatch between grammar and ast");
-        let eval_expr = match target_child.as_rule() {
-            Rule::EvalWith => {
-                let target_exp = self.build_expression_ast(target_child.into_inner());
-                target_exp.map_or_else(
-                    |e| {
-                        error.join(e);
-                        None
-                    },
-                    Some,
-                )
-            },
-            _ => unreachable!(),
-        };
-
-        if eval_expr.is_none() && filter_expr.is_none() && annotated_pacing.is_none() {
+        if eval_expr.is_none() && filter.is_none() && annotated_pacing.is_none() {
             error.add(
-                Diagnostic::error("Eval condition needs either expression or condition").add_span_with_label(
+                Diagnostic::error("Eval clause needs either expression or filter").add_span_with_label(
                     span_ext.clone(),
                     Some("found eval condition here"),
                     true,
                 ),
             );
+        } else if eval_expr.is_none() && annotated_pacing.is_some() {
+            eval_expr = Some(Expression {
+                id: self.spec.next_id(),
+                span: span_ext.clone(),
+                kind: ExpressionKind::Tuple(Vec::new()),
+            })
         }
+
         Result::from(error)?;
 
         Ok(EvalSpec {
             annotated_pacing,
-            filter: filter_expr,
+            filter,
             eval_expression: eval_expr,
             id: self.spec.next_id(),
             span: span_ext,
@@ -1778,6 +1823,13 @@ mod tests {
     }
 
     #[test]
+    fn spawn_no_cond_with_pacing() {
+        let spec = "output x (y: Int32) spawn @1Hz with 1 eval with 5 close @1Hz when true\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
     fn build_template_spec() {
         let spec = "output x (y: Int8) spawn with 42 eval @1Hz when y = 1337 with 5 close when false\n";
         let ast = parse(spec);
@@ -1917,13 +1969,83 @@ mod tests {
     }
 
     #[test]
-    fn spawn_no_target_no_condition() {
+    fn eval_parts_order1() {
+        let spec = "output x (y: Int8) spawn with 42 eval with 5 when y = 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) spawn with 42 eval when y = 42 with 5\n");
+    }
+
+    #[test]
+    fn eval_parts_order2() {
+        let spec = "output x (y: Int8) spawn with 42 eval when y = 42 with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn spawn_duplicate_when() {
+        let spec = "output x spawn when true when true eval with 5\n";
+        let parser = create_parser(spec.clone());
+
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn spawn_duplicate_with() {
+        let spec = "output x (p) spawn @1Hz with 3 with 3 eval with 5\n";
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn duplicate_close_clauses() {
+        let spec = "output x eval with 5 close when true close when x == 5\n";
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn spawn_no_target_no_condition_np_pacing() {
         let spec = "output x spawn eval with 5\n";
         let parser = create_parser(spec);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => assert_eq!(e.num_errors(), 1),
         }
+    }
+
+    #[test]
+    fn eval_no_expr() {
+        let spec = "output x (y: Int8) spawn when true with 42 eval @1Hz when y = 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when true with 42 eval @1Hz when y = 42 with ()\n",
+        );
     }
 
     #[test]
