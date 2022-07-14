@@ -7,12 +7,10 @@ mod aggregation_method;
 mod delta;
 mod last;
 mod mirror;
-mod multiple_eval;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
-use multiple_eval::MultipleEval;
 
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
@@ -108,7 +106,6 @@ impl Desugarizer {
     /// New structs have to be added in this function.
     pub fn all() -> Self {
         let all_transformers: Vec<Box<dyn SynSugar>> = vec![
-            Box::new(MultipleEval {}),
             Box::new(AggrMethodToWindow {}),
             Box::new(Last {}),
             Box::new(SynSugMirror {}),
@@ -1026,60 +1023,5 @@ mod tests {
         ));
         assert_eq!(new.params, target.params);
         assert_eq!(new.spawn, target.spawn);
-    }
-
-    #[test]
-    fn test_multiple_eval() {
-        let spec = "input i: Int64\noutput a eval when i > 0 with 1 eval when i < 0 with -1 eval when i = 0 with 1337"
-            .to_string();
-        let expected = "input i: Int64\noutput a eval when i > 0 ∨ i < 0 ∨ i = 0 with if i > 0 then 1 else if i < 0 then -1 else 1337";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        assert!(ast.outputs.iter().all(|o| o.eval.len() == 1));
-        assert_eq!(expected, format!("{}", ast).trim());
-
-        matches!(
-            ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind,
-            ExpressionKind::Ite(_, _, _)
-        );
-        matches!(
-            ast.outputs[0].eval[0].clone().filter.unwrap().kind,
-            ExpressionKind::Binary(BinOp::Or, _, _)
-        );
-    }
-
-    #[test]
-    fn test_multiple_eval_pacing() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with 1 eval when i < 0 with -1 eval when i = 0 with 1337".to_string();
-        let expected = "input i: Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 ∨ i < 0 ∨ i = 0 with if i > 0 then 1 else if i < 0 then -1 else 1337";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        assert!(ast.outputs.iter().all(|o| o.eval.len() == 1));
-        assert_eq!(expected, format!("{}", ast).trim());
-    }
-
-    #[test]
-    fn test_multiple_eval_unfiltered_last_clause() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with 1 eval when i < 0 with -1 eval with 1337".to_string();
-        let expected = "input i: Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 ∨ i < 0 with if i > 0 then 1 else if i < 0 then -1 else 1337";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        assert!(ast.outputs.iter().all(|o| o.eval.len() == 1));
-        assert_eq!(expected, format!("{}", ast).trim());
-    }
-
-    #[test]
-    fn test_multiple_eval_pt() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with 1 eval when i < 0 with -1 eval with 1337".to_string();
-        let expected = "input i: Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 ∨ i < 0 with if i > 0 then 1 else if i < 0 then -1 else 1337";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        assert!(ast.outputs.iter().all(|o| o.eval.len() == 1));
-        assert_eq!(expected, format!("{}", ast).trim());
-    }
-
-    #[test]
-    fn desugar_multiple_pt() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with if b then 1 else 2 eval when i < 0 with if b2 then -1 else -2 eval @i∧b∧b2 when i = 0 with 1337".to_string();
-        let expected = "input i: Int64\ninput b: Bool\ninput b2: Bool\noutput a eval @i ∧ b ∧ b2 when i > 0 ∨ i < 0 ∨ i = 0 with if i > 0 then if b then 1 else 2 else if i < 0 then if b2 then -1 else -2 else 1337";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        assert!(ast.outputs.iter().all(|o| o.eval.len() == 1));
-        assert_eq!(expected, format!("{}", ast).trim());
     }
 }
