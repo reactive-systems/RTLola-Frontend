@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace() {
-        let spec = "output x @ 5hz := x.count(6s)".to_string();
+        let spec = "output x eval @5Hz with x.count(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert!(matches!(
             ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind,
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_nested() {
-        let spec = "output x @ 5hz := -x.sum(6s)".to_string();
+        let spec = "output x eval @ 5hz with -x.sum(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
@@ -921,7 +921,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_multiple() {
-        let spec = "output x @ 5hz := x.avg(5s) - x.integral(2.5s)".to_string();
+        let spec = "output x eval @5hz with x.avg(5s) - x.integral(2.5s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
@@ -948,7 +948,7 @@ mod tests {
 
     #[test]
     fn test_last_replace() {
-        let spec = "output x @ 5hz := x.last(or: 3)".to_string();
+        let spec = "output x eval @5hz with x.last(or: 3)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
@@ -979,23 +979,23 @@ mod tests {
 
     #[test]
     fn test_delta_replace() {
-        let spec = "output y := delta(x,dft:0)".to_string();
-        let expected = "output y := x - x.offset(by: -1).defaults(to: 0)";
+        let spec = "output y eval with delta(x,dft:0)".to_string();
+        let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0)";
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
     fn test_delta_replace_float() {
-        let spec = "output y := delta(x, or: 0.0)".to_string();
-        let expected = "output y := x - x.offset(by: -1).defaults(to: 0.0)";
+        let spec = "output y eval with delta(x, or: 0.0)".to_string();
+        let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0.0)";
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
     fn test_mirror_replace() {
-        let spec = "output x := 3 \noutput y mirrors x when x > 5".to_string();
+        let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(ast.outputs.len(), 2);
         assert!(ast.mirrors.is_empty());
