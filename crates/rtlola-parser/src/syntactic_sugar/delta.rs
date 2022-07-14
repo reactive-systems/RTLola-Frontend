@@ -1,12 +1,12 @@
 use rtlola_reporting::Span;
 
 use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, Expression, ExpressionKind, Literal, Offset, RtLolaAst, StreamAccessKind};
+use crate::ast::{BinOp, Expression, ExpressionKind, Offset, RtLolaAst, StreamAccessKind};
 
-/// Allows for using a δ(x) function to compute the difference between the current and last value of x; defaults to 0.
+/// Allows for using a delta(x,dft: 0)  function to compute the difference between the current and last value of x; defaults to 0.
 ///
 /// Transforms:
-/// δ(x) → x - x.last(or: x)
+/// delta(x,dft:0.0) → x - x.last(or: 0.0)
 #[derive(Debug, Clone)]
 pub(crate) struct Delta {}
 
@@ -15,7 +15,19 @@ impl Delta {
         match &expr.kind {
             // Function(FunctionName, Vec<Type>, Vec<Expression>),
             ExpressionKind::Function(name, _types, args) => {
-                if !["delta", "δ", "Δ"].contains(&name.name.name.as_str()) {
+                let f_name = name.name.name.clone();
+                /* currently not parsable but intended: , "δ", "Δ" */
+                if !["delta"].contains(&f_name.as_str()) {
+                    return ChangeSet::empty();
+                }
+                let arg_names = name.arg_names.clone();
+                if arg_names.len() != 2 {
+                    return ChangeSet::empty();
+                }
+                if arg_names[0].is_some() || arg_names[1].is_none() {
+                    return ChangeSet::empty();
+                }
+                if !["dft", "default", "or"].contains(&arg_names[1].as_ref().unwrap().name.as_str()) {
                     return ChangeSet::empty();
                 }
                 let target_stream = args[0].clone();
@@ -34,13 +46,9 @@ impl Delta {
                     id: new_id,
                     span: expr.span.clone(),
                 };
-                let zero = Expression {
-                    kind: ExpressionKind::Lit(Literal::new_numeric(ast.next_id(), "0", None, indirect_span.clone())),
-                    id: ast.next_id(),
-                    span: indirect_span.clone(),
-                };
+                let default_expr = args[1].clone();
                 let default = Expression {
-                    kind: ExpressionKind::Default(Box::new(offset), Box::new(zero)),
+                    kind: ExpressionKind::Default(Box::new(offset), Box::new(default_expr)),
                     id: ast.next_id(),
                     span: indirect_span.clone(),
                 };

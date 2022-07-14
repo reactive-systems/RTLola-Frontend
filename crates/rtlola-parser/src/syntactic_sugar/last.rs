@@ -12,7 +12,7 @@ impl Last {
     fn apply<'a>(&self, expr: &Expression, ast: &'a RtLolaAst) -> ChangeSet {
         match &expr.kind {
             ExpressionKind::Method(base, name, _types, arguments) => {
-                if "last" != name.name.name {
+                if "last(or:)" != name.to_string() {
                     return ChangeSet::empty();
                 };
                 let target_stream = base.clone();

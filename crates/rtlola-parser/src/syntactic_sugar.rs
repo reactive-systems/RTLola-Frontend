@@ -937,7 +937,7 @@ mod tests {
 
     #[test]
     fn test_last_replace() {
-        let spec = "output x @ 5hz := x.last(3)".to_string();
+        let spec = "output x @ 5hz := x.last(or: 3)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].expression.kind.clone();
         let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
@@ -968,8 +968,16 @@ mod tests {
 
     #[test]
     fn test_delta_replace() {
-        let spec = "output y := delta(x)".to_string();
+        let spec = "output y := delta(x,dft:0)".to_string();
         let expected = "output y := x - x.offset(by: -1).defaults(to: 0)";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_delta_replace_float() {
+        let spec = "output y := delta(x, or: 0.0)".to_string();
+        let expected = "output y := x - x.offset(by: -1).defaults(to: 0.0)";
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
