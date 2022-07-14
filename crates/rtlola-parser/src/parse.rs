@@ -619,7 +619,7 @@ impl RtLolaParser {
                     true,
                 ),
             );
-        } else if eval_expr.is_none() && annotated_pacing.is_some() {
+        } else if eval_expr.is_none() {
             eval_expr = Some(Expression {
                 id: self.spec.next_id(),
                 span: span_ext.clone(),

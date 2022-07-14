@@ -2482,4 +2482,22 @@ mod tests {
                   output b(p: Bool) spawn with a == 42 close when b(p) == 1337 eval when !p || a == 42 with a";
         assert_eq!(0, num_errors(spec));
     }
+
+    #[test]
+    fn test_missing_eval_with_filter() {
+        let spec = "input a: Int8\noutput b eval when a > 3";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_missing_eval_with_filter_faulty() {
+        let spec = "input a: Int8\noutput b eval when true";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_missing_eval_with_apt() {
+        let spec = "input a: Int8\noutput b eval @1Hz";
+        assert_eq!(0, num_errors(spec));
+    }
 }

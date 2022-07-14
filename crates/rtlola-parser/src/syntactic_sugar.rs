@@ -1024,4 +1024,20 @@ mod tests {
         assert_eq!(new.params, target.params);
         assert_eq!(new.spawn, target.spawn);
     }
+
+    #[test]
+    fn test_mirror_replace_str_cmp() {
+        let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
+        let expected = "output x eval with 3\noutput y eval when x > 5 with 3";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_mirror_replace_multiple_eval() {
+        let spec = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y mirrors x when x > 5".to_string();
+        let expected = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y eval when a > 0 ∧ x > 5 with 3 eval when a < 0 ∧ x > 5 with -3";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
 }

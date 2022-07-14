@@ -1,7 +1,7 @@
 use rtlola_reporting::Span;
 
 use super::{ChangeSet, SynSugar};
-use crate::ast::{EvalSpec, Mirror as AstMirror, Output, RtLolaAst};
+use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, RtLolaAst};
 
 /// Enables usage of mirror streams
 ///
@@ -23,23 +23,46 @@ impl Mirror {
         println!("Target: {}", target.is_some());
         let target = target.expect("mirror stream refers to a stream that does not exist");
         let target = (**target).clone();
-        if target.eval.len() > 1 {
-            // Do not apply mirror resolving until only a single eval statement remains
-            return ChangeSet::empty();
-        } else if target.eval.is_empty() {
-            unimplemented!("Mirror stream defined on output without expression invalid")
-        }
-        let target_eval_spec = target.eval[0].to_owned();
-        let filter_span = filter.span.clone();
-        let new_eval_spec = EvalSpec {
-            filter: Some(filter),
-            id: ast.next_id(),
-            span: Span::Indirect(Box::new(filter_span)),
-            ..target_eval_spec
-        };
+
+        let target_eval_specs = target.eval.clone();
+        let filter_span = &filter.span;
+        let new_eval_specs = target_eval_specs
+            .into_iter()
+            .map(|e| {
+                let EvalSpec {
+                    annotated_pacing: t_annotated_pacing,
+                    filter: t_filter,
+                    eval_expression: t_eval,
+                    id: t_id,
+                    span: t_span,
+                } = e;
+
+                let new_filter = match t_filter {
+                    Some(old_f) => {
+                        Expression {
+                            id: ast.next_id(),
+                            span: Span::Indirect(Box::new(filter_span.clone())),
+                            kind: crate::ast::ExpressionKind::Binary(
+                                BinOp::And,
+                                Box::new(old_f),
+                                Box::new(filter.clone()),
+                            ),
+                        }
+                    },
+                    None => filter.clone(),
+                };
+                EvalSpec {
+                    filter: Some(new_filter),
+                    id: t_id.primed(),
+                    span: Span::Indirect(Box::new(t_span)),
+                    annotated_pacing: t_annotated_pacing,
+                    eval_expression: t_eval,
+                }
+            })
+            .collect();
         let output = Output {
             name,
-            eval: vec![new_eval_spec],
+            eval: new_eval_specs,
             id: ast.next_id(),
             span: Span::Indirect(Box::new(span)),
             ..target

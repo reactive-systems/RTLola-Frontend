@@ -639,4 +639,13 @@ impl NodeId {
             prime_counter: 0u32,
         }
     }
+
+    /// Creates a copy NodeId with incremented prime counter, which indicates a applied transformation for desugarization.
+    pub fn primed(&self) -> Self {
+        let NodeId { id, prime_counter } = *self;
+        NodeId {
+            id,
+            prime_counter: prime_counter + 1,
+        }
+    }
 }

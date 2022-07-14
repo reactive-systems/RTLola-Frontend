@@ -916,13 +916,15 @@ impl ExpressionTransformer {
                 }))
             })?,
             eval: {
-                assert!(eval_spec.len() <= 1);
+                assert!(eval_spec.len() <= 1); //TODO remove in upcoming refactoring
                 let evt = if let Some(eval_spec) = eval_spec.get(0) {
                     let eval_spec = eval_spec.to_owned();
                     let eval_expr = if let Some(eval_expr) = eval_spec.eval_expression {
                         self.transform_expression(eval_expr, current_output)?
                     } else {
-                        todo!("handle missing eval expr case: construct unit constant")
+                        unreachable!(
+                            "Empty tuple is inserted if the expression is unspecified or the parser reports an error"
+                        );
                     };
                     let eval_expr_id = Self::insert_return(exprid_to_expr, eval_expr);
 
@@ -1315,6 +1317,15 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_eval_with_filter() {
+        let spec = "input a:Bool\noutput b: Int8 eval when a > 3";
+        let ir = obtain_expressions(spec);
+        let out = ir.outputs[0].clone();
+        assert!(out.filter().is_some());
+        assert!(matches!(ir.expression(out.expression()).kind, ExpressionKind::Tuple(_),));
+    }
+
+    #[test]
     fn test_trigger_ac() {
         let spec = "input a:Bool\n trigger @1Hz a";
         let ir = obtain_expressions(spec);
@@ -1353,7 +1364,7 @@ mod tests {
     #[should_panic]
     fn test_missing_spawn() {
         let spec = "input a: Int32\n\
-        output b (p: Bool) := a";
+        output b (p: Bool) eval with a";
         obtain_expressions(spec);
     }
 
@@ -1361,7 +1372,7 @@ mod tests {
     #[should_panic]
     fn test_missing_parameters() {
         let spec = "input a: Int32\n\
-        output b spawn with a := a";
+        output b spawn with a eval with a";
         obtain_expressions(spec);
     }
 
