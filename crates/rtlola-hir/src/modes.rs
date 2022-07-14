@@ -8,9 +8,9 @@ use std::collections::HashMap;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies};
+use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies, Transitivedependencies};
 use self::types::HirType;
-use crate::hir::{ExprId, Hir, SRef, WRef};
+use crate::hir::{ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
@@ -183,9 +183,9 @@ impl Hir<TypedMode> {
 #[derive(Debug, Clone)]
 pub struct DepAna {
     direct_accesses: Streamdependencies,
-    transitive_accesses: Streamdependencies,
+    transitive_accesses: Transitivedependencies,
     direct_accessed_by: Streamdependencies,
-    transitive_accessed_by: Streamdependencies,
+    transitive_accessed_by: Transitivedependencies,
     aggregated_by: Windowdependencies,
     aggregates: Windowdependencies,
     graph: DependencyGraph,
@@ -214,6 +214,14 @@ pub trait DepAnaTrait {
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
+    /// Returns all streams that are direct accessed by `who` together with the corresponding stream access kinds.
+    ///
+    /// The function returns all streams that are direct accessed by `who` with all the stream access kinds that
+    /// are used to access that stream.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
+    /// Direct accesses are all accesses appearing in the expressions of the stream itself.
+    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
+
     /// Returns all streams that are transitive accessed by `who`
     ///
     /// The function returns all streams that are transitive accessed by `who`.
@@ -227,6 +235,14 @@ pub trait DepAnaTrait {
     /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
+
+    /// Returns all streams that direct access `who` together with the corresponding stream access kinds.
+    ///
+    /// The function returns all streams that direct access `who` together with all the stream access kinds
+    /// that they use to access `who`.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// Direct accesses are all accesses appearing in the expressions of the stream itself.
+    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
 
     /// Returns all streams that transitive access `who`
     ///

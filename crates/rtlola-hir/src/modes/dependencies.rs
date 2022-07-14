@@ -71,8 +71,10 @@ impl EdgeWeight {
     }
 }
 
-/// Represents all dependencies between streams
-pub(crate) type Streamdependencies = HashMap<SRef, Vec<SRef>>;
+/// Represents all direct dependencies between streams
+pub(crate) type Streamdependencies = HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>>;
+/// Represents all transitive dependencies between streams
+pub(crate) type Transitivedependencies = HashMap<SRef, Vec<SRef>>;
 /// Represents all dependencies between streams in which a window lookup is used
 pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
 
@@ -157,6 +159,12 @@ impl DepAnaTrait for DepAna {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
         self.direct_accesses
             .get(&who)
+            .map_or(Vec::new(), |accesses| accesses.iter().map(|(sref, _)| *sref).collect())
+    }
+
+    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)> {
+        self.direct_accesses
+            .get(&who)
             .map_or(Vec::new(), |accesses| accesses.to_vec())
     }
 
@@ -167,6 +175,12 @@ impl DepAnaTrait for DepAna {
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
+        self.direct_accessed_by.get(&who).map_or(Vec::new(), |accessed_by| {
+            accessed_by.iter().map(|(sref, _)| *sref).collect()
+        })
+    }
+
+    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)> {
         self.direct_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accessed_by| accessed_by.to_vec())
@@ -303,19 +317,23 @@ impl DepAna {
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph, spec).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
-        let mut direct_accesses: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut direct_accessed_by: HashMap<SRef, Vec<SRef>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut direct_accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>> =
+            spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, StreamAccessKind)>> =
+            spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();
-            if !cur_accesses.contains(tar) {
-                cur_accesses.push(*tar);
+            let access = (*tar, w.kind);
+            if !cur_accesses.contains(&access) {
+                cur_accesses.push(access);
             }
             let cur_accessed_by = direct_accessed_by.get_mut(tar).unwrap();
-            if !cur_accessed_by.contains(src) {
-                cur_accessed_by.push(*src);
+            let access = (*src, w.kind);
+            if !cur_accessed_by.contains(&access) {
+                cur_accessed_by.push(access);
             }
             if let Some(wref) = w.window() {
                 let cur_aggregates = aggregates.get_mut(src).unwrap();
@@ -328,6 +346,8 @@ impl DepAna {
                 }
             }
         });
+        let direct_accesses = Self::group_access_kinds(direct_accesses);
+        let direct_accessed_by = Self::group_access_kinds(direct_accessed_by);
         let transitive_accesses = graph
             .node_indices()
             .map(|from_index| {
@@ -361,6 +381,25 @@ impl DepAna {
             aggregates,
             graph,
         })
+    }
+
+    fn group_access_kinds(
+        accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>>,
+    ) -> HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>> {
+            accesses
+            .into_iter()
+            .map(|(sr, accesses)| {
+                let groups = accesses
+                    .into_iter()
+                    .sorted_by_key(|(target, _)| *target)
+                    .group_by(|(target, _)| *target);
+                let targets = groups
+                    .into_iter()
+                    .map(|(target, access_kinds)| (target, access_kinds.map(|(_, kind)| kind).collect::<Vec<_>>()))
+                    .collect();
+                (sr, targets)
+            })
+            .collect()
     }
 
     fn has_transitive_connection(graph: &DependencyGraph, from: NodeIndex, to: NodeIndex) -> bool {
@@ -504,7 +543,7 @@ mod tests {
                 assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
                 accesses_hir
                     .iter()
-                    .for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
+                    .for_each(|(sr, _)| assert!(accesses_reference.contains(&sr), "sr: {}", sr));
             });
             deps.transitive_accesses.iter().for_each(|(sr, accesses_hir)| {
                 let accesses_reference = transitive_accesses.get(sr).unwrap();
@@ -518,7 +557,7 @@ mod tests {
                 assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
                 accessed_by_hir
                     .iter()
-                    .for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
+                    .for_each(|sr| assert!(accessed_by_reference.contains(&sr.0), "sr: {}", sr.0));
             });
             deps.transitive_accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
                 let accessed_by_reference = transitive_accessed_by.get(sr).unwrap();

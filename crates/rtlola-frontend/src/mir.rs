@@ -192,7 +192,7 @@ pub struct InputStream {
     /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<StreamReference>,
+    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
@@ -217,9 +217,9 @@ pub struct OutputStream {
     /// The stream expression
     pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
-    pub accesses: Vec<StreamReference>,
+    pub accesses: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<StreamReference>,
+    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -873,7 +873,7 @@ impl std::ops::Add for ValSize {
 }
 
 /// Representation of the different stream accesses
-#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
