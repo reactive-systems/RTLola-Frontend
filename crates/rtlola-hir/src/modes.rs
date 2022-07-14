@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Streamdependencies, Windowdependencies, Transitivedependencies};
+use self::dependencies::{DependencyGraph, Streamdependencies, Transitivedependencies, Windowdependencies};
 use self::types::HirType;
 use crate::hir::{ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;

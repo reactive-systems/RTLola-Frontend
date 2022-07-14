@@ -386,7 +386,7 @@ impl DepAna {
     fn group_access_kinds(
         accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>>,
     ) -> HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>> {
-            accesses
+        accesses
             .into_iter()
             .map(|(sr, accesses)| {
                 let groups = accesses
