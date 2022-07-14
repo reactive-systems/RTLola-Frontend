@@ -2482,16 +2482,4 @@ mod tests {
                   output b(p: Bool) spawn with a == 42 close when b(p) == 1337 eval when !p || a == 42 with a";
         assert_eq!(0, num_errors(spec));
     }
-
-    #[test]
-    fn desugar_multiple_pt() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with if b then 1 else 2 eval when i < 0 with if b2 then -1 else -2 eval @i∧b∧b2 when i = 0 with 1337";
-        assert_eq!(0, num_errors(spec));
-    }
-
-    #[test]
-    fn desugar_multiple_faulty_pt() {
-        let spec = "input i:Int64\ninput b: Bool\ninput b2: Bool\noutput a eval when i > 0 with if b then 1 else 2 eval when i < 0 with if b2 then -1 else -2 eval @i when i = 0 with 1337";
-        assert_eq!(1, num_errors(spec));
-    }
 }
