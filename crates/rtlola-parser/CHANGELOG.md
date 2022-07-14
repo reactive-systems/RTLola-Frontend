@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added basic structure for syntactic sugar
+- Syntactic sugar:
+    - method shorthand for aggregations
+    - last method for offset of -1
+    - mirror streams
+    - delta function
 
 ## [0.2.0] - 2021-11-15
 

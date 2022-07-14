@@ -4,20 +4,25 @@ use std::rc::Rc;
 
 // List for all syntactic sugar transformer
 mod aggregation_method;
+mod delta;
+mod last;
+mod mirror;
 use aggregation_method::AggrMethodToWindow;
+use delta::Delta;
+use last::Last;
+use mirror::Mirror as SynSugMirror;
 
 use crate::ast::{
-    CloseSpec, Expression, ExpressionKind, FilterSpec, Input, NodeId, Output, RtLolaAst, SpawnSpec, Trigger,
+    CloseSpec, Expression, ExpressionKind, FilterSpec, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst,
+    SpawnSpec, Trigger,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum ChangeInstruction {
     #[allow(dead_code)] // currently unused
     ReplaceExpr(NodeId, Expression),
-    #[allow(dead_code)] // currently unused
-    ReplaceStream(NodeId, Box<Output>),
-    #[allow(dead_code)] //currently unused
-    Add(Box<Output>),
+    RemoveStream(NodeId),
+    AddOutput(Box<Output>),
 }
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum LocalChangeInstruction {
@@ -42,15 +47,44 @@ struct ChangeSet {
 /// and an arbitrary number of changes that will be applied after an iteration, which is identified by the [NodeId] of the object it wants to replace.
 #[allow(unused_variables)] // allow unused arguments in the default implementation without changing the name
 trait SynSugar {
+    /// Desugars a single expression.  Provided [RtLolaAst] and [Expression] are for reference, not modification.
+    ///
+    /// # Requirements
+    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
+    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
+
+    /// Desugars a single output stream.  Provided [RtLolaAst] and [Output] are for reference, not modification.
+    ///
+    /// # Requirements
+    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
+    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_out<'a>(&self, stream: &'a Output, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
+    /// Desugars a single input stream.  Provided [RtLolaAst] and [Input] are for reference, not modification.
+    ///
+    /// # Requirements
+    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
+    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_in<'a>(&self, stream: &'a Input, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
+    /// Desugars a single mirror stream.  Provided [RtLolaAst] and [AstMirror] are for reference, not modification.
+    ///
+    /// # Requirements
+    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
+    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
+    fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
+        ChangeSet::empty()
+    }
+    /// Desugars a single trigger.  Provided [RtLolaAst] and [Trigger] are for reference, not modification.
+    ///
+    /// # Requirements
+    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
+    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
@@ -71,7 +105,12 @@ impl Desugarizer {
     /// All transformations registered in the internal vector will be applied on the ast.
     /// New structs have to be added in this function.
     pub fn all() -> Self {
-        let all_transformers: Vec<Box<dyn SynSugar>> = vec![Box::new(AggrMethodToWindow {})];
+        let all_transformers: Vec<Box<dyn SynSugar>> = vec![
+            Box::new(AggrMethodToWindow {}),
+            Box::new(Last {}),
+            Box::new(SynSugMirror {}),
+            Box::new(Delta {}),
+        ];
         Self {
             sugar_transformers: all_transformers,
         }
@@ -95,6 +134,10 @@ impl Desugarizer {
         let mut change_flag = false;
         for current_sugar in self.sugar_transformers.iter() {
             let mut change_set = ChangeSet::empty();
+
+            for mirror in ast.mirrors.iter() {
+                change_set += self.desugarize_mirror(mirror, &ast, current_sugar);
+            }
 
             for ix in 0..ast.outputs.len() {
                 let out = &ast.outputs[ix];
@@ -212,18 +255,25 @@ impl Desugarizer {
     fn apply_global_changes(&self, c_s: ChangeSet, mut ast: RtLolaAst) -> RtLolaAst {
         c_s.global_iter().for_each(|ci| {
             match ci {
-                ChangeInstruction::Add(o) => {
+                ChangeInstruction::AddOutput(o) => {
                     ast.outputs.push(Rc::new(*o));
                 },
-                ChangeInstruction::ReplaceStream(id, out) => {
-                    // TODO: trigger? does somebody wants to replace triggers? Maybe provide additional function
-                    let idx = ast
-                        .outputs
-                        .iter()
-                        .position(|o| o.id == id)
-                        .expect("Given NodeId for stream replacement did not match any output stream.");
-                    assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
-                    ast.outputs[idx] = Rc::new(*out);
+                ChangeInstruction::RemoveStream(id) => {
+                    if let Some(idx) = ast.outputs.iter().position(|o| o.id == id) {
+                        assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
+                        ast.outputs.remove(idx);
+                    } else if let Some(idx) = ast.inputs.iter().position(|o| o.id == id) {
+                        assert_eq!(Rc::strong_count(&ast.inputs[idx]), 1);
+                        ast.inputs.remove(idx);
+                    } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
+                        assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
+                        ast.mirrors.remove(idx);
+                    } else if let Some(idx) = ast.trigger.iter().position(|o| o.id == id) {
+                        assert_eq!(Rc::strong_count(&ast.trigger[idx]), 1);
+                        ast.trigger.remove(idx);
+                    } else {
+                        debug_assert!(false, "id in changeset does not belong to any stream");
+                    }
                 },
                 ChangeInstruction::ReplaceExpr(id, expr) => {
                     for ix in 0..ast.outputs.len() {
@@ -694,6 +744,11 @@ impl Desugarizer {
     }
 
     #[allow(clippy::borrowed_box)]
+    fn desugarize_mirror(&self, mirror: &AstMirror, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
+        current_sugar.desugarize_stream_mirror(mirror, ast)
+    }
+
+    #[allow(clippy::borrowed_box)]
     fn desugarize_output(&self, output: &Output, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
         current_sugar.desugarize_stream_out(output, ast)
     }
@@ -722,33 +777,51 @@ impl ChangeSet {
 
     #[allow(dead_code)] // currently unused
     /// Adds a stream to the Ast.
-    pub(crate) fn add_stream(&mut self, stream: Output) {
-        self.global_instructions
-            .insert(ChangeInstruction::Add(Box::new(stream)));
+    pub(crate) fn add_output(stream: Output) -> Self {
+        let mut cs = ChangeSet::empty();
+        cs.global_instructions
+            .insert(ChangeInstruction::AddOutput(Box::new(stream)));
+        cs
     }
 
     #[allow(dead_code)] // currently unused
     /// Replaces the expression with id 'target_id' with the given expression. Performs global ast search.
-    pub(crate) fn replace_expression(&mut self, target_id: NodeId, expr: Expression) {
-        self.global_instructions
+    pub(crate) fn replace_expression(target_id: NodeId, expr: Expression) -> Self {
+        let mut cs = Self::empty();
+        cs.global_instructions
             .insert(ChangeInstruction::ReplaceExpr(target_id, expr));
+        cs
+    }
+
+    #[allow(dead_code)] // currently unused
+    /// Removes the stream with id 'target_id'. Performs global ast search.
+    pub(crate) fn remove_stream(target_id: NodeId) -> Self {
+        let mut cs = Self::empty();
+        cs.global_instructions
+            .insert(ChangeInstruction::RemoveStream(target_id));
+        cs
     }
 
     /// Replaces the current expression.
     /// Should only be called in <T: SynSugar> T.desugarize_expr(...)
     /// Wanted local changes will not be applied if used in other desugarize functions!
-    pub(crate) fn replace_current_expression(&mut self, expr: Expression) {
-        self.local_instructions = Some(LocalChangeInstruction::ReplaceExpr(expr));
+    pub(crate) fn replace_current_expression(expr: Expression) -> Self {
+        let mut cs = Self::empty();
+        cs.local_instructions = Some(LocalChangeInstruction::ReplaceExpr(expr));
+        cs
     }
 
-    #[allow(dead_code)] // currently unused
     /// Replaces the stream with the given NodeId with the new stream. Performs global ast search.
-    pub(crate) fn replace_sream(&mut self, target_stream: NodeId, new_stream: Output) {
-        self.global_instructions
-            .insert(ChangeInstruction::ReplaceStream(target_stream, Box::new(new_stream)));
+    pub(crate) fn replace_stream(target_stream: NodeId, new_stream: Output) -> Self {
+        let mut cs = ChangeSet::empty();
+        cs.global_instructions
+            .insert(ChangeInstruction::RemoveStream(target_stream));
+        cs.global_instructions
+            .insert(ChangeInstruction::AddOutput(Box::new(new_stream)));
+        cs
     }
 
-    /// Provides an Iterator over all global changes.
+    /// Provides an [Iterator] over all global changes.
     fn global_iter<'a>(self) -> Box<dyn Iterator<Item = ChangeInstruction> + 'a> {
         Box::new(self.global_instructions.into_iter())
     }
@@ -800,16 +873,14 @@ impl std::ops::AddAssign<ChangeSet> for ChangeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinOp, UnOp, WindowOperation};
+    use crate::ast::{BinOp, Ident, LitKind, Literal, Offset, UnOp, WindowOperation};
 
     #[test]
     fn test_aggr_replace() {
         let spec = "output x @ 5hz := x.count(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
         assert!(matches!(
-            new_ast.outputs[0].expression.kind,
+            ast.outputs[0].expression.kind,
             ExpressionKind::SlidingWindowAggregation {
                 aggregation: WindowOperation::Count,
                 ..
@@ -821,9 +892,7 @@ mod tests {
     fn test_aggr_replace_nested() {
         let spec = "output x @ 5hz := -x.sum(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
-        let out_kind = new_ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].expression.kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
@@ -843,9 +912,7 @@ mod tests {
     fn test_aggr_replace_multiple() {
         let spec = "output x @ 5hz := x.avg(5s) - x.integral(2.5s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let sugar = Desugarizer::all();
-        let new_ast: RtLolaAst = sugar.remove_syn_sugar(ast);
-        let out_kind = new_ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].expression.kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
         let (left, right) = if let ExpressionKind::Binary(BinOp::Sub, left, right) = out_kind {
             (left.kind, right.kind)
@@ -866,5 +933,78 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_last_replace() {
+        let spec = "output x @ 5hz := x.last(or: 3)".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].expression.kind.clone();
+        let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
+            (access.kind, dft.kind)
+        } else {
+            panic!("Last should result in a top-level default access with its argument as default value")
+        };
+        assert!(
+            matches!(
+                &dft,
+                &ExpressionKind::Lit(Literal {
+                    kind: LitKind::Numeric(ref x, None),
+                    ..
+                }) if x == &String::from("3")
+            ),
+            "The argument of last should be the default expression."
+        );
+        let stream = if let ExpressionKind::Offset(stream, Offset::Discrete(-1)) = access {
+            stream
+        } else {
+            panic!("expected an offset expression, but found {:?}", access);
+        };
+
+        assert!(
+            matches!(*stream, Expression { kind: ExpressionKind::Ident(Ident { name, .. }), ..} if name == String::from("x") )
+        );
+    }
+
+    #[test]
+    fn test_delta_replace() {
+        let spec = "output y := delta(x,dft:0)".to_string();
+        let expected = "output y := x - x.offset(by: -1).defaults(to: 0)";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_delta_replace_float() {
+        let spec = "output y := delta(x, or: 0.0)".to_string();
+        let expected = "output y := x - x.offset(by: -1).defaults(to: 0.0)";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_mirror_replace() {
+        let spec = "output x := 3 \noutput y mirrors x when x > 5".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(ast.outputs.len(), 2);
+        assert!(ast.mirrors.is_empty());
+        let new = &ast.outputs[1];
+        let target = &ast.outputs[0];
+        assert_eq!(target.name.name, "x");
+        assert_eq!(new.name.name, "y");
+        assert_eq!(new.annotated_type, target.annotated_type);
+        assert_eq!(new.annotated_pacing_type, target.annotated_pacing_type);
+        assert_eq!(new.close, target.close);
+        assert_eq!(new.expression, target.expression);
+        assert!(new.filter.is_some());
+        assert!(matches!(
+            new.filter.as_ref().unwrap().target,
+            Expression {
+                kind: ExpressionKind::Binary(..),
+                ..
+            }
+        ));
+        assert_eq!(new.params, target.params);
+        assert_eq!(new.spawn, target.spawn);
     }
 }

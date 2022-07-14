@@ -228,11 +228,13 @@ impl ExpressionTransformer {
         ast: RtLolaAst,
         func_table: HashMap<String, FuncDecl>,
     ) -> Result<Hir<BaseMode>, TransformationErr> {
+        debug_assert!(ast.mirrors.is_empty(), "Syntactic sugar should be removed beforehand.");
         let RtLolaAst {
             imports: _,   // todo
             constants: _, //handled through naming analysis
             inputs,
             outputs,
+            mirrors: _,
             trigger,
             type_declarations: _,
             next_node_id: _,

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Include access to stream access kind in Hir
+- Ignore mirror streams field in AST, because they represent syntactic sugar artifacts.
 
 ## [0.3.3] - 12.04.2022
 
