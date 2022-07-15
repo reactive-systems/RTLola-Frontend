@@ -1254,7 +1254,7 @@ impl RtLolaParser {
                     ))
                 },
             };
-            let factor = BigInt::from_u8(10).unwrap().pow(exp.abs() as u16);
+            let factor = BigInt::from_u8(10).unwrap().pow(exp.unsigned_abs());
             if exp.is_negative() {
                 r /= factor;
             } else {

@@ -9,6 +9,7 @@ use petgraph::Outgoing;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
+use super::ast_conversion::SpawnDef;
 use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{
     ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef,
@@ -125,7 +126,7 @@ impl ExtendedDepGraph for DependencyGraph {
                 Origin::Spawn => lhs.spawn.0,
                 Origin::Filter | Origin::Eval => lhs.pacing_ty,
                 Origin::Close => {
-                    hir.expr_type(hir.close(lhs_sr).expect("close expression to exist for close edge").eid)
+                    hir.expr_type(hir.close_unchecked(lhs_sr).condition.unwrap().eid)
                         .pacing_ty
                 },
             };
@@ -268,18 +269,18 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(spec, sr, spec.expr(sr)))
+            .flat_map(|sr| Self::collect_edges(spec, sr, spec.eval_unchecked(sr).expr))
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
-                spec.spawn(sr).map(|(spawn_expr, spawn_cond)| {
-                    spawn_expr
+                spec.spawn(sr).map(|SpawnDef { target, condition, .. }| {
+                    target
                         .map_or(Vec::new(), |spawn_expr| Self::collect_edges(spec, sr, spawn_expr))
                         .into_iter()
-                        .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
+                        .chain(condition.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
                 })
             })
             .flatten()
@@ -288,14 +289,22 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(spec, sr, filter)))
+            .flat_map(|sr| {
+                spec.eval_unchecked(sr)
+                    .filter
+                    .map(|filter| Self::collect_edges(spec, sr, filter))
+            })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(spec, sr, close)))
+            .flat_map(|sr| {
+                spec.close(sr)
+                    .and_then(|cd| cd.condition)
+                    .map(|close| Self::collect_edges(spec, sr, close))
+            })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
         let edges = edges_expr

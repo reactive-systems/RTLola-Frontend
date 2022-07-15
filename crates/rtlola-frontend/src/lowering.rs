@@ -1,14 +1,14 @@
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
-    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
+    EvalDef, Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
     StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::WindowOperation;
 
 use crate::mir;
-use crate::mir::{CloseTemplate, FilterTemplate, InstanceTemplate, Mir, PacingType, SpawnTemplate};
+use crate::mir::{CloseTemplate, EvalTemplate, InstanceTemplate, Mir, SpawnTemplate};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -39,7 +39,6 @@ impl Mir {
             mir::OutputStream {
                 name: o.name.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                expr: Self::lower_expr(&hir, hir.expr(sr)),
                 instance_template: Self::lower_instance_template(&hir, sr),
                 accesses: Self::lower_accessed_streams(hir.direct_accesses_with(sr)),
                 accessed_by: Self::lower_accessed_streams(hir.direct_accessed_by_with(sr)),
@@ -64,8 +63,10 @@ impl Mir {
                 let mir_output_stream = mir::OutputStream {
                     name: format!("trigger_{}", index), //TODO better name
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    expr: Self::lower_expr(&hir, hir.expr(sr)),
-                    instance_template: InstanceTemplate::default(),
+                    instance_template: InstanceTemplate::trigger_template(
+                        Self::lower_pacing_type(hir.stream_type(sr).pacing_ty),
+                        Self::lower_expr(&hir, hir.eval(sr).unwrap().expr),
+                    ),
                     accesses: Self::lower_accessed_streams(hir.direct_accesses_with(sr)),
                     accessed_by: Self::lower_accessed_streams(hir.direct_accessed_by_with(sr)),
                     aggregated_by: hir.aggregated_by(sr),
@@ -171,71 +172,76 @@ impl Mir {
         }
     }
 
+    fn lower_pacing_type(cpt: ConcretePacingType) -> mir::PacingType {
+        match cpt {
+            ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac)),
+            ConcretePacingType::FixedPeriodic(freq) => mir::PacingType::Periodic(freq),
+            ConcretePacingType::Constant => mir::PacingType::Constant,
+            ConcretePacingType::Periodic => {
+                unreachable!("Ensured by pacing type checker")
+            },
+        }
+    }
+
     fn lower_instance_template(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> InstanceTemplate {
         let rtlola_hir::hir::StreamType {
             value_ty: _,
-            pacing_ty: _,
+            pacing_ty,
             spawn,
             filter: _,
             close: _,
         } = hir.stream_type(sr);
-        let spawn_pacing = match &spawn.0 {
-            ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(ac)),
-            ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(*freq),
-            ConcretePacingType::Constant => PacingType::Constant,
-            ConcretePacingType::Periodic => {
-                unreachable!("Ensured by pacing type checker")
-            },
-        };
-        let (hir_spawn_target, hir_spawn_condition) = hir.spawn(sr).unwrap_or((None, None));
+        let spawn_pacing = Self::lower_pacing_type(spawn.0);
+        let (hir_spawn_target, hir_spawn_condition) = hir
+            .spawn(sr)
+            .map(|sd| {
+                let target = sd.target;
+                let cond = sd.condition;
+                (target, cond)
+            })
+            .unwrap_or((None, None));
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, expr));
         let spawn_target = hir_spawn_target.map(|target| Self::lower_expr(hir, target));
-        let filter = hir.filter(sr).map(|expr| Self::lower_expr(hir, expr));
-        let filter_pacing = hir
-            .filter(sr)
-            .map(|expr| {
-                match hir.expr_type(expr.id()).pacing_ty {
-                    ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(&ac)),
-                    ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(freq),
-                    ConcretePacingType::Constant => PacingType::Constant,
-                    ConcretePacingType::Periodic => {
-                        unreachable!("Ensured by pacing type checker")
-                    },
-                }
-            })
-            .unwrap_or(PacingType::Constant);
-        let close = hir.close(sr).map(|expr| Self::lower_expr(hir, expr));
-        let close_pacing = hir
+        let eval_def = hir.eval(sr).expect("Eval always exists in output streams");
+        let (expr, filter) = {
+            let EvalDef {
+                filter: hir_filter,
+                expr,
+                annotated_pacing: _,
+            } = eval_def;
+            let eval = Self::lower_expr(hir, expr);
+            let filter = hir_filter.map(|expr| Self::lower_expr(hir, expr));
+            (eval, filter)
+        };
+        // This lowers the stream pacing type, which combines the pacing of the eval_expr and the filter condition.
+        let eval_pacing = Self::lower_pacing_type(pacing_ty);
+
+        let (close, close_pacing, close_self_ref) = hir
             .close(sr)
+            .and_then(|cd| cd.condition)
             .map(|expr| {
-                match hir.expr_type(expr.id()).pacing_ty {
-                    ConcretePacingType::Event(ac) => PacingType::Event(Self::lower_activation_condition(&ac)),
-                    ConcretePacingType::FixedPeriodic(freq) => PacingType::Periodic(freq),
-                    ConcretePacingType::Constant => PacingType::Constant,
-                    ConcretePacingType::Periodic => {
-                        unreachable!("Ensured by pacing type checker")
-                    },
-                }
-            })
-            .unwrap_or(PacingType::Constant);
-        let close_self_ref = hir
-            .close(sr)
-            .map(|expr| {
-                matches!(
+                let cpt = hir.expr_type(expr.id()).pacing_ty;
+                let close_self_ref = matches!(
                     hir.expr_type(expr.id()).spawn.0,
                     ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
+                );
+                (
+                    Some(Self::lower_expr(hir, expr)),
+                    Self::lower_pacing_type(cpt),
+                    close_self_ref,
                 )
             })
-            .unwrap_or(false);
+            .unwrap_or((None, mir::PacingType::Constant, false));
         InstanceTemplate {
             spawn: SpawnTemplate {
                 target: spawn_target,
                 pacing: spawn_pacing,
                 condition: spawn_cond,
             },
-            filter: FilterTemplate {
-                target: filter,
-                pacing: filter_pacing,
+            eval: EvalTemplate {
+                filter,
+                expr,
+                eval_pacing,
             },
             close: CloseTemplate {
                 target: close,
@@ -484,15 +490,7 @@ impl Mir {
     ) -> Vec<(StreamReference, Vec<mir::StreamAccessKind>)> {
         streams
             .into_iter()
-            .map(|(sref, kinds)| {
-                (
-                    sref,
-                    kinds
-                        .into_iter()
-                        .map(|kind| Self::lower_stream_access_kind(kind))
-                        .collect(),
-                )
-            })
+            .map(|(sref, kinds)| (sref, kinds.into_iter().map(Self::lower_stream_access_kind).collect()))
             .collect()
     }
 }
@@ -595,10 +593,10 @@ mod tests {
         ));
         assert_eq!(
             &mir_d.instance_template.spawn.pacing,
-            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
+            &mir::PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
         );
         assert_eq!(
-            &mir_d.expr,
+            &mir_d.instance_template.eval.expr,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
                 ty: mir::Type::Int(Int8)
@@ -632,10 +630,10 @@ mod tests {
         ));
         assert_eq!(
             mir_d.instance_template.spawn.pacing,
-            PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            mir::PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
-            mir_d.instance_template.filter.target,
+            mir_d.instance_template.eval.filter,
             Some(mir::Expression {
                 kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
                 ty: _,
@@ -691,7 +689,7 @@ mod tests {
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 
-        let expr = mir.outputs[1].expr.kind.clone();
+        let expr = mir.outputs[1].instance_template.eval.expr.kind.clone();
         assert!(
             matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
         );
@@ -703,7 +701,7 @@ mod tests {
         output b := cast<Int64, Float64>(a)";
         let (_, mir) = lower_spec(spec);
         assert!(matches!(
-            mir.outputs[0].expr.kind,
+            mir.outputs[0].instance_template.eval.expr.kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
     }

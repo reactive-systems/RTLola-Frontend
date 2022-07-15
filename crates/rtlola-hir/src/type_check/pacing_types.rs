@@ -1383,8 +1383,8 @@ mod tests {
             output a(p: Int32) spawn with i eval with i + p\n\
             output b(q: Int32) spawn with i eval with i + q",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].expression());
-        let b_exp = env.hir.expression(env.hir.outputs[1].expression());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval().expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval().expr);
         assert!(a_exp.value_neq_ignore_parameters(b_exp));
         assert!(a_exp.value_eq(b_exp, env.ctx.as_ref()));
         let a_hash_expr = HashableExpression {
@@ -1412,8 +1412,8 @@ mod tests {
             output b(q: Int32) spawn with i eval with a(q)\n\
             output c(r: Int32) spawn with i eval with a(r)",
         );
-        let b_exp = env.hir.expression(env.hir.outputs[1].expression());
-        let c_exp = env.hir.expression(env.hir.outputs[2].expression());
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval().expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval().expr);
         assert!(b_exp.value_neq_ignore_parameters(c_exp));
         assert!(b_exp.value_eq(c_exp, env.ctx.as_ref()));
 
@@ -1448,12 +1448,12 @@ mod tests {
             output e := i1 && !(i2 && i3)\n\
             output f := !i1",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].expression());
-        let b_exp = env.hir.expression(env.hir.outputs[1].expression());
-        let c_exp = env.hir.expression(env.hir.outputs[2].expression());
-        let d_exp = env.hir.expression(env.hir.outputs[3].expression());
-        let e_exp = env.hir.expression(env.hir.outputs[4].expression());
-        let f_exp = env.hir.expression(env.hir.outputs[5].expression());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval().expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval().expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval().expr);
+        let d_exp = env.hir.expression(env.hir.outputs[3].eval().expr);
+        let e_exp = env.hir.expression(env.hir.outputs[4].eval().expr);
+        let f_exp = env.hir.expression(env.hir.outputs[5].eval().expr);
 
         assert!(matches!(
             AbstractSemanticType::for_filter(a_exp, env.ctx.clone()),

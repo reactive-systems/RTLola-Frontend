@@ -210,12 +210,10 @@ pub struct InputStream {
 pub struct OutputStream {
     /// The name of the stream.
     pub name: String,
-    /// The type of the stream.
+    /// The value type of the stream.
     pub ty: Type,
-    /// Information on the spawn and parametrization behavior of this stream if appropriate
+    /// Information on the spawn, parametrization and evaluation behavior of this stream if appropriate
     pub instance_template: InstanceTemplate,
-    /// The stream expression
-    pub expr: Expression,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
     pub accesses: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     /// The collection of streams that access the current stream non-transitively
@@ -246,14 +244,29 @@ pub struct Trigger {
 }
 
 /// Information on the spawn and parametrization behavior of a stream
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstanceTemplate {
     /// Information on the spawn behavior of the stream
     pub spawn: SpawnTemplate,
     /// The condition under which the stream is not supposed to be evaluated
-    pub filter: FilterTemplate,
+    pub eval: EvalTemplate,
     /// The condition under which the stream is supposed to be closed
     pub close: CloseTemplate,
+}
+
+impl InstanceTemplate {
+    /// Constructs an [InstanceTemplate] for a given [PacingType] and [Expression], intended to simply construct a Template for [Trigger] streams.
+    pub fn trigger_template(eval_pacing: PacingType, expr: Expression) -> Self {
+        Self {
+            spawn: SpawnTemplate::default(),
+            close: CloseTemplate::default(),
+            eval: EvalTemplate {
+                filter: None,
+                expr,
+                eval_pacing,
+            },
+        }
+    }
 }
 
 /// Information on the spawn behavior of a stream
@@ -296,21 +309,15 @@ impl Default for CloseTemplate {
     }
 }
 
-/// Information on the close behavior of a stream
+/// Information on the evaluation behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FilterTemplate {
-    /// The `target` expression needs to be evaluated whenever the stream with this FilterTemplate is supposed to be evaluated.  The result of the evaluation constitutes whether the stream is actually evaluated.
-    pub target: Option<Expression>,
-    /// The timing of the filter condition.
-    pub pacing: PacingType,
-}
-impl Default for FilterTemplate {
-    fn default() -> Self {
-        FilterTemplate {
-            target: None,
-            pacing: PacingType::Constant,
-        }
-    }
+pub struct EvalTemplate {
+    /// The expression of this stream needs to be evaluated whenever this filter evaluates to `True`.
+    pub filter: Option<Expression>,
+    /// The evaluation expression of this stream, defining the returned and accessed value.
+    pub expr: Expression,
+    /// The eval pacing of the stream, combining the filter and expr pacing. This is equal to the top level stream pacing.
+    pub eval_pacing: PacingType,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.

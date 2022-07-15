@@ -9,6 +9,7 @@ use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
     SRef, StreamAccessKind, StreamReference, Trigger, WidenExprKind, WindowReference,
 };
+use crate::modes::ast_conversion::SpawnDef;
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{NodeId, TypeError};
@@ -299,9 +300,9 @@ where
             .collect::<Result<Vec<_>, TypeError<ValueErrorKind>>>()?;
 
         let opt_spawn = &self.hir.spawn(out.sr);
-        if let Some((opt_spawn, opt_cond)) = opt_spawn {
+        if let Some(SpawnDef { target, condition, .. }) = opt_spawn {
             //check target expression type matches parameter type
-            if let Some(spawn) = opt_spawn {
+            if let Some(spawn) = target {
                 let spawn_target_key = self.expression_infer(spawn, None)?;
                 match param_types.len() {
                     0 => unreachable!("ensured by pacing type checker"),
@@ -321,18 +322,19 @@ where
                     },
                 }
             }
-            if let Some(cond) = opt_cond {
+            if let Some(cond) = condition {
                 self.expression_infer(cond, Some(AbstractValueType::Bool))?;
             }
         }
-        if let Some(close) = &self.hir.close(out.sr) {
-            self.expression_infer(close, Some(AbstractValueType::Bool))?;
+        if let Some(ccond) = &self.hir.close(out.sr).and_then(|cd| cd.condition) {
+            self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
-        if let Some(filter) = &self.hir.filter(out.sr) {
+
+        if let Some(filter) = &self.hir.eval(out.sr).and_then(|ed| ed.filter) {
             self.expression_infer(filter, Some(AbstractValueType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(self.hir.expr(out.sr), None)?;
+        let expression_key = self.expression_infer(self.hir.eval_unchecked(out.sr).expr, None)?;
         if let Some(a_ty) = out.annotated_type.as_ref() {
             self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
         }
@@ -345,7 +347,8 @@ where
     /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
-        let expression_key = self.expression_infer(self.hir.expr(tr.sr), Some(AbstractValueType::Bool))?;
+        let expression_key =
+            self.expression_infer(self.hir.eval_unchecked(tr.sr).expr, Some(AbstractValueType::Bool))?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }
