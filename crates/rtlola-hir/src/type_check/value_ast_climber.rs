@@ -330,11 +330,14 @@ where
             self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
 
-        if let Some(filter) = &self.hir.eval(out.sr).and_then(|ed| ed.filter) {
+        if let Some(filter) = &self.hir.eval_filter(out.sr) {
             self.expression_infer(filter, Some(AbstractValueType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(self.hir.eval_unchecked(out.sr).expr, None)?;
+        let expression_key = self.expression_infer(
+            self.hir.eval_expr(out.sr).expect("Always present for valid streams"),
+            None,
+        )?;
         if let Some(a_ty) = out.annotated_type.as_ref() {
             self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
         }
@@ -347,8 +350,10 @@ where
     /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
-        let expression_key =
-            self.expression_infer(self.hir.eval_unchecked(tr.sr).expr, Some(AbstractValueType::Bool))?;
+        let expression_key = self.expression_infer(
+            self.hir.eval_expr(tr.sr).expect("always present for valid triggers"),
+            Some(AbstractValueType::Bool),
+        )?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
         Ok(tr_key)
     }

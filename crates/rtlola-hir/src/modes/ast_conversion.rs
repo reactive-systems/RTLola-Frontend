@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, ArithLogOp, CloseTemplate, Constant as HirConstant, DiscreteAggr, EvalTemplate,
-    ExprId, Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
-    Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    AnnotatedPacingType, AnnotatedType, CloseTemplate, Constant as HirConstant, DiscreteAggr, EvalTemplate, ExprId,
+    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output, Parameter,
+    SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;

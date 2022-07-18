@@ -227,7 +227,8 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn condition of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn spawn_condition(&self, sr: SRef) -> Option<&Expression> {
+    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    pub fn spawn_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -241,7 +242,8 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn target of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn spawn_target(&self, sr: SRef) -> Option<&Expression> {
+    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    pub fn spawn_target(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -255,7 +257,8 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn pacing of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn spawn_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    pub fn spawn_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.spawn_pacing()),
@@ -301,7 +304,8 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the eval filter expression of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn eval_filter(&self, sr: SRef) -> Option<&Expression> {
+    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    pub fn eval_filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -310,6 +314,42 @@ impl<M: HirMode> Hir<M> {
                     .find(|o| o.sr == sr)
                     .and_then(|o| o.eval_filter())
                     .map(|eid| self.expression(eid))
+            },
+        }
+    }
+
+    /// Retrieves the eval expression of a particular output stream or trigger and `None` for input references.
+    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    pub fn eval_expr(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
+                if o < self.outputs.len() {
+                    self.outputs
+                        .iter()
+                        .find(|o| o.sr == sr)
+                        .map(|o| o.eval_expr())
+                        .map(|eid| self.expression(eid))
+                } else {
+                    let tr = self.triggers().find(|tr| tr.sr == sr);
+                    tr.map(|tr| tr.expr_id).map(|eid| self.expression(eid))
+                }
+            },
+        }
+    }
+
+    /// Retrieves the eval pacing of a particular output stream or trigger `None` for input references.
+    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    pub fn eval_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
+                if o < self.outputs.len() {
+                    self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.eval_pacing())
+                } else {
+                    let tr = self.triggers().find(|tr| tr.sr == sr);
+                    tr.and_then(|tr| tr.annotated_pacing_type.as_ref())
+                }
             },
         }
     }
@@ -337,7 +377,8 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the expression representing the close condition of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn close_cond(&self, sr: SRef) -> Option<&Expression> {
+    /// If all parts of the [CloseTemplate] are needed, see [close]
+    pub fn close_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -351,7 +392,9 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the close pacing of a particular output stream or `None` for input and trigger references.
-    pub(crate) fn close_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+    /// If all parts of the [CloseTemplate] are needed, see [close]
+
+    pub fn close_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close_pacing()),
@@ -361,6 +404,7 @@ impl<M: HirMode> Hir<M> {
     /// Same behavior as [`close`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input/trigger.
+    #[cfg(test)]
     pub(crate) fn close_unchecked(&self, sr: StreamReference) -> CloseDef {
         self.close(sr).expect("Invalid for input and triggers references")
     }
@@ -492,6 +536,8 @@ impl Output {
     }
 
     /// Returns the pacing for the spawn condition of this stream
+    ///If all parts of the [SpawnTemplate] are required, see [spawn]
+    #[allow(dead_code)]
     pub(crate) fn spawn_pacing(&self) -> Option<&AnnotatedPacingType> {
         self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
     }
@@ -507,6 +553,8 @@ impl Output {
     }
 
     /// Returns the pacing for the close condition of this stream
+    /// If all parts of the [CloseTemplate] are required, see [close]
+    #[allow(dead_code)]
     pub(crate) fn close_pacing(&self) -> Option<&AnnotatedPacingType> {
         self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
     }
@@ -602,7 +650,7 @@ impl SpawnTemplate {
                     _ => vec![se],
                 }
             })
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_default()
     }
 
     /// Returns a reference to the `Expression` representing the spawn condition if it exists

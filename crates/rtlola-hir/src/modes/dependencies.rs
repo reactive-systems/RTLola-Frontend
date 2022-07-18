@@ -125,10 +125,7 @@ impl ExtendedDepGraph for DependencyGraph {
             let lhs_pt = match w.origin {
                 Origin::Spawn => lhs.spawn.0,
                 Origin::Filter | Origin::Eval => lhs.pacing_ty,
-                Origin::Close => {
-                    hir.expr_type(hir.close_unchecked(lhs_sr).condition.unwrap().eid)
-                        .pacing_ty
-                },
+                Origin::Close => hir.expr_type(hir.close_cond(lhs_sr).unwrap().eid).pacing_ty,
             };
             let rhs_pt = rhs.pacing_ty;
             match (lhs_pt, rhs_pt) {

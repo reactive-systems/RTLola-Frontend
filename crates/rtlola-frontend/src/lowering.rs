@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
-    EvalDef, Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
+    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
     StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
@@ -192,33 +192,20 @@ impl Mir {
             close: _,
         } = hir.stream_type(sr);
         let spawn_pacing = Self::lower_pacing_type(spawn.0);
-        let (hir_spawn_target, hir_spawn_condition) = hir
-            .spawn(sr)
-            .map(|sd| {
-                let target = sd.target;
-                let cond = sd.condition;
-                (target, cond)
-            })
-            .unwrap_or((None, None));
+        let hir_spawn_target = hir.spawn_target(sr);
+        let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, expr));
         let spawn_target = hir_spawn_target.map(|target| Self::lower_expr(hir, target));
-        let eval_def = hir.eval(sr).expect("Eval always exists in output streams");
-        let (expr, filter) = {
-            let EvalDef {
-                filter: hir_filter,
-                expr,
-                annotated_pacing: _,
-            } = eval_def;
-            let eval = Self::lower_expr(hir, expr);
-            let filter = hir_filter.map(|expr| Self::lower_expr(hir, expr));
-            (eval, filter)
-        };
+        let expr = Self::lower_expr(
+            hir,
+            hir.eval_expr(sr).expect("Expr exists for all valid output streams"),
+        );
+        let filter = hir.eval_filter(sr).map(|f| Self::lower_expr(hir, f));
         // This lowers the stream pacing type, which combines the pacing of the eval_expr and the filter condition.
         let eval_pacing = Self::lower_pacing_type(pacing_ty);
 
         let (close, close_pacing, close_self_ref) = hir
-            .close(sr)
-            .and_then(|cd| cd.condition)
+            .close_cond(sr)
             .map(|expr| {
                 let cpt = hir.expr_type(expr.id()).pacing_ty;
                 let close_self_ref = matches!(
