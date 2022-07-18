@@ -227,7 +227,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn condition of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    /// If all parts of the [SpawnDef] are needed, see [RtLolaHir::spawn]
     pub fn spawn_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
@@ -242,7 +242,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn target of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    /// If all parts of the [SpawnDef] are needed, see [RtLolaHir::spawn]
     pub fn spawn_target(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
@@ -257,7 +257,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn pacing of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [SpawnTemplate] are needed, see [spawn]
+    /// If all parts of the [SpawnDef] are needed, see [RtLolaHir::spawn]
     pub fn spawn_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
@@ -304,7 +304,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the eval filter expression of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_filter(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
@@ -319,7 +319,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the eval expression of a particular output stream or trigger and `None` for input references.
-    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_expr(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
@@ -339,7 +339,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the eval pacing of a particular output stream or trigger `None` for input references.
-    /// If all parts of the [EvalTemplate] are needed, see [eval]
+    /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
@@ -377,7 +377,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the expression representing the close condition of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [CloseTemplate] are needed, see [close]
+    /// If all parts of the [CloseDef] are needed, see [RtLolaHir::close]
     pub fn close_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
@@ -392,8 +392,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the close pacing of a particular output stream or `None` for input and trigger references.
-    /// If all parts of the [CloseTemplate] are needed, see [close]
-
+    /// If all parts of the [CloseDef] are needed, see [RtLolaHir::close]
     pub fn close_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
