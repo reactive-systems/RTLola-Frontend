@@ -73,16 +73,15 @@ impl Schedule {
             .iter()
             .filter_map(|tds| ir.output(tds.reference).is_spawned().not().then(|| tds.period()));
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.instance_template.spawn.pacing {
+            if let PacingType::Periodic(freq) = &o.spawn.pacing {
                 Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
             } else {
                 None
             }
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                o.instance_template
-                    .close
+            if let PacingType::Periodic(freq) = &o.close.pacing {
+                o.close
                     .has_self_reference
                     .not()
                     .then(|| UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
@@ -181,7 +180,7 @@ impl Schedule {
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
         let periodic_spawns = ir.outputs.iter().filter_map(|o| {
-            match &o.instance_template.spawn.pacing {
+            match &o.spawn.pacing {
                 PacingType::Periodic(freq) => {
                     Some((
                         o.reference.out_ix(),
@@ -201,8 +200,8 @@ impl Schedule {
         }
 
         let periodic_close = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.instance_template.close.pacing {
-                o.instance_template.close.has_self_reference.not().then(|| {
+            if let PacingType::Periodic(freq) = &o.close.pacing {
+                o.close.has_self_reference.not().then(|| {
                     (
                         o.reference.out_ix(),
                         UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
