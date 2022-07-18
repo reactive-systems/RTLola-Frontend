@@ -212,14 +212,12 @@ impl<M: HirMode> Hir<M> {
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.and_then(|o| {
-                        o.spawn().map(|st| {
-                            SpawnDef::new(
-                                st.target.map(|e| self.expression(e)),
-                                st.condition.map(|e| self.expression(e)),
-                                st.pacing.as_ref(),
-                            )
-                        })
+                    output.and_then(|o| o.spawn()).map(|st| {
+                        SpawnDef::new(
+                            st.target.map(|e| self.expression(e)),
+                            st.condition.map(|e| self.expression(e)),
+                            st.pacing.as_ref(),
+                        )
                     })
                 } else {
                     None
@@ -228,11 +226,47 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
+    /// Retrieves the spawn condition of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn spawn_condition(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.spawn_cond())
+                    .map(|eid| self.expression(eid))
+            },
+        }
+    }
+
+    /// Retrieves the spawn target of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn spawn_target(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.spawn_target())
+                    .map(|eid| self.expression(eid))
+            },
+        }
+    }
+
+    /// Retrieves the spawn pacing of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn spawn_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.spawn_pacing()),
+        }
+    }
+
     /// Same behavior as [spawn].
     /// # Panic
     /// Panics if the stream does not exist or is an input/trigger.
     #[cfg(test)]
-    pub(crate) fn spawn_unchecked(&self, sr: StreamReference) -> SpawnDef {
+    pub(crate) fn spawn_unchecked(&self, sr: SRef) -> SpawnDef {
         self.spawn(sr).expect("Invalid for input and triggers references")
     }
 
@@ -266,21 +300,35 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
-    /// Same behavior as [hir::eval].
+    /// Retrieves the eval filter expression of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn eval_filter(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.eval_filter())
+                    .map(|eid| self.expression(eid))
+            },
+        }
+    }
+
+    /// Same behavior as [`eval`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input.
     pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> EvalDef {
         self.eval(sr).expect("Invalid for input references")
     }
 
-    /// Retrieves the expression representing the close condition of a particular output stream or trigger or `None` for input references.
+    /// Retrieves the expressions representing the close definition of a particular output stream or `None` for input and trigger references.
     pub fn close(&self, sr: SRef) -> Option<CloseDef> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(o) => {
                 if o < self.outputs.len() {
                     let ct = self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close());
-                    ct.map(|ct| CloseDef::new(ct.target.map(|id| self.expression(id)), ct.pacing.as_ref()))
+                    ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), ct.pacing.as_ref()))
                 } else {
                     None
                 }
@@ -288,7 +336,29 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
-    /// Same behavior as [close].
+    /// Retrieves the expression representing the close condition of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn close_cond(&self, sr: SRef) -> Option<&Expression> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.close_cond())
+                    .map(|eid| self.expression(eid))
+            },
+        }
+    }
+
+    /// Retrieves the close pacing of a particular output stream or `None` for input and trigger references.
+    pub(crate) fn close_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close_pacing()),
+        }
+    }
+
+    /// Same behavior as [`close`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input/trigger.
     pub(crate) fn close_unchecked(&self, sr: StreamReference) -> CloseDef {
@@ -384,11 +454,11 @@ pub struct Output {
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub(crate) params: Vec<Parameter>,
     /// The optional information on the spawning behavior of the stream
-    pub(crate) spawn: SpawnTemplate,
+    pub(crate) spawn: Option<SpawnTemplate>,
     /// The information regarding evaluation and filter condition of the stream
     pub(crate) eval: EvalTemplate,
     /// The optional closing condition
-    pub(crate) close: CloseTemplate,
+    pub(crate) close: Option<CloseTemplate>,
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
     /// The code span the output represents
@@ -411,14 +481,54 @@ impl Output {
         self.spawn.as_ref()
     }
 
+    /// Returns the expression id for the spawn condition of this stream
+    pub(crate) fn spawn_cond(&self) -> Option<ExprId> {
+        self.spawn.as_ref().and_then(|st| st.condition)
+    }
+
+    /// Returns the expression id for the spawn target of this stream
+    pub(crate) fn spawn_target(&self) -> Option<ExprId> {
+        self.spawn.as_ref().and_then(|st| st.target)
+    }
+
+    /// Returns the pacing for the spawn condition of this stream
+    pub(crate) fn spawn_pacing(&self) -> Option<&AnnotatedPacingType> {
+        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+    }
+
     /// Returns the CloseTemplate of the stream
     pub(crate) fn close(&self) -> Option<&CloseTemplate> {
         self.close.as_ref()
     }
 
+    /// Returns the expression id for the close condition of this stream
+    pub(crate) fn close_cond(&self) -> Option<ExprId> {
+        self.close.as_ref().map(|ct| ct.condition)
+    }
+
+    /// Returns the pacing for the close condition of this stream
+    pub(crate) fn close_pacing(&self) -> Option<&AnnotatedPacingType> {
+        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
+    }
+
     /// Returns the EvalTemplate of the stream
     pub(crate) fn eval(&self) -> &EvalTemplate {
         &self.eval
+    }
+
+    /// Returns the expression id for the filter condition of this stream
+    pub(crate) fn eval_filter(&self) -> Option<ExprId> {
+        self.eval.filter
+    }
+
+    /// Returns the expression id for the eval expression of this stream
+    pub(crate) fn eval_expr(&self) -> ExprId {
+        self.eval.expr
+    }
+
+    /// Returns the expression id for the spawn target of this stream
+    pub(crate) fn eval_pacing(&self) -> Option<&AnnotatedPacingType> {
+        self.eval.annotated_pacing_type.as_ref()
     }
 
     /// Yields the span referring to a part of the specification from which this stream originated.
@@ -513,10 +623,10 @@ pub(crate) struct EvalTemplate {
 }
 
 /// Information regarding the closing behavior of a stream
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct CloseTemplate {
     /// The expression defining if an instance is closed
-    pub(crate) target: Option<ExprId>,
+    pub(crate) condition: ExprId,
     /// The activation condition describing when an instance is closed
     pub(crate) pacing: Option<AnnotatedPacingType>,
 }

@@ -469,23 +469,23 @@ impl ExpressionContext {
         for current in hir.outputs() {
             let mut para_mapping: HashMap<(SRef, usize), HashSet<usize>> = HashMap::new();
 
-            let cur_spawn_cond = current.instance_template.spawn_condition(hir);
+            let cur_spawn_cond = current.spawn().and_then(|st| st.spawn_condition(hir));
 
-            let current_spawn_args = current.instance_template.spawn_arguments(hir);
+            let current_spawn_args = current.spawn().map(|st| st.spawn_arguments(hir)).unwrap_or_default();
 
             assert_eq!(current.params.len(), current_spawn_args.len());
 
             if !current.params.is_empty() {
                 for target in hir.outputs() {
                     // if both have a spawn condition they must match
-                    let target_spawn_cond = target.instance_template.spawn_condition(hir);
+                    let target_spawn_cond = target.spawn().and_then(|st| st.spawn_condition(hir));
                     let cond_match = match (cur_spawn_cond, target_spawn_cond) {
                         (Some(e1), Some(e2)) => e1.value_eq_ignore_parameters(e2),
                         (None, None) => true,
                         _ => false,
                     };
                     if !target.params.is_empty() && cond_match {
-                        let target_spawn_args = target.instance_template.spawn_arguments(hir);
+                        let target_spawn_args = target.spawn().map(|st| st.spawn_arguments(hir)).unwrap_or_default();
 
                         assert_eq!(target.params.len(), target_spawn_args.len());
 

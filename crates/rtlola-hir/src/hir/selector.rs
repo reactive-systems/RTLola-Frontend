@@ -46,8 +46,8 @@ impl Selectable for FilterSelector {
         let output = hir.output(sref).unwrap();
         match self {
             FilterSelector::Any => true,
-            FilterSelector::Filtered => output.eval().filter.is_some(),
-            FilterSelector::Unfiltered => output.eval().filter.is_none(),
+            FilterSelector::Filtered => output.eval_filter().is_some(),
+            FilterSelector::Unfiltered => output.eval_filter().is_none(),
         }
     }
 }
@@ -76,7 +76,7 @@ impl Selectable for CloseSelector {
     fn select<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
         let output = hir.output(sref).unwrap();
-        let close_ty: Option<HirType> = output.close().map(|ct| hir.expr_type(ct.target));
+        let close_ty: Option<HirType> = output.close_cond().map(|cond| hir.expr_type(cond));
         match self {
             CloseSelector::Any => true,
             CloseSelector::Closed => close_ty.is_some(),

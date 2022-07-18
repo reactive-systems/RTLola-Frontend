@@ -326,7 +326,7 @@ where
                 self.expression_infer(cond, Some(AbstractValueType::Bool))?;
             }
         }
-        if let Some(ccond) = &self.hir.close(out.sr).and_then(|cd| cd.condition) {
+        if let Some(ccond) = &self.hir.close_cond(out.sr) {
             self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
 
@@ -899,7 +899,7 @@ where
                 });
             }
 
-            if let Some(target) = output.spawn().and_then(|st| st.target) {
+            if let Some(target) = output.spawn_target() {
                 let key = node_key[&NodeId::Expr(target)];
                 let ty: &ConcreteValueType = &tt[&key];
                 match ty {

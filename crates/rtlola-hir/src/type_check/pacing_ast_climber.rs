@@ -144,32 +144,29 @@ where
             self.pacing_key_span.insert(
                 key.spawn.0,
                 output
-                    .spawn()
-                    .and_then(|spawn| spawn.target)
+                    .spawn_target()
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
             );
             self.expression_key_span.insert(
                 key.spawn.1,
                 output
-                    .spawn()
-                    .and_then(|spawn| spawn.condition)
+                    .spawn_cond()
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
             );
             self.expression_key_span.insert(
                 key.filter,
                 output
-                    .eval()
-                    .filter
+                    .eval_filter()
                     .map(|id| self.hir.expression(id).span.clone())
                     .unwrap_or(Span::Unknown),
             );
             self.expression_key_span.insert(
                 key.close,
                 output
-                    .close()
-                    .map(|ct| self.hir.expression(ct.target).span.clone())
+                    .close_cond()
+                    .map(|cond| self.hir.expression(cond).span.clone())
                     .unwrap_or(Span::Unknown),
             );
 
@@ -251,7 +248,7 @@ where
         let exp_key = self.expression_infer(self.hir.eval_unchecked(output.sr).expr)?;
 
         // Check if there is a type is annotated
-        if let Some(ac) = &output.eval().annotated_pacing_type {
+        if let Some(ac) = output.eval_pacing() {
             let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
             self.pacing_key_span.insert(stream_keys.exp_pacing, span);
 
@@ -272,7 +269,7 @@ where
         }
 
         // Type filter
-        if let Some(exp_id) = output.eval().filter {
+        if let Some(exp_id) = output.eval_filter() {
             self.filter_infer(exp_id, stream_keys, exp_key)?;
         }
 
@@ -392,12 +389,12 @@ where
         stream_keys: StreamTypeKeys,
         exp_keys: StreamTypeKeys,
     ) -> Result<(), TypeError<PacingErrorKind>> {
-        let close_target = self.hir.expression(close.target);
+        let close_condition = self.hir.expression(close.condition);
         let close_keys = self.new_stream_key();
 
-        let inferred = self.expression_infer(close_target)?;
+        let inferred = self.expression_infer(close_condition)?;
         self.impose_more_concrete(close_keys, inferred)?;
-        self.node_key.insert(NodeId::Expr(close_target.eid), close_keys);
+        self.node_key.insert(NodeId::Expr(close_condition.eid), close_keys);
 
         // Check if there is a pacing annotated
         if let Some(ac) = close.pacing.as_ref() {
@@ -410,12 +407,12 @@ where
         }
 
         // Close is equal to the expression
-        self.bind_to_annotated_exp_type(exp_keys.close, close_target, stream_keys.close, true);
-        self.expression_tyc.impose(
-            stream_keys
-                .close
-                .concretizes_explicit(AbstractSemanticType::for_close(close_target, self.exp_context.clone())),
-        )?;
+        self.bind_to_annotated_exp_type(exp_keys.close, close_condition, stream_keys.close, true);
+        self.expression_tyc
+            .impose(stream_keys.close.concretizes_explicit(AbstractSemanticType::for_close(
+                close_condition,
+                self.exp_context.clone(),
+            )))?;
 
         //Close of the streams expression is more concrete than the close of the stream
         self.expression_tyc
@@ -703,9 +700,9 @@ where
             let output_filter = &exp_tt[&output_keys.filter].variant;
             let output_close = &exp_tt[&output_keys.close].variant;
 
-            if let Some(template) = output.spawn() {
+            if let Some(spawn) = output.spawn() {
                 //Spawn target
-                if let Some(target) = template.target {
+                if let Some(target) = spawn.target {
                     let keys = nid_key[&NodeId::Expr(target)];
                     if Self::is_parameterized(keys, pacing_tt, exp_tt) {
                         errors.push(
@@ -714,7 +711,7 @@ where
                     }
                 }
                 //Spawn condition
-                if let Some(condition) = template.condition {
+                if let Some(condition) = spawn.condition {
                     let keys = nid_key[&NodeId::Expr(condition)];
                     if Self::is_parameterized(keys, pacing_tt, exp_tt) {
                         errors.push(
@@ -724,7 +721,7 @@ where
                 }
             }
             //Filter expression must have exactly same spawn / close as stream and no filter
-            if let Some(filter) = output.eval().filter {
+            if let Some(filter) = output.eval_filter() {
                 let keys = nid_key[&NodeId::Expr(filter)];
 
                 let positive_top = AbstractSemanticType::positive_top();
@@ -739,17 +736,15 @@ where
             }
 
             //Close expression must either be non parameterized or have exactly same spawn / filter as stream and no filter
-            if let Some(close) = output.close() {
-                let keys = nid_key[&NodeId::Expr(close.target)];
+            if let Some(cond) = output.close_cond() {
+                let keys = nid_key[&NodeId::Expr(cond)];
                 if Self::is_parameterized(keys, pacing_tt, exp_tt)
                     && (pacing_tt[&keys.spawn.0] != output_spawn_pacing
                         || &exp_tt[&keys.spawn.1].variant != output_spawn_cond
                         || &exp_tt[&keys.filter].variant != output_filter
                         || &exp_tt[&keys.close].variant != output_close)
                 {
-                    errors.push(
-                        PacingErrorKind::ParameterizationNotAllowed(hir.expression(close.target).span.clone()).into(),
-                    );
+                    errors.push(PacingErrorKind::ParameterizationNotAllowed(hir.expression(cond).span.clone()).into());
                 }
             }
         }
@@ -758,9 +753,9 @@ where
         for output in hir.outputs() {
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
-            if let Some(template) = output.spawn() {
+            if let Some(spawn) = output.spawn() {
                 if spawn_pacing == ConcretePacingType::Constant || spawn_pacing == ConcretePacingType::Periodic {
-                    let span = template
+                    let span = spawn
                         .pacing
                         .as_ref()
                         .map(|pt| {
@@ -769,8 +764,8 @@ where
                                 AnnotatedPacingType::Expr(id) => hir.expression(*id).span.clone(),
                             }
                         })
-                        .or_else(|| template.target.map(|id| hir.expression(id).span.clone()))
-                        .or_else(|| template.condition.map(|id| hir.expression(id).span.clone()))
+                        .or_else(|| spawn.target.map(|id| hir.expression(id).span.clone()))
+                        .or_else(|| spawn.condition.map(|id| hir.expression(id).span.clone()))
                         .unwrap_or_else(|| output.span.clone());
                     errors.push(
                         PacingErrorKind::Other(
@@ -782,10 +777,10 @@ where
                     )
                 }
             }
-            if let Some(close) = output.close() {
-                let keys = nid_key[&NodeId::Expr(close.target)];
+            if let Some(cond) = output.close_cond() {
+                let keys = nid_key[&NodeId::Expr(cond)];
                 let close_pacing = pacing_tt[&keys.exp_pacing].clone();
-                let span = hir.expression(close.target).span.clone();
+                let span = hir.expression(cond).span.clone();
                 if close_pacing == ConcretePacingType::Periodic {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
                 } else if close_pacing == ConcretePacingType::Constant {
@@ -799,7 +794,7 @@ where
         let positive_top = AbstractSemanticType::positive_top();
         let negative_top = AbstractSemanticType::negative_top();
         for output in hir.outputs() {
-            let keys = nid_key[&NodeId::Expr(output.eval().expr)];
+            let keys = nid_key[&NodeId::Expr(output.eval_expr())];
             let spawn_pacing = pacing_tt[&keys.spawn.0].clone();
             let spawn_cond = &exp_tt[&keys.spawn.1].variant;
             let filter_type = &exp_tt[&keys.filter].variant;
@@ -807,9 +802,9 @@ where
 
             let spawn_pacing =
                 (output.spawn().is_none() && spawn_pacing != ConcretePacingType::Constant).then(|| spawn_pacing);
-            let spawn_cond = (output.spawn().and_then(|st| st.condition).is_none() && spawn_cond != &positive_top)
+            let spawn_cond = (output.spawn_cond().is_none() && spawn_cond != &positive_top)
                 .then(|| spawn_cond.construct(&[]).expect("variant to not be any"));
-            let filter = (output.eval().filter.is_none() && filter_type != &positive_top)
+            let filter = (output.eval_filter().is_none() && filter_type != &positive_top)
                 .then(|| filter_type.construct(&[]).expect("variant to not be any"));
             let close = (output.close().is_none() && close_type != &negative_top)
                 .then(|| close_type.construct(&[]).expect("variant to not be any"));
@@ -818,7 +813,7 @@ where
                 errors.push(
                     PacingErrorKind::ParameterizationNeeded {
                         who: output.span.clone(),
-                        why: hir.expression(output.eval().expr).span.clone(),
+                        why: hir.expression(output.eval_expr()).span.clone(),
                         inferred: Box::new(InferredTemplates {
                             spawn_pacing,
                             spawn_cond,
@@ -833,11 +828,11 @@ where
 
         //Warning unintuitive spawn type
         for output in hir.outputs() {
-            if let Some(template) = output.spawn() {
-                if let Some(target_id) = template.target {
+            if let Some(spawn) = output.spawn() {
+                if let Some(target_id) = spawn.target {
                     let target_type = pacing_tt[&nid_key[&NodeId::Expr(target_id)].exp_pacing].clone();
                     let spawn_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].spawn.0].clone();
-                    if template.pacing.is_none() && target_type != spawn_pacing {
+                    if spawn.pacing.is_none() && target_type != spawn_pacing {
                         errors.push(
                             PacingErrorKind::UnintuitivePacingWarning(
                                 hir.expression(target_id).span.clone(),
@@ -852,9 +847,9 @@ where
 
         //Warning unintuitive exp pacing
         for output in hir.outputs() {
-            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.eval().expr)].exp_pacing].clone();
+            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.eval_expr())].exp_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].exp_pacing].clone();
-            if output.eval().annotated_pacing_type.is_none() && exp_pacing != stream_pacing {
+            if output.eval_pacing().is_none() && exp_pacing != stream_pacing {
                 errors.push(PacingErrorKind::UnintuitivePacingWarning(output.span.clone(), stream_pacing).into());
             }
         }
@@ -866,8 +861,8 @@ where
             .flat_map(|o| {
                 vec![
                     Some(NodeId::SRef(o.sr)),
-                    o.eval().filter.map(NodeId::Expr),
-                    o.close().map(|ct| NodeId::Expr(ct.target)),
+                    o.eval_filter().map(NodeId::Expr),
+                    o.close_cond().map(NodeId::Expr),
                 ]
             })
             .flatten()
@@ -1991,7 +1986,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let filter = tt[&NodeId::Expr(hir.outputs[0].eval().filter.unwrap())].clone();
+        let filter = tt[&NodeId::Expr(hir.outputs[0].eval_filter().unwrap())].clone();
         assert_eq!(
             filter.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
@@ -2057,7 +2052,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close_cond().unwrap())].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Stream(get_sr_for_name(&hir, "z")))
@@ -2091,7 +2086,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close_cond().unwrap())].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
@@ -2257,7 +2252,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let close = tt[&NodeId::Expr(hir.outputs[0].close().unwrap().target)].clone();
+        let close = tt[&NodeId::Expr(hir.outputs[0].close_cond().unwrap())].clone();
         assert_eq!(
             close.expression_pacing,
             ConcretePacingType::Event(ActivationCondition::Conjunction(vec![
