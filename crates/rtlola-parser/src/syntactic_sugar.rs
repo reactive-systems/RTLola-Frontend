@@ -148,7 +148,6 @@ impl Desugarizer {
                         target,
                         condition,
                         annotated_pacing,
-                        is_if,
                         id,
                         span,
                     } = spawn_spec;
@@ -166,7 +165,6 @@ impl Desugarizer {
                         target,
                         condition,
                         annotated_pacing,
-                        is_if,
                         id,
                         span,
                     })
@@ -293,7 +291,6 @@ impl Desugarizer {
                                 target,
                                 condition,
                                 annotated_pacing,
-                                is_if,
                                 id,
                                 span,
                             } = spawn_spec;
@@ -306,7 +303,6 @@ impl Desugarizer {
                                 target,
                                 condition,
                                 annotated_pacing,
-                                is_if,
                                 id,
                                 span,
                             })

@@ -497,7 +497,6 @@ impl RtLolaParser {
             target,
             annotated_pacing,
             condition,
-            is_if: true,
             id: self.spec.next_id(),
             span: span_inv,
         })

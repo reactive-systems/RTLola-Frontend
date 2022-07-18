@@ -953,7 +953,6 @@ impl ExpressionTransformer {
                 target,
                 annotated_pacing,
                 condition,
-                is_if,
                 ..
             } = spawn_spec;
             let target = target.map_or(Ok(None), |target_exp| {
@@ -970,14 +969,7 @@ impl ExpressionTransformer {
             })?;
 
             let condition = condition.map_or(Ok(None), |cond_expr| {
-                let mut e = self.transform_expression(cond_expr, current_output)?;
-                if !is_if {
-                    e = Expression {
-                        kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
-                        eid: self.next_exp_id(),
-                        span: e.span,
-                    }
-                }
+                let e = self.transform_expression(cond_expr, current_output)?;
                 Ok(Some(Self::insert_return(exprid_to_expr, e)))
             })?;
             Ok(Some(SpawnTemplate {

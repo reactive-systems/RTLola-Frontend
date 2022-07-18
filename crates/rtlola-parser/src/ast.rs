@@ -173,8 +173,6 @@ pub struct SpawnSpec {
     pub annotated_pacing: Option<Expression>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
-    /// A flag to describe if the condition is an `if` or an `unless` condition.
-    pub is_if: bool,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the invoke declaration
