@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Include stream access kind in Mir
+- Update for new Syntax: inline and update InstanceTemplate
 
 ## [0.5.3] - 12.04.2022
 
