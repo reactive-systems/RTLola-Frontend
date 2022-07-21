@@ -28,8 +28,7 @@ impl AggrMethodToWindow {
                 let target_stream = base.clone();
                 let wait = false;
                 let duration = Box::new(arguments[0].clone());
-                let mut new_id = expr.id;
-                new_id.prime_counter += 1;
+                let new_id = expr.id.primed();
                 let new_expr = Expression {
                     kind: ExpressionKind::SlidingWindowAggregation {
                         expr: target_stream,

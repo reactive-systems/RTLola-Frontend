@@ -231,101 +231,102 @@ impl RtLolaParser {
      */
     fn parse_output(&self, pair: Pair<'_, Rule>) -> Result<Output, RtLolaError> {
         assert_eq!(pair.as_rule(), Rule::OutputStream);
+
         let span = pair.as_span().into();
-        let mut pairs = pair.into_inner();
+        let mut pairs = pair.into_inner().peekable();
         let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
 
         let mut error = RtLolaError::new();
+        let mut eval = Vec::new();
+        let mut spawn: Option<SpawnSpec> = None;
+        let mut close: Option<CloseSpec> = None;
 
-        let mut pair = pairs.next().expect("mismatch between grammar and AST");
+        let mut pair = pairs.peek().expect("mismatch between grammar and AST");
         let params = if let Rule::ParamList = pair.as_rule() {
-            let res = self.parse_parameter_list(pair.into_inner());
-            pair = pairs.next().expect("mismatch between grammar and AST");
+            let local_pair = pairs.next().expect("mismatch between grammar and AST");
+            let res = self.parse_parameter_list(local_pair.into_inner());
 
             res
         } else {
             Vec::new()
         };
 
+        pair = pairs.peek().expect("mismatch between grammar and AST");
         let annotated_type = if let Rule::Type = pair.as_rule() {
-            let ty = self.parse_type(pair);
-            pair = pairs.next().expect("mismatch between grammar and AST");
+            let local_pair = pairs.next().expect("mismatch between grammar and AST");
+            let ty = self.parse_type(local_pair);
+
             Some(ty)
         } else {
             None
         };
 
-        // Parse the `@ [Expr]` part of output declaration
-        let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
-            let expr = self.build_expression_ast(pair.into_inner());
-            pair = pairs.next().expect("mismatch between grammar and AST");
-            expr.map_or_else(
-                |e| {
-                    error.join(e);
-                    None
+        pairs.for_each(|pair| {
+            match pair.as_rule() {
+                Rule::SpawnDecl => {
+                    if let Some(old_spawn) = &spawn {
+                        let err = Diagnostic::error("Multiple Spawn clauses found")
+                            .add_span_with_label(old_spawn.span.clone(), Some("first Spawn here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
+                        error.add(err);
+                    }
+                    let spawn_spec = self.parse_spawn_spec(pair);
+                    spawn = spawn_spec.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
                 },
-                Some,
-            )
-        } else {
-            None
-        };
-
-        let spawn = if let Rule::SpawnDecl = pair.as_rule() {
-            let spawn_spec = self.parse_spawn_spec(pair);
-            pair = pairs.next().expect("mismatch between grammar and AST");
-            spawn_spec.map_or_else(
-                |e| {
-                    error.join(e);
-                    None
+                Rule::CloseDecl => {
+                    if let Some(old_close) = &close {
+                        let err = Diagnostic::error("Multiple Close clauses found")
+                            .add_span_with_label(old_close.span.clone(), Some("first Close here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
+                        error.add(err);
+                    }
+                    let close_spec = self.parse_close_spec(pair);
+                    close = close_spec.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    );
                 },
-                Some,
-            )
-        } else {
-            None
-        };
-
-        let filter = if let Rule::FilterDecl = pair.as_rule() {
-            let filter_spec = self.parse_filter_spec(pair);
-            pair = pairs.next().expect("mismatch between grammar and AST");
-            filter_spec.map_or_else(
-                |e| {
-                    error.join(e);
-                    None
+                Rule::EvalDecl => {
+                    let eval_spec = self.parse_eval_spec(pair);
+                    match eval_spec {
+                        Ok(eval_spec) => eval.push(eval_spec),
+                        Err(e) => error.join(e),
+                    }
                 },
-                Some,
-            )
-        } else {
-            None
-        };
-
-        let close = if let Rule::CloseDecl = pair.as_rule() {
-            let close_spec = self.parse_close_spec(pair);
-            pair = pairs.next().expect("mismatch between grammar and AST");
-            close_spec.map_or_else(
-                |e| {
-                    error.join(e);
-                    None
+                Rule::SimpleEvalDecl => {
+                    let eval_spec = self.parse_eval_spec_simple(pair.clone());
+                    match eval_spec {
+                        Ok(eval_spec) => {
+                            debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
+                            eval.push(eval_spec)
+                        },
+                        Err(e) => error.join(e),
+                    }
                 },
-                Some,
-            )
-        } else {
-            None
-        };
+                _ => {
+                    unreachable!("mismatch between grammar and AST")
+                },
+            }
+        });
 
-        // Parse expression
-        let exp_res = self.build_expression_ast(pair.into_inner());
-        let expression = RtLolaError::combine(exp_res, Result::from(error), |exp, _| exp)?;
-
+        Result::from(error)?;
         Ok(Output {
             id: self.spec.next_id(),
             name,
             annotated_type,
-            annotated_pacing_type,
             params: params.into_iter().map(Rc::new).collect(),
             spawn,
-            filter,
+            eval,
             close,
-            expression,
             span,
         })
     }
@@ -357,15 +358,15 @@ impl RtLolaParser {
     fn parse_spawn_spec(&self, spawn_pair: Pair<'_, Rule>) -> Result<SpawnSpec, RtLolaError> {
         let span_inv: Span = spawn_pair.as_span().into();
 
-        let mut spawn_children = spawn_pair.into_inner();
-        let mut next_pair = spawn_children.next();
+        let mut spawn_children = spawn_pair.into_inner().peekable();
+        let next_pair = spawn_children.peek();
 
         let mut error = RtLolaError::new();
 
-        let annotated_pacing = if let Some(pair) = next_pair.clone() {
+        let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner());
-                next_pair = spawn_children.next();
+                let expr = self.build_expression_ast(pair.clone().into_inner());
+                spawn_children.next();
                 expr.map_or_else(
                     |e| {
                         error.join(e);
@@ -380,18 +381,80 @@ impl RtLolaParser {
             None
         };
 
-        let target = if let Some(pair) = next_pair.clone() {
-            if let Rule::SpawnWith = pair.as_rule() {
-                let target_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
-                let target_exp = self.build_expression_ast(target_pair.into_inner());
-                next_pair = spawn_children.next();
-                target_exp.map_or_else(
-                    |e| {
-                        error.join(e);
-                        None
-                    },
-                    Some,
-                )
+        let mut condition: Option<Expression> = None;
+        let mut expression: Option<Expression> = None;
+        for pair in spawn_children {
+            match pair.as_rule() {
+                Rule::SpawnWhen => {
+                    if let Some(old_condition) = &condition {
+                        let err = Diagnostic::error("Multiple Spawn conditions found")
+                            .add_span_with_label(old_condition.span.clone(), Some("first spawn condition here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
+                        error.add(err);
+                    }
+                    let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                    let condition_exp = self.build_expression_ast(condition_pair.into_inner());
+                    condition = condition_exp.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
+                },
+                Rule::SpawnWith => {
+                    if let Some(old_expression) = &expression {
+                        let err = Diagnostic::error("Multiple Spawn expressions found")
+                            .add_span_with_label(old_expression.span.clone(), Some("first spawn expression here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
+                        error.add(err);
+                    }
+                    let expression_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                    let spawn_expr = self.build_expression_ast(expression_pair.into_inner());
+                    expression = spawn_expr.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
+                },
+                _ => unreachable!("mismatch between grammar and AST"),
+            }
+        }
+
+        if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
+            error.add(
+                Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
+                    span_inv.clone(),
+                    Some("found spawn here"),
+                    true,
+                ),
+            );
+        }
+
+        Result::from(error)?;
+
+        Ok(SpawnSpec {
+            expression,
+            annotated_pacing,
+            condition,
+            id: self.spec.next_id(),
+            span: span_inv,
+        })
+    }
+
+    fn parse_eval_spec_simple(&self, ext_pair: Pair<'_, Rule>) -> Result<EvalSpec, RtLolaError> {
+        let span_ext: Span = ext_pair.as_span().into();
+
+        let mut children = ext_pair.into_inner();
+        let mut next_pair = children.next();
+
+        let annotated_pacing = if let Some(pair) = next_pair.clone() {
+            if let Rule::ActivationCondition = pair.as_rule() {
+                let expr = self.build_expression_ast(pair.into_inner())?;
+                next_pair = children.next();
+                Some(expr)
             } else {
                 None
             }
@@ -399,58 +462,101 @@ impl RtLolaParser {
             None
         };
 
-        let (condition, is_if) = if let Some(pair) = next_pair {
-            let is_if = match pair.as_rule() {
-                Rule::SpawnIf => true,
-                Rule::SpawnUnless => false,
-                _ => unreachable!(),
-            };
-            let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
-            let condition_exp = self.build_expression_ast(condition_pair.into_inner());
-            let condition = condition_exp.map_or_else(
-                |e| {
-                    error.join(e);
-                    None
-                },
-                Some,
-            );
-            (condition, is_if)
-        } else {
-            (None, false)
-        };
+        let exp_res = self.build_expression_ast(next_pair.expect("Mismatch between grammar and AST").into_inner())?;
 
-        if target.is_none() && condition.is_none() && annotated_pacing.is_none() {
-            error.add(
-                Diagnostic::error("Spawn condition needs either expression or condition").add_span_with_label(
-                    span_inv.clone(),
-                    Some("found spawn condition here"),
-                    true,
-                ),
-            );
-        }
-        Result::from(error)?;
-        Ok(SpawnSpec {
-            target,
+        Ok(EvalSpec {
             annotated_pacing,
-            condition,
-            is_if,
+            condition: None,
+            eval_expression: Some(exp_res),
             id: self.spec.next_id(),
-            span: span_inv,
+            span: span_ext,
         })
     }
 
-    fn parse_filter_spec(&self, ext_pair: Pair<'_, Rule>) -> Result<FilterSpec, RtLolaError> {
+    fn parse_eval_spec(&self, ext_pair: Pair<'_, Rule>) -> Result<EvalSpec, RtLolaError> {
         let span_ext: Span = ext_pair.as_span().into();
 
-        let mut children = ext_pair.into_inner();
+        let mut children = ext_pair.into_inner().peekable();
+        let next_pair = children.peek();
 
-        let first_child = children.next().expect("mismatch between grammar and ast");
-        let target = match first_child.as_rule() {
-            Rule::Expr => self.build_expression_ast(first_child.into_inner())?,
-            _ => unreachable!(),
+        let mut error = RtLolaError::new();
+
+        let annotated_pacing = if let Some(pair) = next_pair {
+            if let Rule::ActivationCondition = pair.as_rule() {
+                let expr = self.build_expression_ast(pair.clone().into_inner())?;
+                children.next();
+                Some(expr)
+            } else {
+                None
+            }
+        } else {
+            None
         };
-        Ok(FilterSpec {
-            target,
+
+        let mut condition: Option<Expression> = None;
+        let mut eval_expr: Option<Expression> = None;
+        for pair in children {
+            match pair.as_rule() {
+                Rule::EvalWhen => {
+                    if let Some(old_cond) = &condition {
+                        let err = Diagnostic::error("Multiple evaluation conditions found")
+                            .add_span_with_label(old_cond.span.clone(), Some("first condition here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
+                        error.add(err);
+                    }
+                    let condition_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                    let cond_expr = self.build_expression_ast(condition_pair.into_inner());
+                    condition = cond_expr.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
+                },
+                Rule::EvalWith => {
+                    if let Some(old_eval) = &eval_expr {
+                        let err = Diagnostic::error("Multiple eval expressions found")
+                            .add_span_with_label(old_eval.span.clone(), Some("first eval expression here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
+                        error.add(err);
+                    }
+                    let expression_pair = pair.into_inner().next().expect("mismatch between grammar and AST");
+                    let target_exp = self.build_expression_ast(expression_pair.into_inner());
+                    eval_expr = target_exp.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
+                },
+                _ => unreachable!("mismatch between grammar and AST"),
+            }
+        }
+
+        if eval_expr.is_none() && condition.is_none() && annotated_pacing.is_none() {
+            error.add(
+                Diagnostic::error("Eval clause needs either expression or condition").add_span_with_label(
+                    span_ext.clone(),
+                    Some("found eval clause here"),
+                    true,
+                ),
+            );
+        } else if eval_expr.is_none() {
+            eval_expr = Some(Expression {
+                id: self.spec.next_id(),
+                span: span_ext.clone(),
+                kind: ExpressionKind::Tuple(Vec::new()),
+            })
+        }
+
+        Result::from(error)?;
+
+        Ok(EvalSpec {
+            annotated_pacing,
+            condition,
+            eval_expression: eval_expr,
             id: self.spec.next_id(),
             span: span_ext,
         })
@@ -475,13 +581,13 @@ impl RtLolaParser {
             None
         };
 
-        let target_child = next_pair.expect("mismatch between grammar and ast");
-        let target = match target_child.as_rule() {
-            Rule::Expr => self.build_expression_ast(target_child.into_inner()),
+        let condition_pair = next_pair.expect("mismatch between grammar and ast");
+        let condition = match condition_pair.as_rule() {
+            Rule::Expr => self.build_expression_ast(condition_pair.into_inner()),
             _ => unreachable!(),
         }?;
         Ok(CloseSpec {
-            target,
+            condition,
             annotated_pacing,
             id: self.spec.next_id(),
             span: span_close,
@@ -1072,7 +1178,7 @@ impl RtLolaParser {
                     ))
                 },
             };
-            let factor = BigInt::from_u8(10).unwrap().pow(exp.abs() as u16);
+            let factor = BigInt::from_u8(10).unwrap().pow(exp.unsigned_abs());
             if exp.is_negative() {
                 r /= factor;
             } else {
@@ -1158,6 +1264,13 @@ mod tests {
 
     fn parse(spec: &str) -> RtLolaAst {
         super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
+    }
+
+    fn parse_without_desugar(spec: &str) -> RtLolaAst {
+        let cfg = ParserConfig::for_string(spec.into());
+        RtLolaParser::new(cfg)
+            .parse_spec()
+            .unwrap_or_else(|e| panic!("{:?}", e))
     }
 
     fn cmp_ast_spec(ast: &RtLolaAst, spec: &str) -> bool {
@@ -1258,7 +1371,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
-        let mirror = parser.parse_mirror(pair).expect("failed to parse filter condition");
+        let mirror = parser.parse_mirror(pair).expect("failed to parse eval condition");
         assert_eq!(format!("{}", mirror), "output a mirror b when 3 > 5");
     }
 
@@ -1281,12 +1394,14 @@ mod tests {
                     Type(12, 15, [
                         Ident(12, 15, []),
                     ]),
-                    Expr(19, 25, [
-                        Ident(19, 21, []),
-                        Add(22, 23, []),
-                        Literal(24, 25, [
-                            NumberLiteral(24, 25, [
-                                NumberLiteralValue(24, 25, [])
+                    SimpleEvalDecl(16, 25, [
+                        Expr(19, 25, [
+                            Ident(19, 21, []),
+                            Add(22, 23, []),
+                            Literal(24, 25, [
+                                NumberLiteral(24, 25, [
+                                    NumberLiteralValue(24, 25, [])
+                                ]),
                             ]),
                         ]),
                     ]),
@@ -1297,7 +1412,7 @@ mod tests {
 
     #[test]
     fn parse_output_ast() {
-        let spec = "output out: Int := in + 1";
+        let spec = "output out: Int eval with in + 1";
         let parser = create_parser(spec);
         let pair = LolaParser::parse(Rule::OutputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
@@ -1376,7 +1491,7 @@ mod tests {
 
     #[test]
     fn build_simple_ast() {
-        let spec = "input in: Int\noutput out: Int := in\ntrigger in ≠ out\n";
+        let spec = "input in: Int\noutput out: Int eval with in\ntrigger in ≠ out\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1390,42 +1505,42 @@ mod tests {
 
     #[test]
     fn build_parenthesized_expression() {
-        let spec = "output s: Bool := (true ∨ true)\n";
+        let spec = "output s: Bool eval with (true ∨ true)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_optional_type() {
-        let spec = "output s: Bool? := (false ∨ true)\n";
+        let spec = "output s: Bool? eval with (false ∨ true)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_lookup_expression_default() {
-        let spec = "output s: Int := s.offset(by: -1).defaults(to: (3 * 4))\n";
+        let spec = "output s: Int eval with s.offset(by: -1).defaults(to: (3 * 4))\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_lookup_expression_hold() {
-        let spec = "output s: Int := s.offset(by: -1).hold().defaults(to: 3 * 4)\n";
+        let spec = "output s: Int eval with s.offset(by: -1).hold().defaults(to: 3 * 4)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_ternary_expression() {
-        let spec = "input in: Int\noutput s: Int := if in = 3 then 4 else in + 2\n";
+        let spec = "input in: Int\noutput s: Int eval with if in = 3 then 4 else in + 2\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_function_expression() {
-        let spec = "input in: (Int, Bool)\noutput s: Int := nroot(1, sin(1, in))\n";
+        let spec = "input in: (Int, Bool)\noutput s: Int eval with nroot(1, sin(1, in))\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1473,7 +1588,7 @@ mod tests {
     #[test]
     fn build_complex_expression() {
         let spec =
-            "output s: Double := if !((s.offset(by: -1).defaults(to: (3 * 4)) + -4) = 12) ∨ true = false then 2.0 else 4.1\n";
+            "output s: Double eval with if !((s.offset(by: -1).defaults(to: (3 * 4)) + -4) = 12) ∨ true = false then 2.0 else 4.1\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1487,21 +1602,21 @@ mod tests {
 
     #[test]
     fn build_parameter_list() {
-        let spec = "output s (a: B, c: D): E := 3\n";
+        let spec = "output s (a: B, c: D): E eval with 3\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_termination_spec() {
-        let spec = "output s (a: Int): Int close s > 10 := 3\n";
+        let spec = "output s (a: Int): Int eval with 3 close when s > 10\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_tuple_expression() {
-        let spec = "input in: (Int, Bool)\noutput s: Int := (1, in.0).1\n";
+        let spec = "input in: (Int, Bool)\noutput s: Int eval with (1, in.0).1\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1531,42 +1646,42 @@ mod tests {
 
     #[test]
     fn parse_max() {
-        let spec = "import math\ninput a: Int32\ninput b: Int32\noutput maxres: Int32 := max<Int32>(a, b)\n";
+        let spec = "import math\ninput a: Int32\ninput b: Int32\noutput maxres: Int32 eval with max<Int32>(a, b)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_method_call() {
-        let spec = "output count := count.offset(-1).default(0) + 1\n";
+        let spec = "output count eval with count.offset(-1).default(0) + 1\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_method_call_with_param() {
-        let spec = "output count := count.offset<Int8>(-1).default(0) + 1\n";
+        let spec = "output count eval with count.offset<Int8>(-1).default(0) + 1\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_realtime_offset() {
-        let spec = "output a := b.offset(by: -1s)\n";
+        let spec = "output a eval with b.offset(by: -1s)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_future_offset() {
-        let spec = "output a := b.offset(by: 1)\n";
+        let spec = "output a eval with b.offset(by: 1)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn parse_function_argument_name() {
-        let spec = "output a := b.hold().defaults(to: 0)\n";
+        let spec = "output a eval with b.hold().defaults(to: 0)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1608,36 +1723,154 @@ mod tests {
     }
 
     #[test]
-    fn regression71() {
+    fn regression71_and_simple_decl() {
         let spec = "output outputstream := 42 output c := outputstream";
         let ast = parse(spec);
-        cmp_ast_spec(&ast, "output outputstream := 42\noutput c := outputstream\n");
+        cmp_ast_spec(
+            &ast,
+            "output outputstream eval with 42\noutput c eval with outputstream\n",
+        );
     }
 
     #[test]
     fn parse_bitwise() {
-        let spec = "output x := 1 ^ 0 & 23123 | 111\n";
+        let spec = "output x eval with 1 ^ 0 & 23123 | 111\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
-    fn spawn_no_target() {
-        let spec = "output x spawn if true := 5\n";
+    fn spawn_no_expression() {
+        let spec = "output x spawn when true eval with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn spawn_no_cond_with_pacing() {
+        let spec = "output x (y: Int32) spawn @1Hz with 1 eval with 5 close @1Hz when true\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_template_spec() {
-        let spec = "output x (y: Int8) @ 1Hz spawn with (42) if true filter y = 1337 close false := 5\n";
+        let spec = "output x (y: Int8) spawn with 42 eval @1Hz when y = 1337 with 5 close when false\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
-    fn spawn_no_target_no_condition() {
-        let spec = "output x spawn := 5\n";
+    fn build_full_template_spec_type() {
+        let spec =
+            "output x (y: Int8): Bool spawn when y = 3 with 42 eval @1Hz when y = 1337 with 5 close when false\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_full_template_spec() {
+        //spawn eval close
+        let spec = "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn build_full_order1() {
+        // close eval spawn
+        let spec = "output x (y: Int8) close when false eval @1Hz when y = 1337 with 5 spawn when y = 17 with 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn build_full_order2() {
+        // eval close spawn
+        let spec = "output x (y: Int8) eval @1Hz when y = 1337 with 5  close when false spawn when y = 17 with 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn build_full_order3() {
+        // eval spawn close
+        let spec = "output x (y: Int8) eval @1Hz when y = 1337 with 5 spawn when y = 17 with 42 close when false\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn build_full_order4() {
+        // close spawn eval
+        let spec = "output x (y: Int8) close when false spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn build_full_order5() {
+        // spawn close eval
+        let spec = "output x (y: Int8) spawn when y = 17 with 42 close when false eval @1Hz when y = 1337 with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1337 with 5 close when false\n",
+        );
+    }
+
+    #[test]
+    fn multiple_eval_inputs() {
+        // eval eval eval
+        let spec = "output x (y: Int8) eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn multiple_eval_inputs_with_spawn() {
+        // eval eval eval spawn
+        let spec = "output x (y: Int8) eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6 spawn when y = 17 with 42\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) spawn when y = 17 with 42 eval @1Hz when y = 1336 with 4 eval @1Hz when y = 1337 with 5 eval @1Hz when y = 1338 with 6\n");
+    }
+
+    #[test]
+    fn multiple_eval_inputs_with_close() {
+        // close eval eval eval
+        let spec = "output x (y: Int8) close when false eval when y = 1336 with 4 eval when y = 1337 with 5 eval when y = 1338 with 6\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) eval when y = 1336 with 4 eval when y = 1337 with 5 eval when y = 1338 with 6 close when false\n");
+        //let ast2 = parse(spec);
+        //cmp_ast_spec(&ast2, "output x (y: Int8) eval when y = 1336 ∨ y = 1337 ∨ y = 1338 with if y = 1336 then 4 else if y = 1337 then 5 else 6 close when false\n");
+    }
+
+    #[test]
+    fn build_full_template_spec_type_two_eval() {
+        // spawn eval eval close
+        let spec = "output x (y: Int8): Bool spawn when y = 17 with 42 eval @1Hz when y = 1336 with 4 eval when y = 1337 with 5 close when false\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_multiple_close() {
+        let spec = "output x close when true eval with 5 close when false\n";
         let parser = create_parser(spec);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
@@ -1646,24 +1879,118 @@ mod tests {
     }
 
     #[test]
+    fn spawn_parts_order1() {
+        let spec = "output x (y: Int8) spawn with 42 when y = 1 eval with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) spawn when y = 1 with 42 eval with 5\n");
+    }
+
+    #[test]
+    fn spawn_parts_order2() {
+        let spec = "output x (y: Int8) spawn when y = 1 with 42 eval with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn eval_parts_order1() {
+        let spec = "output x (y: Int8) spawn with 42 eval with 5 when y = 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "output x (y: Int8) spawn with 42 eval when y = 42 with 5\n");
+    }
+
+    #[test]
+    fn eval_parts_order2() {
+        let spec = "output x (y: Int8) spawn with 42 eval when y = 42 with 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn spawn_duplicate_when() {
+        let spec = "output x spawn when true when true eval with 5\n";
+        let parser = create_parser(spec.clone());
+
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn spawn_duplicate_with() {
+        let spec = "output x (p) spawn @1Hz with 3 with 3 eval with 5\n";
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn duplicate_close_clauses() {
+        let spec = "output x eval with 5 close when true close when x == 5\n";
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => {
+                //use rtlola_reporting::Handler;
+                //let h = Handler::from(ParserConfig::for_string(spec.to_string()));
+                //h.emit_error(&e);
+                assert_eq!(e.num_errors(), 1)
+            },
+        }
+    }
+
+    #[test]
+    fn spawn_no_expr_no_condition_np_pacing() {
+        let spec = "output x spawn eval with 5\n";
+        let parser = create_parser(spec);
+        match parser.parse_spec() {
+            Ok(_) => panic!("Expected error"),
+            Err(e) => assert_eq!(e.num_errors(), 1),
+        }
+    }
+
+    #[test]
+    fn eval_no_expr() {
+        let spec = "output x (y: Int8) spawn when true with 42 eval @1Hz when y = 42\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "output x (y: Int8) spawn when true with 42 eval @1Hz when y = 42 with ()\n",
+        );
+    }
+
+    #[test]
     fn valid_percentile() {
-        let spec = "output x := x.aggregate(over: 3s, using: pctl15)\n";
+        let spec = "output x eval with x.aggregate(over: 3s, using: pctl15)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn spawn_with_pacing() {
-        let spec = "output x spawn @3Hz with (x) if true := 5\n";
+        let spec = "output x eval with 5 spawn @3Hz with (x)\n";
         let ast = parse(spec);
-        cmp_ast_spec(&ast, spec);
+        cmp_ast_spec(&ast, "output x spawn @3Hz with (x) eval with 5\n");
     }
 
     #[test]
     fn test_instance_window() {
         let spec = "input a: Int32\n\
-        output b (p: Bool) spawn with a = 42 := a\n\
-        output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
+        output b (p: Bool) spawn with a = 42 eval with a\n\
+        output c eval @1Hz with b(false).aggregate(over: 1s, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }

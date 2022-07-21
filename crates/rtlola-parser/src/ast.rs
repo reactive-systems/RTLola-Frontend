@@ -120,18 +120,14 @@ pub struct Output {
     pub name: Ident,
     /// An optional value type annotation of the output stream
     pub annotated_type: Option<Type>,
-    /// The pacing type, which defines when a new value of a stream is computed.
-    pub annotated_pacing_type: Option<Expression>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Rc<Parameter>>,
     /// The spawn declaration of a parameterized stream
     pub spawn: Option<SpawnSpec>,
-    /// The filter declaration of a parameterized stream
-    pub filter: Option<FilterSpec>,
+    /// The eval declaration of a stream,
+    pub eval: Vec<EvalSpec>,
     ///  The close declaration of parametrized stream
     pub close: Option<CloseSpec>,
-    /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
-    pub expression: Expression,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the output stream
@@ -168,39 +164,41 @@ pub struct Parameter {
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a spawn condition of a stream template.
+/// An Ast node representing the declaration of a spawn condition and expression of a stream.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: Option<Expression>,
+    pub expression: Option<Expression>,
     /// The pacing type describing when a new instance is created.
     pub annotated_pacing: Option<Expression>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
-    /// A flag to describe if the condition is an `if` or an `unless` condition.
-    pub is_if: bool,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the invoke declaration
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a filter condition of a stream template
+/// An Ast node representing the evaluation condition and expression of a stream
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct FilterSpec {
+pub struct EvalSpec {
+    /// The pacing type describing when a new value is computed.
+    pub annotated_pacing: Option<Expression>,
     /// The boolean expression defining the condition, if a stream instance is evaluated.
-    pub target: Expression,
+    pub condition: Option<Expression>,
+    /// The evaluated expression, defining the value of the stream.
+    pub eval_expression: Option<Expression>,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a close condition of a stream template
+/// An Ast node representing the declaration of a close condition of a stream
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
-    pub target: Expression,
+    pub condition: Expression,
     /// The pacing type describing when the close condition is evaluated.
     pub annotated_pacing: Option<Expression>,
     /// The id of the node in the Ast
@@ -622,7 +620,7 @@ impl Hash for Ident {
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NodeId {
     /// The actual unique id.
     pub id: u32,
@@ -639,13 +637,13 @@ impl NodeId {
             prime_counter: 0u32,
         }
     }
-}
 
-impl Default for NodeId {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            prime_counter: 0,
+    /// Creates a copy NodeId with incremented prime counter, which indicates a applied transformation for desugarization.
+    pub fn primed(&self) -> Self {
+        let NodeId { id, prime_counter } = *self;
+        NodeId {
+            id,
+            prime_counter: prime_counter + 1,
         }
     }
 }

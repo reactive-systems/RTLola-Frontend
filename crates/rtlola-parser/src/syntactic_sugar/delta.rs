@@ -31,8 +31,7 @@ impl Delta {
                     return ChangeSet::empty();
                 }
                 let target_stream = args[0].clone();
-                let mut new_id = expr.id;
-                new_id.prime_counter += 1;
+                let new_id = expr.id.primed();
 
                 let indirect_span = Span::Indirect(Box::new(expr.span.clone()));
 

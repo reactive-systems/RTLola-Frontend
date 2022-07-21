@@ -12,7 +12,7 @@ use crate::stdlib::FuncDecl;
 /// Static vec of all Lola keywords, used to check for name conflicts. These MUST all be lowercase.
 // TODO add an static assertion for this
 pub(crate) const KEYWORDS: [&str; 24] = [
-    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "filter", "close", "with", "unless",
+    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "when", "close", "with", "unless",
     "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
 ];
 
@@ -318,8 +318,8 @@ impl NamingAnalysis {
                 .collect::<RtLolaError>();
             error.join(para_errors);
             if let Some(spawn) = &output.spawn {
-                if let Some(target) = &spawn.target {
-                    if let Err(e) = self.check_expression(target) {
+                if let Some(spawn_expr) = &spawn.expression {
+                    if let Err(e) = self.check_expression(spawn_expr) {
                         error.join(e);
                     }
                 }
@@ -334,13 +334,8 @@ impl NamingAnalysis {
                     }
                 }
             }
-            if let Some(filter) = &output.filter {
-                if let Err(e) = self.check_expression(&filter.target) {
-                    error.join(e);
-                }
-            }
             if let Some(close) = &output.close {
-                if let Err(e) = self.check_expression(&close.target) {
+                if let Err(e) = self.check_expression(&close.condition) {
                     error.join(e);
                 }
                 if let Some(pacing) = &close.annotated_pacing {
@@ -349,16 +344,31 @@ impl NamingAnalysis {
                     }
                 }
             }
-            if let Some(pt) = output.annotated_pacing_type.as_ref() {
-                if let Err(e) = self.check_expression(pt) {
-                    error.join(e);
+
+            assert!(
+                output.eval.len() <= 1,
+                "Multiple eval conditions should be removed during desugarization."
+            );
+            if let Some(eval_spec) = &output.eval.get(0) {
+                if let Some(pt) = eval_spec.annotated_pacing.as_ref() {
+                    if let Err(e) = self.check_expression(pt) {
+                        error.join(e);
+                    }
                 }
+                if let Some(eval_cond) = &eval_spec.condition {
+                    if let Err(e) = self.check_expression(eval_cond) {
+                        error.join(e);
+                    }
+                }
+
+                self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
+                if let Some(eval_expr) = &eval_spec.eval_expression {
+                    if let Err(e) = self.check_expression(eval_expr) {
+                        error.join(e);
+                    }
+                }
+                self.declarations.pop();
             }
-            self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
-            if let Err(e) = self.check_expression(&output.expression) {
-                error.join(e);
-            }
-            self.declarations.pop();
         }
         error.into()
     }
@@ -693,7 +703,7 @@ mod tests {
 
     #[test]
     fn template_spec_is_also_tested() {
-        assert_eq!(1, number_of_naming_errors("output a spawn with b := 3"))
+        assert_eq!(1, number_of_naming_errors("output a spawn with b eval with 3"))
     }
 
     #[test]

@@ -298,13 +298,13 @@ impl Expression {
                 )
             },
             Tuple(entries) | Function(_, _, entries) => {
-                Box::new(std::iter::once(self).chain(entries.iter().map(|entry| entry.iter()).flatten()))
+                Box::new(std::iter::once(self).chain(entries.iter().flat_map(|entry| entry.iter())))
             },
             Method(base, _, _, arguments) => {
                 Box::new(
                     std::iter::once(self)
                         .chain(base.iter())
-                        .chain(arguments.iter().map(|entry| entry.iter()).flatten()),
+                        .chain(arguments.iter().flat_map(|entry| entry.iter())),
                 )
             },
         }

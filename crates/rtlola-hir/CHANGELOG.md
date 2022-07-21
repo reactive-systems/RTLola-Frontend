@@ -4,11 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.4] - ?
+## [0.4.0] - ?
 
 ### Changed
 - Include access to stream access kind in Hir
 - Ignore mirror streams field in AST, because they represent syntactic sugar artifacts.
+- Update for new Syntax: inline InstanceTemplate in Hir Output streams
 
 ## [0.3.3] - 12.04.2022
 

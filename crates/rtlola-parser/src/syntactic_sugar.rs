@@ -13,8 +13,8 @@ use last::Last;
 use mirror::Mirror as SynSugMirror;
 
 use crate::ast::{
-    CloseSpec, Expression, ExpressionKind, FilterSpec, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst,
-    SpawnSpec, Trigger,
+    CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
+    Trigger,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -142,25 +142,16 @@ impl Desugarizer {
             for ix in 0..ast.outputs.len() {
                 let out = &ast.outputs[ix];
                 let out_clone: Output = Output::clone(&*out);
-                let Output {
-                    expression,
-                    spawn,
-                    filter,
-                    close,
-                    ..
-                } = out_clone;
-                let (new_out_expr, cs) = self.desugarize_expression(expression.clone(), &ast, current_sugar);
-                change_set += cs;
+                let Output { spawn, eval, close, .. } = out_clone;
                 let new_spawn_spec = if let Some(spawn_spec) = spawn {
                     let SpawnSpec {
-                        target,
+                        expression,
                         condition,
                         annotated_pacing,
-                        is_if,
                         id,
                         span,
                     } = spawn_spec;
-                    let target = target.map(|expr| {
+                    let expression = expression.map(|expr| {
                         let (new_expr, spawn_cs) = self.desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cs;
                         new_expr
@@ -171,10 +162,9 @@ impl Desugarizer {
                         new_expr
                     });
                     Some(SpawnSpec {
-                        target,
+                        expression,
                         condition,
                         annotated_pacing,
-                        is_if,
                         id,
                         span,
                     })
@@ -182,30 +172,47 @@ impl Desugarizer {
                     None
                 };
 
-                let new_filter_spec = if let Some(filter_spec) = filter {
-                    let FilterSpec { target, id, span } = filter_spec;
-                    let (new_target, filter_cs) = self.desugarize_expression(target, &ast, current_sugar);
-                    change_set += filter_cs;
-                    Some(FilterSpec {
-                        target: new_target,
-                        id,
-                        span,
+                let transformed_eval = eval
+                    .into_iter()
+                    .flat_map(|eval_spec| {
+                        let EvalSpec {
+                            annotated_pacing,
+                            condition,
+                            eval_expression,
+                            id,
+                            span,
+                        } = eval_spec;
+                        let new_eval = eval_expression.map(|e| {
+                            let (res, eval_cs) = self.desugarize_expression(e, &ast, current_sugar);
+                            change_set += eval_cs;
+                            res
+                        });
+                        let new_condition = condition.map(|e| {
+                            let (res, cond_cs) = self.desugarize_expression(e, &ast, current_sugar);
+                            change_set += cond_cs;
+                            res
+                        });
+                        Some(EvalSpec {
+                            annotated_pacing,
+                            condition: new_condition,
+                            eval_expression: new_eval,
+                            id,
+                            span,
+                        })
                     })
-                } else {
-                    None
-                };
+                    .collect();
 
                 let new_close_spec = if let Some(close_spec) = close {
                     let CloseSpec {
-                        target,
+                        condition,
                         id,
                         span,
                         annotated_pacing,
                     } = close_spec;
-                    let (new_target, close_cs) = self.desugarize_expression(target, &ast, current_sugar);
+                    let (new_condition, close_cs) = self.desugarize_expression(condition, &ast, current_sugar);
                     change_set += close_cs;
                     Some(CloseSpec {
-                        target: new_target,
+                        condition: new_condition,
                         id,
                         span,
                         annotated_pacing,
@@ -215,9 +222,8 @@ impl Desugarizer {
                 };
 
                 let new_out = Output {
-                    expression: new_out_expr,
                     spawn: new_spawn_spec,
-                    filter: new_filter_spec,
+                    eval: transformed_eval,
                     close: new_close_spec,
                     ..out_clone
                 };
@@ -279,33 +285,24 @@ impl Desugarizer {
                     for ix in 0..ast.outputs.len() {
                         let out = &ast.outputs[ix];
                         let out_clone: Output = Output::clone(&*out);
-                        let Output {
-                            expression,
-                            spawn,
-                            filter,
-                            close,
-                            ..
-                        } = out_clone;
-                        let new_out_expr = self.apply_expr_global_change(id, &expr, &expression, &ast);
+                        let Output { spawn, eval, close, .. } = out_clone;
                         let new_spawn_spec = if let Some(spawn_spec) = spawn {
                             let SpawnSpec {
-                                target,
+                                expression,
                                 condition,
                                 annotated_pacing,
-                                is_if,
                                 id,
                                 span,
                             } = spawn_spec;
-                            let target = target
+                            let expression = expression
                                 .map(|tar_expression| self.apply_expr_global_change(id, &expr, &tar_expression, &ast));
                             let condition = condition.map(|cond_expression| {
                                 self.apply_expr_global_change(id, &expr, &cond_expression, &ast)
                             });
                             Some(SpawnSpec {
-                                target,
+                                expression,
                                 condition,
                                 annotated_pacing,
-                                is_if,
                                 id,
                                 span,
                             })
@@ -313,28 +310,39 @@ impl Desugarizer {
                             None
                         };
 
-                        let new_filter_spec = if let Some(filter_spec) = filter {
-                            let FilterSpec { target, id, span } = filter_spec;
-                            let new_target = self.apply_expr_global_change(id, &expr, &target, &ast);
-                            Some(FilterSpec {
-                                target: new_target,
-                                id,
-                                span,
+                        let new_eval_spec = eval
+                            .into_iter()
+                            .flat_map(|eval_spec| {
+                                let EvalSpec {
+                                    eval_expression,
+                                    condition,
+                                    annotated_pacing,
+                                    id,
+                                    span,
+                                } = eval_spec;
+                                let eval_expression =
+                                    eval_expression.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
+                                let condition = condition.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
+                                Some(EvalSpec {
+                                    annotated_pacing,
+                                    condition,
+                                    eval_expression,
+                                    id,
+                                    span,
+                                })
                             })
-                        } else {
-                            None
-                        };
+                            .collect();
 
                         let new_close_spec = if let Some(close_spec) = close {
                             let CloseSpec {
-                                target,
+                                condition,
                                 id,
                                 span,
                                 annotated_pacing,
                             } = close_spec;
-                            let new_target = self.apply_expr_global_change(id, &expr, &target, &ast);
+                            let new_condition = self.apply_expr_global_change(id, &expr, &condition, &ast);
                             Some(CloseSpec {
-                                target: new_target,
+                                condition: new_condition,
                                 id,
                                 span,
                                 annotated_pacing,
@@ -344,9 +352,8 @@ impl Desugarizer {
                         };
 
                         let new_out = Output {
-                            expression: new_out_expr,
                             spawn: new_spawn_spec,
-                            filter: new_filter_spec,
+                            eval: new_eval_spec,
                             close: new_close_spec,
                             ..out_clone
                         };
@@ -877,10 +884,10 @@ mod tests {
 
     #[test]
     fn test_aggr_replace() {
-        let spec = "output x @ 5hz := x.count(6s)".to_string();
+        let spec = "output x eval @5Hz with x.count(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert!(matches!(
-            ast.outputs[0].expression.kind,
+            ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind,
             ExpressionKind::SlidingWindowAggregation {
                 aggregation: WindowOperation::Count,
                 ..
@@ -890,9 +897,9 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_nested() {
-        let spec = "output x @ 5hz := -x.sum(6s)".to_string();
+        let spec = "output x eval @ 5hz with -x.sum(6s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
@@ -910,9 +917,9 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_multiple() {
-        let spec = "output x @ 5hz := x.avg(5s) - x.integral(2.5s)".to_string();
+        let spec = "output x eval @5hz with x.avg(5s) - x.integral(2.5s)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
         let (left, right) = if let ExpressionKind::Binary(BinOp::Sub, left, right) = out_kind {
             (left.kind, right.kind)
@@ -937,9 +944,9 @@ mod tests {
 
     #[test]
     fn test_last_replace() {
-        let spec = "output x @ 5hz := x.last(or: 3)".to_string();
+        let spec = "output x eval @5hz with x.last(or: 3)".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].expression.kind.clone();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
             (access.kind, dft.kind)
         } else {
@@ -968,23 +975,23 @@ mod tests {
 
     #[test]
     fn test_delta_replace() {
-        let spec = "output y := delta(x,dft:0)".to_string();
-        let expected = "output y := x - x.offset(by: -1).defaults(to: 0)";
+        let spec = "output y eval with delta(x,dft:0)".to_string();
+        let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0)";
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
     fn test_delta_replace_float() {
-        let spec = "output y := delta(x, or: 0.0)".to_string();
-        let expected = "output y := x - x.offset(by: -1).defaults(to: 0.0)";
+        let spec = "output y eval with delta(x, or: 0.0)".to_string();
+        let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0.0)";
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
     fn test_mirror_replace() {
-        let spec = "output x := 3 \noutput y mirrors x when x > 5".to_string();
+        let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
         let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(ast.outputs.len(), 2);
         assert!(ast.mirrors.is_empty());
@@ -993,12 +1000,18 @@ mod tests {
         assert_eq!(target.name.name, "x");
         assert_eq!(new.name.name, "y");
         assert_eq!(new.annotated_type, target.annotated_type);
-        assert_eq!(new.annotated_pacing_type, target.annotated_pacing_type);
+        assert_eq!(
+            new.eval[0].clone().annotated_pacing,
+            target.eval[0].clone().annotated_pacing
+        );
         assert_eq!(new.close, target.close);
-        assert_eq!(new.expression, target.expression);
-        assert!(new.filter.is_some());
+        assert_eq!(
+            new.eval[0].eval_expression.clone(),
+            target.eval[0].eval_expression.clone()
+        );
+        assert!(new.eval[0].clone().condition.is_some());
         assert!(matches!(
-            new.filter.as_ref().unwrap().target,
+            new.eval[0].clone().condition.as_ref().unwrap(),
             Expression {
                 kind: ExpressionKind::Binary(..),
                 ..
@@ -1006,5 +1019,21 @@ mod tests {
         ));
         assert_eq!(new.params, target.params);
         assert_eq!(new.spawn, target.spawn);
+    }
+
+    #[test]
+    fn test_mirror_replace_str_cmp() {
+        let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
+        let expected = "output x eval with 3\noutput y eval when x > 5 with 3";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_mirror_replace_multiple_eval() {
+        let spec = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y mirrors x when x > 5".to_string();
+        let expected = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y eval when a > 0 ∧ x > 5 with 3 eval when a < 0 ∧ x > 5 with -3";
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
     }
 }

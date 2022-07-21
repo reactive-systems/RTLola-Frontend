@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn type_table_creation() {
-        let spec =  "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec =  "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let hir = setup_ast(spec);
 
         let mut tyc = LolaTypeChecker::new(&hir);

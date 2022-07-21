@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::hir::{
-    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, StreamAccessKind, WRef,
-    WidenExprKind,
+    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, SpawnDef,
+    StreamAccessKind, WRef, WidenExprKind,
 };
 use crate::modes::HirMode;
 
@@ -124,10 +124,7 @@ impl ExtendedDepGraph for DependencyGraph {
             let lhs_pt = match w.origin {
                 Origin::Spawn => lhs.spawn.0,
                 Origin::Filter | Origin::Eval => lhs.pacing_ty,
-                Origin::Close => {
-                    hir.expr_type(hir.close(lhs_sr).expect("close expression to exist for close edge").eid)
-                        .pacing_ty
-                },
+                Origin::Close => hir.expr_type(hir.close_cond(lhs_sr).unwrap().eid).pacing_ty,
             };
             let rhs_pt = rhs.pacing_ty;
             match (lhs_pt, rhs_pt) {
@@ -268,19 +265,23 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(spec, sr, spec.expr(sr)))
+            .flat_map(|sr| Self::collect_edges(spec, sr, spec.eval_unchecked(sr).expression))
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
-                spec.spawn(sr).map(|(spawn_expr, spawn_cond)| {
-                    spawn_expr
-                        .map_or(Vec::new(), |spawn_expr| Self::collect_edges(spec, sr, spawn_expr))
-                        .into_iter()
-                        .chain(spawn_cond.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
-                })
+                spec.spawn(sr).map(
+                    |SpawnDef {
+                         expression, condition, ..
+                     }| {
+                        expression
+                            .map_or(Vec::new(), |spawn_expr| Self::collect_edges(spec, sr, spawn_expr))
+                            .into_iter()
+                            .chain(condition.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
+                    },
+                )
             })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Spawn), tar));
@@ -288,14 +289,22 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.filter(sr).map(|filter| Self::collect_edges(spec, sr, filter)))
+            .flat_map(|sr| {
+                spec.eval_unchecked(sr)
+                    .condition
+                    .map(|filter| Self::collect_edges(spec, sr, filter))
+            })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| spec.close(sr).map(|close| Self::collect_edges(spec, sr, close)))
+            .flat_map(|sr| {
+                spec.close(sr)
+                    .and_then(|cd| cd.condition)
+                    .map(|close| Self::collect_edges(spec, sr, close))
+            })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
         let edges = edges_expr
@@ -1054,19 +1063,19 @@ mod tests {
 
     #[test]
     fn spawn_self_loop() {
-        let spec = "input a: Int8\noutput b spawn @a if b.hold(or: 2) > 6 := a + 5";
+        let spec = "input a: Int8\noutput b spawn @a when b.hold(or: 2) > 6 eval with a + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     fn filter_self_loop() {
-        let spec = "input a: Int8\noutput b filter b.hold(or: 2) > 6 := a + 5";
+        let spec = "input a: Int8\noutput b eval when b.hold(or: 2) > 6 with a + 5";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     fn close_self_loop() {
-        let spec = "input a: Int8\noutput b close b > 6 := a + 5";
+        let spec = "input a: Int8\noutput b close when b > 6 eval with a + 5";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -1116,7 +1125,7 @@ mod tests {
     #[test]
     fn simple_loop_with_parameter_event_based() {
         let spec = "input a: Int8\n
-        output b(para) @a spawn with c := b(para).offset(by: -1).defaults(to: 0)\n
+        output b(para) spawn with c eval @a with b(para).offset(by: -1).defaults(to: 0)\n
         output c @a := b(5).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
@@ -1124,7 +1133,7 @@ mod tests {
     #[test]
     fn simple_loop_with_parameter_static_and_dynamic_periodic() {
         let spec = "input a: Int8\n
-        output b(para) @1Hz spawn with a := b(para).offset(by: -1).defaults(to: 0)\n
+        output b(para) spawn with a eval @1Hz with b(para).offset(by: -1).defaults(to: 0)\n
         output c @1Hz := b(5).hold().defaults(to: 0)";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
@@ -1188,7 +1197,7 @@ mod tests {
     fn simple_chain_with_parameter() {
         let spec = "input a: Int8\n
         output b := a + 5\n
-        output c(para) @1Hz spawn with b := para + 5";
+        output c(para) spawn with b eval @1Hz with para + 5";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -1250,15 +1259,15 @@ mod tests {
     #[test]
     fn parameter_loop() {
         let spec = "input a: Int8\n
-        output b(para) spawn with a if d(para).hold(or: 2) > 6 := a + para\n
-        output c(para) spawn with a if a > 6 := a + b(para).hold(or: 2)\n
-        output d(para) spawn with a if a > 6 := a + c(para)";
+        output b(para) spawn when d(para).hold(or: 2) > 6 with a eval with a + para\n
+        output c(para) spawn when a > 6 with a eval with a + b(para).hold(or: 2)\n
+        output d(para) spawn when a > 6 with a eval with a + c(para)";
         check_graph_for_spec(spec, None);
     }
 
     #[test]
     fn lookup_chain_with_parametrization() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\noutput b(para) spawn when a > 6 with a eval with a + para\noutput c(para) spawn when a > 6  with a eval with a + b(para)\noutput d(para) spawn when a > 6 with a eval with a + c(para)";
         let name_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::Out(0)),
@@ -1341,10 +1350,10 @@ mod tests {
     fn parameter_loop_with_different_lookup_types() {
         let spec = "input a: Int8\n
         input b: Int8\n
-        output c(p) spawn with a if a < b := p + b + f(p).hold().defaults(to: 0)\n
-        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
-        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
-        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5";
+        output c(p) spawn when a < b with a eval with p + b + f(p).hold().defaults(to: 0)\n
+        output d(p) spawn when c(4).hold().defaults(to: 0) > 5  with b eval with b + 5\n
+        output e(p) spawn with b eval @a∧b with d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b eval when e(p).hold().defaults(to: 0) < 6 with b + 5";
         check_graph_for_spec(spec, None);
     }
 
@@ -1352,11 +1361,11 @@ mod tests {
     fn parameter_loop_with_lookup_in_close() {
         let spec = "input a: Int8\n
         input b: Int8\n
-        output c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\n
-        output d(p) spawn with b if c(4).hold().defaults(to: 0) > 5 := b + 5\n
-        output e(p) @a∧b spawn with b := d(p).hold().defaults(to: 0) + 5\n
-        output f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\n
-        output g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
+        output c(p) spawn when a < b with a eval with p + b + g(p).hold().defaults(to: 0)\n
+        output d(p) spawn when c(4).hold().defaults(to: 0) > 5 with b eval with b + 5\n
+        output e(p) spawn with b eval @a∧b with d(p).hold().defaults(to: 0) + 5\n
+        output f(p) spawn with b eval when e(p).hold().defaults(to: 0) < 6 with b + 5\n
+        output g(p) spawn with b close @true when f(p).hold().defaults(to: 0) < 6 eval with b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -1579,7 +1588,7 @@ mod tests {
 
     #[test]
     fn parameter_nested_lookup_implicit() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -1654,7 +1663,7 @@ mod tests {
 
     #[test]
     fn parameter_nested_lookup_explicit() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -1750,7 +1759,7 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_parameter_lookup() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b + e\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b + e\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
     }
 
@@ -1758,7 +1767,7 @@ mod tests {
     fn parameter_cross_lookup() {
         let spec = "input a: Int8\n
         input b: Int8\n
-        output c(p) spawn with a := p + b\n
+        output c(p) spawn with a eval with p + b\n
         output d @1Hz := c(e).hold().defaults(to: 0)\n
         output e @1Hz := c(d).hold().defaults(to: 0)";
         check_graph_for_spec(spec, None);
@@ -1768,7 +1777,7 @@ mod tests {
     fn delay() {
         let spec = "
             input x:Int8\n\
-            output a @1Hz spawn if x=42 close if true then true else a := x.aggregate(over: 1s, using: sum) > 1337
+            output a spawn when x=42 close when if true then true else a eval @1Hz with x.aggregate(over: 1s, using: sum) > 1337
         ";
         let sname_to_sref = vec![("a", SRef::Out(0)), ("x", SRef::In(0))]
             .into_iter()

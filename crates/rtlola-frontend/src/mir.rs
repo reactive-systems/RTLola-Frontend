@@ -7,7 +7,8 @@
 //! * [RtLolaMir] is the root data structure representing the specification.
 //! * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
 //! * [StreamReference] used for referencing streams within the Mir.
-//! * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
+//! * [Spawn] and [Close] contain all information regarding the parametrization, spawning and closing behavior of streams.
+//! * [Eval] contains the information regarding the evaluation condition and the expression of the stream.
 //! * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
 //!
 //! # See Also
@@ -62,8 +63,8 @@ pub trait Stream {
 /// * [Stream] is a trait offering several convenient access methods for everything constituting a stream.
 /// * [OutputStream] represents a single output stream.  The data structure is enriched with information regarding streams accessing it or accessed by it and much more.  For input streams confer [InputStream].
 /// * [StreamReference] used for referencing streams within the Mir.
-/// * [InstanceTemplate] contains all information regarding the parametrization and spawning behavior of streams.
-/// * [Expression] represents an expression.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
+/// * [Spawn] and [Close] contain all information regarding the parametrization, spawning and closing behavior of streams.
+/// * [Eval] contains the information regarding the evaluation condition and the expression of the stream. The [Expression] represents an computational evaluation.  It contains its [ExpressionKind] and its type.  The latter contains all information specific to a certain kind of expression such as sub-expressions of operators.
 ///
 /// # See Also
 /// * [rtlola_frontend](crate) for an overview regarding different representations.
@@ -175,7 +176,7 @@ impl From<ConcreteValueType> for Type {
             ConcreteValueType::UInteger64 => Type::UInt(UIntTy::UInt64),
             ConcreteValueType::Float32 => Type::Float(FloatTy::Float32),
             ConcreteValueType::Float64 => Type::Float(FloatTy::Float64),
-            ConcreteValueType::Tuple(t) => Type::Tuple(t.iter().map(|e| Type::from(e.clone())).collect()),
+            ConcreteValueType::Tuple(t) => Type::Tuple(t.into_iter().map(Type::from).collect()),
             ConcreteValueType::TString => Type::String,
             ConcreteValueType::Byte => Type::Bytes,
             ConcreteValueType::Option(o) => Type::Option(Box::new(Type::from(*o))),
@@ -210,13 +211,15 @@ pub struct InputStream {
 pub struct OutputStream {
     /// The name of the stream.
     pub name: String,
-    /// The type of the stream.
+    /// The value type of the stream.
     pub ty: Type,
-    /// Information on the spawn and parametrization behavior of this stream if appropriate
-    pub instance_template: InstanceTemplate,
-    /// The stream expression
-    pub expr: Expression,
-    /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, filter, and close expressions.
+    /// Information on the spawn behavior of the stream
+    pub spawn: Spawn,
+    /// Information on the evaluation behavior of the stream
+    pub eval: Eval,
+    /// The condition under which the stream is supposed to be closed
+    pub close: Close,
+    /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
     pub accesses: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
@@ -245,31 +248,20 @@ pub struct Trigger {
     pub trigger_reference: TriggerReference,
 }
 
-/// Information on the spawn and parametrization behavior of a stream
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct InstanceTemplate {
-    /// Information on the spawn behavior of the stream
-    pub spawn: SpawnTemplate,
-    /// The condition under which the stream is not supposed to be evaluated
-    pub filter: FilterTemplate,
-    /// The condition under which the stream is supposed to be closed
-    pub close: CloseTemplate,
-}
-
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpawnTemplate {
-    /// The `target` expression needs to be evaluated whenever the stream with this SpawnTemplate is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
-    pub target: Option<Expression>,
+pub struct Spawn {
+    /// The expression needs to be evaluated whenever the stream with this Spawn template is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
+    pub expression: Option<Expression>,
     /// The timing of when a new instance _could_ be created assuming the spawn condition evaluates to true.
     pub pacing: PacingType,
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
 }
-impl Default for SpawnTemplate {
+impl Default for Spawn {
     fn default() -> Self {
-        SpawnTemplate {
-            target: None,
+        Spawn {
+            expression: None,
             pacing: PacingType::Constant,
             condition: None,
         }
@@ -278,39 +270,33 @@ impl Default for SpawnTemplate {
 
 /// Information on the close behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CloseTemplate {
-    /// The `target` expression needs to be evaluated whenever the stream with this CloseTemplate is supposed to be closed.  The result of the evaluation constitutes whether the stream is closed.
-    pub target: Option<Expression>,
+pub struct Close {
+    /// The `condition` expression needs to be evaluated whenever the stream with this Close template is supposed to be closed.  The result of the evaluation constitutes whether the stream is closed.
+    pub condition: Option<Expression>,
     /// The timing of the close condition.
     pub pacing: PacingType,
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
 }
-impl Default for CloseTemplate {
+impl Default for Close {
     fn default() -> Self {
-        CloseTemplate {
-            target: None,
+        Close {
+            condition: None,
             pacing: PacingType::Constant,
             has_self_reference: false,
         }
     }
 }
 
-/// Information on the close behavior of a stream
+/// Information on the evaluation behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FilterTemplate {
-    /// The `target` expression needs to be evaluated whenever the stream with this FilterTemplate is supposed to be evaluated.  The result of the evaluation constitutes whether the stream is actually evaluated.
-    pub target: Option<Expression>,
-    /// The timing of the filter condition.
-    pub pacing: PacingType,
-}
-impl Default for FilterTemplate {
-    fn default() -> Self {
-        FilterTemplate {
-            target: None,
-            pacing: PacingType::Constant,
-        }
-    }
+pub struct Eval {
+    /// The expression of this stream needs to be evaluated whenever this condition evaluates to `True`.
+    pub condition: Option<Expression>,
+    /// The evaluation expression of this stream, defining the returned and accessed value.
+    pub expression: Expression,
+    /// The eval pacing of the stream, combining the condition and expr pacing. This is equal to the top level stream pacing.
+    pub eval_pacing: PacingType,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -514,7 +500,7 @@ pub struct DiscreteWindow {
     pub caller: StreamReference,
     /// The duration over which the window aggregates
     pub duration: usize,
-    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
+    /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` number of values have been observed.
     pub wait: bool,
     /// The aggregation operation
     pub op: WindowOperation,
@@ -591,11 +577,11 @@ impl Stream for OutputStream {
     }
 
     fn is_parameterized(&self) -> bool {
-        self.instance_template.spawn.target.is_some()
+        self.spawn.expression.is_some()
     }
 
     fn is_spawned(&self) -> bool {
-        self.instance_template.spawn.target.is_some() || self.instance_template.spawn.condition.is_some()
+        self.spawn.expression.is_some() || self.spawn.condition.is_some()
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
@@ -724,7 +710,7 @@ impl RtLolaMir {
             || self
                 .outputs
                 .iter()
-                .any(|o| matches!(o.instance_template.spawn.pacing, PacingType::Periodic(_)))
+                .any(|o| matches!(o.spawn.pacing, PacingType::Periodic(_)))
     }
 
     /// Provides a collection of all time-driven output streams.
@@ -764,7 +750,7 @@ impl RtLolaMir {
         let mut event_driven_spawns = self
             .outputs
             .iter()
-            .filter(|o| matches!(o.instance_template.spawn.pacing, PacingType::Event(_)))
+            .filter(|o| matches!(o.spawn.pacing, PacingType::Event(_)))
             .peekable();
 
         // Peekable is fine because the filter above does not have side effects

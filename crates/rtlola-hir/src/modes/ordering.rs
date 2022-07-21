@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn simple_chain_with_parameter() {
-        let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b := para + a";
+        let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b eval with para + a";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -510,7 +510,7 @@ mod tests {
 
     #[test]
     fn lookup_chain_with_parametrization() {
-        let spec = "input a: Int8\noutput b(para) spawn with a if a > 6 := a + para\noutput c(para) spawn with a if a > 6 := a + b(para)\noutput d(para) spawn with a if a > 6 := a + c(para)";
+        let spec = "input a: Int8\noutput b(para) spawn with a when a > 6 eval with a + para\noutput c(para) spawn with a when a > 6 eval with a + b(para)\noutput d(para) spawn with a when a > 6 eval with a + c(para)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::Out(0)),
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a if a < b := p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b if c(4).hold().defaults(to: 0) < 4 := b + 5\noutput e(p) spawn with b := d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b filter e(p).hold().defaults(to: 0) < 6 := b + 5\noutput g(p) spawn with b close @true f(p).hold().defaults(to: 0) < 6 := b + 5";
+        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a when a < b eval with p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b when c(4).hold().defaults(to: 0) < 4 eval with b + 5\noutput e(p) spawn with b eval with d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b eval when e(p).hold().defaults(to: 0) < 6 with b + 5\noutput g(p) spawn with b close @true when f(p).hold().defaults(to: 0) < 6 eval with b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn parameter_nested_lookup_implicit() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b\noutput d := c(c(b).hold().defaults(to: 0)).hold().defaults(to: 0)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn parameter_nested_lookup_explicit() {
-        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a := p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
+        let spec = "input a: Int8\n input b: Int8\n output c(p) spawn with a eval with p + b\noutput d := c(b).hold().defaults(to: 0)\noutput e := c(d).hold().defaults(to: 0)";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn test_spawn_eventbased() {
         let spec = "input a: Int32\n\
-                  output b(x: Int32) spawn with a := x + a";
+                  output b(x: Int32) spawn with a eval with x + a";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
@@ -624,7 +624,7 @@ mod tests {
     fn test_delay() {
         let spec = "input a: UInt64\n\
                             output a_counter: UInt64 @a := a_counter.offset(by: -1).defaults(to: 0) + 1\n\
-                            output b(p: UInt64) @1Hz spawn with a_counter if a = 1 close if true then true else b(p) := a.hold(or: 0) == 2";
+                            output b(p: UInt64) spawn with a_counter when a = 1 close when if true then true else b(p) eval @1Hz with a.hold(or: 0) == 2";
         let sname_to_sref = vec![("a", SRef::In(0)), ("a_counter", SRef::Out(0)), ("b", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();

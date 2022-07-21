@@ -5,17 +5,17 @@ use std::convert::TryInto;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rtlola_parser::ast;
-use rtlola_parser::ast::{FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type};
+use rtlola_parser::ast::{
+    self, FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type,
+};
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, ArithLogOp, CloseTemplate, Constant as HirConstant, DiscreteAggr, ExprId,
-    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceTemplate, Literal, Offset,
-    Output, Parameter, SRef, SlidingAggr, SpawnTemplate, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind,
-    Window,
+    AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId, Expression,
+    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output, Parameter, SRef,
+    SlidingAggr, Spawn, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -59,10 +59,6 @@ impl Hir<BaseMode> {
     }
 }
 
-/// The Hir Spawn definition is composed of two optional expressions.
-/// The first one refers to the spawn target while the second one represents the spawn condition.
-pub type SpawnDef<'a> = (Option<&'a Expression>, Option<&'a Expression>);
-
 /// A [TransformationErr] describes the kind off error raised during the Ast to Hir conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransformationErr {
@@ -92,9 +88,9 @@ pub enum TransformationErr {
     InvalidLiteral(Span),
     /// An access to a parameterized output stream is missing its parameters
     MissingArguments(Span),
-    /// An output stream with parameters is missing a spawn target
+    /// An output stream with parameters is missing a spawn expression
     MissingSpawn(Span),
-    /// An output stream with a spawn target is missing parameters
+    /// An output stream with a spawn expression is missing parameters
     MissingParameters(Span),
     /// The number of parameters of an output differs from the number of spawn expressions.
     /// Span of the output, number of parameters, number of spawn expressions
@@ -172,7 +168,7 @@ impl TransformationErr {
                 )
             }
             TransformationErr::MissingSpawn(span) => {
-                Diagnostic::error("The following stream has parameters but no spawn target.").add_span_with_label(
+                Diagnostic::error("The following stream has parameters but no spawn expression.").add_span_with_label(
                     span,
                     Some("here"),
                     true,
@@ -187,7 +183,7 @@ impl TransformationErr {
                 )
             }
             TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
-                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn target expressions. Found {} parameters and {} spawn targets", paras, targets)).add_span_with_label(
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {} parameters and {} spawn expressions", paras, targets)).add_span_with_label(
                     span,
                     Some("here"),
                     true,
@@ -244,15 +240,14 @@ impl ExpressionTransformer {
         for (ix, o) in outputs.into_iter().enumerate() {
             let sr = SRef::Out(ix);
             let ast::Output {
-                expression,
                 name,
                 params,
                 spawn,
-                filter,
+                eval,
                 close,
                 annotated_type,
-                annotated_pacing_type,
-                ..
+                id: _,
+                span: _,
             } = (*o).clone();
             let params = params
                 .iter()
@@ -284,18 +279,17 @@ impl ExpressionTransformer {
                         .map_err(|reason| (reason, ty.clone(), ty.span.clone()))
                 })
                 .map_err(|(reason, ty, span)| TransformationErr::InvalidType(ty, reason, span))?;
-            let expression = self.transform_expression(expression, sr)?;
-            let expr_id = expression.eid;
-            exprid_to_expr.insert(expr_id, expression);
-            let annotated_pacing_type = annotated_pacing_type
-                .map_or(Ok(None), |pt| self.transform_pt(&mut exprid_to_expr, pt, sr).map(Some))?;
-            let instance_template = self.transform_template_spec(spawn, filter, close, &mut exprid_to_expr, sr)?;
+
+            let spawn = self.transform_spawn_clause(spawn, &mut exprid_to_expr, sr)?;
+            let eval = self.transform_eval_clause(eval, &mut exprid_to_expr, sr)?;
+            let close = self.transform_close_clause(close, &mut exprid_to_expr, sr)?;
 
             //Check that if the output has parameters it has a spawn condition with a target and the other way around
-            if !params.is_empty() && instance_template.spawn.as_ref().and_then(|s| s.target).is_none() {
+            if !params.is_empty() && spawn.as_ref().and_then(|st| st.expression).is_none() {
                 return Err(TransformationErr::MissingSpawn(o.span.clone()));
             }
-            if let Some(target) = instance_template.spawn.as_ref().and_then(|s| s.target) {
+
+            if let Some(target) = spawn.as_ref().and_then(|st| st.expression) {
                 let spawn_expr = &exprid_to_expr[&target];
                 if params.is_empty() {
                     return Err(TransformationErr::MissingParameters(spawn_expr.span.clone()));
@@ -318,10 +312,10 @@ impl ExpressionTransformer {
                 name: name.name,
                 sr,
                 params,
-                instance_template,
+                spawn,
+                eval,
+                close,
                 annotated_type,
-                annotated_pacing_type,
-                expr_id,
                 span: o.span.clone(),
             });
         }
@@ -590,10 +584,10 @@ impl ExpressionTransformer {
                 }
             },
             ast::ExpressionKind::StreamAccess(expr, kind) => {
-                let access_kind = if let StreamAccessKind::Hold = kind {
-                    IRAccess::Hold
-                } else {
-                    IRAccess::Sync
+                let access_kind = match kind {
+                    StreamAccessKind::Hold => IRAccess::Hold,
+                    StreamAccessKind::Sync => IRAccess::Sync,
+                    StreamAccessKind::Optional => unimplemented!("`get` optional stream access unimplemented!"),
                 };
                 let (expr_ref, args) = self.get_stream_ref(&*expr, current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
@@ -608,8 +602,8 @@ impl ExpressionTransformer {
                 use uom::si::time::nanosecond;
                 let ir_offset = match offset {
                     ast::Offset::Discrete(i) if i == 0 => None,
-                    ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscrete(i.abs() as u32)),
-                    ast::Offset::Discrete(i) => Some(Offset::PastDiscrete(i.abs() as u32)),
+                    ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscrete(i.unsigned_abs().into())),
+                    ast::Offset::Discrete(i) => Some(Offset::PastDiscrete(i.unsigned_abs().into())),
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time = offset
                             .to_uom_time()
@@ -875,69 +869,95 @@ impl ExpressionTransformer {
         id
     }
 
-    fn transform_template_spec(
+    fn transform_spawn_clause(
         &mut self,
         spawn_spec: Option<SpawnSpec>,
-        filter_spec: Option<ast::FilterSpec>,
+        exprid_to_expr: &mut HashMap<ExprId, Expression>,
+        current_output: SRef,
+    ) -> Result<Option<Spawn>, TransformationErr> {
+        spawn_spec.map_or(Ok(None), |spawn_spec| {
+            let SpawnSpec {
+                expression,
+                annotated_pacing,
+                condition,
+                ..
+            } = spawn_spec;
+            let expression = expression.map_or(Ok(None), |expr| {
+                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = expr.kind {
+                    if let ast::ExpressionKind::MissingExpression = exp.kind {
+                        return Ok(None);
+                    }
+                }
+                let exp = self.transform_expression(expr, current_output)?;
+                Ok(Some(Self::insert_return(exprid_to_expr, exp)))
+            })?;
+            let pacing = annotated_pacing.map_or(Ok(None), |pt| {
+                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
+            })?;
+
+            let condition = condition.map_or(Ok(None), |cond_expr| {
+                let e = self.transform_expression(cond_expr, current_output)?;
+                Ok(Some(Self::insert_return(exprid_to_expr, e)))
+            })?;
+            Ok(Some(Spawn {
+                expression,
+                pacing,
+                condition,
+            }))
+        })
+    }
+
+    fn transform_eval_clause(
+        &mut self,
+        eval_spec: Vec<ast::EvalSpec>,
+        exprid_to_expr: &mut HashMap<ExprId, Expression>,
+        current_output: SRef,
+    ) -> Result<Eval, TransformationErr> {
+        assert!(eval_spec.len() <= 1); //TODO remove in upcoming refactoring
+        let evt = if let Some(eval_spec) = eval_spec.get(0) {
+            let eval_spec = eval_spec.to_owned();
+            let eval_expr = if let Some(eval_expr) = eval_spec.eval_expression {
+                self.transform_expression(eval_expr, current_output)?
+            } else {
+                unreachable!("Empty tuple is inserted if the expression is unspecified or the parser reports an error");
+            };
+            let eval_expr_id = Self::insert_return(exprid_to_expr, eval_expr);
+
+            let condition = eval_spec.condition.map_or(Ok(None), |cond| {
+                let cond_expr = self.transform_expression(cond, current_output)?;
+                Ok(Some(Self::insert_return(exprid_to_expr, cond_expr)))
+            })?;
+
+            let pacing = eval_spec.annotated_pacing.map_or(Ok(None), |pt| {
+                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
+            })?;
+
+            Eval {
+                expr: eval_expr_id,
+                condition,
+                annotated_pacing_type: pacing,
+            }
+        } else {
+            unreachable!("Grammar requires at least one eval declaration")
+        };
+        Ok(evt)
+    }
+
+    fn transform_close_clause(
+        &mut self,
         close_spec: Option<ast::CloseSpec>,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         current_output: SRef,
-    ) -> Result<InstanceTemplate, TransformationErr> {
-        Ok(InstanceTemplate {
-            spawn: spawn_spec.map_or(Ok(None), |spawn_spec| {
-                let SpawnSpec {
-                    target,
-                    annotated_pacing,
-                    condition,
-                    is_if,
-                    ..
-                } = spawn_spec;
-                let target = target.map_or(Ok(None), |target_exp| {
-                    if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = target_exp.kind {
-                        if let ast::ExpressionKind::MissingExpression = exp.kind {
-                            return Ok(None);
-                        }
-                    }
-                    let exp = self.transform_expression(target_exp, current_output)?;
-                    Ok(Some(Self::insert_return(exprid_to_expr, exp)))
-                })?;
-                let pacing = annotated_pacing.map_or(Ok(None), |pt| {
-                    Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-                })?;
-
-                let condition = condition.map_or(Ok(None), |cond_expr| {
-                    let mut e = self.transform_expression(cond_expr, current_output)?;
-                    if !is_if {
-                        e = Expression {
-                            kind: ExpressionKind::ArithLog(ArithLogOp::Not, vec![e.clone()]),
-                            eid: self.next_exp_id(),
-                            span: e.span,
-                        }
-                    }
-                    Ok(Some(Self::insert_return(exprid_to_expr, e)))
-                })?;
-                Ok(Some(SpawnTemplate {
-                    target,
-                    pacing,
-                    condition,
-                }))
-            })?,
-            filter: filter_spec.map_or(Ok(None), |filter_spec| {
-                Ok(Some(Self::insert_return(
-                    exprid_to_expr,
-                    self.transform_expression(filter_spec.target, current_output)?,
-                )))
-            })?,
-            close: close_spec.map_or(Ok(None), |close_spec| {
-                let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
-                    Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-                })?;
-                let target = Self::insert_return(
-                    exprid_to_expr,
-                    self.transform_expression(close_spec.target, current_output)?,
-                );
-                Ok(Some(CloseTemplate { target, pacing }))
-            })?,
+    ) -> Result<Option<Close>, TransformationErr> {
+        close_spec.map_or(Ok(None), |close_spec| {
+            let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
+                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
+            })?;
+            let condition = Self::insert_return(
+                exprid_to_expr,
+                self.transform_expression(close_spec.condition, current_output)?,
+            );
+            Ok(Some(Close { condition, pacing }))
         })
     }
 }
@@ -950,7 +970,7 @@ mod tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
-    use crate::hir::{ExpressionContext, StreamAccessKind};
+    use crate::hir::{ExpressionContext, SpawnDef, StreamAccessKind};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
@@ -961,20 +981,20 @@ mod tests {
     fn all() {
         //Tests all cases are implemented
         let spec = "
-        import math
-        input i: Int8
-        output o := 3
-        output o2 @1Hz := 4
-        output o3 := if true then 1 else 2
-        output o4 := 3 + 4
-        output o5 := o
-        output f := sqrt(4)
-        output p (x,y) spawn with (i,i) if true := x
-        output t := (1,3)
-        output t1 := t.0
-        output def := o.defaults(to:2)
-        output off := o.offset(by:-1)
-        output w := o2.aggregate(over:3s , using: sum)";
+        import math\n\
+        input i: Int8\n\
+        output o := 3\n\
+        output o2 @1Hz := 4\n\
+        output o3 := if true then 1 else 2\n\
+        output o4 := 3 + 4\n\
+        output o5 := o\n\
+        output f := sqrt(4)\n\
+        output p (x,y) spawn when true with (i,i) eval with x\n\
+        output t := (1,3)\n\
+        output t1 := t.0\n\
+        output def := o.defaults(to:2)\n\
+        output off := o.offset(by:-1)\n\
+        output w := o2.aggregate(over:3s , using: sum)\n";
         let _ir = obtain_expressions(spec);
         //TODO
     }
@@ -983,7 +1003,7 @@ mod tests {
     fn transform_default() {
         let spec = "input o :Int8 output off := o.defaults(to:-1)";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval_expr();
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Default { .. }));
     }
@@ -1016,7 +1036,7 @@ mod tests {
             ("input o :Int8 output off := o.offset(by: 0s)", StreamAccessKind::Sync),
         ] {
             let ir = obtain_expressions(spec);
-            let output_expr_id = ir.outputs[0].expr_id;
+            let output_expr_id = ir.outputs[0].eval().expr;
             let expr = &ir.expression(output_expr_id);
             assert!(matches!(expr.kind, ExpressionKind::StreamAccess(SRef::In(0), _, _)));
             if let ExpressionKind::StreamAccess(SRef::In(0), result_kind, _) = expr.kind {
@@ -1032,7 +1052,7 @@ mod tests {
         use crate::hir::SlidingAggr;
         let spec = "input i:Int8 output o := i.aggregate(over: 1s, using: sum)";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval_expr();
         let expr = &ir.expression(output_expr_id);
         let wref = WRef::Sliding(0);
         assert!(matches!(
@@ -1059,9 +1079,9 @@ mod tests {
 
     #[test]
     fn parameter_expr() {
-        let spec = "output o(a,b,c) spawn @1Hz with (1, 2, 3) :=  if c then a else b";
+        let spec = "output o(a,b,c) spawn @1Hz with (1, 2, 3) eval with if c then a else b";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Ite { .. }));
         if let ExpressionKind::Ite {
@@ -1082,9 +1102,9 @@ mod tests {
     fn parametrized_access() {
         use crate::hir::StreamAccessKind;
         let spec =
-            "output o(a,b,c) spawn @1Hz with (1, 2, true):=  if c then a else b output A := o(1,2,true).offset(by:-1)";
+            "output o(a,b,c) spawn @1Hz with (1, 2, true) eval with if c then a else b output A := o(1,2,true).offset(by:-1)";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[1].expr_id;
+        let output_expr_id = ir.outputs[1].eval_expr();
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
@@ -1102,7 +1122,7 @@ mod tests {
     fn tuple() {
         let spec = "output o := (1,2,3)";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Tuple(_)));
         if let ExpressionKind::Tuple(v) = &expr.kind {
@@ -1119,7 +1139,7 @@ mod tests {
     fn tuple_access() {
         let spec = "output o := (1,2,3).1";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::TupleAccess(_, 1)));
     }
@@ -1130,7 +1150,7 @@ mod tests {
         let ir = obtain_expressions(spec);
         assert_eq!(ir.num_triggers(), 1);
         let tr = &ir.triggers[0];
-        let expr = &ir.expr(tr.sr);
+        let expr = ir.eval_unchecked(tr.sr).expression;
         assert!(matches!(expr.kind, ExpressionKind::LoadConstant(_)));
     }
 
@@ -1142,7 +1162,7 @@ mod tests {
         assert_eq!(ir.num_triggers(), 1);
         let tr = &ir.triggers[0];
         //let expr = &ir.mode.exprid_to_expr[&tr.expr_id];
-        let expr = ir.expr(tr.sr);
+        let expr = ir.eval_unchecked(tr.sr).expression;
         assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Eq, _)));
     }
 
@@ -1151,7 +1171,7 @@ mod tests {
         use crate::hir::ArithLogOp;
         let spec = "output o := 3 + 5 ";
         let ir = obtain_expressions(spec);
-        let output_expr_id = ir.outputs[0].expr_id;
+        let output_expr_id = ir.outputs[0].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::ArithLog(ArithLogOp::Add, _)));
         if let ExpressionKind::ArithLog(_, v) = &expr.kind {
@@ -1189,11 +1209,11 @@ mod tests {
     #[test]
     fn functions() {
         use crate::hir::StreamAccessKind;
-        let spec = "import math output o(a: Int) spawn @1Hz with 3:= max(3,4) output c := o(1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3 eval with max(3,4) output c := o(1)";
         let ir = obtain_expressions(spec);
         //check that this functions exists
         let _ = ir.func_declaration("max");
-        let output_expr_id = ir.outputs[1].expr_id;
+        let output_expr_id = ir.outputs[1].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
@@ -1203,11 +1223,11 @@ mod tests {
 
     #[test]
     fn function_param_default() {
-        let spec = "import math output o(a: Int) spawn @1Hz with 3 := sqrt(a) output c := o(1).defaults(to:1)";
+        let spec = "import math output o(a: Int) spawn @1Hz with 3 eval with sqrt(a) output c := o(1).defaults(to:1)";
         let ir = obtain_expressions(spec);
         //check purely for valid access
         let _ = ir.func_declaration("sqrt");
-        let output_expr_id = ir.outputs[1].expr_id;
+        let output_expr_id = ir.outputs[1].eval().expr;
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(expr.kind, ExpressionKind::Default { expr: _, default: _ }));
         if let ExpressionKind::Default { expr: ex, default } = &expr.kind {
@@ -1221,32 +1241,34 @@ mod tests {
     #[test]
     fn test_instance() {
         use crate::hir::{AnnotatedPacingType, Output};
-        let spec = "input i: Bool output c(a: Int8): Bool @1Hz spawn with i if i filter i close i:= i";
+        let spec = "input i: Bool output c(a: Int8): Bool spawn when i with i close when i eval @1Hz when i with i";
         let ir = obtain_expressions(spec);
         let output: Output = ir.outputs[0].clone();
         assert!(output.annotated_type.is_some());
         assert!(matches!(
-            output.annotated_pacing_type,
+            output.eval_pacing(),
             Some(AnnotatedPacingType::Frequency { .. })
         ));
         assert!(output.params.len() == 1);
-        let fil: &Expression = ir.filter(output.sr).unwrap();
+        let fil: &Expression = ir.eval_unchecked(output.sr).condition.unwrap();
         assert!(matches!(
             fil.kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)
         ));
-        let close = ir.close(output.sr).unwrap();
+        let close = ir.close_unchecked(output.sr).condition;
         assert!(matches!(
-            close.kind,
+            close.unwrap().kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)
         ));
-        let (invoke, op_cond) = ir.spawn(output.sr).unwrap();
+        let SpawnDef {
+            expression, condition, ..
+        } = ir.spawn_unchecked(output.sr);
         assert!(matches!(
-            invoke.unwrap().kind,
+            expression.unwrap().kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)
         ));
         assert!(matches!(
-            op_cond.unwrap().kind,
+            condition.unwrap().kind,
             ExpressionKind::StreamAccess(_, StreamAccessKind::Sync, _)
         ));
     }
@@ -1257,38 +1279,28 @@ mod tests {
         let spec = "input in: Bool output a: Bool @2.5Hz := true output b: Bool @in := false";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(matches!(
-            a.annotated_pacing_type,
-            Some(AnnotatedPacingType::Frequency { .. })
-        ));
+        assert!(matches!(a.eval_pacing(), Some(AnnotatedPacingType::Frequency { .. })));
         let b: &Output = &ir.outputs[1];
-        assert!(matches!(b.annotated_pacing_type, Some(AnnotatedPacingType::Expr(_))));
+        assert!(matches!(b.eval_pacing(), Some(AnnotatedPacingType::Expr(_))));
     }
 
     #[test]
     fn test_spawn_missing_exp() {
-        use crate::hir::{Output, SpawnTemplate};
-        let spec = "output a: Bool @2.5Hz spawn with () if true := true";
+        use crate::hir::{Output, Spawn};
+        let spec = "output a: Bool spawn when true with () eval @2.5Hz with true";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(matches!(
-            a.instance_template.spawn,
-            Some(SpawnTemplate { target: None, .. })
-        ));
+        assert!(matches!(a.spawn().unwrap(), Spawn { expression: None, .. }));
     }
 
     #[test]
     fn test_spawn_pacing() {
         use crate::hir::Output;
-        let spec = "output a: Bool @2.5Hz spawn @1Hz with () if true := true";
+        let spec = "output a: Bool spawn @1Hz when true with () eval @2.5Hz with true";
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
-        assert!(a.instance_template.spawn.is_some());
-        let template = a.instance_template.spawn;
-        assert!(matches!(
-            template.unwrap().pacing,
-            Some(AnnotatedPacingType::Frequency { .. })
-        ));
+        assert!(a.spawn().is_some());
+        assert!(matches!(a.spawn_pacing(), Some(AnnotatedPacingType::Frequency { .. })));
     }
 
     #[test]
@@ -1298,6 +1310,15 @@ mod tests {
         let trigger: Trigger = ir.triggers[0].clone();
         assert_eq!(trigger.info_streams[0], SRef::In(0));
         assert_eq!(trigger.info_streams[1], SRef::Out(0));
+    }
+
+    #[test]
+    fn test_missing_eval_with_cond() {
+        let spec = "input a:Bool\noutput b: Int8 eval when a > 3";
+        let ir = obtain_expressions(spec);
+        let out = ir.outputs[0].clone();
+        assert!(out.eval_cond().is_some());
+        assert!(matches!(ir.expression(out.eval_expr()).kind, ExpressionKind::Tuple(_),));
     }
 
     #[test]
@@ -1326,10 +1347,10 @@ mod tests {
     #[test]
     fn test_instance_window() {
         let spec = "input a: Int32\n\
-        output b (p: Bool) spawn with a = 42 := a\n\
+        output b (p: Bool) spawn with a = 42 eval with a\n\
         output c @ 1Hz := b(false).aggregate(over: 1s, using: Σ)\n";
         let ir = obtain_expressions(spec);
-        let expr = &ir.expression(ir.outputs[1].expr_id).kind;
+        let expr = &ir.expression(ir.outputs[1].eval_expr()).kind;
         assert!(
             matches!(expr, ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(_), paras) if paras.len() == 1)
         );
@@ -1339,7 +1360,7 @@ mod tests {
     #[should_panic]
     fn test_missing_spawn() {
         let spec = "input a: Int32\n\
-        output b (p: Bool) := a";
+        output b (p: Bool) eval with a";
         obtain_expressions(spec);
     }
 
@@ -1347,7 +1368,7 @@ mod tests {
     #[should_panic]
     fn test_missing_parameters() {
         let spec = "input a: Int32\n\
-        output b spawn with a := a";
+        output b spawn with a eval with a";
         obtain_expressions(spec);
     }
 
@@ -1368,9 +1389,9 @@ mod tests {
         }
 
         let spec = "input a: Int32\n\
-        output b (p1, p2, p3) spawn with (a, a.hold(or: 5), a.offset(by: -5).defaults(to: 7)) if a = 5 := a + p1 + p2 + p3\n\
-        output c (p1, p2, p3, p4) spawn with (a.hold(or: 5), a, a.hold(or: 5), a.offset(by: -5).defaults(to: 8)) if a = 5 := a + p1 + p2 + p3\n\
-        output d (p1, p2) spawn with (a.hold(or: 5), a) := a + p1 + p2\n";
+        output b (p1, p2, p3) spawn when a = 5 with (a, a.hold(or: 5), a.offset(by: -5).defaults(to: 7)) eval with a + p1 + p2 + p3\n\
+        output c (p1, p2, p3, p4) spawn when a = 5 with (a.hold(or: 5), a, a.hold(or: 5), a.offset(by: -5).defaults(to: 8)) eval with a + p1 + p2 + p3\n\
+        output d (p1, p2) spawn with (a.hold(or: 5), a) eval with a + p1 + p2\n";
         let ir = obtain_expressions(spec);
         let ctx = ExpressionContext::new(&ir);
 

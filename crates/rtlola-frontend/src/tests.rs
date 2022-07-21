@@ -43,6 +43,7 @@ fn fuzzed_lowering_bad_assumptions1() -> Result<(), String> {
 }
 
 #[test]
+#[ignore = "optional stream access (.get) not implemented correctly in Hir"]
 fn fuzzed_lowering_bad_assumptions2() {
     assert!(parse("input a: Int\noutput d := a.get().defaults(to:1111111111111111111111111110)\n\ntrigger d == 2 || d == 3 \"valuY used\"\ntrigger d ==10 \"default used\"").is_err());
 }

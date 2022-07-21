@@ -18,8 +18,7 @@ impl Last {
                 let target_stream = base.clone();
                 assert_eq!(arguments.len(), 1);
                 let default = arguments[0].clone();
-                let mut new_id = expr.id;
-                new_id.prime_counter += 1;
+                let new_id = expr.id.primed();
                 let new_access = Expression {
                     kind: ExpressionKind::Offset(target_stream, Offset::Discrete(-1)),
                     id: new_id,
