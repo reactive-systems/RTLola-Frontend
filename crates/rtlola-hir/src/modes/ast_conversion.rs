@@ -88,9 +88,9 @@ pub enum TransformationErr {
     InvalidLiteral(Span),
     /// An access to a parameterized output stream is missing its parameters
     MissingArguments(Span),
-    /// An output stream with parameters is missing a spawn target
+    /// An output stream with parameters is missing a spawn expression
     MissingSpawn(Span),
-    /// An output stream with a spawn target is missing parameters
+    /// An output stream with a spawn expression is missing parameters
     MissingParameters(Span),
     /// The number of parameters of an output differs from the number of spawn expressions.
     /// Span of the output, number of parameters, number of spawn expressions
@@ -168,7 +168,7 @@ impl TransformationErr {
                 )
             }
             TransformationErr::MissingSpawn(span) => {
-                Diagnostic::error("The following stream has parameters but no spawn target.").add_span_with_label(
+                Diagnostic::error("The following stream has parameters but no spawn expression.").add_span_with_label(
                     span,
                     Some("here"),
                     true,
@@ -183,7 +183,7 @@ impl TransformationErr {
                 )
             }
             TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
-                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn target expressions. Found {} parameters and {} spawn targets", paras, targets)).add_span_with_label(
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {} parameters and {} spawn expressions", paras, targets)).add_span_with_label(
                     span,
                     Some("here"),
                     true,
@@ -953,14 +953,11 @@ impl ExpressionTransformer {
             let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
                 Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
             })?;
-            let target = Self::insert_return(
+            let condition = Self::insert_return(
                 exprid_to_expr,
                 self.transform_expression(close_spec.condition, current_output)?,
             );
-            Ok(Some(Close {
-                condition: target,
-                pacing,
-            }))
+            Ok(Some(Close { condition, pacing }))
         })
     }
 }

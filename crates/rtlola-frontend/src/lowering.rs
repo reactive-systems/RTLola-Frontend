@@ -190,7 +190,7 @@ impl Mir {
         let hir_spawn_expr = hir.spawn_expr(sr);
         let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, expr));
-        let spawn_expression = hir_spawn_expr.map(|target| Self::lower_expr(hir, target));
+        let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, expr));
         Spawn {
             expression: spawn_expression,
             pacing: spawn_pacing,

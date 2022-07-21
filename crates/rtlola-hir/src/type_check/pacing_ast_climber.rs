@@ -337,7 +337,7 @@ where
         // Spawn condition is more concrete than the spawn condition of the expression
         self.expression_tyc
             .impose(stream_keys.spawn.1.concretizes(exp_keys.spawn.1))?;
-        // Spawn target is more concrete than the spawn target of the expression
+        // Spawn expression is more concrete than the spawn pacing of the expression
         self.pacing_tyc
             .impose(stream_keys.spawn.0.concretizes(exp_keys.spawn.0))?;
         // Spawn pacing of the stream is more concrete than the spawn pacing of the target
