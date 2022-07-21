@@ -425,9 +425,9 @@ impl RtLolaParser {
 
         if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
             error.add(
-                Diagnostic::error("Spawn condition needs either expression or condition").add_span_with_label(
+                Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
                     span_inv.clone(),
-                    Some("found spawn condition here"),
+                    Some("found spawn here"),
                     true,
                 ),
             );
