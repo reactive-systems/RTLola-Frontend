@@ -164,11 +164,11 @@ pub struct Parameter {
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a spawn condition of a stream template.
+/// An Ast node representing the declaration of a spawn condition and expression of a stream.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
-    pub target: Option<Expression>,
+    pub expression: Option<Expression>,
     /// The pacing type describing when a new instance is created.
     pub annotated_pacing: Option<Expression>,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
@@ -179,13 +179,13 @@ pub struct SpawnSpec {
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a filter condition of a stream template
+/// An Ast node representing the evaluation condition and expression of a stream
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EvalSpec {
     /// The pacing type describing when a new value is computed.
     pub annotated_pacing: Option<Expression>,
     /// The boolean expression defining the condition, if a stream instance is evaluated.
-    pub filter: Option<Expression>,
+    pub condition: Option<Expression>,
     /// The evaluated expression, defining the value of the stream.
     pub eval_expression: Option<Expression>,
     /// The id of the node in the Ast
@@ -194,11 +194,11 @@ pub struct EvalSpec {
     pub span: Span,
 }
 
-/// An Ast node representing the declaration of a close condition of a stream template
+/// An Ast node representing the declaration of a close condition of a stream
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
-    pub target: Expression,
+    pub condition: Expression,
     /// The pacing type describing when the close condition is evaluated.
     pub annotated_pacing: Option<Expression>,
     /// The id of the node in the Ast

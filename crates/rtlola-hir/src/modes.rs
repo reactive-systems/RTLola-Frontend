@@ -210,7 +210,7 @@ pub trait DepAnaTrait {
     /// Returns all streams that are direct accessed by `who`
     ///
     /// The function returns all streams that are direct accessed by `who`.
-    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'who' has a stream or window lookup to `res`.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accesses(&self, who: SRef) -> Vec<SRef>;
 
@@ -218,21 +218,21 @@ pub trait DepAnaTrait {
     ///
     /// The function returns all streams that are direct accessed by `who` with all the stream access kinds that
     /// are used to access that stream.
-    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to `res`.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'who' has a stream or window lookup to `res`.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
 
     /// Returns all streams that are transitive accessed by `who`
     ///
     /// The function returns all streams that are transitive accessed by `who`.
-    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'who' has a stream or window lookup to 'res'.
+    /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'who' has a stream or window lookup to 'res'.
     /// Transitive accesses are all accesses appearing in the expressions of the stream itself or indirect by another stream lookup.
     fn transitive_accesses(&self, who: SRef) -> Vec<SRef>;
 
     /// Returns all streams that direct access `who`
     ///
     /// The function returns all streams that direct access `who`.
-    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef>;
 
@@ -240,14 +240,14 @@ pub trait DepAnaTrait {
     ///
     /// The function returns all streams that direct access `who` together with all the stream access kinds
     /// that they use to access `who`.
-    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
     fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
 
     /// Returns all streams that transitive access `who`
     ///
     /// The function returns all streams that transitive access `who`.
-    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the filter condition, or the close condition of 'res' has a stream or window lookup to 'who'.
+    /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Transitive accesses are all accesses appearing in the expressions of the stream itself or indirect by another stream lookup.
     fn transitive_accessed_by(&self, who: SRef) -> Vec<SRef>;
 

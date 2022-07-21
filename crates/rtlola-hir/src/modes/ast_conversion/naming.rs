@@ -12,7 +12,7 @@ use crate::stdlib::FuncDecl;
 /// Static vec of all Lola keywords, used to check for name conflicts. These MUST all be lowercase.
 // TODO add an static assertion for this
 pub(crate) const KEYWORDS: [&str; 24] = [
-    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "filter", "close", "with", "unless",
+    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "when", "close", "with", "unless",
     "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
 ];
 
@@ -318,8 +318,8 @@ impl NamingAnalysis {
                 .collect::<RtLolaError>();
             error.join(para_errors);
             if let Some(spawn) = &output.spawn {
-                if let Some(target) = &spawn.target {
-                    if let Err(e) = self.check_expression(target) {
+                if let Some(spawn_expr) = &spawn.expression {
+                    if let Err(e) = self.check_expression(spawn_expr) {
                         error.join(e);
                     }
                 }
@@ -335,7 +335,7 @@ impl NamingAnalysis {
                 }
             }
             if let Some(close) = &output.close {
-                if let Err(e) = self.check_expression(&close.target) {
+                if let Err(e) = self.check_expression(&close.condition) {
                     error.join(e);
                 }
                 if let Some(pacing) = &close.annotated_pacing {
@@ -355,8 +355,8 @@ impl NamingAnalysis {
                         error.join(e);
                     }
                 }
-                if let Some(filter_expr) = &eval_spec.filter {
-                    if let Err(e) = self.check_expression(filter_expr) {
+                if let Some(eval_cond) = &eval_spec.condition {
+                    if let Err(e) = self.check_expression(eval_cond) {
                         error.join(e);
                     }
                 }

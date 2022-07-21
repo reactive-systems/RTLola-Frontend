@@ -7,9 +7,8 @@ use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
-    SRef, StreamAccessKind, StreamReference, Trigger, WidenExprKind, WindowReference,
+    SRef, SpawnDef, StreamAccessKind, StreamReference, Trigger, WidenExprKind, WindowReference,
 };
-use crate::modes::ast_conversion::SpawnDef;
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{NodeId, TypeError};
@@ -278,7 +277,7 @@ where
     /// Performs check order:
     /// 1: Generates keys and checks for all parameters
     /// 2: Checks spawn condition and equates values with parameters
-    /// 3: Analyse close and filter expressions
+    /// 3: Analyses close and evaluation condition expressions
     /// 4: Check stream expression and sets expression type as stream value type
     pub(crate) fn output_infer(&mut self, out: &Output) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let out_key = *self.node_key.get(&NodeId::SRef(out.sr)).expect("Added in constructor");
@@ -300,9 +299,12 @@ where
             .collect::<Result<Vec<_>, TypeError<ValueErrorKind>>>()?;
 
         let opt_spawn = &self.hir.spawn(out.sr);
-        if let Some(SpawnDef { target, condition, .. }) = opt_spawn {
+        if let Some(SpawnDef {
+            expression, condition, ..
+        }) = opt_spawn
+        {
             //check target expression type matches parameter type
-            if let Some(spawn) = target {
+            if let Some(spawn) = expression {
                 let spawn_target_key = self.expression_infer(spawn, None)?;
                 match param_types.len() {
                     0 => unreachable!("ensured by pacing type checker"),
@@ -330,8 +332,8 @@ where
             self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
 
-        if let Some(filter) = &self.hir.eval_filter(out.sr) {
-            self.expression_infer(filter, Some(AbstractValueType::Bool))?;
+        if let Some(cond) = &self.hir.eval_cond(out.sr) {
+            self.expression_infer(cond, Some(AbstractValueType::Bool))?;
         }
 
         let expression_key = self.expression_infer(
@@ -904,7 +906,7 @@ where
                 });
             }
 
-            if let Some(target) = output.spawn_target() {
+            if let Some(target) = output.spawn_expr() {
                 let key = node_key[&NodeId::Expr(target)];
                 let ty: &ConcreteValueType = &tt[&key];
                 match ty {

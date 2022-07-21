@@ -86,7 +86,7 @@ impl Display for Parameter {
 
 impl Display for SpawnSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if self.target.is_some() || self.condition.is_some() {
+        if self.expression.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
         if let Some(pt) = &self.annotated_pacing {
@@ -95,8 +95,8 @@ impl Display for SpawnSpec {
         if let Some(condition) = &self.condition {
             write!(f, " when {}", condition)?;
         }
-        if let Some(target) = &self.target {
-            write!(f, " with {}", target)?;
+        if let Some(expr) = &self.expression {
+            write!(f, " with {}", expr)?;
         }
         Ok(())
     }
@@ -104,13 +104,13 @@ impl Display for SpawnSpec {
 
 impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if self.filter.is_some() || self.eval_expression.is_some() || self.annotated_pacing.is_some() {
+        if self.condition.is_some() || self.eval_expression.is_some() || self.annotated_pacing.is_some() {
             write!(f, "eval")?;
         }
         if let Some(pt) = &self.annotated_pacing {
             write!(f, " @{}", pt)?;
         }
-        if let Some(when) = &self.filter {
+        if let Some(when) = &self.condition {
             write!(f, " when {}", when)?;
         }
         if let Some(exp) = &self.eval_expression {
@@ -126,7 +126,7 @@ impl Display for CloseSpec {
         if let Some(pt) = &self.annotated_pacing {
             write!(f, "@{} ", pt)?;
         }
-        write!(f, "when {}", self.target)
+        write!(f, "when {}", self.condition)
     }
 }
 

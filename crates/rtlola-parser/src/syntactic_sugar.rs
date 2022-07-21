@@ -145,13 +145,13 @@ impl Desugarizer {
                 let Output { spawn, eval, close, .. } = out_clone;
                 let new_spawn_spec = if let Some(spawn_spec) = spawn {
                     let SpawnSpec {
-                        target,
+                        expression,
                         condition,
                         annotated_pacing,
                         id,
                         span,
                     } = spawn_spec;
-                    let target = target.map(|expr| {
+                    let expression = expression.map(|expr| {
                         let (new_expr, spawn_cs) = self.desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cs;
                         new_expr
@@ -162,7 +162,7 @@ impl Desugarizer {
                         new_expr
                     });
                     Some(SpawnSpec {
-                        target,
+                        expression,
                         condition,
                         annotated_pacing,
                         id,
@@ -177,7 +177,7 @@ impl Desugarizer {
                     .flat_map(|eval_spec| {
                         let EvalSpec {
                             annotated_pacing,
-                            filter,
+                            condition,
                             eval_expression,
                             id,
                             span,
@@ -187,14 +187,14 @@ impl Desugarizer {
                             change_set += eval_cs;
                             res
                         });
-                        let new_filter = filter.map(|e| {
-                            let (res, filter_cs) = self.desugarize_expression(e, &ast, current_sugar);
-                            change_set += filter_cs;
+                        let new_condition = condition.map(|e| {
+                            let (res, cond_cs) = self.desugarize_expression(e, &ast, current_sugar);
+                            change_set += cond_cs;
                             res
                         });
                         Some(EvalSpec {
                             annotated_pacing,
-                            filter: new_filter,
+                            condition: new_condition,
                             eval_expression: new_eval,
                             id,
                             span,
@@ -204,15 +204,15 @@ impl Desugarizer {
 
                 let new_close_spec = if let Some(close_spec) = close {
                     let CloseSpec {
-                        target,
+                        condition,
                         id,
                         span,
                         annotated_pacing,
                     } = close_spec;
-                    let (new_target, close_cs) = self.desugarize_expression(target, &ast, current_sugar);
+                    let (new_condition, close_cs) = self.desugarize_expression(condition, &ast, current_sugar);
                     change_set += close_cs;
                     Some(CloseSpec {
-                        target: new_target,
+                        condition: new_condition,
                         id,
                         span,
                         annotated_pacing,
@@ -288,19 +288,19 @@ impl Desugarizer {
                         let Output { spawn, eval, close, .. } = out_clone;
                         let new_spawn_spec = if let Some(spawn_spec) = spawn {
                             let SpawnSpec {
-                                target,
+                                expression,
                                 condition,
                                 annotated_pacing,
                                 id,
                                 span,
                             } = spawn_spec;
-                            let target = target
+                            let expression = expression
                                 .map(|tar_expression| self.apply_expr_global_change(id, &expr, &tar_expression, &ast));
                             let condition = condition.map(|cond_expression| {
                                 self.apply_expr_global_change(id, &expr, &cond_expression, &ast)
                             });
                             Some(SpawnSpec {
-                                target,
+                                expression,
                                 condition,
                                 annotated_pacing,
                                 id,
@@ -315,17 +315,17 @@ impl Desugarizer {
                             .flat_map(|eval_spec| {
                                 let EvalSpec {
                                     eval_expression,
-                                    filter,
+                                    condition,
                                     annotated_pacing,
                                     id,
                                     span,
                                 } = eval_spec;
                                 let eval_expression =
                                     eval_expression.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
-                                let filter = filter.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
+                                let condition = condition.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
                                 Some(EvalSpec {
                                     annotated_pacing,
-                                    filter,
+                                    condition,
                                     eval_expression,
                                     id,
                                     span,
@@ -335,14 +335,14 @@ impl Desugarizer {
 
                         let new_close_spec = if let Some(close_spec) = close {
                             let CloseSpec {
-                                target,
+                                condition,
                                 id,
                                 span,
                                 annotated_pacing,
                             } = close_spec;
-                            let new_target = self.apply_expr_global_change(id, &expr, &target, &ast);
+                            let new_condition = self.apply_expr_global_change(id, &expr, &condition, &ast);
                             Some(CloseSpec {
-                                target: new_target,
+                                condition: new_condition,
                                 id,
                                 span,
                                 annotated_pacing,
@@ -1009,9 +1009,9 @@ mod tests {
             new.eval[0].eval_expression.clone(),
             target.eval[0].eval_expression.clone()
         );
-        assert!(new.eval[0].clone().filter.is_some());
+        assert!(new.eval[0].clone().condition.is_some());
         assert!(matches!(
-            new.eval[0].clone().filter.as_ref().unwrap(),
+            new.eval[0].clone().condition.as_ref().unwrap(),
             Expression {
                 kind: ExpressionKind::Binary(..),
                 ..

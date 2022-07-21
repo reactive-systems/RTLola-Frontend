@@ -18,7 +18,7 @@ ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
 SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
-SpawnWith = { "with" ~Expr }
+SpawnWith = { "with " ~Expr }
 SpawnWhen = { "when " ~Expr }
 
 ActivationCondition = { "@" ~ Expr }
@@ -27,8 +27,8 @@ CloseDecl = { "close" ~ ActivationCondition? ~ "when" ~Expr }
 
 
 EvalDecl = { "eval" ~ ActivationCondition? ~ (EvalWhen | EvalWith){0,2} }
-EvalWhen = { "when" ~ Expr}
-EvalWith = { "with" ~ Expr}
+EvalWhen = { "when " ~ Expr}
+EvalWith = { "with " ~ Expr}
 SimpleEvalDecl = { ActivationCondition? ~ ":=" ~ Expr }
 
 IncludeStatement = { "include"~ StringLiteral}

@@ -20,7 +20,6 @@ impl Mirror {
             id: mirror_id,
         } = stream.clone();
         let target = ast.outputs.iter().find(|o| o.name.name == target.name);
-        println!("Target: {}", target.is_some());
         let target = target.expect("mirror stream refers to a stream that does not exist");
         let target = (**target).clone();
 
@@ -31,7 +30,7 @@ impl Mirror {
             .map(|e| {
                 let EvalSpec {
                     annotated_pacing: t_annotated_pacing,
-                    filter: t_filter,
+                    condition: t_filter,
                     eval_expression: t_eval,
                     id: t_id,
                     span: t_span,
@@ -52,7 +51,7 @@ impl Mirror {
                     None => filter.clone(),
                 };
                 EvalSpec {
-                    filter: Some(new_filter),
+                    condition: Some(new_filter),
                     id: t_id.primed(),
                     span: Span::Indirect(Box::new(t_span)),
                     annotated_pacing: t_annotated_pacing,
