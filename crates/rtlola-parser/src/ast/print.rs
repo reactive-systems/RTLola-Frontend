@@ -185,6 +185,7 @@ impl Display for Expression {
                     StreamAccessKind::Sync => write!(f, "{}", expr),
                     StreamAccessKind::Hold => write!(f, "{}.hold()", expr),
                     StreamAccessKind::Optional => write!(f, "{}.get()", expr),
+                    StreamAccessKind::UpdateCheck => write!(f, "{}.is_fresh()", expr),
                 }
             },
             ExpressionKind::Default(expr, val) => write!(f, "{}.defaults(to: {})", expr, val),

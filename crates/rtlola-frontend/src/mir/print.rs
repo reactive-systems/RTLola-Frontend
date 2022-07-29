@@ -49,6 +49,8 @@ impl Display for Expression {
                 match access {
                     StreamAccessKind::Sync => write!(f, "{}", sr),
                     StreamAccessKind::Hold => write!(f, "{}.hold()", sr),
+                    StreamAccessKind::Optional => write!(f, "{}.get()", sr),
+                    StreamAccessKind::ValueCheck => write!(f, "{}.is_fresh()", sr),
                     StreamAccessKind::Offset(offset) => write!(f, "{}.offset({})", sr, offset),
                     StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
                 }

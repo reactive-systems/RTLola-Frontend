@@ -587,7 +587,8 @@ impl ExpressionTransformer {
                 let access_kind = match kind {
                     StreamAccessKind::Hold => IRAccess::Hold,
                     StreamAccessKind::Sync => IRAccess::Sync,
-                    StreamAccessKind::Optional => unimplemented!("`get` optional stream access unimplemented!"),
+                    StreamAccessKind::Optional => IRAccess::Optional,
+                    StreamAccessKind::UpdateCheck => IRAccess::ValueCheck,
                 };
                 let (expr_ref, args) = self.get_stream_ref(&*expr, current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
@@ -1043,6 +1044,30 @@ mod tests {
                 assert_eq!(result_kind, *offset);
             }
         }
+    }
+
+    #[test]
+    fn transform_get() {
+        let spec = "input o :Int8\noutput v @1Hz := 3\noutput off := v.get()";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[1].eval_expr();
+        let expr = &ir.expression(output_expr_id);
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Optional, _)
+        ));
+    }
+
+    #[test]
+    fn transform_is_fresh() {
+        let spec = "input o :Int8\noutput new := o.is_fresh()";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].eval_expr();
+        let expr = &ir.expression(output_expr_id);
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::ValueCheck, _)
+        ));
     }
 
     #[test]

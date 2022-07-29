@@ -512,6 +512,11 @@ where
                         }
                     },
                     StreamAccessKind::Hold => {},
+                    StreamAccessKind::Optional | StreamAccessKind::ValueCheck => {
+                        /* TODO REVIEW */
+                        // TODO: enforce periodic-periodic or event-event on source and target stream
+                        todo!()
+                    },
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
                             .impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;

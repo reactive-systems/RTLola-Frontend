@@ -54,7 +54,11 @@ impl EdgeWeight {
     /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
-            StreamAccessKind::Sync | StreamAccessKind::Hold | StreamAccessKind::Offset(_) => None,
+            StreamAccessKind::Optional
+            | StreamAccessKind::ValueCheck
+            | StreamAccessKind::Sync
+            | StreamAccessKind::Hold
+            | StreamAccessKind::Offset(_) => None,
             StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
         }
     }
@@ -62,9 +66,11 @@ impl EdgeWeight {
     /// Returns the memory bound of the [EdgeWeight]
     pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
         match self.kind {
-            StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
-                MemorizationBound::default_value(dynamic)
-            },
+            StreamAccessKind::Sync
+            | StreamAccessKind::Optional
+            | StreamAccessKind::ValueCheck
+            | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
             StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
         }
@@ -91,6 +97,8 @@ pub(crate) trait ExtendedDepGraph {
     fn has_negative_offset(e: &EdgeWeight) -> bool {
         match e.kind {
             StreamAccessKind::Sync
+            | StreamAccessKind::Optional
+            | StreamAccessKind::ValueCheck
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_)
             | StreamAccessKind::Hold => false,
@@ -524,6 +532,26 @@ mod tests {
     use super::*;
     use crate::modes::BaseMode;
 
+    macro_rules! empty_vec_for_map {
+        ($name_map: ident) => {
+            $name_map
+                .values()
+                .clone()
+                .into_iter()
+                .map(|sr| (*sr, vec![]))
+                .collect::<HashMap<_, _>>()
+        };
+    }
+
+    macro_rules! checking_map {
+        ($name_map: ident, $([$source: expr,($($x:literal),* $(,)?)]),* $(,)?) => {
+            vec![$(($name_map[$source], vec![$($name_map[$x]),*])),*].into_iter().collect::<HashMap<_,_>>()
+        };
+        ($name_map: ident, $([$source: expr,($(($x:literal,$w:expr)),* $(,)?)]),* $(,)?) => {
+            vec![$(($name_map[$source], vec![$(($name_map[$x],$w)),*])),*].into_iter().collect::<HashMap<_,_>>()
+        };
+    }
+
     fn check_graph_for_spec(
         spec: &str,
         dependencies: Option<(
@@ -627,60 +655,24 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["c"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (sname_to_sref["b"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("b")], ["d", ("c")]);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a")],
+            ["c", ("a", "b")],
+            ["d", ("a", "b", "c")]
+        );
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ()]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("c", "d")],
+            ["c", ("d")],
+            ["d", ()]
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -698,20 +690,12 @@ mod tests {
     fn negative_loop() {
         let spec = "output a: Int8 @1Hz := a.offset(by: -1).defaults(to: 0)";
         let sname_to_sref = vec![("a", SRef::Out(0))].into_iter().collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
-            .into_iter()
-            .collect();
-        let transitive_accesses = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
-            .into_iter()
-            .collect();
-        let direct_accessed_by = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
-            .into_iter()
-            .collect();
-        let transitive_accessed_by = vec![(sname_to_sref["a"], vec![sname_to_sref["a"]])]
-            .into_iter()
-            .collect();
-        let aggregates = vec![(sname_to_sref["a"], vec![])].into_iter().collect();
-        let aggregated_by = vec![(sname_to_sref["a"], vec![])].into_iter().collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ("a")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("a")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("a")]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("a")]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -736,90 +720,24 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (
-                sname_to_sref["b"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["b"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("c")],);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "b", "c", "d")],
+            ["c", ("a", "b", "c", "d")],
+            ["d", ("a", "b", "c", "d")],
+        );
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ("b")],);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("b", "c", "d")],
+            ["c", ("b", "c", "d")],
+            ["d", ("b", "c", "d")],
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -834,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn negative_and_postive_lookups_as_loop() {
+    fn negative_and_positive_lookups_as_loop() {
         let spec = "input a: Int8\noutput b: Int8 := a + d.offset(by:-1).defaults(to:0)\noutput c: Int8 := b\noutput d: Int8 := c";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
@@ -844,90 +762,24 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (
-                sname_to_sref["b"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["b"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("c")]);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "b", "c", "d")],
+            ["c", ("a", "b", "c", "d")],
+            ["d", ("a", "b", "c", "d")]
+        );
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ("b")]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("b", "c", "d")],
+            ["c", ("b", "c", "d")],
+            ["d", ("b", "c", "d")]
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -970,72 +822,36 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (
-                sname_to_sref["b"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["d"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (
-                sname_to_sref["b"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-            (sname_to_sref["c"], vec![]),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["b"], sname_to_sref["c"], sname_to_sref["d"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![(sname_to_sref["a"], WRef::Sliding(0))]),
-            (sname_to_sref["c"], vec![(sname_to_sref["b"], WRef::Sliding(1))]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![(sname_to_sref["b"], WRef::Sliding(0))]),
-            (sname_to_sref["b"], vec![(sname_to_sref["c"], WRef::Sliding(1))]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("b")]);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "b", "d")],
+            ["c", ("a", "b", "d")],
+            ["d", ("a", "b", "d")]
+        );
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c", "d")], ["c", ()], ["d", ("b")]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("b", "c", "d")],
+            ["c", ()],
+            ["d", ("b", "c", "d")]
+        );
+        let aggregates = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", (("a", WRef::Sliding(0)))],
+            ["c", (("b", WRef::Sliding(1)))],
+            ["d", ()]
+        );
+        let aggregated_by = checking_map!(
+            sname_to_sref,
+            ["a", (("b", WRef::Sliding(0)))],
+            ["b", (("c", WRef::Sliding(1)))],
+            ["c", ()],
+            ["d", ()]
+        );
         check_graph_for_spec(
             spec,
             Some((
@@ -1079,36 +895,12 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
-        let aggregated_by = vec![(sname_to_sref["a"], vec![]), (sname_to_sref["b"], vec![])]
-            .into_iter()
-            .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b")]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b")]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1138,48 +930,12 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"], sname_to_sref["a"]]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")], ["c", ("b", "a")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1201,48 +957,12 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("b")],);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("a", "b")],);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ()],);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("c")], ["c", ()],);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1276,63 +996,36 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (name_to_sref["a"], vec![]),
-            (name_to_sref["b"], vec![name_to_sref["a"]]),
-            (name_to_sref["c"], vec![name_to_sref["a"], name_to_sref["b"]]),
-            (name_to_sref["d"], vec![name_to_sref["a"], name_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (name_to_sref["a"], vec![]),
-            (name_to_sref["b"], vec![name_to_sref["a"]]),
-            (name_to_sref["c"], vec![name_to_sref["a"], name_to_sref["b"]]),
-            (
-                name_to_sref["d"],
-                vec![name_to_sref["a"], name_to_sref["b"], name_to_sref["c"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (
-                name_to_sref["a"],
-                vec![name_to_sref["b"], name_to_sref["c"], name_to_sref["d"]],
-            ),
-            (name_to_sref["b"], vec![name_to_sref["c"]]),
-            (name_to_sref["c"], vec![name_to_sref["d"]]),
-            (name_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                name_to_sref["a"],
-                vec![name_to_sref["b"], name_to_sref["c"], name_to_sref["d"]],
-            ),
-            (name_to_sref["b"], vec![name_to_sref["c"], name_to_sref["d"]]),
-            (name_to_sref["c"], vec![name_to_sref["d"]]),
-            (name_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (name_to_sref["a"], vec![]),
-            (name_to_sref["b"], vec![]),
-            (name_to_sref["c"], vec![]),
-            (name_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (name_to_sref["a"], vec![]),
-            (name_to_sref["b"], vec![]),
-            (name_to_sref["c"], vec![]),
-            (name_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(
+            name_to_sref,
+            ["a", ()],
+            ["b", ("a",)],
+            ["c", ("a", "b")],
+            ["d", ("a", "c")],
+        );
+        let transitive_accesses = checking_map!(
+            name_to_sref,
+            ["a", ()],
+            ["b", ("a",)],
+            ["c", ("a", "b")],
+            ["d", ("a", "b", "c")],
+        );
+        let direct_accessed_by = checking_map!(
+            name_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("c",)],
+            ["c", ("d")],
+            ["d", ()],
+        );
+        let transitive_accessed_by = checking_map!(
+            name_to_sref,
+            ["a", ("b", "c", "d")],
+            ["b", ("c", "d")],
+            ["c", ("d")],
+            ["d", ()],
+        );
+        let aggregates = empty_vec_for_map!(name_to_sref);
+        let aggregated_by = empty_vec_for_map!(name_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1377,202 +1070,48 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (
-                sname_to_sref["c"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["g"]],
-            ),
-            (sname_to_sref["d"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["e"], vec![sname_to_sref["b"], sname_to_sref["d"]]),
-            (sname_to_sref["f"], vec![sname_to_sref["b"], sname_to_sref["e"]]),
-            (sname_to_sref["g"], vec![sname_to_sref["b"], sname_to_sref["f"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (
-                sname_to_sref["c"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["e"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["f"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["g"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["c"]]),
-            (
-                sname_to_sref["b"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["e"]]),
-            (sname_to_sref["e"], vec![sname_to_sref["f"]]),
-            (sname_to_sref["f"], vec![sname_to_sref["g"]]),
-            (sname_to_sref["g"], vec![sname_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["b"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["c"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["d"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["e"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["f"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-            (
-                sname_to_sref["g"],
-                vec![
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                    sname_to_sref["e"],
-                    sname_to_sref["f"],
-                    sname_to_sref["g"],
-                ],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-            (sname_to_sref["e"], vec![]),
-            (sname_to_sref["f"], vec![]),
-            (sname_to_sref["g"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-            (sname_to_sref["e"], vec![]),
-            (sname_to_sref["f"], vec![]),
-            (sname_to_sref["g"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b", "g")],
+            ["d", ("b", "c")],
+            ["e", ("b", "d")],
+            ["f", ("b", "e")],
+            ["g", ("b", "f")],
+        );
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b", "c", "d", "e", "f", "g")],
+            ["d", ("a", "b", "c", "d", "e", "f", "g")],
+            ["e", ("a", "b", "c", "d", "e", "f", "g")],
+            ["f", ("a", "b", "c", "d", "e", "f", "g")],
+            ["g", ("a", "b", "c", "d", "e", "f", "g")],
+        );
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c")],
+            ["b", ("c", "d", "e", "f", "g")],
+            ["c", ("d")],
+            ["d", ("e")],
+            ["e", ("f")],
+            ["f", ("g")],
+            ["g", ("c")],
+        );
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c", "d", "e", "f", "g")],
+            ["b", ("c", "d", "e", "f", "g")],
+            ["c", ("c", "d", "e", "f", "g")],
+            ["d", ("c", "d", "e", "f", "g")],
+            ["e", ("c", "d", "e", "f", "g")],
+            ["f", ("c", "d", "e", "f", "g")],
+            ["g", ("c", "d", "e", "f", "g")],
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1597,57 +1136,30 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["c"]],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"]]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b")],
+            ["d", ("b", "c",)],
+        );
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b")],
+            ["d", ("a", "b", "c")]
+        );
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("c")], ["b", ("c", "d")], ["c", ("d")], ["d", ()]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c", "d")],
+            ["b", ("c", "d")],
+            ["c", ("d")],
+            ["d", ()]
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1673,77 +1185,40 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["b"], sname_to_sref["c"]]),
-            (sname_to_sref["e"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![sname_to_sref["a"], sname_to_sref["b"]]),
-            (
-                sname_to_sref["d"],
-                vec![sname_to_sref["a"], sname_to_sref["b"], sname_to_sref["c"]],
-            ),
-            (
-                sname_to_sref["e"],
-                vec![
-                    sname_to_sref["a"],
-                    sname_to_sref["b"],
-                    sname_to_sref["c"],
-                    sname_to_sref["d"],
-                ],
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["c"]]),
-            (sname_to_sref["b"], vec![sname_to_sref["c"], sname_to_sref["d"]]),
-            (sname_to_sref["c"], vec![sname_to_sref["d"], sname_to_sref["e"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["e"]]),
-            (sname_to_sref["e"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (
-                sname_to_sref["a"],
-                vec![sname_to_sref["c"], sname_to_sref["d"], sname_to_sref["e"]],
-            ),
-            (
-                sname_to_sref["b"],
-                vec![sname_to_sref["c"], sname_to_sref["d"], sname_to_sref["e"]],
-            ),
-            (sname_to_sref["c"], vec![sname_to_sref["d"], sname_to_sref["e"]]),
-            (sname_to_sref["d"], vec![sname_to_sref["e"]]),
-            (sname_to_sref["e"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-            (sname_to_sref["e"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["b"], vec![]),
-            (sname_to_sref["c"], vec![]),
-            (sname_to_sref["d"], vec![]),
-            (sname_to_sref["e"], vec![]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b")],
+            ["d", ("b", "c")],
+            ["e", ("c", "d")]
+        );
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", ("a", "b")],
+            ["d", ("a", "b", "c")],
+            ["e", ("a", "b", "c", "d")]
+        );
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c")],
+            ["b", ("c", "d")],
+            ["c", ("d", "e")],
+            ["d", ("e")],
+            ["e", ()]
+        );
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c", "d", "e")],
+            ["b", ("c", "d", "e")],
+            ["c", ("d", "e")],
+            ["d", ("e")],
+            ["e", ()]
+        );
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((
@@ -1782,42 +1257,74 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::Out(0)), ("x", SRef::In(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["a"], sname_to_sref["x"]]),
-            (sname_to_sref["x"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accesses = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["a"], sname_to_sref["x"]]),
-            (sname_to_sref["x"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let direct_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["x"], vec![sname_to_sref["a"]]),
-        ]
-        .into_iter()
-        .collect();
-        let transitive_accessed_by = vec![
-            (sname_to_sref["a"], vec![sname_to_sref["a"]]),
-            (sname_to_sref["x"], vec![sname_to_sref["a"]]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregates = vec![
-            (sname_to_sref["a"], vec![(sname_to_sref["x"], WRef::Sliding(0))]),
-            (sname_to_sref["x"], vec![]),
-        ]
-        .into_iter()
-        .collect();
-        let aggregated_by = vec![
-            (sname_to_sref["a"], vec![]),
-            (sname_to_sref["x"], vec![(sname_to_sref["a"], WRef::Sliding(0))]),
-        ]
-        .into_iter()
-        .collect();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ("a", "x")], ["x", ()]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("a", "x")], ["x", ()]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
+        let aggregates = checking_map!(sname_to_sref, ["a", (("x", WRef::Sliding(0)))], ["x", ()]);
+        let aggregated_by = checking_map!(sname_to_sref, ["a", ()], ["x", (("a", WRef::Sliding(0)))]);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn test_get_dep() {
+        //TODO review this test after implementation of get
+        let spec = "
+            input x:Int8\n\
+            output a eval @0.5Hz when x.hold(or:0) > 0 with x*x
+            output b eval @1Hz with a.get().defaults(to:0)
+        ";
+        let sname_to_sref = vec![("a", SRef::Out(0)), ("b", SRef::Out(1)), ("x", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses: HashMap<SRef, Vec<SRef>> =
+            checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a")], ["x", ()]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn test_tick_dep() {
+        //TODO review this test after implementation of get
+        let spec = "
+            input x:Int8\n\
+            output a eval @0.5Hz when x.hold(or:0) > 0 with x*x
+            output b eval @1Hz with if a.is_fresh() then 1 else -1
+        ";
+        let sname_to_sref = vec![("a", SRef::Out(0)), ("b", SRef::Out(1)), ("x", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses: HashMap<SRef, Vec<SRef>> =
+            checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a")], ["x", ()]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((

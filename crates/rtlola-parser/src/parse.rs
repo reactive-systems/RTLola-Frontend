@@ -903,6 +903,10 @@ impl RtLolaParser {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Optional)
                                     }
+                                    "is_fresh()" => {
+                                        assert_eq!(args.len(), 0);
+                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::UpdateCheck)
+                                    }
                                     "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
@@ -1527,6 +1531,20 @@ mod tests {
     #[test]
     fn build_lookup_expression_hold() {
         let spec = "output s: Int eval with s.offset(by: -1).hold().defaults(to: 3 * 4)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_get_expression_def() {
+        let spec = "output s: Int eval with s.get().defaults(to: -1)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn build_check_expression_def() {
+        let spec = "input i: Int\noutput s: Int eval @1Hz with if i.is_fresh() then -1 else 1\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }

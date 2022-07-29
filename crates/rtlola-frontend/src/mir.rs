@@ -877,6 +877,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the [Offset] of the stream access.
     Offset(Offset),
+    /// Represents the optional `get` access.
+    Optional,
+    /// Represents the update check of a stream, if the target received a new value at this timestamp.
+    ValueCheck,
 }
 
 /// Offset used in the lookup expression

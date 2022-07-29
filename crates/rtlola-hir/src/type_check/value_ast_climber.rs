@@ -591,7 +591,7 @@ where
                             },
                         }
                     },
-                    StreamAccessKind::Hold => {
+                    StreamAccessKind::Hold | StreamAccessKind::Optional => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
@@ -615,6 +615,10 @@ where
                                 self.handle_realtime_offset(*sr, d, term_key, tk)?;
                             },
                         }
+                    },
+                    StreamAccessKind::ValueCheck => {
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
                     },
                 };
             },

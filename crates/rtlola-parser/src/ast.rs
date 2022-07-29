@@ -432,8 +432,10 @@ pub enum StreamAccessKind {
     Sync,
     /// Hold access for *incompatible* stream types, returns previous known value
     Hold,
-    /// Optional access, returns value if it exists
+    /// Optional access, returns value if it exists, called by `.get()`
     Optional,
+    /// Boolean Typed access, returning true if the target stream received a new value at the current timestamp. Called with `.is_fresh()`.
+    UpdateCheck,
 }
 
 /// Describes the operation used to access a stream with a offset
