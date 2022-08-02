@@ -587,10 +587,10 @@ impl ExpressionTransformer {
                 let access_kind = match kind {
                     StreamAccessKind::Hold => IRAccess::Hold,
                     StreamAccessKind::Sync => IRAccess::Sync,
-                    StreamAccessKind::Optional => IRAccess::Optional,
-                    StreamAccessKind::UpdateCheck => IRAccess::ValueCheck,
+                    StreamAccessKind::Optional => IRAccess::Get,
+                    StreamAccessKind::UpdateCheck => IRAccess::Fresh,
                 };
-                let (expr_ref, args) = self.get_stream_ref(&*expr, current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(expr.as_ref(), current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             },
             ast::ExpressionKind::Default(expr, def) => {
@@ -626,7 +626,7 @@ impl ExpressionTransformer {
                         }
                     },
                 };
-                let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(target_expr, current_output)?;
                 let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
                 ExpressionKind::StreamAccess(expr_ref, kind, args)
             },
@@ -665,7 +665,7 @@ impl ExpressionTransformer {
                 let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
-                let duration = Self::parse_duration_from_expr(&*duration)
+                let duration = Self::parse_duration_from_expr(duration.as_ref())
                     .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
                 let window = Window {
                     target: sref,
@@ -1054,7 +1054,7 @@ mod tests {
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
-            ExpressionKind::StreamAccess(_, StreamAccessKind::Optional, _)
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Get, _)
         ));
     }
 
@@ -1066,7 +1066,7 @@ mod tests {
         let expr = &ir.expression(output_expr_id);
         assert!(matches!(
             expr.kind,
-            ExpressionKind::StreamAccess(_, StreamAccessKind::ValueCheck, _)
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Fresh, _)
         ));
     }
 

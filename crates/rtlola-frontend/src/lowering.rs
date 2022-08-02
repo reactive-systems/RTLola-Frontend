@@ -458,8 +458,8 @@ impl Mir {
             StreamAccessKind::SlidingWindow(wref) => mir::StreamAccessKind::SlidingWindow(wref),
             StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
             StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
-            StreamAccessKind::Optional => mir::StreamAccessKind::Optional,
-            StreamAccessKind::ValueCheck => mir::StreamAccessKind::ValueCheck,
+            StreamAccessKind::Get => mir::StreamAccessKind::Get,
+            StreamAccessKind::Fresh => mir::StreamAccessKind::Fresh,
         }
     }
 

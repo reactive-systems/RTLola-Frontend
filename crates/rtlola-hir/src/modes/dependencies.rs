@@ -54,8 +54,8 @@ impl EdgeWeight {
     /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
-            StreamAccessKind::Optional
-            | StreamAccessKind::ValueCheck
+            StreamAccessKind::Get
+            | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
             | StreamAccessKind::Offset(_) => None,
@@ -67,8 +67,8 @@ impl EdgeWeight {
     pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
         match self.kind {
             StreamAccessKind::Sync
-            | StreamAccessKind::Optional
-            | StreamAccessKind::ValueCheck
+            | StreamAccessKind::Get
+            | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
@@ -97,8 +97,8 @@ pub(crate) trait ExtendedDepGraph {
     fn has_negative_offset(e: &EdgeWeight) -> bool {
         match e.kind {
             StreamAccessKind::Sync
-            | StreamAccessKind::Optional
-            | StreamAccessKind::ValueCheck
+            | StreamAccessKind::Get
+            | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_)
             | StreamAccessKind::Hold => false,

@@ -228,6 +228,13 @@ pub(crate) enum PacingErrorKind {
         given_num: usize,
         expected_num: usize,
     },
+    InvalidGetOrFreshAccess {
+        is_get: bool,
+        target: Span,
+        target_type: ConcretePacingType,
+        source: Span,
+        source_type: ConcretePacingType,
+    },
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -631,6 +638,18 @@ impl Resolvable for PacingErrorKind {
                 )
                     .add_span_with_label(exp_span, Some(&format!("Got {} arguments here.", given_num)), true)
                     .add_span_with_label(target_span, Some(&format!("Expected {} arguments here.", expected_num)), false)
+            },
+            InvalidGetOrFreshAccess { is_get, target, target_type, source, source_type } => {
+                let (op, default) = if is_get {
+                    ("'get'", "default value")
+                } else {
+                    ("'is_fresh()'", "false")
+                };
+                Diagnostic::error(
+                    &format!("In pacing type analysis:\n {} stream access will always result in {} due to a mismatch in pacing types.", op, default)
+                )
+                    .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
+                    .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
             }
         }
     }

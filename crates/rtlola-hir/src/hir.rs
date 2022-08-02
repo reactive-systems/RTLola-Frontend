@@ -580,7 +580,7 @@ impl Output {
 }
 
 /// Represents a single parameter of a parametrized output stream.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct Parameter {
     /// The name of this parameter
     pub name: String,
@@ -605,7 +605,7 @@ impl Parameter {
 }
 
 /// Pacing information for stream; contains either a frequency or a condition on input streams.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnotatedPacingType {
     /// The evaluation frequency
     Frequency {

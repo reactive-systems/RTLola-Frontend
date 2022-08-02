@@ -511,12 +511,7 @@ where
                             }
                         }
                     },
-                    StreamAccessKind::Hold => {},
-                    StreamAccessKind::Optional | StreamAccessKind::ValueCheck => {
-                        /* TODO REVIEW */
-                        // TODO: enforce periodic-periodic or event-event on source and target stream
-                        todo!()
-                    },
+                    StreamAccessKind::Hold | StreamAccessKind::Get | StreamAccessKind::Fresh => {},
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
                             .impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
@@ -525,13 +520,13 @@ where
                 };
 
                 for arg in args {
-                    let arg_key = self.expression_infer(&*arg)?;
+                    let arg_key = self.expression_infer(arg)?;
                     self.impose_more_concrete(term_keys, arg_key)?;
                 }
             },
             ExpressionKind::Default { expr, default } => {
-                let ex_key = self.expression_infer(&*expr)?;
-                let def_key = self.expression_infer(&*default)?;
+                let ex_key = self.expression_infer(expr)?;
+                let def_key = self.expression_infer(default)?;
 
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
@@ -557,9 +552,9 @@ where
                 consequence,
                 alternative,
             } => {
-                let cond_key = self.expression_infer(&*condition)?;
-                let cons_key = self.expression_infer(&*consequence)?;
-                let alt_key = self.expression_infer(&*alternative)?;
+                let cond_key = self.expression_infer(condition)?;
+                let cons_key = self.expression_infer(consequence)?;
+                let alt_key = self.expression_infer(alternative)?;
 
                 self.impose_more_concrete(term_keys, cond_key)?;
                 self.impose_more_concrete(term_keys, cons_key)?;
@@ -573,16 +568,16 @@ where
             },
             ExpressionKind::Function(FnExprKind { args, .. }) => {
                 for arg in args {
-                    let arg_key = self.expression_infer(&*arg)?;
+                    let arg_key = self.expression_infer(arg)?;
                     self.impose_more_concrete(term_keys, arg_key)?;
                 }
             },
             ExpressionKind::TupleAccess(t, _) => {
-                let exp_key = self.expression_infer(&*t)?;
+                let exp_key = self.expression_infer(t)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
             },
             ExpressionKind::Widen(hir::WidenExprKind { expr: inner, .. }) => {
-                let exp_key = self.expression_infer(&*inner)?;
+                let exp_key = self.expression_infer(inner)?;
                 self.impose_more_concrete(term_keys, exp_key)?;
             },
         };
@@ -657,6 +652,109 @@ where
             || spawn_cond != &positive_top
             || filter != &positive_top
             || close != &negative_top
+    }
+
+    fn get_or_fresh_targets(hir: &Hir<M>, expr: ExprId) -> Vec<(bool, Span, StreamReference)> {
+        let expr = hir.expression(expr);
+        match &expr.kind {
+            ExpressionKind::LoadConstant(_) => vec![],
+            ExpressionKind::ArithLog(_, children) => {
+                children
+                    .iter()
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .collect()
+            },
+            ExpressionKind::StreamAccess(target, kind, arguments) => {
+                let mut res: Vec<_> = arguments
+                    .iter()
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .collect();
+                match kind {
+                    StreamAccessKind::Get => res.push((true, expr.span.clone(), *target)),
+                    StreamAccessKind::Fresh => res.push((false, expr.span.clone(), *target)),
+                    _ => {},
+                };
+                res
+            },
+            ExpressionKind::ParameterAccess(_, _) => vec![],
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                let mut cond = Self::get_or_fresh_targets(hir, condition.eid);
+
+                cond.append(&mut Self::get_or_fresh_targets(hir, consequence.eid));
+                cond.append(&mut Self::get_or_fresh_targets(hir, alternative.eid));
+
+                cond
+            },
+            ExpressionKind::Tuple(children) => {
+                children
+                    .iter()
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .collect()
+            },
+            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(hir, target.eid),
+            ExpressionKind::Function(def) => {
+                def.args
+                    .iter()
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .collect()
+            },
+            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(hir, def.expr.eid),
+            ExpressionKind::Default { expr, default } => {
+                let mut expr = Self::get_or_fresh_targets(hir, expr.eid);
+
+                expr.append(&mut Self::get_or_fresh_targets(hir, default.eid));
+
+                expr
+            },
+        }
+    }
+
+    fn check_get_and_fresh_access(
+        hir: &Hir<M>,
+        pacing_tt: &TypeTable<AbstractPacingType>,
+        nid_key: &HashMap<NodeId, StreamTypeKeys>,
+        expr: Option<ExprId>,
+        condition: Option<ExprId>,
+        own_pacing: &ConcretePacingType,
+    ) -> Vec<TypeError<PacingErrorKind>> {
+        expr.map(|e| Self::get_or_fresh_targets(hir, e))
+            .unwrap_or_else(Vec::new)
+            .iter()
+            .chain(
+                condition
+                    .map(|e| Self::get_or_fresh_targets(hir, e))
+                    .unwrap_or_else(Vec::new)
+                    .iter(),
+            )
+            .flat_map(|(is_get, span, target)| {
+                let other_pacing: &ConcretePacingType = &pacing_tt[&nid_key[&NodeId::SRef(*target)].exp_pacing];
+                if (own_pacing.is_periodic() != other_pacing.is_periodic())
+                    || (own_pacing.is_event_based() != other_pacing.is_event_based())
+                {
+                    let target_span = hir
+                        .output(*target)
+                        .map(|o| o.span.clone())
+                        .or_else(|| hir.input(*target).map(|i| i.span.clone()))
+                        .expect("Ref to be either input or output");
+                    Some(
+                        PacingErrorKind::InvalidGetOrFreshAccess {
+                            is_get: *is_get,
+                            target: target_span,
+                            target_type: other_pacing.clone(),
+                            source: span.clone(),
+                            source_type: own_pacing.clone(),
+                        }
+                        .into(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn post_process(
@@ -805,7 +903,7 @@ where
             let close_type = &exp_tt[&keys.close].variant;
 
             let spawn_pacing =
-                (output.spawn().is_none() && spawn_pacing != ConcretePacingType::Constant).then(|| spawn_pacing);
+                (output.spawn().is_none() && spawn_pacing != ConcretePacingType::Constant).then_some(spawn_pacing);
             let spawn_cond = (output.spawn_cond().is_none() && spawn_cond != &positive_top)
                 .then(|| spawn_cond.construct(&[]).expect("variant to not be any"));
             let filter = (output.eval_cond().is_none() && filter_type != &positive_top)
@@ -917,6 +1015,46 @@ where
             }
         }
 
+        // Check that a get / fresh access only occurs between periodic or event-based streams
+        for output in &hir.outputs {
+            // Spawn clause
+            if let Some(spawn) = &output.spawn {
+                let own_pacing: &ConcretePacingType = &pacing_tt[&nid_key[&NodeId::SRef(output.sr)].spawn.0];
+                errors.append(&mut Self::check_get_and_fresh_access(
+                    hir,
+                    pacing_tt,
+                    nid_key,
+                    spawn.expression,
+                    spawn.condition,
+                    own_pacing,
+                ))
+            }
+
+            // Eval clause
+            let eval = &output.eval;
+            let own_pacing: &ConcretePacingType = &pacing_tt[&nid_key[&NodeId::SRef(output.sr)].exp_pacing];
+            errors.append(&mut Self::check_get_and_fresh_access(
+                hir,
+                pacing_tt,
+                nid_key,
+                Some(eval.expr),
+                eval.condition,
+                own_pacing,
+            ));
+
+            // Close clause
+            if let Some(close) = &output.close {
+                let own_pacing: &ConcretePacingType = &pacing_tt[&nid_key[&NodeId::Expr(close.condition)].exp_pacing];
+                errors.append(&mut Self::check_get_and_fresh_access(
+                    hir,
+                    pacing_tt,
+                    nid_key,
+                    None,
+                    Some(close.condition),
+                    own_pacing,
+                ));
+            }
+        }
         errors
     }
 
@@ -2502,5 +2640,11 @@ mod tests {
     fn test_missing_eval_with_apt() {
         let spec = "input a: Int8\noutput b eval @1Hz";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_invalid_get() {
+        let spec = "input a: Int8\noutput b eval @1Hz with a.get().defaults(to: 0)";
+        assert_eq!(1, num_errors(spec));
     }
 }

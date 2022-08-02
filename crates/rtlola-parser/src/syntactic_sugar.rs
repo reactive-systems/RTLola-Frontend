@@ -141,7 +141,7 @@ impl Desugarizer {
 
             for ix in 0..ast.outputs.len() {
                 let out = &ast.outputs[ix];
-                let out_clone: Output = Output::clone(&*out);
+                let out_clone: Output = Output::clone(out);
                 let Output { spawn, eval, close, .. } = out_clone;
                 let new_spawn_spec = if let Some(spawn_spec) = spawn {
                     let SpawnSpec {
@@ -233,7 +233,7 @@ impl Desugarizer {
                 let trigger = &ast.trigger[ix];
                 let (new_out_expr, cs) = self.desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
                 change_set += cs;
-                let trigger_clone: Trigger = Trigger::clone(&*trigger);
+                let trigger_clone: Trigger = Trigger::clone(trigger);
                 let new_trigger = Trigger {
                     expression: new_out_expr,
                     ..trigger_clone
@@ -284,7 +284,7 @@ impl Desugarizer {
                 ChangeInstruction::ReplaceExpr(id, expr) => {
                     for ix in 0..ast.outputs.len() {
                         let out = &ast.outputs[ix];
-                        let out_clone: Output = Output::clone(&*out);
+                        let out_clone: Output = Output::clone(out);
                         let Output { spawn, eval, close, .. } = out_clone;
                         let new_spawn_spec = if let Some(spawn_spec) = spawn {
                             let SpawnSpec {
@@ -363,7 +363,7 @@ impl Desugarizer {
                     for ix in 0..ast.trigger.len() {
                         let trigger: &Rc<Trigger> = &ast.trigger[ix];
                         let new_trigger_expr = self.apply_expr_global_change(id, &expr, &trigger.expression, &ast);
-                        let trigger_clone: Trigger = Trigger::clone(&*trigger);
+                        let trigger_clone: Trigger = Trigger::clone(trigger);
                         let new_trigger = Trigger {
                             expression: new_trigger_expr,
                             ..trigger_clone

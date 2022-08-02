@@ -156,7 +156,7 @@ impl Ordered {
                         .neighbors_directed(node, Outgoing)
                         .flat_map(|outgoing_neighbor| {
                             //ignore selfloops
-                            (outgoing_neighbor != node).then(|| outgoing_neighbor)
+                            (outgoing_neighbor != node).then_some(outgoing_neighbor)
                         })
                         .map(|outgoing_neighbor| {
                             evaluation_layers
