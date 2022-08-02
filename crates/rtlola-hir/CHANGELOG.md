@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ignore mirror streams field in AST, because they represent syntactic sugar artifacts.
 - Update for new Syntax: inline InstanceTemplate in Hir Output streams
 
+### Added
+- `get()` and `is_fresh()` stream access
+
 ## [0.3.3] - 12.04.2022
 
 ### Fixed

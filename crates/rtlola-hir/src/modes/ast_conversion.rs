@@ -587,8 +587,8 @@ impl ExpressionTransformer {
                 let access_kind = match kind {
                     StreamAccessKind::Hold => IRAccess::Hold,
                     StreamAccessKind::Sync => IRAccess::Sync,
-                    StreamAccessKind::Optional => IRAccess::Get,
-                    StreamAccessKind::UpdateCheck => IRAccess::Fresh,
+                    StreamAccessKind::Get => IRAccess::Get,
+                    StreamAccessKind::Fresh => IRAccess::Fresh,
                 };
                 let (expr_ref, args) = self.get_stream_ref(expr.as_ref(), current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)

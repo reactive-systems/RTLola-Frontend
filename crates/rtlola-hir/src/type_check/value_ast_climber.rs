@@ -720,7 +720,7 @@ where
                 self.expression_infer(condition, Some(AbstractValueType::Bool))?;
                 let cons_key = self.expression_infer(consequence, None)?; // X
                 let alt_key = self.expression_infer(alternative, None)?; // X
-                                                                           //Bool x T x T -> T
+                                                                         //Bool x T x T -> T
                 self.tyc.impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
             },
 

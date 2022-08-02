@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include stream access kind in Mir
 - Update for new Syntax: inline and update InstanceTemplate
 
+### Added
+- `get()` and `is_fresh()` stream access
+
 ## [0.5.3] - 12.04.2022
 
 ### Changed

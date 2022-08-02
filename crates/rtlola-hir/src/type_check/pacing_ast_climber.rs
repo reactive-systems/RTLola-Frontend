@@ -654,20 +654,19 @@ where
             || close != &negative_top
     }
 
-    fn get_or_fresh_targets(hir: &Hir<M>, expr: ExprId) -> Vec<(bool, Span, StreamReference)> {
-        let expr = hir.expression(expr);
+    fn get_or_fresh_targets(hir: &Hir<M>, expr: &Expression) -> Vec<(bool, Span, StreamReference)> {
         match &expr.kind {
             ExpressionKind::LoadConstant(_) => vec![],
             ExpressionKind::ArithLog(_, children) => {
                 children
                     .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                     .collect()
             },
             ExpressionKind::StreamAccess(target, kind, arguments) => {
                 let mut res: Vec<_> = arguments
                     .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                     .collect();
                 match kind {
                     StreamAccessKind::Get => res.push((true, expr.span.clone(), *target)),
@@ -682,31 +681,31 @@ where
                 consequence,
                 alternative,
             } => {
-                let mut cond = Self::get_or_fresh_targets(hir, condition.eid);
+                let mut cond = Self::get_or_fresh_targets(hir, condition);
 
-                cond.append(&mut Self::get_or_fresh_targets(hir, consequence.eid));
-                cond.append(&mut Self::get_or_fresh_targets(hir, alternative.eid));
+                cond.append(&mut Self::get_or_fresh_targets(hir, consequence));
+                cond.append(&mut Self::get_or_fresh_targets(hir, alternative));
 
                 cond
             },
             ExpressionKind::Tuple(children) => {
                 children
                     .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                     .collect()
             },
-            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(hir, target.eid),
+            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(hir, target),
             ExpressionKind::Function(def) => {
                 def.args
                     .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e.eid))
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                     .collect()
             },
-            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(hir, def.expr.eid),
+            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(hir, def.expr.as_ref()),
             ExpressionKind::Default { expr, default } => {
-                let mut expr = Self::get_or_fresh_targets(hir, expr.eid);
+                let mut expr = Self::get_or_fresh_targets(hir, expr);
 
-                expr.append(&mut Self::get_or_fresh_targets(hir, default.eid));
+                expr.append(&mut Self::get_or_fresh_targets(hir, default));
 
                 expr
             },
@@ -721,12 +720,12 @@ where
         condition: Option<ExprId>,
         own_pacing: &ConcretePacingType,
     ) -> Vec<TypeError<PacingErrorKind>> {
-        expr.map(|e| Self::get_or_fresh_targets(hir, e))
+        expr.map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
             .unwrap_or_else(Vec::new)
             .iter()
             .chain(
                 condition
-                    .map(|e| Self::get_or_fresh_targets(hir, e))
+                    .map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
                     .unwrap_or_else(Vec::new)
                     .iter(),
             )
@@ -1188,11 +1187,15 @@ mod tests {
     }
 
     fn num_errors(spec: &str) -> usize {
+        //let handler = Handler::from(ParserConfig::for_string(spec.to_string()));
         let (spec, _) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&spec);
         match ltc.pacing_type_infer() {
             Ok(_) => 0,
-            Err(e) => e.num_errors(),
+            Err(e) => {
+                //handler.emit_error(&e);
+                e.num_errors()
+            },
         }
     }
 
@@ -2644,7 +2647,57 @@ mod tests {
 
     #[test]
     fn test_invalid_get() {
-        let spec = "input a: Int8\noutput b eval @1Hz with a.get().defaults(to: 0)";
-        assert_eq!(1, num_errors(spec));
+        let spec = "input a: Int8\n\
+        output b \n\
+            eval @1Hz when a.get().defaults(to:42) == 42 with a.get(or: 0)\n\
+        output c(p) \n\
+            spawn @1Hz with a.get(or: 42) when a.get().defaults(to: 2) == 2\n\
+            eval @1Hz with 5\n\
+        output d \n\
+            eval @1Hz with 5\n\
+            close @0.5Hz when a.get(or: 5) == 42";
+        assert_eq!(5, num_errors(spec));
+    }
+
+    #[test]
+    fn test_valid_get() {
+        let spec = "input a: Int8\n\
+        output b \n\
+            eval @a when a.get().defaults(to:42) == 42 with a.get(or: 0)\n\
+        output c(p) \n\
+            spawn @a with a.get(or: 42) when a.get().defaults(to: 2) == 2\n\
+            eval @1Hz with 5\n\
+        output d \n\
+            eval @1Hz with 5\n\
+            close @a when a.get(or: 5) == 42";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_invalid_is_fresh() {
+        let spec = "input a: Int8\n\
+        output b \n\
+            eval @1Hz when a.is_fresh() with a.is_fresh()\n\
+        output c(p) \n\
+            spawn @1Hz with a.is_fresh() when a.is_fresh()\n\
+            eval @1Hz with 5\n\
+        output d \n\
+            eval @1Hz with 5\n\
+            close @0.5Hz when a.is_fresh()";
+        assert_eq!(5, num_errors(spec));
+    }
+
+    #[test]
+    fn test_valid_is_fresh() {
+        let spec = "input a: Int8\n\
+        output b \n\
+            eval @a when a.is_fresh() with a.is_fresh()\n\
+        output c(p) \n\
+            spawn @a with a.is_fresh() when a.is_fresh()\n\
+            eval @1Hz with 5\n\
+        output d \n\
+            eval @1Hz with 5\n\
+            close @a when a.is_fresh()";
+        assert_eq!(0, num_errors(spec));
     }
 }

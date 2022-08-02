@@ -901,11 +901,20 @@ impl RtLolaParser {
                                     }
                                     "get()" => {
                                         assert_eq!(args.len(), 0);
-                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::Optional)
+                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::Get)
+                                    }
+                                    "get(or:)" => {
+                                        assert_eq!(args.len(), 1);
+                                        let lhs = Expression::new(
+                                            self.spec.next_id(),
+                                            ExpressionKind::StreamAccess(inner, StreamAccessKind::Get),
+                                            span.clone(),
+                                        );
+                                        ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
                                     "is_fresh()" => {
                                         assert_eq!(args.len(), 0);
-                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::UpdateCheck)
+                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::Fresh)
                                     }
                                     "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
                                         assert_eq!(args.len(), 2);

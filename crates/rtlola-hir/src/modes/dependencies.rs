@@ -1278,11 +1278,10 @@ mod tests {
 
     #[test]
     fn test_get_dep() {
-        //TODO review this test after implementation of get
         let spec = "
             input x:Int8\n\
-            output a eval @0.5Hz when x.hold(or:0) > 0 with x*x
-            output b eval @1Hz with a.get().defaults(to:0)
+            output a eval @x when x > 0 with x*x
+            output b eval @x with a.get().defaults(to:0)
         ";
         let sname_to_sref = vec![("a", SRef::Out(0)), ("b", SRef::Out(1)), ("x", SRef::In(0))]
             .into_iter()
@@ -1309,11 +1308,10 @@ mod tests {
 
     #[test]
     fn test_tick_dep() {
-        //TODO review this test after implementation of get
         let spec = "
             input x:Int8\n\
-            output a eval @0.5Hz when x.hold(or:0) > 0 with x*x
-            output b eval @1Hz with if a.is_fresh() then 1 else -1
+            output a eval @x when x > 0 with x*x
+            output b eval @x with if a.is_fresh() then 1 else -1
         ";
         let sname_to_sref = vec![("a", SRef::Out(0)), ("b", SRef::Out(1)), ("x", SRef::In(0))]
             .into_iter()
