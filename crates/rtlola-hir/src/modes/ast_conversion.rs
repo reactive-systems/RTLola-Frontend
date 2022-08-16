@@ -587,9 +587,10 @@ impl ExpressionTransformer {
                 let access_kind = match kind {
                     StreamAccessKind::Hold => IRAccess::Hold,
                     StreamAccessKind::Sync => IRAccess::Sync,
-                    StreamAccessKind::Optional => unimplemented!("`get` optional stream access unimplemented!"),
+                    StreamAccessKind::Get => IRAccess::Get,
+                    StreamAccessKind::Fresh => IRAccess::Fresh,
                 };
-                let (expr_ref, args) = self.get_stream_ref(&*expr, current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(expr.as_ref(), current_output)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             },
             ast::ExpressionKind::Default(expr, def) => {
@@ -625,7 +626,7 @@ impl ExpressionTransformer {
                         }
                     },
                 };
-                let (expr_ref, args) = self.get_stream_ref(&*target_expr, current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(target_expr, current_output)?;
                 let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
                 ExpressionKind::StreamAccess(expr_ref, kind, args)
             },
@@ -664,7 +665,7 @@ impl ExpressionTransformer {
                 let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
-                let duration = Self::parse_duration_from_expr(&*duration)
+                let duration = Self::parse_duration_from_expr(duration.as_ref())
                     .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
                 let window = Window {
                     target: sref,
@@ -1043,6 +1044,30 @@ mod tests {
                 assert_eq!(result_kind, *offset);
             }
         }
+    }
+
+    #[test]
+    fn transform_get() {
+        let spec = "input o :Int8\noutput v @1Hz := 3\noutput off := v.get()";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[1].eval_expr();
+        let expr = &ir.expression(output_expr_id);
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Get, _)
+        ));
+    }
+
+    #[test]
+    fn transform_is_fresh() {
+        let spec = "input o :Int8\noutput new := o.is_fresh()";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].eval_expr();
+        let expr = &ir.expression(output_expr_id);
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::StreamAccess(_, StreamAccessKind::Fresh, _)
+        ));
     }
 
     #[test]

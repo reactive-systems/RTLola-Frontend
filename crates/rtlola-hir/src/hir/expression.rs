@@ -281,6 +281,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the [Offset] of the stream access.
     Offset(Offset),
+    /// Represents the optional `get` access.
+    Get,
+    /// Represents the update check of a stream, if the target received a new value at this timestamp.
+    Fresh,
 }
 
 /// Contains all arithmetical and logical operations.
@@ -349,7 +353,7 @@ pub trait WindowAggregation: Debug + Copy {
 /// Represents a sliding window aggregation
 ///
 /// The struct contains all information that is specific for a sliding window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
-#[derive(Clone, Debug, Copy, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct SlidingAggr {
     /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,
@@ -378,7 +382,7 @@ impl WindowAggregation for SlidingAggr {
 ///
 /// The struct contains all information that is specific for a discrete window aggregation. The data that is shared between a sliding window aggregation and a discrete window aggregation is stored a [Window].
 
-#[derive(Clone, Debug, Copy, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct DiscreteAggr {
     /// Flag to indicate whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once.
     pub wait: bool,

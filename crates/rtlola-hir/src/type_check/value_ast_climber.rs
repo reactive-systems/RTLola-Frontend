@@ -591,7 +591,7 @@ where
                             },
                         }
                     },
-                    StreamAccessKind::Hold => {
+                    StreamAccessKind::Hold | StreamAccessKind::Get => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
@@ -616,11 +616,15 @@ where
                             },
                         }
                     },
+                    StreamAccessKind::Fresh => {
+                        self.tyc
+                            .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                    },
                 };
             },
             ExpressionKind::Default { expr, default } => {
-                let ex_key = self.expression_infer(&*expr, None)?; //Option<X>
-                let def_key = self.expression_infer(&*default, None)?; // Y
+                let ex_key = self.expression_infer(expr, None)?; //Option<X>
+                let def_key = self.expression_infer(default, None)?; // Y
                 self.tyc
                     .impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
@@ -713,10 +717,10 @@ where
                 alternative,
             } => {
                 // Bool for condition - check given in the second argument
-                self.expression_infer(&*condition, Some(AbstractValueType::Bool))?;
-                let cons_key = self.expression_infer(&*consequence, None)?; // X
-                let alt_key = self.expression_infer(&*alternative, None)?; // X
-                                                                           //Bool x T x T -> T
+                self.expression_infer(condition, Some(AbstractValueType::Bool))?;
+                let cons_key = self.expression_infer(consequence, None)?; // X
+                let alt_key = self.expression_infer(alternative, None)?; // X
+                                                                         //Bool x T x T -> T
                 self.tyc.impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
             },
 
@@ -800,7 +804,7 @@ where
                     .map(|(arg, param)| {
                         // Replace reference to generic with generic key
                         let p = self.replace_type(param, &generics)?;
-                        let arg_key = self.expression_infer(&*arg, None)?;
+                        let arg_key = self.expression_infer(arg, None)?;
                         self.tyc.impose(arg_key.equate_with(p))?;
                         Ok(())
                     })

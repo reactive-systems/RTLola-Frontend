@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update Parser for new Syntax: ```output o (p) spawn @i when i with 3 eval @1Hz when a > 0 with p+a.hold() close @10Hz when !i```
 
+### Added
+- `get()` and `is_fresh()` stream access
+
 ## [0.2.1] - 2022-04-11
 
 ### Added
