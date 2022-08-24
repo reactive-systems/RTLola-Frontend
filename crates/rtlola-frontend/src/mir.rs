@@ -17,6 +17,7 @@
 //! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
+mod dot;
 mod print;
 mod schedule;
 
@@ -33,6 +34,8 @@ use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
+
+use self::dot::DotRepresentation;
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -827,6 +830,11 @@ impl RtLolaMir {
     /// Fails if the resulting schedule would require at least 10^7 deadlines.
     pub fn compute_schedule(&self) -> Result<Schedule, String> {
         Schedule::from(self)
+    }
+
+    /// Represents the specification as a dependency graph in the dot-format.
+    pub fn dot_representation(&self) -> String {
+        DotRepresentation::compute_representation(&self)
     }
 }
 
