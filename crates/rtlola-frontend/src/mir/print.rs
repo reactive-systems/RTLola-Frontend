@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
-use super::{FloatTy, IntTy, UIntTy};
-use crate::mir::{ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
+use super::{FloatTy, IntTy, Mir, UIntTy, WindowOperation};
+use crate::mir::{ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type};
 
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -178,5 +178,35 @@ impl Display for Offset {
             Offset::Past(u) => write!(f, "{}", u),
             _ => unimplemented!(),
         }
+    }
+}
+
+impl Display for WindowOperation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", match self {
+            WindowOperation::Count => "count",
+            WindowOperation::Min => "min",
+            WindowOperation::Max => "max", 
+            WindowOperation::Sum => "sum",
+            WindowOperation::Product => "product",
+            WindowOperation::Average => "average",
+            WindowOperation::Integral => "integral",
+            WindowOperation::Conjunction => "conjunction",
+            WindowOperation::Disjunction => "disjunction",
+            WindowOperation::Last => "last",
+            WindowOperation::Variance => "variance",
+            WindowOperation::Covariance => "covariance",
+            WindowOperation::StandardDeviation => "standard deviation",
+            WindowOperation::NthPercentile(n) => todo!(),
+        })
+    }
+}
+
+pub(crate) fn display_ac(ac: &ActivationCondition, mir: &Mir) -> String {
+    match ac {
+        ActivationCondition::Conjunction(s) => s.iter().map(|ac| display_ac(ac, mir)).collect::<Vec<_>>().join(&ArithLogOp::And.to_string()),
+        ActivationCondition::Disjunction(s) => s.iter().map(|ac| display_ac(ac, mir)).collect::<Vec<_>>().join(&ArithLogOp::Or.to_string()),
+        ActivationCondition::Stream(s) => mir.stream(*s).name().into(),
+        ActivationCondition::True => "true".into(),
     }
 }
