@@ -42,6 +42,10 @@ pub trait Stream {
     fn spawn_layer(&self) -> Layer;
     /// Reports the evaluation layer of the stream.
     fn eval_layer(&self) -> Layer;
+    /// Reports the name of the stream.
+    fn name(&self) -> &str;
+    /// Returns the type of the stream.
+    fn ty(&self) -> &Type;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
     /// Indicates whether or not the stream has parameters.
@@ -572,6 +576,14 @@ impl Stream for OutputStream {
         self.layer.evaluation_layer()
     }
 
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
     fn is_input(&self) -> bool {
         false
     }
@@ -600,6 +612,14 @@ impl Stream for InputStream {
 
     fn eval_layer(&self) -> Layer {
         self.layer.evaluation_layer()
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
     }
 
     fn is_input(&self) -> bool {
