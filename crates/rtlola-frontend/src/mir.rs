@@ -17,7 +17,7 @@
 //! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
-mod dot;
+mod dependency_graph;
 mod print;
 mod schedule;
 
@@ -35,7 +35,7 @@ use uom::si::time::nanosecond;
 
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
-use self::dot::DotRepresentation;
+use self::dependency_graph::DependencyGraph;
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -832,9 +832,9 @@ impl RtLolaMir {
         Schedule::from(self)
     }
 
-    /// Represents the specification as a dependency graph in the dot-format.
-    pub fn dot_representation(&self) -> String {
-        DotRepresentation::compute_representation(&self)
+    /// Represents the specification as a dependency graph
+    pub fn dependency_graph<'a>(&'a self) -> DependencyGraph<'a> {
+        DependencyGraph::new(&self)
     }
 }
 
