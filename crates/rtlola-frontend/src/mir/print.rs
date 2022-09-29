@@ -514,7 +514,6 @@ mod tests {
 
         let config = ParserConfig::for_string(example.into());
         let mir = parse(config).expect("should parse");
-        println!("{mir}");
         let config = ParserConfig::for_string(mir.to_string());
         parse(config).expect("should also parse");
     }
