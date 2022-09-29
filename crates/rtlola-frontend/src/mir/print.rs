@@ -336,8 +336,14 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             let display_alternative = display_expression(mir, alternative, 0);
             format!("if {display_condition} then {display_consequence} else {display_alternative}")
         },
-        ExpressionKind::Tuple(_) => todo!(),
-        ExpressionKind::TupleAccess(_, _) => todo!(),
+        ExpressionKind::Tuple(exprs) => {
+            let display_exprs = exprs.iter().map(|expr| display_expression(mir, expr, 0)).collect::<Vec<_>>().join(", ");
+            format!("({display_exprs})")
+        }
+        ExpressionKind::TupleAccess(expr, i) => {
+            let display_expr = display_expression(mir, expr, 20);
+            format!("{display_expr}({i})")
+        }
         ExpressionKind::Function(name, args) => {
             let display_args = args
                 .iter()
@@ -392,7 +398,7 @@ fn display_output(mir: &Mir, output: &OutputStream) -> String {
 
     if let Some(spawn_expr) = spawn_expr {
         let display_spawn_expr = display_expression(mir, spawn_expr, 0);
-        s.push_str(&format!("spawn with {display_spawn_expr}"));
+        s.push_str(&format!("  spawn with {display_spawn_expr}"));
         if let Some(spawn_condition) = spawn_condition {
             let display_spawn_condition = display_expression(mir, spawn_condition, 0);
             s.push_str(&format!(" when {display_spawn_condition}"));
@@ -400,17 +406,17 @@ fn display_output(mir: &Mir, output: &OutputStream) -> String {
         s.push('\n');
     }
 
-    s.push_str(&format!("eval @{display_pacing} "));
+    s.push_str(&format!("  eval @{display_pacing} "));
     if let Some(eval_condition) = eval_condition {
         let display_eval_condition = display_expression(mir, eval_condition, 0);
         s.push_str(&format!("when {display_eval_condition} "));
     }
     let display_eval_expr = display_expression(mir, eval_expr, 0);
-    s.push_str(&format!("with {display_eval_expr}\n"));
+    s.push_str(&format!("with {display_eval_expr}"));
 
     if let Some(close_condition) = close_condition {
         let display_close_condition = display_expression(mir, close_condition, 0);
-        s.push_str(&format!("close when {display_close_condition}\n"));
+        s.push_str(&format!("\n  close when {display_close_condition}"));
     }
     
     s
@@ -501,6 +507,7 @@ mod tests {
 
         let config = ParserConfig::for_string(example.into());
         let mir = parse(config).expect("should parse");
+        println!("{mir}");
         let config = ParserConfig::for_string(mir.to_string());
         parse(config).expect("should also parse");
     }
