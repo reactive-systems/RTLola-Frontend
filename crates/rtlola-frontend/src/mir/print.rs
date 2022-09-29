@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Result};
 
-use super::{FloatTy, IntTy, Mir, PacingType, UIntTy, WindowOperation, InputStream, OutputStream, Trigger, Stream};
+use super::{FloatTy, InputStream, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, WindowOperation};
 use crate::mir::{
     ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
 };
@@ -229,10 +229,10 @@ pub(crate) fn display_pacing_type(mir: &Mir, pacing_type: &PacingType) -> String
     match pacing_type {
         super::PacingType::Periodic(f) => {
             let s = f
-            .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
-            .to_string();
-            format!("{}Hz", &s[..s.len()-3]) // TODO: better solution
-        }
+                .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                .to_string();
+            format!("{}Hz", &s[..s.len() - 3]) // TODO: better solution
+        },
         super::PacingType::Event(ac) => display_ac(mir, ac),
         super::PacingType::Constant => "true".into(),
     }
@@ -270,10 +270,6 @@ fn precedence_level(op: &ArithLogOp) -> (u32, Associativity) {
     (precedence, associativity)
 }
 
-fn parameter_name(parameter: usize) -> String {
-    format!("p{parameter}")
-}
-
 pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u32) -> String {
     match &expr.kind {
         ExpressionKind::LoadConstant(c) => c.to_string(),
@@ -303,7 +299,11 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
         } => {
             let stream_name = mir.stream(*target).name();
             let target_name = if !parameters.is_empty() {
-                let parameter_list = parameters.iter().map(|parameter| display_expression(mir, parameter, 0)).collect::<Vec<_>>().join(", ");
+                let parameter_list = parameters
+                    .iter()
+                    .map(|parameter| display_expression(mir, parameter, 0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!("{stream_name}({parameter_list})")
             } else {
                 stream_name.into()
@@ -318,14 +318,14 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                     let duration = window.duration.as_secs();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
-                }
+                },
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
                 StreamAccessKind::Get => format!("{target_name}.get()"),
                 StreamAccessKind::Fresh => format!("{target_name}.fresh()"),
             }
         },
-        ExpressionKind::ParameterAccess(_, parameter) => parameter_name(*parameter),
+        ExpressionKind::ParameterAccess(sref, parameter) => mir.output(*sref).params[*parameter].name.to_string(),
         ExpressionKind::Ite {
             condition,
             consequence,
@@ -337,13 +337,17 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             format!("if {display_condition} then {display_consequence} else {display_alternative}")
         },
         ExpressionKind::Tuple(exprs) => {
-            let display_exprs = exprs.iter().map(|expr| display_expression(mir, expr, 0)).collect::<Vec<_>>().join(", ");
+            let display_exprs = exprs
+                .iter()
+                .map(|expr| display_expression(mir, expr, 0))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("({display_exprs})")
-        }
+        },
         ExpressionKind::TupleAccess(expr, i) => {
             let display_expr = display_expression(mir, expr, 20);
             format!("{display_expr}({i})")
-        }
+        },
         ExpressionKind::Function(name, args) => {
             let display_args = args
                 .iter()
@@ -355,7 +359,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
         ExpressionKind::Convert { expr: inner_expr } => {
             let inner_display = display_expression(mir, inner_expr, 0);
             format!("Cast<{},{}>({inner_display})", expr.ty, inner_expr.ty)
-        }
+        },
         ExpressionKind::Default { expr, default } => {
             let display_expr = display_expression(mir, expr, 0);
             let display_default = display_expression(mir, default, 0);
@@ -379,17 +383,16 @@ fn display_output(mir: &Mir, output: &OutputStream) -> String {
     let eval_expr = &output.eval.expression;
     let eval_condition = &output.eval.condition;
     let close_condition = &output.close.condition;
-
-    // TODO: correct amount of parameters and nameoutput.spawns
-    let parameters = if output.is_parameterized() {
-        vec![parameter_name(0)]
-    } else {
-        Vec::new()
-    };
+    let parameters = &output.params;
 
     let display_pacing = display_pacing_type(mir, pacing);
     let display_parameters = if !parameters.is_empty() {
-        format!("({})", parameters.join(", "))
+        let parameter_list = parameters
+            .iter()
+            .map(|parameter| format!("{} : {}", parameter.name, parameter.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("({parameter_list})")
     } else {
         "".into()
     };
@@ -418,7 +421,7 @@ fn display_output(mir: &Mir, output: &OutputStream) -> String {
         let display_close_condition = display_expression(mir, close_condition, 0);
         s.push_str(&format!("\n  close when {display_close_condition}"));
     }
-    
+
     s
 }
 
@@ -438,7 +441,11 @@ impl Display for Mir {
         let outputs = self.outputs.iter().map(|output| display_output(self, output));
         let triggers = self.triggers.iter().map(|trigger| display_trigger(self, trigger));
 
-        let s = inputs.chain(outputs).chain(triggers).collect::<Vec<String>>().join("\n\n");
+        let s = inputs
+            .chain(outputs)
+            .chain(triggers)
+            .collect::<Vec<String>>()
+            .join("\n\n");
         f.write_str(&s)
     }
 }
@@ -511,5 +518,4 @@ mod tests {
         let config = ParserConfig::for_string(mir.to_string());
         parse(config).expect("should also parse");
     }
-
 }

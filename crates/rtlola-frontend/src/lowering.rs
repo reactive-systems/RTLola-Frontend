@@ -48,6 +48,7 @@ impl Mir {
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
                 reference: sr,
+                params: Self::lower_parameters(&hir, sr)
             }
         });
         let (trigger_streams, triggers): (Vec<mir::OutputStream>, Vec<mir::Trigger>) = hir
@@ -74,6 +75,7 @@ impl Mir {
                     memory_bound: hir.memory_bound(sr),
                     layer: hir.stream_layers(sr),
                     reference: sr,
+                    params: Default::default() // no parameters for a trigger
                 };
                 (mir_output_stream, mir_trigger)
             })
@@ -480,6 +482,17 @@ impl Mir {
             .into_iter()
             .map(|(sref, kinds)| (sref, kinds.into_iter().map(Self::lower_stream_access_kind).collect()))
             .collect()
+    }
+
+    fn lower_parameters<'a>(
+        hir: &RtLolaHir<CompleteMode>,
+        sr: StreamReference
+    ) -> Vec<mir::Parameter> {
+        let params = hir.output(sr).expect("is output stream").params();
+        params.map(|parameter| mir::Parameter {
+            name: parameter.name.clone(),
+            ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index()))
+        }).collect()
     }
 }
 
