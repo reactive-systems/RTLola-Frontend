@@ -487,9 +487,11 @@ impl Mir {
     fn lower_parameters<'a>(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
         let params = hir.output(sr).expect("is output stream").params();
         params
-            .map(|parameter| mir::Parameter {
-                name: parameter.name.clone(),
-                ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
+            .map(|parameter| {
+                mir::Parameter {
+                    name: parameter.name.clone(),
+                    ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
+                }
             })
             .collect()
     }

@@ -210,16 +210,18 @@ impl Display for WindowOperation {
 
 pub(crate) fn display_ac(mir: &Mir, ac: &ActivationCondition) -> String {
     match ac {
-        ActivationCondition::Conjunction(s) => s
-            .iter()
-            .map(|ac| display_ac(mir, ac))
-            .collect::<Vec<_>>()
-            .join(&ArithLogOp::And.to_string()),
-        ActivationCondition::Disjunction(s) => s
-            .iter()
-            .map(|ac| display_ac(mir, ac))
-            .collect::<Vec<_>>()
-            .join(&ArithLogOp::Or.to_string()),
+        ActivationCondition::Conjunction(s) => {
+            s.iter()
+                .map(|ac| display_ac(mir, ac))
+                .collect::<Vec<_>>()
+                .join(&ArithLogOp::And.to_string())
+        },
+        ActivationCondition::Disjunction(s) => {
+            s.iter()
+                .map(|ac| display_ac(mir, ac))
+                .collect::<Vec<_>>()
+                .join(&ArithLogOp::Or.to_string())
+        },
         ActivationCondition::Stream(s) => mir.stream(*s).name().into(),
         ActivationCondition::True => "true".into(),
     }
@@ -452,9 +454,10 @@ impl Display for Mir {
 
 #[cfg(test)]
 mod tests {
+    use rtlola_parser::ParserConfig;
+
     use super::display_expression;
     use crate::parse;
-    use rtlola_parser::ParserConfig;
 
     macro_rules! test_display_expression {
         ( $( $name:ident: $test:expr => $expected:literal, )+) => {
