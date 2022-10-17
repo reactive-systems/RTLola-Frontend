@@ -1,9 +1,14 @@
-use std::{borrow::Cow, collections::HashMap, io::BufWriter};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::io::BufWriter;
 
 use dot::{LabelText, Style};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+use serde_json::{json, to_string_pretty};
 
-use super::{print::{display_pacing_type, display_expression}, Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
+use super::print::{display_expression, display_pacing_type};
+use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
 
 #[derive(Debug, Clone)]
 pub struct DependencyGraph<'a> {
@@ -16,7 +21,10 @@ impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
         let stream_nodes = mir.all_streams().map(|s| Node::Stream(s));
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
-        let trigger_nodes = mir.triggers.iter().map(|trigger| Node::Trigger(trigger.trigger_reference));
+        let trigger_nodes = mir
+            .triggers
+            .iter()
+            .map(|trigger| Node::Trigger(trigger.trigger_reference));
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
 
         let edges = edges(mir);
@@ -34,7 +42,18 @@ impl<'a> DependencyGraph<'a> {
     }
 
     pub fn json(&self) -> String {
-        todo!()
+        let infos = self
+            .infos
+            .iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect::<HashMap<_, _>>();
+
+        let json_value = json!({
+            "edges": self.edges,
+            "nodes": infos
+        });
+
+        to_string_pretty(&json_value).unwrap()
     }
 }
 
@@ -57,7 +76,33 @@ impl From<WindowReference> for Node {
     }
 }
 
-type Edge = (Node, EdgeType, Node);
+impl Display for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
+            Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
+            Node::Window(WindowReference::Sliding(i)) => write!(f, "W_{i}"),
+            Node::Window(_) => unimplemented!(),
+            Node::Trigger(i) => write!(f, "T_{i}"),
+        }
+    }
+}
+
+impl Serialize for Node {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.to_string().as_str())
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct Edge {
+    from: Node, 
+    with: EdgeType, 
+    to: Node
+}
 
 #[derive(Clone, Debug)]
 enum EdgeType {
@@ -70,7 +115,36 @@ impl From<StreamAccessKind> for EdgeType {
     }
 }
 
+impl Display for EdgeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            EdgeType::Access(sak) => {
+                match sak {
+                    StreamAccessKind::Sync => "Sync".into(),
+                    StreamAccessKind::Hold => "Hold".into(),
+                    StreamAccessKind::Offset(o) => format!("Offset({o})"),
+                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
+                    StreamAccessKind::Get => todo!(),
+                    StreamAccessKind::Fresh => todo!(),
+                }
+            },
+        };
+
+        write!(f, "{s}")
+    }
+}
+
+impl Serialize for EdgeType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.to_string().as_str())
+    }
+}
+
 #[derive(Serialize, Debug, Clone)]
+#[serde(untagged)]
 enum NodeInformation<'a> {
     Stream {
         kind: StreamKind,
@@ -79,7 +153,7 @@ enum NodeInformation<'a> {
         memory_bound: u32,
         pacing_ty: String,
         value_ty: String,
-        expression: String
+        expression: String,
     },
 
     Trigger {
@@ -88,13 +162,13 @@ enum NodeInformation<'a> {
         pacing_ty: String,
         value_ty: String,
         message: &'a str,
-        expression: String
+        expression: String,
     },
 
-    Window{
+    Window {
         idx: usize,
         operation: String,
-        duration: String
+        duration: String,
     },
 }
 
@@ -147,7 +221,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
         pacing_ty: pacing_str,
         value_ty: value_str,
         memory_bound,
-        expression: expression_str
+        expression: expression_str,
     }
 }
 
@@ -157,10 +231,10 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
     let operation_str = window.op.to_string();
     let duration_str = format!("{}s", window.duration.as_secs_f32());
 
-    NodeInformation::Window{
+    NodeInformation::Window {
         idx,
         operation: operation_str,
-        duration: duration_str
+        duration: duration_str,
     }
 }
 
@@ -173,16 +247,16 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
         memory_bound: _,
         pacing_ty,
         value_ty,
-        expression
+        expression,
     } = stream_infos(mir, trigger.reference)
     {
         NodeInformation::Trigger {
             idx: tref,
-            eval_layer: eval_layer,
-            pacing_ty: pacing_ty,
-            value_ty: value_ty,
+            eval_layer,
+            pacing_ty,
+            value_ty,
             message: &trigger.message,
-            expression: expression
+            expression,
         }
     } else {
         unreachable!("is NodeInformation::Stream");
@@ -196,30 +270,34 @@ fn edges(mir: &Mir) -> Vec<Edge> {
 
     let access_edges = all_accesses.flat_map(|(source_ref, accesses)| {
         accesses.iter().flat_map(move |(target_ref, access_kinds)| {
-            access_kinds.iter().filter_map(move |kind| match kind {
-                // we remove edges for window accesses, because we add extra nodes for them
-                StreamAccessKind::SlidingWindow(_) => None,
-                _ => Some((
-                    Node::Stream(source_ref),
-                    EdgeType::from(*kind),
-                    Node::Stream(*target_ref),
-                )),
+            access_kinds.iter().filter_map(move |kind| {
+                match kind {
+                    // we remove edges for window accesses, because we add extra nodes for them
+                    StreamAccessKind::SlidingWindow(_) => None,
+                    _ => {
+                        Some(Edge{
+                            from: Node::Stream(source_ref),
+                            with: EdgeType::from(*kind),
+                            to: Node::Stream(*target_ref),
+                        })
+                    },
+                }
             })
         })
     });
 
     let window_edges = mir.sliding_windows.iter().flat_map(|window| {
         [
-            (
-                Node::Window(window.reference),
-                StreamAccessKind::SlidingWindow(window.reference).into(),
-                Node::Stream(window.caller),
-            ),
-            (
-                Node::Stream(window.target),
-                StreamAccessKind::SlidingWindow(window.reference).into(),
-                Node::Window(window.reference),
-            ),
+            Edge{
+                from: Node::Window(window.reference),
+                with: StreamAccessKind::SlidingWindow(window.reference).into(),
+                to: Node::Stream(window.caller),
+            },
+            Edge{
+                from: Node::Stream(window.target),
+                with: StreamAccessKind::SlidingWindow(window.reference).into(),
+                to: Node::Window(window.reference),
+            },
         ]
     });
 
@@ -232,14 +310,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn node_id(&'a self, n: &Node) -> dot::Id<'a> {
-        let id = match n {
-            Node::Stream(StreamReference::In(i)) => format!("In_{i}"),
-            Node::Stream(StreamReference::Out(i)) => format!("Out_{i}"),
-            Node::Window(WindowReference::Sliding(i)) => format!("W_{i}"),
-            Node::Window(_) => unimplemented!(),
-            Node::Trigger(i) => format!("T_{i}")
-        };
-
+        let id = n.to_string();
         dot::Id::new(id).unwrap()
     }
 
@@ -254,16 +325,16 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 pacing_ty,
                 value_ty,
                 kind: _,
-                expression: _
+                expression: _,
             } => {
                 format!(
                     "{stream_name}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Memory Bound: {memory_bound}<br/>Layer {eval_layer}"
                 )
             },
-            NodeInformation::Window{
+            NodeInformation::Window {
                 idx,
                 operation,
-                duration
+                duration,
             } => format!("Window {idx}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
             NodeInformation::Trigger {
                 idx,
@@ -271,30 +342,34 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 pacing_ty,
                 value_ty,
                 message,
-                expression: _
-            } => format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
+                expression: _,
+            } => {
+                format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
+            },
         };
 
         dot::LabelText::HtmlStr(label_text.into())
     }
 
     fn edge_label<'b>(&'b self, edge: &Edge) -> LabelText<'b> {
-        let kind = &edge.1;
+        let kind = &edge.with;
         let label = match kind {
-            EdgeType::Access(sak) => match sak {
-                StreamAccessKind::Sync => "Sync".into(),
-                StreamAccessKind::Hold => "Hold".into(),
-                StreamAccessKind::Offset(o) => format!("Offset({o})"),
-                StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
-                StreamAccessKind::Get => todo!(),
-                StreamAccessKind::Fresh => todo!(),
+            EdgeType::Access(sak) => {
+                match sak {
+                    StreamAccessKind::Sync => "Sync".into(),
+                    StreamAccessKind::Hold => "Hold".into(),
+                    StreamAccessKind::Offset(o) => format!("Offset({o})"),
+                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
+                    StreamAccessKind::Get => todo!(),
+                    StreamAccessKind::Fresh => todo!(),
+                }
             },
         };
         dot::LabelText::LabelStr(label.into())
     }
 
     fn edge_style<'b>(&'b self, edge: &Edge) -> Style {
-        let kind = &edge.1;
+        let kind = &edge.with;
         match kind {
             EdgeType::Access(StreamAccessKind::Hold) => Style::Dashed,
             EdgeType::Access(StreamAccessKind::Sync)
@@ -336,11 +411,11 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn source(&self, e: &Edge) -> Node {
-        e.0
+        e.from
     }
 
     fn target(&self, e: &Edge) -> Node {
-        e.2
+        e.to
     }
 }
 
@@ -360,6 +435,6 @@ mod tests {
         let mir = crate::parse(cfg).unwrap();
         let dep_graph = mir.dependency_graph();
 
-        println!("{}", dep_graph.dot());
+        println!("{}", dep_graph.json());
     }
 }
