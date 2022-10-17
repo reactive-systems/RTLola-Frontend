@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
+use crate::mir::print::RtLolaMirPrinter;
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
@@ -838,6 +839,11 @@ impl RtLolaMir {
     /// Fails if the resulting schedule would require at least 10^7 deadlines.
     pub fn compute_schedule(&self) -> Result<Schedule, String> {
         Schedule::from(self)
+    }
+
+    /// Creates a new RtLolaMirPrinter for the Mir type `T`. It implements the [Display](std::fmt::Display) Trait for type `T`.
+    pub fn printer<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
+        RtLolaMirPrinter::new(self, target)
     }
 }
 
