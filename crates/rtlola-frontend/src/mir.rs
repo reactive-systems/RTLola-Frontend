@@ -238,6 +238,8 @@ pub struct OutputStream {
     pub layer: StreamLayers,
     /// The reference referring to this stream
     pub reference: StreamReference,
+    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
+    pub params: Vec<Parameter>,
 }
 
 /// A type alias for references to triggers.
@@ -304,6 +306,15 @@ pub struct Eval {
     pub expression: Expression,
     /// The eval pacing of the stream, combining the condition and expr pacing. This is equal to the top level stream pacing.
     pub eval_pacing: PacingType,
+}
+
+/// Information of a parameter of a parametrized output stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Parameter {
+    /// The name of the parameter.
+    pub name: String,
+    /// The type of the parameter.
+    pub ty: Type,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
