@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, io::BufWriter};
 use dot::{LabelText, Style};
 use serde::Serialize;
 
-use super::{print::display_pacing_type, Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
+use super::{print::{display_pacing_type, display_expression}, Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
 
 #[derive(Debug, Clone)]
 pub struct DependencyGraph<'a> {
@@ -79,6 +79,7 @@ enum NodeInformation<'a> {
         memory_bound: u32,
         pacing_ty: String,
         value_ty: String,
+        expression: String
     },
 
     Trigger {
@@ -87,9 +88,14 @@ enum NodeInformation<'a> {
         pacing_ty: String,
         value_ty: String,
         message: &'a str,
+        expression: String
     },
 
-    Window,
+    Window{
+        idx: usize,
+        operation: String,
+        duration: String
+    },
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -122,6 +128,12 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
         "input".into()
     };
 
+    let expression_str = if let StreamReference::Out(_) = sref {
+        display_expression(mir, &mir.output(sref).eval.expression, 0)
+    } else {
+        "input".into()
+    };
+
     let kind = if stream.is_input() {
         StreamKind::Input
     } else {
@@ -135,11 +147,21 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
         pacing_ty: pacing_str,
         value_ty: value_str,
         memory_bound,
+        expression: expression_str
     }
 }
 
-fn window_infos(mir: &Mir, window: WindowReference) -> NodeInformation {
-    NodeInformation::Window
+fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
+    let idx = wref.idx();
+    let window = mir.sliding_window(wref);
+    let operation_str = window.op.to_string();
+    let duration_str = format!("{}s", window.duration.as_secs_f32());
+
+    NodeInformation::Window{
+        idx,
+        operation: operation_str,
+        duration: duration_str
+    }
 }
 
 fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
@@ -151,6 +173,7 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
         memory_bound: _,
         pacing_ty,
         value_ty,
+        expression
     } = stream_infos(mir, trigger.reference)
     {
         NodeInformation::Trigger {
@@ -159,6 +182,7 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
             pacing_ty: pacing_ty,
             value_ty: value_ty,
             message: &trigger.message,
+            expression: expression
         }
     } else {
         unreachable!("is NodeInformation::Stream");
@@ -230,19 +254,25 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 pacing_ty,
                 value_ty,
                 kind: _,
+                expression: _
             } => {
                 format!(
-                    "{stream_name}: {value_ty}\nPacing: {pacing_ty}\nMemory Bound: {memory_bound}\nLayer {eval_layer}"
+                    "{stream_name}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Memory Bound: {memory_bound}<br/>Layer {eval_layer}"
                 )
             },
-            NodeInformation::Window => todo!(),
+            NodeInformation::Window{
+                idx,
+                operation,
+                duration
+            } => format!("Window {idx}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
             NodeInformation::Trigger {
                 idx,
                 eval_layer,
                 pacing_ty,
                 value_ty,
                 message,
-            } => format!("Trigger {idx}: {value_ty}\nPacing: {pacing_ty}\nLayer: {eval_layer}\n\n{message}")
+                expression: _
+            } => format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
         };
 
         dot::LabelText::HtmlStr(label_text.into())
