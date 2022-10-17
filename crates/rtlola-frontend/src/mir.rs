@@ -24,6 +24,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use num::traits::Inv;
+pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
     InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
@@ -32,7 +33,6 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-use crate::mir::print::RtLolaMirPrinter;
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
@@ -841,8 +841,8 @@ impl RtLolaMir {
         Schedule::from(self)
     }
 
-    /// Creates a new RtLolaMirPrinter for the Mir type `T`. It implements the [Display](std::fmt::Display) Trait for type `T`.
-    pub fn printer<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
+    /// Creates a new [RtLolaMirPrinter] for the Mir type `T`. It implements the [Display](std::fmt::Display) Trait for type `T`.
+    pub fn display<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
         RtLolaMirPrinter::new(self, target)
     }
 }
