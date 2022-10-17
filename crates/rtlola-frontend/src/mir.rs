@@ -42,6 +42,10 @@ pub trait Stream {
     fn spawn_layer(&self) -> Layer;
     /// Reports the evaluation layer of the stream.
     fn eval_layer(&self) -> Layer;
+    /// Reports the name of the stream.
+    fn name(&self) -> &str;
+    /// Returns the type of the stream.
+    fn ty(&self) -> &Type;
     /// Indicates whether or not the stream is an input stream.
     fn is_input(&self) -> bool;
     /// Indicates whether or not the stream has parameters.
@@ -231,6 +235,8 @@ pub struct OutputStream {
     pub layer: StreamLayers,
     /// The reference referring to this stream
     pub reference: StreamReference,
+    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
+    pub params: Vec<Parameter>,
 }
 
 /// A type alias for references to triggers.
@@ -297,6 +303,15 @@ pub struct Eval {
     pub expression: Expression,
     /// The eval pacing of the stream, combining the condition and expr pacing. This is equal to the top level stream pacing.
     pub eval_pacing: PacingType,
+}
+
+/// Information of a parameter of a parametrized output stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Parameter {
+    /// The name of the parameter.
+    pub name: String,
+    /// The type of the parameter.
+    pub ty: Type,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -572,6 +587,14 @@ impl Stream for OutputStream {
         self.layer.evaluation_layer()
     }
 
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
     fn is_input(&self) -> bool {
         false
     }
@@ -600,6 +623,14 @@ impl Stream for InputStream {
 
     fn eval_layer(&self) -> Layer {
         self.layer.evaluation_layer()
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
     }
 
     fn is_input(&self) -> bool {
