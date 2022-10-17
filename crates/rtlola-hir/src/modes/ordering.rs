@@ -98,7 +98,7 @@ impl Ordered {
         let spawn_graph = &graph.clone().only_spawn();
 
         debug_assert!(
-            !is_cyclic_directed(&graph),
+            !is_cyclic_directed(graph),
             "This should be already checked in the dependency analysis."
         );
 
