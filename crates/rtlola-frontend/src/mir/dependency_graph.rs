@@ -7,7 +7,6 @@ use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
-use super::print::RtLolaMirPrinter;
 use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
 
 #[derive(Debug, Clone)]
@@ -199,13 +198,13 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
 
     let pacing_str = if let StreamReference::Out(_) = sref {
         let pacing_ty = &mir.output(sref).eval.eval_pacing;
-        RtLolaMirPrinter::new(mir, pacing_ty).to_string()
+        mir.display(pacing_ty).to_string()
     } else {
         "input".into()
     };
 
     let expression_str = if let StreamReference::Out(_) = sref {
-        RtLolaMirPrinter::new(mir, &mir.output(sref).eval.expression).to_string()
+        mir.display(&mir.output(sref).eval.expression).to_string()
     } else {
         "input".into()
     };
