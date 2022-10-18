@@ -25,6 +25,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use num::traits::Inv;
+pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
     InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
@@ -843,6 +844,11 @@ impl RtLolaMir {
         Schedule::from(self)
     }
 
+    /// Creates a new [RtLolaMirPrinter] for the Mir type `T`. It implements the [Display](std::fmt::Display) Trait for type `T`.
+    pub fn display<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
+        RtLolaMirPrinter::new(self, target)
+    }
+    
     /// Represents the specification as a dependency graph
     pub fn dependency_graph<'a>(&'a self) -> DependencyGraph<'a> {
         DependencyGraph::new(&self)

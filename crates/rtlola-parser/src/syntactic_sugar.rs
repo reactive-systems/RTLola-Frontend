@@ -295,9 +295,9 @@ impl Desugarizer {
                                 span,
                             } = spawn_spec;
                             let expression = expression
-                                .map(|tar_expression| self.apply_expr_global_change(id, &expr, &tar_expression, &ast));
+                                .map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression, &ast));
                             let condition = condition.map(|cond_expression| {
-                                self.apply_expr_global_change(id, &expr, &cond_expression, &ast)
+                                Self::apply_expr_global_change(id, &expr, &cond_expression, &ast)
                             });
                             Some(SpawnSpec {
                                 expression,
@@ -321,8 +321,8 @@ impl Desugarizer {
                                     span,
                                 } = eval_spec;
                                 let eval_expression =
-                                    eval_expression.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
-                                let condition = condition.map(|e| self.apply_expr_global_change(id, &expr, &e, &ast));
+                                    eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e, &ast));
+                                let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e, &ast));
                                 Some(EvalSpec {
                                     annotated_pacing,
                                     condition,
@@ -340,7 +340,7 @@ impl Desugarizer {
                                 span,
                                 annotated_pacing,
                             } = close_spec;
-                            let new_condition = self.apply_expr_global_change(id, &expr, &condition, &ast);
+                            let new_condition = Self::apply_expr_global_change(id, &expr, &condition, &ast);
                             Some(CloseSpec {
                                 condition: new_condition,
                                 id,
@@ -362,7 +362,7 @@ impl Desugarizer {
 
                     for ix in 0..ast.trigger.len() {
                         let trigger: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_trigger_expr = self.apply_expr_global_change(id, &expr, &trigger.expression, &ast);
+                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression, &ast);
                         let trigger_clone: Trigger = Trigger::clone(trigger);
                         let new_trigger = Trigger {
                             expression: new_trigger_expr,
@@ -378,7 +378,6 @@ impl Desugarizer {
     }
 
     fn apply_expr_global_change(
-        &self,
         target_id: NodeId,
         new_expr: &Expression,
         ast_expr: &Expression,
@@ -396,7 +395,7 @@ impl Desugarizer {
                 Expression {
                     kind: Unary(
                         *op,
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
                     ),
                     span,
                     ..*ast_expr
@@ -405,7 +404,7 @@ impl Desugarizer {
             Field(inner, ident) => {
                 Expression {
                     kind: Field(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
                         ident.clone(),
                     ),
                     span,
@@ -415,7 +414,7 @@ impl Desugarizer {
             StreamAccess(inner, acc_kind) => {
                 Expression {
                     kind: StreamAccess(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
                         *acc_kind,
                     ),
                     span,
@@ -425,7 +424,7 @@ impl Desugarizer {
             Offset(inner, offset) => {
                 Expression {
                     kind: Offset(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
                         *offset,
                     ),
                     span,
@@ -436,7 +435,7 @@ impl Desugarizer {
                 Expression {
                     kind: ParenthesizedExpression(
                         lp.clone(),
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
                         rp.clone(),
                     ),
                     span,
@@ -447,8 +446,8 @@ impl Desugarizer {
                 Expression {
                     kind: Binary(
                         *bin_op,
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
                     ),
                     span,
                     ..*ast_expr
@@ -457,8 +456,8 @@ impl Desugarizer {
             Default(left, right) => {
                 Expression {
                     kind: Default(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
                     ),
                     span,
                     ..*ast_expr
@@ -473,8 +472,8 @@ impl Desugarizer {
             } => {
                 Expression {
                     kind: DiscreteWindowAggregation {
-                        expr: Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
-                        duration: Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
+                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
                         wait: *wait,
                         aggregation: *aggregation,
                     },
@@ -490,8 +489,8 @@ impl Desugarizer {
             } => {
                 Expression {
                     kind: SlidingWindowAggregation {
-                        expr: Box::new(self.apply_expr_global_change(target_id, new_expr, left, ast)),
-                        duration: Box::new(self.apply_expr_global_change(target_id, new_expr, right, ast)),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
+                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
                         wait: *wait,
                         aggregation: *aggregation,
                     },
@@ -502,9 +501,9 @@ impl Desugarizer {
             Ite(condition, normal, alternative) => {
                 Expression {
                     kind: Ite(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, condition, ast)),
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, normal, ast)),
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, alternative, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, condition, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, normal, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative, ast)),
                     ),
                     span,
                     ..*ast_expr
@@ -515,7 +514,7 @@ impl Desugarizer {
                     kind: Tuple(
                         entries
                             .iter()
-                            .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
                     span,
@@ -529,7 +528,7 @@ impl Desugarizer {
                         types.clone(),
                         entries
                             .iter()
-                            .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
                     span,
@@ -539,12 +538,12 @@ impl Desugarizer {
             Method(base, name, types, arguments) => {
                 Expression {
                     kind: Method(
-                        Box::new(self.apply_expr_global_change(target_id, new_expr, base, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, base, ast)),
                         name.clone(),
                         types.clone(),
                         arguments
                             .iter()
-                            .map(|t_expr| self.apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
                             .collect(),
                     ),
                     span,

@@ -1,69 +1,11 @@
 use std::fmt::{Display, Formatter, Result};
 
+use itertools::Itertools;
+
 use super::{FloatTy, InputStream, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, WindowOperation};
 use crate::mir::{
     ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
 };
-
-impl Display for Expression {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match &self.kind {
-            ExpressionKind::LoadConstant(c) => write!(f, "{}", c),
-            ExpressionKind::Function(name, args) => {
-                write!(f, "{}(", name)?;
-                if let Type::Function {
-                    args: arg_tys,
-                    ret: res,
-                } = &self.ty
-                {
-                    let zipped: Vec<(&Type, &Expression)> = arg_tys.iter().zip(args.iter()).collect();
-                    if let Some((last, prefix)) = zipped.split_last() {
-                        prefix
-                            .iter()
-                            .fold(Ok(()), |accu, (t, a)| accu.and_then(|()| write!(f, "{}: {}, ", a, t)))?;
-                        write!(f, "{}: {}", last.1, last.0)?;
-                    }
-                    write!(f, ") -> {}", res)
-                } else {
-                    unreachable!("The type of a function needs to be a function.")
-                }
-            },
-            ExpressionKind::Convert { expr } => write!(f, "cast<{},{}>({})", expr.ty, self.ty, expr),
-            ExpressionKind::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
-            ExpressionKind::Ite {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
-                write!(f, "if {} then {} else {}", condition, consequence, alternative)
-            },
-            ExpressionKind::ArithLog(op, args) => {
-                write_delim_list(f, args, &format!("{}(", op), &format!(") : [{}]", self.ty), ",")
-            },
-            ExpressionKind::Default { expr, default, .. } => write!(f, "{}.default({})", expr, default),
-            ExpressionKind::StreamAccess {
-                target: sr,
-                access_kind: access,
-                parameters: para,
-            } => {
-                assert!(para.is_empty());
-                match access {
-                    StreamAccessKind::Sync => write!(f, "{}", sr),
-                    StreamAccessKind::Hold => write!(f, "{}.hold()", sr),
-                    StreamAccessKind::Get => write!(f, "{}.get()", sr),
-                    StreamAccessKind::Fresh => write!(f, "{}.is_fresh()", sr),
-                    StreamAccessKind::Offset(offset) => write!(f, "{}.offset({})", sr, offset),
-                    StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) => write!(f, "{}", wr),
-                }
-            },
-            ExpressionKind::ParameterAccess(sr, idx) => {
-                write!(f, "Parameter({}, {})", sr, idx)
-            },
-            ExpressionKind::TupleAccess(expr, num) => write!(f, "{}.{}", expr, num),
-        }
-    }
-}
 
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -208,35 +150,60 @@ impl Display for WindowOperation {
     }
 }
 
-pub(crate) fn display_ac(mir: &Mir, ac: &ActivationCondition) -> String {
-    match ac {
-        ActivationCondition::Conjunction(s) => {
-            s.iter()
-                .map(|ac| display_ac(mir, ac))
-                .collect::<Vec<_>>()
-                .join(&ArithLogOp::And.to_string())
-        },
-        ActivationCondition::Disjunction(s) => {
-            s.iter()
-                .map(|ac| display_ac(mir, ac))
-                .collect::<Vec<_>>()
-                .join(&ArithLogOp::Or.to_string())
-        },
-        ActivationCondition::Stream(s) => mir.stream(*s).name().into(),
-        ActivationCondition::True => "true".into(),
+/// A lightweight wrapper around the Mir to provide a [Display] implementation for Mir struct `T`.
+#[derive(Debug, Clone, Copy)]
+pub struct RtLolaMirPrinter<'a, T> {
+    mir: &'a Mir,
+    inner: &'a T,
+}
+
+impl<'a, T> RtLolaMirPrinter<'a, T> {
+    pub(crate) fn new(mir: &'a Mir, target: &'a T) -> Self {
+        RtLolaMirPrinter { mir, inner: target }
     }
 }
 
-pub(crate) fn display_pacing_type(mir: &Mir, pacing_type: &PacingType) -> String {
-    match pacing_type {
-        super::PacingType::Periodic(f) => {
-            let s = f
-                .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
-                .to_string();
-            format!("{}Hz", &s[..s.len() - 3]) // TODO: better solution
-        },
-        super::PacingType::Event(ac) => display_ac(mir, ac),
-        super::PacingType::Constant => "true".into(),
+impl<'a, T: Display> Display for RtLolaMirPrinter<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self.inner {
+            ActivationCondition::Conjunction(s) => {
+                let rs = s
+                    .iter()
+                    .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
+                    .join(&ArithLogOp::And.to_string());
+                write!(f, "{}", rs)
+            },
+            ActivationCondition::Disjunction(s) => {
+                let rs = s
+                    .iter()
+                    .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
+                    .join(&ArithLogOp::Or.to_string());
+                write!(f, "{}", rs)
+            },
+            ActivationCondition::Stream(s) => write!(f, "{}", self.mir.stream(*s).name()),
+            ActivationCondition::True => write!(f, "true"),
+        }
+    }
+}
+
+impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self.inner {
+            super::PacingType::Periodic(freq) => {
+                let s: String = freq
+                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .to_string();
+                write!(f, "{}Hz", &s[..s.len() - 3]) // TODO: better solution
+            },
+            super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
+            super::PacingType::Constant => write!(f, "true"),
+        }
     }
 }
 
@@ -264,10 +231,7 @@ fn precedence_level(op: &ArithLogOp) -> (u32, Associativity) {
         ArithLogOp::Or => 12,
     };
 
-    let associativity = match op {
-        ArithLogOp::Div | ArithLogOp::Sub => false,
-        _ => true,
-    };
+    let associativity = !matches!(op, ArithLogOp::Div | ArithLogOp::Sub);
 
     (precedence, associativity)
 }
@@ -312,7 +276,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             };
 
             match access_kind {
-                StreamAccessKind::Sync => format!("{target_name}"),
+                StreamAccessKind::Sync => target_name,
                 StreamAccessKind::DiscreteWindow(_) => todo!(),
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
@@ -370,85 +334,98 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
     }
 }
 
-fn display_input(_: &Mir, input: &InputStream) -> String {
-    let name = &input.name;
-    let ty = &input.ty;
-    format!("input {name} : {ty}")
+impl<'a> Display for RtLolaMirPrinter<'a, Expression> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", display_expression(self.mir, self.inner, 0))
+    }
 }
 
-fn display_output(mir: &Mir, output: &OutputStream) -> String {
-    let name = &output.name;
-    let ty = &output.ty;
-    let pacing = &output.eval.eval_pacing;
-    let spawn_expr = &output.spawn.expression;
-    let spawn_condition = &output.spawn.condition;
-    let eval_expr = &output.eval.expression;
-    let eval_condition = &output.eval.condition;
-    let close_condition = &output.close.condition;
-    let parameters = &output.params;
+impl Display for InputStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let name = &self.name;
+        let ty = &self.ty;
+        write!(f, "input {name} : {ty}")
+    }
+}
 
-    let display_pacing = display_pacing_type(mir, pacing);
-    let display_parameters = if !parameters.is_empty() {
-        let parameter_list = parameters
-            .iter()
-            .map(|parameter| format!("{} : {}", parameter.name, parameter.ty))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("({parameter_list})")
-    } else {
-        "".into()
-    };
+impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let OutputStream {
+            name,
+            ty,
+            spawn,
+            eval,
+            close,
+            params,
+            ..
+        } = self.inner;
 
-    let mut s = format!("output {name}{display_parameters} : {ty}\n");
+        let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
+        let display_parameters = if !params.is_empty() {
+            let parameter_list = params
+                .iter()
+                .map(|parameter| format!("{} : {}", parameter.name, parameter.ty))
+                .join(", ");
+            format!("({parameter_list})")
+        } else {
+            "".into()
+        };
 
-    if let Some(spawn_expr) = spawn_expr {
-        let display_spawn_expr = display_expression(mir, spawn_expr, 0);
-        s.push_str(&format!("  spawn with {display_spawn_expr}"));
-        if let Some(spawn_condition) = spawn_condition {
-            let display_spawn_condition = display_expression(mir, spawn_condition, 0);
-            s.push_str(&format!(" when {display_spawn_condition}"));
+        writeln!(f, "output {name}{display_parameters} : {ty}")?;
+
+        if let Some(spawn_expr) = &spawn.expression {
+            let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
+            write!(f, "  spawn with {display_spawn_expr}")?;
+            if let Some(spawn_condition) = &spawn.condition {
+                let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
+                write!(f, " when {display_spawn_condition}")?;
+            }
+            writeln!(f)?;
         }
-        s.push('\n');
-    }
 
-    s.push_str(&format!("  eval @{display_pacing} "));
-    if let Some(eval_condition) = eval_condition {
-        let display_eval_condition = display_expression(mir, eval_condition, 0);
-        s.push_str(&format!("when {display_eval_condition} "));
-    }
-    let display_eval_expr = display_expression(mir, eval_expr, 0);
-    s.push_str(&format!("with {display_eval_expr}"));
+        write!(f, "  eval @{display_pacing} ")?;
+        if let Some(eval_condition) = &eval.condition {
+            let display_eval_condition = display_expression(self.mir, eval_condition, 0);
+            write!(f, "when {display_eval_condition} ")?;
+        }
+        let display_eval_expr = display_expression(self.mir, &eval.expression, 0);
+        write!(f, "with {display_eval_expr}")?;
 
-    if let Some(close_condition) = close_condition {
-        let display_close_condition = display_expression(mir, close_condition, 0);
-        s.push_str(&format!("\n  close when {display_close_condition}"));
-    }
+        if let Some(close_condition) = &close.condition {
+            let display_close_condition = display_expression(self.mir, close_condition, 0);
+            write!(f, "\n  close when {display_close_condition}")?;
+        }
 
-    s
+        Ok(())
+    }
 }
 
-fn display_trigger(mir: &Mir, trigger: &Trigger) -> String {
-    let output = mir.output(trigger.reference);
-    let output_name = output.name();
-    let message = &trigger.message;
+impl<'a> Display for RtLolaMirPrinter<'a, Trigger> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let output = self.mir.output(self.inner.reference);
+        let output_name = output.name();
+        let message = &self.inner.message;
 
-    let s = format!("trigger {output_name} \"{message}\"");
-
-    s
+        write!(f, "trigger {output_name} \"{message}\"")
+    }
 }
 
 impl Display for Mir {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let inputs = self.inputs.iter().map(|input| display_input(self, input));
-        let outputs = self.outputs.iter().map(|output| display_output(self, output));
-        let triggers = self.triggers.iter().map(|trigger| display_trigger(self, trigger));
+        self.inputs.iter().try_for_each(|input| {
+            RtLolaMirPrinter::new(self, input).fmt(f)?;
+            write!(f, "\n\n")
+        })?;
 
-        let s = inputs
-            .chain(outputs)
-            .chain(triggers)
-            .collect::<Vec<String>>()
-            .join("\n\n");
-        f.write_str(&s)
+        self.outputs.iter().try_for_each(|output| {
+            RtLolaMirPrinter::new(self, output).fmt(f)?;
+            write!(f, "\n\n")
+        })?;
+
+        self.triggers.iter().try_for_each(|trigger| {
+            RtLolaMirPrinter::new(self, trigger).fmt(f)?;
+            write!(f, "\n\n")
+        })
     }
 }
 

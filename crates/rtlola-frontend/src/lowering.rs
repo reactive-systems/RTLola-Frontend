@@ -12,7 +12,7 @@ use crate::mir::{Close, Eval, Mir, Spawn};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
-    pub(crate) fn from_hir(hir: RtLolaHir<CompleteMode>) -> Mir {
+    pub fn from_hir(hir: RtLolaHir<CompleteMode>) -> Mir {
         let inputs = hir
             .inputs()
             .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
@@ -484,7 +484,7 @@ impl Mir {
             .collect()
     }
 
-    fn lower_parameters<'a>(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
+    fn lower_parameters(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
         let params = hir.output(sr).expect("is output stream").params();
         params
             .map(|parameter| {
