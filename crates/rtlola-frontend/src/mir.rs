@@ -34,9 +34,8 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-pub use crate::mir::schedule::{Deadline, Schedule, Task};
-
 use self::dependency_graph::DependencyGraph;
+pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
 
@@ -848,7 +847,7 @@ impl RtLolaMir {
     pub fn display<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
         RtLolaMirPrinter::new(self, target)
     }
-    
+
     /// Represents the specification as a dependency graph
     pub fn dependency_graph<'a>(&'a self) -> DependencyGraph<'a> {
         DependencyGraph::new(&self)

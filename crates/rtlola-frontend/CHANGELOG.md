@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get()` and `is_fresh()` stream access
 - Implemented `Display` for Mir to display the whole specification
 - `ty()` and `name()` methods for Stream
+- Added `dependency_graph()` to generate dependency graph as json or in dot-format
 
 ## [0.5.3] - 12.04.2022
 

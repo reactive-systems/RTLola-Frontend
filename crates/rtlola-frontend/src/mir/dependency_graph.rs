@@ -34,6 +34,7 @@ impl<'a> DependencyGraph<'a> {
         Self { nodes, edges, infos }
     }
 
+    /// Returns the dependency graph in the graphviz dot-format
     pub fn dot(&self) -> String {
         let res = Vec::new();
         let mut res_writer = BufWriter::new(res);
@@ -41,6 +42,7 @@ impl<'a> DependencyGraph<'a> {
         String::from_utf8(res_writer.into_inner().unwrap()).unwrap()
     }
 
+    /// Returns the dependency graph in a json-format
     pub fn json(&self) -> String {
         let infos = self
             .infos
@@ -99,9 +101,9 @@ impl Serialize for Node {
 
 #[derive(Clone, Debug, Serialize)]
 struct Edge {
-    from: Node, 
-    with: EdgeType, 
-    to: Node
+    from: Node,
+    with: EdgeType,
+    to: Node,
 }
 
 #[derive(Clone, Debug)]
@@ -275,7 +277,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     // we remove edges for window accesses, because we add extra nodes for them
                     StreamAccessKind::SlidingWindow(_) => None,
                     _ => {
-                        Some(Edge{
+                        Some(Edge {
                             from: Node::Stream(source_ref),
                             with: EdgeType::from(*kind),
                             to: Node::Stream(*target_ref),
@@ -288,12 +290,12 @@ fn edges(mir: &Mir) -> Vec<Edge> {
 
     let window_edges = mir.sliding_windows.iter().flat_map(|window| {
         [
-            Edge{
+            Edge {
                 from: Node::Window(window.reference),
                 with: StreamAccessKind::SlidingWindow(window.reference).into(),
                 to: Node::Stream(window.caller),
             },
-            Edge{
+            Edge {
                 from: Node::Stream(window.target),
                 with: StreamAccessKind::SlidingWindow(window.reference).into(),
                 to: Node::Window(window.reference),
@@ -416,25 +418,5 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
 
     fn target(&self, e: &Edge) -> Node {
         e.to
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rtlola_parser::ParserConfig;
-
-    #[test]
-    fn test_dot() {
-        let spec = "input a : UInt64
-        input b : UInt64
-        output c := a + b.offset(by:-1).defaults(to:0)
-        output p@0.5Hz := b.aggregate(over:2s, using:sum)
-        output d@a := b.hold().defaults(to:0)";
-
-        let cfg = ParserConfig::for_string(String::from(spec));
-        let mir = crate::parse(cfg).unwrap();
-        let dep_graph = mir.dependency_graph();
-
-        println!("{}", dep_graph.json());
     }
 }
