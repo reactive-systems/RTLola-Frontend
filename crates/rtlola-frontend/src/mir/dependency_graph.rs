@@ -304,9 +304,9 @@ fn edges(mir: &Mir) -> Vec<Edge> {
 
     let trigger_edges = mir.triggers.iter().map(|trigger| {
         Edge {
-            from: Node::Trigger(trigger.trigger_reference),
+            from: Node::Stream(trigger.reference),
             with: StreamAccessKind::Sync.into(),
-            to: Node::Stream(trigger.reference)
+            to: Node::Trigger(trigger.trigger_reference),
         }
     });
 
@@ -394,7 +394,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         let shape_str = match node {
             Node::Stream(StreamReference::In(_)) => "box",
             Node::Stream(StreamReference::Out(_)) => "ellipse",
-            Node::Trigger(_) => "ellipse",
+            Node::Trigger(_) => "octagon",
             Node::Window(_) => "note",
         };
 
