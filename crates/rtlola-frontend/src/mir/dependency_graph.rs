@@ -302,7 +302,15 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         ]
     });
 
-    access_edges.chain(window_edges).collect()
+    let trigger_edges = mir.triggers.iter().map(|trigger| {
+        Edge {
+            from: Node::Trigger(trigger.trigger_reference),
+            with: StreamAccessKind::Sync.into(),
+            to: Node::Stream(trigger.reference)
+        }
+    });
+
+    access_edges.chain(window_edges).chain(trigger_edges).collect()
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
