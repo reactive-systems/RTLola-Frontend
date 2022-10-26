@@ -578,6 +578,21 @@ pub enum WindowOperation {
     NthPercentile(u8),
 }
 
+/// A trait for any kind of window
+pub trait Window {
+    /// Returns a reference to the stream that will be aggregated by that window.
+    fn target(&self) -> StreamReference;
+
+    /// Returns a reference to the stream in which expression this window occurs.
+    fn caller(&self) -> StreamReference;
+
+    /// Returns the aggregation operation the window uses.
+    fn op(&self) -> WindowOperation;
+
+    /// Returns the type of value the window produces.
+    fn ty(&self) -> &Type;
+}
+
 ////////// Implementations //////////
 impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
@@ -652,6 +667,42 @@ impl Stream for InputStream {
 
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
+    }
+}
+
+impl Window for SlidingWindow {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.op
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+}
+
+impl Window for DiscreteWindow {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.op
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
     }
 }
 
@@ -774,6 +825,14 @@ impl RtLolaMir {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(_) => panic!("wrong type of window reference passed to getter"),
+        }
+    }
+
+    /// Provides immutable access to a window.
+    pub fn window(&self, window: WindowReference) -> &dyn Window {
+        match window {
+            WindowReference::Sliding(x) => &self.sliding_windows[x],
+            WindowReference::Discrete(x) => &self.discrete_windows[x],
         }
     }
 
