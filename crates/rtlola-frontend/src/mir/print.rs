@@ -197,12 +197,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             super::PacingType::Periodic(freq) => {
-                write!(
-                    f,
-                    "{}",
-                    freq.into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
-                        .to_string()
-                )
+                let s = freq
+                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .to_string();
+                write!(f, "{}Hz", &s[..s.len() - 3])
             },
             super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
             super::PacingType::Constant => write!(f, "true"),

@@ -142,7 +142,7 @@ WindowMedian = { "med" | "median" | "µ" }
 //////////////////// Literals ////////////////////
 //////////////////////////////////////////////////
 
-NumberLiteral = { NumberLiteralValue ~ NumberPostfix?}
+NumberLiteral = ${ NumberLiteralValue ~ NumberPostfix?}
 NumberLiteralValue = @{ ("+" | "-")?~ Digit+~ (("." ~ !Letter) ~ Digit*)?~ ("e"~ ("+" | "-")?~ Digit+)? }
 // `("." ~ !Letter)` is used to disambiguate from method call, thus,
 // floating point numeric values with unit need a digit after period, i.e., `1.0Hz` instead of `1.Hz`

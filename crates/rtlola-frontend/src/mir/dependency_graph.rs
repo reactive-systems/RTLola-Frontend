@@ -526,7 +526,6 @@ mod tests {
         input b : UInt64
         output c := a + b.hold().defaults(to:0)
         output d@1Hz := a.aggregate(over:5s, using:count)
-        // trigger c < 5
         trigger d < 5",
         Out(0) => In(0) : Sync,
         Out(0) => In(1) : Hold,
