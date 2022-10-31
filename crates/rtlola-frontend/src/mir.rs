@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
-use self::dependency_graph::DependencyGraph;
+pub use self::dependency_graph::DependencyGraph;
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
@@ -315,6 +315,8 @@ pub struct Parameter {
     pub name: String,
     /// The type of the parameter.
     pub ty: Type,
+    /// The index of the parameter.
+    pub idx: usize
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -580,6 +582,21 @@ pub enum WindowOperation {
     NthPercentile(u8),
 }
 
+/// A trait for any kind of window
+pub trait Window {
+    /// Returns a reference to the stream that will be aggregated by that window.
+    fn target(&self) -> StreamReference;
+
+    /// Returns a reference to the stream in which expression this window occurs.
+    fn caller(&self) -> StreamReference;
+
+    /// Returns the aggregation operation the window uses.
+    fn op(&self) -> WindowOperation;
+
+    /// Returns the type of value the window produces.
+    fn ty(&self) -> &Type;
+}
+
 ////////// Implementations //////////
 impl Stream for OutputStream {
     fn spawn_layer(&self) -> Layer {
@@ -654,6 +671,42 @@ impl Stream for InputStream {
 
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
+    }
+}
+
+impl Window for SlidingWindow {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.op
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+}
+
+impl Window for DiscreteWindow {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.op
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
     }
 }
 
@@ -776,6 +829,14 @@ impl RtLolaMir {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(_) => panic!("wrong type of window reference passed to getter"),
+        }
+    }
+
+    /// Provides immutable access to a window.
+    pub fn window(&self, window: WindowReference) -> &dyn Window {
+        match window {
+            WindowReference::Sliding(x) => &self.sliding_windows[x],
+            WindowReference::Discrete(x) => &self.discrete_windows[x],
         }
     }
 
