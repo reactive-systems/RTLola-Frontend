@@ -491,7 +491,7 @@ impl Mir {
                 mir::Parameter {
                     name: parameter.name.clone(),
                     ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
-                    idx: parameter.index()
+                    idx: parameter.index(),
                 }
             })
             .collect()

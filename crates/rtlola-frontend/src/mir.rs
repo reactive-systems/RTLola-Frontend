@@ -316,7 +316,7 @@ pub struct Parameter {
     /// The type of the parameter.
     pub ty: Type,
     /// The index of the parameter.
-    pub idx: usize
+    pub idx: usize,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.

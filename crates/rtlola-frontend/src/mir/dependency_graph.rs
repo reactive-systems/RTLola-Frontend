@@ -7,8 +7,10 @@ use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
-use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference, print::display_duration};
+use super::print::display_duration;
+use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
 
+/// Represents the dependency graph of the specification
 #[derive(Debug, Clone)]
 pub struct DependencyGraph<'a> {
     nodes: Vec<Node>,
@@ -82,8 +84,8 @@ impl Display for Node {
         match self {
             Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
             Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
-            Node::Window(WindowReference::Sliding(i)) => write!(f, "sw_{i}"),
-            Node::Window(WindowReference::Discrete(i)) => write!(f, "dw_{i}"),
+            Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
+            Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Trigger(i) => write!(f, "T_{i}"),
         }
     }
@@ -98,14 +100,14 @@ impl Serialize for Node {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 struct Edge {
     from: Node,
     with: EdgeType,
     to: Node,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EdgeType(StreamAccessKind);
 
 impl From<StreamAccessKind> for EdgeType {
@@ -117,12 +119,12 @@ impl From<StreamAccessKind> for EdgeType {
 impl Display for EdgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self.0 {
-                    StreamAccessKind::Sync => "Sync".into(),
-                    StreamAccessKind::Hold => "Hold".into(),
-                    StreamAccessKind::Offset(o) => format!("Offset({o})"),
-                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
-                    StreamAccessKind::Get => todo!(),
-                    StreamAccessKind::Fresh => todo!(),
+            StreamAccessKind::Sync => "Sync".into(),
+            StreamAccessKind::Hold => "Hold".into(),
+            StreamAccessKind::Offset(o) => format!("Offset({o})"),
+            StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
+            StreamAccessKind::Get => todo!(),
+            StreamAccessKind::Fresh => todo!(),
         };
 
         write!(f, "{s}")
@@ -141,7 +143,14 @@ impl Serialize for EdgeType {
 #[derive(Serialize, Debug, Clone)]
 #[serde(untagged)]
 enum NodeInformation<'a> {
-    Stream {
+    Input {
+        reference: StreamReference,
+        stream_name: &'a str,
+        memory_bound: u32,
+        value_ty: String,
+    },
+
+    Output {
         reference: StreamReference,
         stream_name: &'a str,
         eval_layer: usize,
@@ -184,27 +193,30 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
     let value_ty = stream.ty();
     let value_str = value_ty.to_string();
 
-    let pacing_str = if let StreamReference::Out(_) = sref {
-        let pacing_ty = &mir.output(sref).eval.eval_pacing;
-        mir.display(pacing_ty).to_string()
-    } else {
-        "input".into()
-    };
+    match sref {
+        StreamReference::In(_) => {
+            NodeInformation::Input {
+                reference: sref,
+                stream_name,
+                memory_bound,
+                value_ty: value_str,
+            }
+        },
+        StreamReference::Out(_) => {
+            let output = mir.output(sref);
+            let pacing_str = mir.display(&output.eval.eval_pacing).to_string();
+            let expr_str = mir.display(&output.eval.expression).to_string();
 
-    let expression_str = if let StreamReference::Out(_) = sref {
-        mir.display(&mir.output(sref).eval.expression).to_string()
-    } else {
-        "input".into()
-    };
-
-    NodeInformation::Stream {
-        reference: sref,
-        stream_name,
-        eval_layer,
-        pacing_ty: pacing_str,
-        value_ty: value_str,
-        memory_bound,
-        expression: expression_str,
+            NodeInformation::Output {
+                reference: sref,
+                stream_name,
+                eval_layer,
+                memory_bound,
+                pacing_ty: pacing_str,
+                value_ty: value_str,
+                expression: expr_str,
+            }
+        },
     }
 }
 
@@ -215,11 +227,11 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
         WindowReference::Sliding(_) => {
             let duration = mir.sliding_window(wref).duration;
             display_duration(duration)
-        }
+        },
         WindowReference::Discrete(_) => {
             let duration = mir.discrete_window(wref).duration;
             format!("{duration} values")
-        }
+        },
     };
 
     NodeInformation::Window {
@@ -231,7 +243,7 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
 
 fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
     let trigger = &mir.triggers[tref];
-    if let NodeInformation::Stream {
+    if let NodeInformation::Output {
         reference: _,
         stream_name: _,
         eval_layer,
@@ -271,9 +283,9 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     | StreamAccessKind::Offset(_)
                     | StreamAccessKind::Sync => {
                         Some(Edge {
-                            from: Node::Stream(source_ref),
+                            from: Node::Stream(*target_ref),
                             with: EdgeType::from(*kind),
-                            to: Node::Stream(*target_ref),
+                            to: Node::Stream(source_ref),
                         })
                     },
                 }
@@ -284,23 +296,23 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     let window_edges = mir.sliding_windows.iter().flat_map(|window| {
         [
             Edge {
-                from: Node::Window(window.reference),
-                with: StreamAccessKind::SlidingWindow(window.reference).into(),
-                to: Node::Stream(window.caller),
-            },
-            Edge {
-                from: Node::Stream(window.target),
+                from: Node::Stream(window.caller),
                 with: StreamAccessKind::SlidingWindow(window.reference).into(),
                 to: Node::Window(window.reference),
+            },
+            Edge {
+                from: Node::Window(window.reference),
+                with: StreamAccessKind::SlidingWindow(window.reference).into(),
+                to: Node::Stream(window.target),
             },
         ]
     });
 
     let trigger_edges = mir.triggers.iter().map(|trigger| {
         Edge {
-            from: Node::Stream(trigger.reference),
+            from: Node::Trigger(trigger.trigger_reference),
             with: StreamAccessKind::Sync.into(),
-            to: Node::Trigger(trigger.trigger_reference),
+            to: Node::Stream(trigger.reference),
         }
     });
 
@@ -321,7 +333,15 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         let infos = self.infos.get(n).unwrap();
 
         let label_text = match infos {
-            NodeInformation::Stream {
+            NodeInformation::Input {
+                stream_name,
+                memory_bound,
+                value_ty,
+                reference: _,
+            } => {
+                format!("{stream_name}: {value_ty}<br/>Memory Bound: {memory_bound}")
+            },
+            NodeInformation::Output {
                 stream_name,
                 eval_layer,
                 memory_bound,
@@ -357,12 +377,12 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
     fn edge_label<'b>(&'b self, edge: &Edge) -> LabelText<'b> {
         let kind = &edge.with.0;
         let label = match kind {
-                    StreamAccessKind::Sync => "Sync".into(),
-                    StreamAccessKind::Hold => "Hold".into(),
-                    StreamAccessKind::Offset(o) => format!("Offset({o})"),
-                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
-                    StreamAccessKind::Get => todo!(),
-                    StreamAccessKind::Fresh => todo!(),
+            StreamAccessKind::Sync => "Sync".into(),
+            StreamAccessKind::Hold => "Hold".into(),
+            StreamAccessKind::Offset(o) => format!("Offset({o})"),
+            StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
+            StreamAccessKind::Get => todo!(),
+            StreamAccessKind::Fresh => todo!(),
         };
         dot::LabelText::LabelStr(label.into())
     }
@@ -371,12 +391,11 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         let kind = &edge.with.0;
         match kind {
             StreamAccessKind::Hold => Style::Dashed,
-            | StreamAccessKind::Sync
+            StreamAccessKind::Sync
             | StreamAccessKind::Offset(_)
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_) => Style::None,
-            | StreamAccessKind::Get
-            | StreamAccessKind::Fresh => todo!()
+            StreamAccessKind::Get | StreamAccessKind::Fresh => todo!(),
         }
     }
 
@@ -410,10 +429,110 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn source(&self, e: &Edge) -> Node {
-        e.from
+        // because we add the arrows the wrong way round (see edge style)
+        e.to
     }
 
     fn target(&self, e: &Edge) -> Node {
-        e.to
+        // because we add the arrows the wrong way round (see edge style)
+        e.from
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use rtlola_parser::ParserConfig;
+
+    use super::*;
+    use crate::parse;
+
+    macro_rules! build_node {
+        ( In($i:expr) ) => {
+            Node::Stream(StreamReference::In($i))
+        };
+        ( Out($i:expr) ) => {
+            Node::Stream(StreamReference::Out($i))
+        };
+        ( T($i:expr) ) => {
+            Node::Trigger($i)
+        };
+        ( SW($i:expr) ) => {
+            Node::Window(WindowReference::Sliding($i))
+        };
+        ( DW($i:expr) ) => {
+            Node::Window(WindowReference::Discrete($i))
+        };
+    }
+
+    macro_rules! build_sak {
+        ( SW, $i:expr ) => {
+            StreamAccessKind::SlidingWindow(WindowReference::Sliding($i))
+        };
+        ( DW, $i:expr ) => {
+            StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i))
+        };
+        ( $sak:ident ) => {
+            StreamAccessKind::$sak
+        };
+    }
+
+    // https://stackoverflow.com/a/34324856
+    macro_rules! count {
+        () => (0usize);
+        ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+    }
+
+    macro_rules! test_dependency_graph {
+        ( $name:ident, $spec:literal, $( $edge_from_ty:ident($edge_from_i:expr) => $edge_to_ty:ident($edge_to_i:expr) : $with:ident $(($p:expr))? , )+ ) => {
+
+            #[test]
+            fn $name() {
+                let config = ParserConfig::for_string($spec.into());
+                let mir = parse(config).expect("should parse");
+                let dep_graph = mir.dependency_graph();
+                println!("{}", dep_graph.dot());
+                let edges = &dep_graph.edges;
+                $(
+                    let from_node = build_node!($edge_from_ty($edge_from_i));
+                    let to_node = build_node!($edge_to_ty($edge_to_i));
+                    let with = build_sak!($with $(,$p)?);
+                    let expected_edge = Edge {
+                        from: from_node, to: to_node, with: with.into()
+                    };
+                    assert!(edges.iter().any(|edge| *edge == expected_edge), "specification did not contain expected edge {:#?}", expected_edge);
+                )+
+                assert!(edges.len() == count!($($with)+), "dependency graph had unwanted additional edges");
+            }
+        };
+    }
+
+    test_dependency_graph!(simple, "
+        input a : UInt64
+        input b : UInt64
+        output c := a + b",
+        Out(0) => In(0) : Sync,
+        Out(0) => In(1) : Sync,
+    );
+
+    test_dependency_graph!(trigger, "
+        input a : UInt64
+        trigger a > 5",
+        T(0) => Out(0) : Sync,
+        Out(0) => In(0) : Sync,
+    );
+
+    test_dependency_graph!(more_complex, "
+        input a : UInt64
+        input b : UInt64
+        output c := a + b.hold().defaults(to:0)
+        output d@1Hz := a.aggregate(over:5s, using:count)
+        // trigger c < 5
+        trigger d < 5",
+        Out(0) => In(0) : Sync,
+        Out(0) => In(1) : Hold,
+        Out(1) => SW(0) : SW(0),
+        SW(0) => In(0) : SW(0),
+        T(0) => Out(2) : Sync,
+        Out(2) => Out(1) : Sync,
+    );
 }

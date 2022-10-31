@@ -1,4 +1,5 @@
-use std::{fmt::{Display, Formatter, Result}, time::Duration};
+use std::fmt::{Display, Formatter, Result};
+use std::time::Duration;
 
 use itertools::Itertools;
 
@@ -196,9 +197,12 @@ impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             super::PacingType::Periodic(freq) => {
-                write!(f, "{}", freq
-                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
-                    .to_string())
+                write!(
+                    f,
+                    "{}",
+                    freq.into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                        .to_string()
+                )
             },
             super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
             super::PacingType::Constant => write!(f, "true"),
@@ -339,12 +343,12 @@ pub(crate) fn display_duration(duration: Duration) -> String {
 
     let secs_str = format!("{duration_secs}s");
     let millis_str = format!("{duration_millis}ms");
-    
+
     match (duration_secs > 0, duration_millis > 0) {
         (true, true) => format!("{secs_str} {millis_str}"),
         (true, false) => secs_str,
         (false, true) => millis_str,
-        (false, false) => "0s".into()
+        (false, false) => "0s".into(),
     }
 }
 
