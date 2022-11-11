@@ -1,5 +1,4 @@
 use std::fmt::{Display, Formatter, Result};
-use std::time::Duration;
 
 use itertools::Itertools;
 
@@ -282,9 +281,9 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
-                    let duration = display_duration(window.duration);
+                    let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
-                    format!("{target_name}.aggregate(over: {duration}, using: {op})")
+                    format!("{target_name}.aggregate(over: {duration}s, using: {op})")
                 },
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
@@ -332,21 +331,6 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             let display_default = display_expression(mir, default, 0);
             format!("{display_expr}.defaults(to: {display_default})")
         },
-    }
-}
-
-pub(crate) fn display_duration(duration: Duration) -> String {
-    let duration_secs = duration.as_secs();
-    let duration_millis = duration.subsec_millis();
-
-    let secs_str = format!("{duration_secs}s");
-    let millis_str = format!("{duration_millis}ms");
-
-    match (duration_secs > 0, duration_millis > 0) {
-        (true, true) => format!("{secs_str} {millis_str}"),
-        (true, false) => secs_str,
-        (false, true) => millis_str,
-        (false, false) => "0s".into(),
     }
 }
 

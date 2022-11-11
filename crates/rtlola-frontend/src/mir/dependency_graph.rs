@@ -7,7 +7,6 @@ use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
-use super::print::display_duration;
 use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
 
 /// Represents the dependency graph of the specification
@@ -226,7 +225,7 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
     let duration_str = match wref {
         WindowReference::Sliding(_) => {
             let duration = mir.sliding_window(wref).duration;
-            display_duration(duration)
+            format!("{}s", duration.as_secs_f64())
         },
         WindowReference::Discrete(_) => {
             let duration = mir.discrete_window(wref).duration;
@@ -490,7 +489,6 @@ mod tests {
                 let config = ParserConfig::for_string($spec.into());
                 let mir = parse(config).expect("should parse");
                 let dep_graph = mir.dependency_graph();
-                println!("{}", dep_graph.dot());
                 let edges = &dep_graph.edges;
                 $(
                     let from_node = build_node!($edge_from_ty($edge_from_i));
@@ -506,23 +504,23 @@ mod tests {
         };
     }
 
-    test_dependency_graph!(simple, "
-        input a : UInt64
+    test_dependency_graph!(simple,
+        "input a : UInt64
         input b : UInt64
         output c := a + b",
         Out(0) => In(0) : Sync,
         Out(0) => In(1) : Sync,
     );
 
-    test_dependency_graph!(trigger, "
-        input a : UInt64
+    test_dependency_graph!(trigger,
+        "input a : UInt64
         trigger a > 5",
         T(0) => Out(0) : Sync,
         Out(0) => In(0) : Sync,
     );
 
-    test_dependency_graph!(more_complex, "
-        input a : UInt64
+    test_dependency_graph!(more_complex, 
+        "input a : UInt64
         input b : UInt64
         output c := a + b.hold().defaults(to:0)
         output d@1Hz := a.aggregate(over:5s, using:count)
