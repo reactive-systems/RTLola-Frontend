@@ -519,7 +519,7 @@ mod tests {
         Out(0) => In(0) : Sync,
     );
 
-    test_dependency_graph!(more_complex, 
+    test_dependency_graph!(more_complex,
         "input a : UInt64
         input b : UInt64
         output c := a + b.hold().defaults(to:0)
