@@ -24,4 +24,6 @@ rtlola-reporting = { path = "../rtlola-reporting" }
 rtlola-parser = { path = "../rtlola-parser" }
 uom = { version = "0.31.1", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
 serde = { version = "1.0.130", features = ["derive"] }
+serde_json = "1.0.86"
 num-rational = { version = "0.3.2", features = ["serde"] }
+dot = "0.1.4"

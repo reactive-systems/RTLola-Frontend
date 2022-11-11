@@ -196,10 +196,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             super::PacingType::Periodic(freq) => {
-                let s: String = freq
+                let s = freq
                     .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
                     .to_string();
-                write!(f, "{}Hz", &s[..s.len() - 3]) // TODO: better solution
+                write!(f, "{}Hz", &s[..s.len() - 3])
             },
             super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
             super::PacingType::Constant => write!(f, "true"),
@@ -281,7 +281,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
-                    let duration = window.duration.as_secs();
+                    let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
                 },

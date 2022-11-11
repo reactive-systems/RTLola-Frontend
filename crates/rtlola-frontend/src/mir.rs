@@ -17,6 +17,7 @@
 //! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
+mod dependency_graph;
 mod print;
 mod schedule;
 
@@ -33,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
 
+pub use self::dependency_graph::DependencyGraph;
 pub use crate::mir::schedule::{Deadline, Schedule, Task};
 
 pub(crate) type Mir = RtLolaMir;
@@ -313,6 +315,8 @@ pub struct Parameter {
     pub name: String,
     /// The type of the parameter.
     pub ty: Type,
+    /// The index of the parameter.
+    pub idx: usize,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -903,6 +907,11 @@ impl RtLolaMir {
     /// Creates a new [RtLolaMirPrinter] for the Mir type `T`. It implements the [Display](std::fmt::Display) Trait for type `T`.
     pub fn display<'a, T>(&'a self, target: &'a T) -> RtLolaMirPrinter<'a, T> {
         RtLolaMirPrinter::new(self, target)
+    }
+
+    /// Represents the specification as a dependency graph
+    pub fn dependency_graph<'a>(&'a self) -> DependencyGraph<'a> {
+        DependencyGraph::new(&self)
     }
 }
 
