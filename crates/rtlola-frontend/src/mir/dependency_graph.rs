@@ -19,7 +19,7 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let stream_nodes = mir.all_streams().map(|s| Node::Stream(s));
+        let stream_nodes = mir.all_streams().map(Node::Stream);
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
         let trigger_nodes = mir
             .triggers
@@ -386,7 +386,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         dot::LabelText::LabelStr(label.into())
     }
 
-    fn edge_style<'b>(&'b self, edge: &Edge) -> Style {
+    fn edge_style(&self, edge: &Edge) -> Style {
         let kind = &edge.with.0;
         match kind {
             StreamAccessKind::Hold => Style::Dashed,
@@ -398,7 +398,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         }
     }
 
-    fn node_shape<'b>(&'b self, node: &Node) -> Option<LabelText<'b>> {
+    fn node_shape(&self, node: &Node) -> Option<LabelText<'_>> {
         let shape_str = match node {
             Node::Stream(StreamReference::In(_)) => "box",
             Node::Stream(StreamReference::Out(_)) => "ellipse",

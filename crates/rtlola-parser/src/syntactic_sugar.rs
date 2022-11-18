@@ -152,12 +152,12 @@ impl Desugarizer {
                         span,
                     } = spawn_spec;
                     let expression = expression.map(|expr| {
-                        let (new_expr, spawn_cs) = self.desugarize_expression(expr, &ast, current_sugar);
+                        let (new_expr, spawn_cs) = Self::desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cs;
                         new_expr
                     });
                     let condition = condition.map(|expr| {
-                        let (new_expr, spawn_cond_cs) = self.desugarize_expression(expr, &ast, current_sugar);
+                        let (new_expr, spawn_cond_cs) = Self::desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cond_cs;
                         new_expr
                     });
@@ -183,12 +183,12 @@ impl Desugarizer {
                             span,
                         } = eval_spec;
                         let new_eval = eval_expression.map(|e| {
-                            let (res, eval_cs) = self.desugarize_expression(e, &ast, current_sugar);
+                            let (res, eval_cs) = Self::desugarize_expression(e, &ast, current_sugar);
                             change_set += eval_cs;
                             res
                         });
                         let new_condition = condition.map(|e| {
-                            let (res, cond_cs) = self.desugarize_expression(e, &ast, current_sugar);
+                            let (res, cond_cs) = Self::desugarize_expression(e, &ast, current_sugar);
                             change_set += cond_cs;
                             res
                         });
@@ -209,7 +209,7 @@ impl Desugarizer {
                         span,
                         annotated_pacing,
                     } = close_spec;
-                    let (new_condition, close_cs) = self.desugarize_expression(condition, &ast, current_sugar);
+                    let (new_condition, close_cs) = Self::desugarize_expression(condition, &ast, current_sugar);
                     change_set += close_cs;
                     Some(CloseSpec {
                         condition: new_condition,
@@ -231,7 +231,7 @@ impl Desugarizer {
             }
             for ix in 0..ast.trigger.len() {
                 let trigger = &ast.trigger[ix];
-                let (new_out_expr, cs) = self.desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
+                let (new_out_expr, cs) = Self::desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
                 change_set += cs;
                 let trigger_clone: Trigger = Trigger::clone(trigger);
                 let new_trigger = Trigger {
@@ -295,10 +295,9 @@ impl Desugarizer {
                                 span,
                             } = spawn_spec;
                             let expression = expression
-                                .map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression, &ast));
-                            let condition = condition.map(|cond_expression| {
-                                Self::apply_expr_global_change(id, &expr, &cond_expression, &ast)
-                            });
+                                .map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression));
+                            let condition = condition
+                                .map(|cond_expression| Self::apply_expr_global_change(id, &expr, &cond_expression));
                             Some(SpawnSpec {
                                 expression,
                                 condition,
@@ -321,8 +320,8 @@ impl Desugarizer {
                                     span,
                                 } = eval_spec;
                                 let eval_expression =
-                                    eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e, &ast));
-                                let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e, &ast));
+                                    eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e));
+                                let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e));
                                 Some(EvalSpec {
                                     annotated_pacing,
                                     condition,
@@ -340,7 +339,7 @@ impl Desugarizer {
                                 span,
                                 annotated_pacing,
                             } = close_spec;
-                            let new_condition = Self::apply_expr_global_change(id, &expr, &condition, &ast);
+                            let new_condition = Self::apply_expr_global_change(id, &expr, &condition);
                             Some(CloseSpec {
                                 condition: new_condition,
                                 id,
@@ -362,7 +361,7 @@ impl Desugarizer {
 
                     for ix in 0..ast.trigger.len() {
                         let trigger: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression, &ast);
+                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression);
                         let trigger_clone: Trigger = Trigger::clone(trigger);
                         let new_trigger = Trigger {
                             expression: new_trigger_expr,
@@ -377,12 +376,7 @@ impl Desugarizer {
         ast
     }
 
-    fn apply_expr_global_change(
-        target_id: NodeId,
-        new_expr: &Expression,
-        ast_expr: &Expression,
-        ast: &RtLolaAst,
-    ) -> Expression {
+    fn apply_expr_global_change(target_id: NodeId, new_expr: &Expression, ast_expr: &Expression) -> Expression {
         if ast_expr.id == target_id {
             return new_expr.clone();
         }
@@ -395,7 +389,7 @@ impl Desugarizer {
                 Expression {
                     kind: Unary(
                         *op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
                     ),
                     span,
                     ..*ast_expr
@@ -404,7 +398,7 @@ impl Desugarizer {
             Field(inner, ident) => {
                 Expression {
                     kind: Field(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
                         ident.clone(),
                     ),
                     span,
@@ -414,7 +408,7 @@ impl Desugarizer {
             StreamAccess(inner, acc_kind) => {
                 Expression {
                     kind: StreamAccess(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
                         *acc_kind,
                     ),
                     span,
@@ -424,7 +418,7 @@ impl Desugarizer {
             Offset(inner, offset) => {
                 Expression {
                     kind: Offset(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
                         *offset,
                     ),
                     span,
@@ -435,7 +429,7 @@ impl Desugarizer {
                 Expression {
                     kind: ParenthesizedExpression(
                         lp.clone(),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
                         rp.clone(),
                     ),
                     span,
@@ -446,8 +440,8 @@ impl Desugarizer {
                 Expression {
                     kind: Binary(
                         *bin_op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
                     ),
                     span,
                     ..*ast_expr
@@ -456,8 +450,8 @@ impl Desugarizer {
             Default(left, right) => {
                 Expression {
                     kind: Default(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
                     ),
                     span,
                     ..*ast_expr
@@ -472,8 +466,8 @@ impl Desugarizer {
             } => {
                 Expression {
                     kind: DiscreteWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
                         wait: *wait,
                         aggregation: *aggregation,
                     },
@@ -489,8 +483,8 @@ impl Desugarizer {
             } => {
                 Expression {
                     kind: SlidingWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left, ast)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right, ast)),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
                         wait: *wait,
                         aggregation: *aggregation,
                     },
@@ -501,9 +495,9 @@ impl Desugarizer {
             Ite(condition, normal, alternative) => {
                 Expression {
                     kind: Ite(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, condition, ast)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, normal, ast)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, condition)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, normal)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative)),
                     ),
                     span,
                     ..*ast_expr
@@ -514,7 +508,7 @@ impl Desugarizer {
                     kind: Tuple(
                         entries
                             .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
                             .collect(),
                     ),
                     span,
@@ -528,7 +522,7 @@ impl Desugarizer {
                         types.clone(),
                         entries
                             .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
                             .collect(),
                     ),
                     span,
@@ -538,12 +532,12 @@ impl Desugarizer {
             Method(base, name, types, arguments) => {
                 Expression {
                     kind: Method(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, base, ast)),
+                        Box::new(Self::apply_expr_global_change(target_id, new_expr, base)),
                         name.clone(),
                         types.clone(),
                         arguments
                             .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr, ast))
+                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
                             .collect(),
                     ),
                     span,
@@ -558,7 +552,6 @@ impl Desugarizer {
     /// LocalChangeInstructions are directly replied and never returned.
     #[allow(clippy::borrowed_box)]
     fn desugarize_expression(
-        &self,
         ast_expr: Expression,
         ast: &RtLolaAst,
         current_sugar: &Box<dyn SynSugar>,
@@ -569,7 +562,7 @@ impl Desugarizer {
         let new_expr = match kind {
             Lit(_) | Ident(_) | MissingExpression => Expression { kind, id, span },
             Unary(op, inner) => {
-                let (inner, cs) = self.desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
                     kind: Unary(op, Box::new(inner)),
@@ -578,7 +571,7 @@ impl Desugarizer {
                 }
             },
             Field(inner, ident) => {
-                let (inner, cs) = self.desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
                     kind: Field(Box::new(inner), ident),
@@ -587,7 +580,7 @@ impl Desugarizer {
                 }
             },
             StreamAccess(inner, acc_kind) => {
-                let (inner, cs) = self.desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
                     kind: StreamAccess(Box::new(inner), acc_kind),
@@ -596,7 +589,7 @@ impl Desugarizer {
                 }
             },
             Offset(inner, offset) => {
-                let (inner, cs) = self.desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
                     kind: Offset(Box::new(inner), offset),
@@ -605,7 +598,7 @@ impl Desugarizer {
                 }
             },
             ParenthesizedExpression(lp, inner, rp) => {
-                let (inner, cs) = self.desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
                     kind: ParenthesizedExpression(lp, Box::new(inner), rp),
@@ -614,9 +607,9 @@ impl Desugarizer {
                 }
             },
             Binary(bin_op, left, right) => {
-                let (left, lcs) = self.desugarize_expression(*left, ast, current_sugar);
+                let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += lcs;
-                let (right, rcs) = self.desugarize_expression(*right, ast, current_sugar);
+                let (right, rcs) = Self::desugarize_expression(*right, ast, current_sugar);
                 return_cs += rcs;
                 Expression {
                     kind: Binary(bin_op, Box::new(left), Box::new(right)),
@@ -625,9 +618,9 @@ impl Desugarizer {
                 }
             },
             Default(left, right) => {
-                let (left, lcs) = self.desugarize_expression(*left, ast, current_sugar);
+                let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += lcs;
-                let (right, rcs) = self.desugarize_expression(*right, ast, current_sugar);
+                let (right, rcs) = Self::desugarize_expression(*right, ast, current_sugar);
                 return_cs += rcs;
                 Expression {
                     kind: Default(Box::new(left), Box::new(right)),
@@ -642,9 +635,9 @@ impl Desugarizer {
                 aggregation,
                 ..
             } => {
-                let (expr, ecs) = self.desugarize_expression(*left, ast, current_sugar);
+                let (expr, ecs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += ecs;
-                let (dur, dcs) = self.desugarize_expression(*right, ast, current_sugar);
+                let (dur, dcs) = Self::desugarize_expression(*right, ast, current_sugar);
                 return_cs += dcs;
                 Expression {
                     kind: DiscreteWindowAggregation {
@@ -663,9 +656,9 @@ impl Desugarizer {
                 wait,
                 aggregation,
             } => {
-                let (expr, ecs) = self.desugarize_expression(*left, ast, current_sugar);
+                let (expr, ecs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += ecs;
-                let (dur, dcs) = self.desugarize_expression(*right, ast, current_sugar);
+                let (dur, dcs) = Self::desugarize_expression(*right, ast, current_sugar);
                 return_cs += dcs;
                 Expression {
                     kind: SlidingWindowAggregation {
@@ -679,11 +672,11 @@ impl Desugarizer {
                 }
             },
             Ite(condition, normal, alternative) => {
-                let (condition, ccs) = self.desugarize_expression(*condition, ast, current_sugar);
+                let (condition, ccs) = Self::desugarize_expression(*condition, ast, current_sugar);
                 return_cs += ccs;
-                let (normal, ncs) = self.desugarize_expression(*normal, ast, current_sugar);
+                let (normal, ncs) = Self::desugarize_expression(*normal, ast, current_sugar);
                 return_cs += ncs;
-                let (alternative, acs) = self.desugarize_expression(*alternative, ast, current_sugar);
+                let (alternative, acs) = Self::desugarize_expression(*alternative, ast, current_sugar);
                 return_cs += acs;
                 Expression {
                     kind: Ite(Box::new(condition), Box::new(normal), Box::new(alternative)),
@@ -694,7 +687,7 @@ impl Desugarizer {
             Tuple(entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
-                    .map(|t_expr| self.desugarize_expression(t_expr, ast, current_sugar))
+                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
                     .unzip();
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
@@ -706,7 +699,7 @@ impl Desugarizer {
             Function(name, types, entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
-                    .map(|t_expr| self.desugarize_expression(t_expr, ast, current_sugar))
+                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
                     .unzip();
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
@@ -716,11 +709,11 @@ impl Desugarizer {
                 }
             },
             Method(base, name, types, arguments) => {
-                let (base_expr, ecs) = self.desugarize_expression(*base, ast, current_sugar);
+                let (base_expr, ecs) = Self::desugarize_expression(*base, ast, current_sugar);
                 return_cs += ecs;
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = arguments
                     .into_iter()
-                    .map(|t_expr| self.desugarize_expression(t_expr, ast, current_sugar))
+                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
                     .unzip();
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {

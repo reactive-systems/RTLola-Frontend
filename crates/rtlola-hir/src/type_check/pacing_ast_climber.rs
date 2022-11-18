@@ -654,20 +654,14 @@ where
             || close != &negative_top
     }
 
-    fn get_or_fresh_targets(hir: &Hir<M>, expr: &Expression) -> Vec<(bool, Span, StreamReference)> {
+    fn get_or_fresh_targets(expr: &Expression) -> Vec<(bool, Span, StreamReference)> {
         match &expr.kind {
             ExpressionKind::LoadConstant(_) => vec![],
             ExpressionKind::ArithLog(_, children) => {
-                children
-                    .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
-                    .collect()
+                children.iter().flat_map(|e| Self::get_or_fresh_targets(e)).collect()
             },
             ExpressionKind::StreamAccess(target, kind, arguments) => {
-                let mut res: Vec<_> = arguments
-                    .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
-                    .collect();
+                let mut res: Vec<_> = arguments.iter().flat_map(|e| Self::get_or_fresh_targets(e)).collect();
                 match kind {
                     StreamAccessKind::Get => res.push((true, expr.span.clone(), *target)),
                     StreamAccessKind::Fresh => res.push((false, expr.span.clone(), *target)),
@@ -681,31 +675,21 @@ where
                 consequence,
                 alternative,
             } => {
-                let mut cond = Self::get_or_fresh_targets(hir, condition);
+                let mut cond = Self::get_or_fresh_targets(condition);
 
-                cond.append(&mut Self::get_or_fresh_targets(hir, consequence));
-                cond.append(&mut Self::get_or_fresh_targets(hir, alternative));
+                cond.append(&mut Self::get_or_fresh_targets(consequence));
+                cond.append(&mut Self::get_or_fresh_targets(alternative));
 
                 cond
             },
-            ExpressionKind::Tuple(children) => {
-                children
-                    .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
-                    .collect()
-            },
-            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(hir, target),
-            ExpressionKind::Function(def) => {
-                def.args
-                    .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
-                    .collect()
-            },
-            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(hir, def.expr.as_ref()),
+            ExpressionKind::Tuple(children) => children.iter().flat_map(|e| Self::get_or_fresh_targets(e)).collect(),
+            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(target),
+            ExpressionKind::Function(def) => def.args.iter().flat_map(|e| Self::get_or_fresh_targets(e)).collect(),
+            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(def.expr.as_ref()),
             ExpressionKind::Default { expr, default } => {
-                let mut expr = Self::get_or_fresh_targets(hir, expr);
+                let mut expr = Self::get_or_fresh_targets(expr);
 
-                expr.append(&mut Self::get_or_fresh_targets(hir, default));
+                expr.append(&mut Self::get_or_fresh_targets(default));
 
                 expr
             },
@@ -720,12 +704,12 @@ where
         condition: Option<ExprId>,
         own_pacing: &ConcretePacingType,
     ) -> Vec<TypeError<PacingErrorKind>> {
-        expr.map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
+        expr.map(|e| Self::get_or_fresh_targets(hir.expression(e)))
             .unwrap_or_else(Vec::new)
             .iter()
             .chain(
                 condition
-                    .map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
+                    .map(|e| Self::get_or_fresh_targets(hir.expression(e)))
                     .unwrap_or_else(Vec::new)
                     .iter(),
             )
