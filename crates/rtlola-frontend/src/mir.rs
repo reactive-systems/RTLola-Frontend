@@ -311,7 +311,7 @@ pub struct Eval {
 }
 
 /// Information of a parameter of a parametrized output stream
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Parameter {
     /// The name of the parameter.
     pub name: String,
