@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io::BufWriter;
+use std::ops::Not;
 
 use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
@@ -19,12 +20,18 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let stream_nodes = mir.all_streams().map(Node::Stream);
-        let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
         let trigger_nodes = mir
             .triggers
             .iter()
             .map(|trigger| Node::Trigger(trigger.trigger_reference));
+
+        let trigger_outputs: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
+
+        let stream_nodes = mir
+            .all_streams()
+            .filter_map(|sref| trigger_outputs.contains(&sref).not().then_some(Node::Stream(sref)));
+        let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
+
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
 
         let edges = edges(mir);
