@@ -172,6 +172,7 @@ enum NodeInformation<'a> {
         reference: WindowReference,
         operation: String,
         duration: String,
+        eval_layer: usize,
     },
 }
 
@@ -233,10 +234,16 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
         },
     };
 
+    let eval_layer = match window.target() {
+        StreamReference::In(_) => 1,
+        StreamReference::Out(o) => usize::from(mir.outputs[o].layer.evaluation_layer()) + 1,
+    };
+
     NodeInformation::Window {
         reference: wref,
         operation: operation_str,
         duration: duration_str,
+        eval_layer,
     }
 }
 
@@ -357,6 +364,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 reference,
                 operation,
                 duration,
+                eval_layer: _,
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
             NodeInformation::Trigger {
                 idx,
