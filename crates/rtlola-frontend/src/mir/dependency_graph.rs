@@ -20,16 +20,14 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let trigger_nodes = mir
-            .triggers
-            .iter()
-            .map(|trigger| Node::Trigger(trigger.trigger_reference));
-
-        let trigger_outputs: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
+        let trigger: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
 
         let stream_nodes = mir
             .all_streams()
-            .filter_map(|sref| trigger_outputs.contains(&sref).not().then_some(Node::Stream(sref)));
+            .filter_map(|sref| trigger.contains(&sref).not().then_some(Node::Stream(sref)));
+
+        let trigger_nodes = mir.triggers.iter().map(|t| Node::Trigger(t.trigger_reference));
+
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
 
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
@@ -167,12 +165,14 @@ enum NodeInformation<'a> {
     },
 
     Trigger {
+        reference: StreamReference,
         idx: usize,
         eval_layer: usize,
+        memory_bound: u32,
         pacing_ty: String,
         value_ty: String,
-        message: &'a str,
         expression: String,
+        message: &'a str,
     },
 
     Window {
@@ -260,8 +260,10 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
     } = stream_infos(mir, trigger.reference)
     {
         NodeInformation::Trigger {
+            reference: trigger.reference,
             idx: tref,
             eval_layer,
+            memory_bound: 0,
             pacing_ty,
             value_ty,
             message: &trigger.message,
@@ -314,15 +316,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         ]
     });
 
-    let trigger_edges = mir.triggers.iter().map(|trigger| {
-        Edge {
-            from: Node::Trigger(trigger.trigger_reference),
-            with: StreamAccessKind::Sync.into(),
-            to: Node::Stream(trigger.reference),
-        }
-    });
-
-    access_edges.chain(window_edges).chain(trigger_edges).collect()
+    access_edges.chain(window_edges).collect()
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
@@ -371,6 +365,8 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 pacing_ty,
                 value_ty,
                 message,
+                reference: _,
+                memory_bound: _,
                 expression: _,
             } => {
                 format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
