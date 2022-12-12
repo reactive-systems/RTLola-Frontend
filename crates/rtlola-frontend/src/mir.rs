@@ -55,7 +55,7 @@ pub trait Stream {
     fn is_parameterized(&self) -> bool;
     /// Indicates whether or not the stream spawned / dynamically created.
     fn is_spawned(&self) -> bool;
-    /// Indicates whether or not the stream spawned / dynamically created.
+    /// Indicates whether or not the stream is closed.
     fn is_closed(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
