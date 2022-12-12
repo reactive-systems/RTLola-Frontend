@@ -69,6 +69,31 @@ impl RtLolaAst {
         self.next_node_id.borrow_mut().prime_counter = 0;
         res
     }
+
+    /// Creates a deep clone of the Ast. I.e. clones the underlying data not the RCs.
+    pub fn clone_deep(&self) -> RtLolaAst {
+        let RtLolaAst {
+            imports,
+            constants,
+            inputs,
+            outputs,
+            mirrors,
+            trigger,
+            type_declarations,
+            next_node_id,
+        } = self;
+
+        RtLolaAst {
+            imports: imports.clone(),
+            constants: constants.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            inputs: inputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            outputs: outputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            mirrors: mirrors.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            trigger: trigger.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            type_declarations: type_declarations.clone(),
+            next_node_id: next_node_id.clone(),
+        }
+    }
 }
 
 /// An Ast node representing the import of a module, which brings additional implemented functionality to a specification.

@@ -55,6 +55,8 @@ pub trait Stream {
     fn is_parameterized(&self) -> bool;
     /// Indicates whether or not the stream spawned / dynamically created.
     fn is_spawned(&self) -> bool;
+    /// Indicates whether or not the stream is closed.
+    fn is_closed(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
@@ -309,7 +311,7 @@ pub struct Eval {
 }
 
 /// Information of a parameter of a parametrized output stream
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Parameter {
     /// The name of the parameter.
     pub name: String,
@@ -627,6 +629,10 @@ impl Stream for OutputStream {
         self.spawn.expression.is_some() || self.spawn.condition.is_some()
     }
 
+    fn is_closed(&self) -> bool {
+        self.close.condition.is_some()
+    }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
@@ -662,6 +668,10 @@ impl Stream for InputStream {
     }
 
     fn is_spawned(&self) -> bool {
+        false
+    }
+
+    fn is_closed(&self) -> bool {
         false
     }
 
@@ -910,8 +920,8 @@ impl RtLolaMir {
     }
 
     /// Represents the specification as a dependency graph
-    pub fn dependency_graph<'a>(&'a self) -> DependencyGraph<'a> {
-        DependencyGraph::new(&self)
+    pub fn dependency_graph(&self) -> DependencyGraph<'_> {
+        DependencyGraph::new(self)
     }
 }
 

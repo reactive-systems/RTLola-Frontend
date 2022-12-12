@@ -273,7 +273,7 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(spec, sr, spec.eval_unchecked(sr).expression))
+            .flat_map(|sr| Self::collect_edges(sr, spec.eval_unchecked(sr).expression))
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
         let edges_spawn = spec
             .outputs()
@@ -285,9 +285,9 @@ impl DepAna {
                          expression, condition, ..
                      }| {
                         expression
-                            .map_or(Vec::new(), |spawn_expr| Self::collect_edges(spec, sr, spawn_expr))
+                            .map_or(Vec::new(), |spawn_expr| Self::collect_edges(sr, spawn_expr))
                             .into_iter()
-                            .chain(condition.map_or(Vec::new(), |spawn_cond| Self::collect_edges(spec, sr, spawn_cond)))
+                            .chain(condition.map_or(Vec::new(), |spawn_cond| Self::collect_edges(sr, spawn_cond)))
                     },
                 )
             })
@@ -300,7 +300,7 @@ impl DepAna {
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
                     .condition
-                    .map(|filter| Self::collect_edges(spec, sr, filter))
+                    .map(|filter| Self::collect_edges(sr, filter))
             })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
@@ -311,7 +311,7 @@ impl DepAna {
             .flat_map(|sr| {
                 spec.close(sr)
                     .and_then(|cd| cd.condition)
-                    .map(|close| Self::collect_edges(spec, sr, close))
+                    .map(|close| Self::collect_edges(sr, close))
             })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
@@ -478,15 +478,12 @@ impl DepAna {
         })
     }
 
-    fn collect_edges<M>(spec: &Hir<M>, src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)>
-    where
-        M: HirMode,
-    {
+    fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
         match &expr.kind {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
                 let mut args = args
                     .iter()
-                    .flat_map(|arg| Self::collect_edges(spec, src, arg))
+                    .flat_map(|arg| Self::collect_edges(src, arg))
                     .collect::<Vec<(SRef, StreamAccessKind, SRef)>>();
                 args.push((src, *stream_access_kind, *target));
                 args
@@ -495,30 +492,30 @@ impl DepAna {
             ExpressionKind::LoadConstant(_) => Vec::new(),
             ExpressionKind::ArithLog(_op, args) => {
                 args.iter()
-                    .flat_map(|a| Self::collect_edges(spec, src, a).into_iter())
+                    .flat_map(|a| Self::collect_edges(src, a).into_iter())
                     .collect()
             },
-            ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect(),
+            ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
             ExpressionKind::Function(FnExprKind { args, .. }) => {
-                args.iter().flat_map(|a| Self::collect_edges(spec, src, a)).collect()
+                args.iter().flat_map(|a| Self::collect_edges(src, a)).collect()
             },
             ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
             } => {
-                Self::collect_edges(spec, src, condition)
+                Self::collect_edges(src, condition)
                     .into_iter()
-                    .chain(Self::collect_edges(spec, src, consequence).into_iter())
-                    .chain(Self::collect_edges(spec, src, alternative).into_iter())
+                    .chain(Self::collect_edges(src, consequence).into_iter())
+                    .chain(Self::collect_edges(src, alternative).into_iter())
                     .collect()
             },
-            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(spec, src, content),
-            ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => Self::collect_edges(spec, src, inner),
+            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
+            ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => Self::collect_edges(src, inner),
             ExpressionKind::Default { expr, default } => {
-                Self::collect_edges(spec, src, expr)
+                Self::collect_edges(src, expr)
                     .into_iter()
-                    .chain(Self::collect_edges(spec, src, default).into_iter())
+                    .chain(Self::collect_edges(src, default).into_iter())
                     .collect()
             },
         }

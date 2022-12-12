@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io::BufWriter;
+use std::ops::Not;
 
 use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
@@ -19,12 +20,16 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let stream_nodes = mir.all_streams().map(|s| Node::Stream(s));
+        let trigger: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
+
+        let stream_nodes = mir
+            .all_streams()
+            .filter_map(|sref| trigger.contains(&sref).not().then_some(Node::Stream(sref)));
+
+        let trigger_nodes = mir.triggers.iter().map(|t| Node::Trigger(t.trigger_reference));
+
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
-        let trigger_nodes = mir
-            .triggers
-            .iter()
-            .map(|trigger| Node::Trigger(trigger.trigger_reference));
+
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
 
         let edges = edges(mir);
@@ -160,12 +165,14 @@ enum NodeInformation<'a> {
     },
 
     Trigger {
+        reference: StreamReference,
         idx: usize,
         eval_layer: usize,
+        memory_bound: u32,
         pacing_ty: String,
         value_ty: String,
-        message: &'a str,
         expression: String,
+        message: &'a str,
     },
 
     Window {
@@ -253,8 +260,10 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
     } = stream_infos(mir, trigger.reference)
     {
         NodeInformation::Trigger {
+            reference: trigger.reference,
             idx: tref,
             eval_layer,
+            memory_bound: 0,
             pacing_ty,
             value_ty,
             message: &trigger.message,
@@ -269,9 +278,22 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     let input_accesses = mir.inputs.iter().map(|input| (input.reference, &input.accessed_by));
     let output_accesses = mir.outputs.iter().map(|output| (output.reference, &output.accessed_by));
     let all_accesses = input_accesses.chain(output_accesses);
+    let out_to_trig: &HashMap<_, _> = &(mir
+        .triggers
+        .iter()
+        .map(|t| (t.reference, t.trigger_reference))
+        .collect());
 
     let access_edges = all_accesses.flat_map(|(source_ref, accesses)| {
+        let source = out_to_trig
+            .get(&source_ref)
+            .map(|t| Node::Trigger(*t))
+            .unwrap_or_else(|| Node::Stream(source_ref));
         accesses.iter().flat_map(move |(target_ref, access_kinds)| {
+            let target = out_to_trig
+                .get(target_ref)
+                .map(|t| Node::Trigger(*t))
+                .unwrap_or_else(|| Node::Stream(*target_ref));
             access_kinds.iter().filter_map(move |kind| {
                 match kind {
                     // we remove edges for window accesses, because we add extra nodes for them
@@ -282,9 +304,9 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     | StreamAccessKind::Offset(_)
                     | StreamAccessKind::Sync => {
                         Some(Edge {
-                            from: Node::Stream(*target_ref),
+                            from: target,
                             with: EdgeType::from(*kind),
-                            to: Node::Stream(source_ref),
+                            to: source,
                         })
                     },
                 }
@@ -307,15 +329,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         ]
     });
 
-    let trigger_edges = mir.triggers.iter().map(|trigger| {
-        Edge {
-            from: Node::Trigger(trigger.trigger_reference),
-            with: StreamAccessKind::Sync.into(),
-            to: Node::Stream(trigger.reference),
-        }
-    });
-
-    access_edges.chain(window_edges).chain(trigger_edges).collect()
+    access_edges.chain(window_edges).collect()
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
@@ -364,6 +378,8 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 pacing_ty,
                 value_ty,
                 message,
+                reference: _,
+                memory_bound: _,
                 expression: _,
             } => {
                 format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
@@ -386,7 +402,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         dot::LabelText::LabelStr(label.into())
     }
 
-    fn edge_style<'b>(&'b self, edge: &Edge) -> Style {
+    fn edge_style(&self, edge: &Edge) -> Style {
         let kind = &edge.with.0;
         match kind {
             StreamAccessKind::Hold => Style::Dashed,
@@ -398,7 +414,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
         }
     }
 
-    fn node_shape<'b>(&'b self, node: &Node) -> Option<LabelText<'b>> {
+    fn node_shape(&self, node: &Node) -> Option<LabelText<'_>> {
         let shape_str = match node {
             Node::Stream(StreamReference::In(_)) => "box",
             Node::Stream(StreamReference::Out(_)) => "ellipse",
@@ -515,8 +531,7 @@ mod tests {
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
-        T(0) => Out(0) : Sync,
-        Out(0) => In(0) : Sync,
+        T(0) => In(0) : Sync,
     );
 
     test_dependency_graph!(more_complex,
@@ -529,7 +544,6 @@ mod tests {
         Out(0) => In(1) : Hold,
         Out(1) => SW(0) : SW(0),
         SW(0) => In(0) : SW(0),
-        T(0) => Out(2) : Sync,
-        Out(2) => Out(1) : Sync,
+        T(0) => Out(1) : Sync,
     );
 }
