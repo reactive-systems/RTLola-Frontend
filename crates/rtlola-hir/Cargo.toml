@@ -25,7 +25,7 @@ petgraph = "0.5"
 num = "0.3.1"     # infinite precision rationals
 rtlola-reporting = "0.2.1"
 rtlola-macros = "0.1.1"
-rtlola-parser = "0.2.1"
+rtlola-parser = "0.3.0"
 rusttyc = "0.5.0"
 serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "0.3.2", features = ["serde"] }
