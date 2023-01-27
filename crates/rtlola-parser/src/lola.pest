@@ -10,9 +10,8 @@ ImportStmts = _{ ImportStmt* }
 ImportStmt  = { "import " ~ Ident }
 Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | Trigger}
 BOM = _{"\u{FEFF}"}
-//////////////////////////////////////////////////
-/////////////////// Statements ///////////////////
-//////////////////////////////////////////////////
+
+// ///////////////// Statements ///////////////////
 
 ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
 ParameterDecl = { Ident ~ (":" ~ Type)? }
@@ -49,9 +48,7 @@ Trigger = { "trigger " ~ ActivationCondition? ~ Expr ~ (StringLiteral ~ IdentLis
 
 IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
 
-//////////////////////////////////////////////////
-////////////////// Expressions ///////////////////
-//////////////////////////////////////////////////
+// //////////////// Expressions ///////////////////
 
 // TODO take a look at https://pest-parser.github.io/book/ and the usage of the PrecClimber
 
@@ -107,10 +104,7 @@ Tuple = { "("~ (Expr~ (","~ Expr)+)?~ ")"}
 OpeningBracket = { "[" }
 ClosingBracket = _{ "]" }
 
-
-//////////////////////////////////////////////////
-//////////// Operators and Functions /////////////
-//////////////////////////////////////////////////
+// ////////// Operators and Functions /////////////
 
 LessThan = {"<"}
 LessThanOrEqual = {"<=" | "≤"}
@@ -137,10 +131,7 @@ WindowVariance = {"var" | "variance" | "σ²"}
 WindowSd = {"standard_deviation" | "sd" | "σ"}
 WindowMedian = { "med" | "median" | "µ" }
 
-
-//////////////////////////////////////////////////
-//////////////////// Literals ////////////////////
-//////////////////////////////////////////////////
+// ////////////////// Literals ////////////////////
 
 NumberLiteral = ${ NumberLiteralValue ~ NumberPostfix?}
 NumberLiteralValue = @{ ("+" | "-")?~ Digit+~ (("." ~ !Letter) ~ Digit*)?~ ("e"~ ("+" | "-")?~ Digit+)? }
@@ -165,17 +156,13 @@ NumberPostfix = @{ LETTER+ }
 Type = {"("~ (Type ~(","~Type)*)?~ ")" | Optional | Ident | "_"}  // _ => infer type
 Optional = { Ident ~ "?" }  // Optional types are written `Int32?`
 
-//////////////////////////////////////////////////
-///////////////////// Names //////////////////////
-//////////////////////////////////////////////////
+// /////////////////// Names //////////////////////
 
 Ident = @{  (Letter | "_") ~ (Letter | Digit | "_" | "::")* | WindowOp}
 
 Parameter = { Ident } // Semantic Category
 
-//////////////////////////////////////////////////
-//////////////////// Symbols /////////////////////
-//////////////////////////////////////////////////
+// ////////////////// Symbols /////////////////////
 
 Letter = { 'a'..'z' | 'A'..'Z'}
 Digit = _{'0'..'9'}
