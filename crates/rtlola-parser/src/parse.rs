@@ -8,7 +8,7 @@ use num::rational::Rational64 as Rational;
 use num::traits::Pow;
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 use pest::iterators::{Pair, Pairs};
-use pest::prec_climber::{Assoc, Operator, PrecClimber};
+use pest::pratt_parser::{Assoc, Op, PrattParser};
 use pest::Parser;
 use pest_derive::Parser;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
@@ -31,25 +31,24 @@ pub(crate) struct RtLolaParser {
 lazy_static! {
     // precedence taken from C/C++: https://en.wikipedia.org/wiki/Operators_in_C_and_C++
     // Precedence climber can be used to build the AST, see https://pest-parser.github.io/book/ for more details
-    static ref PREC_CLIMBER: PrecClimber<Rule> = {
+    static ref PRATT_PARSER: PrattParser<Rule> = {
         use self::Assoc::*;
         use self::Rule::*;
 
-        PrecClimber::new(vec![
-            Operator::new(Or, Left),
-            Operator::new(And, Left),
-            Operator::new(BitOr, Left),
-            Operator::new(BitXor, Left),
-            Operator::new(BitAnd, Left),
-            Operator::new(Equal, Left) | Operator::new(NotEqual, Left),
-            Operator::new(LessThan, Left) | Operator::new(LessThanOrEqual, Left) | Operator::new(MoreThan, Left) | Operator::new(MoreThanOrEqual, Left),
-            Operator::new(ShiftLeft, Left) | Operator::new(ShiftRight, Left),
-            Operator::new(Add, Left) | Operator::new(Subtract, Left),
-            Operator::new(Multiply, Left) | Operator::new(Divide, Left) | Operator::new(Mod, Left),
-            Operator::new(Power, Right),
-            Operator::new(Dot, Left),
-            Operator::new(OpeningBracket, Left),
-        ])
+        PrattParser::new()
+            .op(Op::infix(Or, Left))
+            .op(Op::infix(And, Left))
+            .op(Op::infix(BitOr, Left))
+            .op(Op::infix(BitXor, Left))
+            .op(Op::infix(BitAnd, Left))
+            .op(Op::infix(Equal, Left) | Op::infix(NotEqual, Left))
+            .op(Op::infix(LessThan, Left) | Op::infix(LessThanOrEqual, Left) | Op::infix(MoreThan, Left) | Op::infix(MoreThanOrEqual, Left))
+            .op(Op::infix(ShiftLeft, Left) | Op::infix(ShiftRight, Left))
+            .op(Op::infix(Add, Left) | Op::infix(Subtract, Left))
+            .op(Op::infix(Multiply, Left) | Op::infix(Divide, Left) | Op::infix(Mod, Left))
+            .op(Op::infix(Power, Right))
+            .op(Op::infix(Dot, Left))
+            .op(Op::infix(OpeningBracket, Left))
     };
 }
 
@@ -808,10 +807,10 @@ impl RtLolaParser {
      * Builds the Expr AST.
      */
     fn build_expression_ast(&self, pairs: Pairs<'_, Rule>) -> Result<Expression, RtLolaError> {
-        PREC_CLIMBER.climb(
-            pairs,
-            |pair: Pair<'_, Rule>| self.build_term_ast(pair),
-            |lhs: Result<Expression, RtLolaError>, op: Pair<'_, Rule>, rhs: Result<Expression, RtLolaError>| {
+        PRATT_PARSER
+            .map_primary(|primary| self.build_term_ast(primary))
+            .map_infix(|lhs, op, rhs| {
+
                 // Reduce function combining `Expression`s to `Expression`s with the correct precs
                 let (lhs, rhs) = RtLolaError::combine(lhs, rhs, |a, b| (a,b))?;
                 let span = lhs.span.union(&rhs.span);
@@ -1024,8 +1023,7 @@ impl RtLolaParser {
                     _ => unreachable!(),
                 };
                 Ok(Expression::new(self.spec.next_id(), ExpressionKind::Binary(op, Box::new(lhs), Box::new(rhs)), span))
-            },
-        )
+            }).parse(pairs)
     }
 
     fn build_term_ast(&self, pair: Pair<'_, Rule>) -> Result<Expression, RtLolaError> {
