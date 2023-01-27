@@ -103,12 +103,12 @@ impl TransformationErr {
             TransformationErr::InvalidIdentRef(span, name) => {
                 Diagnostic::error("Expected a stream reference, but found a function.").add_span_with_label(
                     span,
-                    Some(&format!("Found function {} here", name)),
+                    Some(&format!("Found function {name} here")),
                     true,
                 )
             },
             TransformationErr::InvalidRefExpr(span, reason) => {
-                Diagnostic::error(&format!("Invalid stream identifier: {}", reason)).add_span_with_label(
+                Diagnostic::error(&format!("Invalid stream identifier: {reason}")).add_span_with_label(
                     span,
                     Some("Found here"),
                     true,
@@ -125,7 +125,7 @@ impl TransformationErr {
                 Diagnostic::error("Invalid numeric literal.").add_span_with_label(span, Some("here"), true)
             },
             TransformationErr::InvalidAc(span, reason) => {
-                Diagnostic::error(&format!("Invalid frequency annotation: {}", reason)).add_span_with_label(
+                Diagnostic::error(&format!("Invalid frequency annotation: {reason}")).add_span_with_label(
                     span,
                     Some("here"),
                     true,
@@ -148,7 +148,7 @@ impl TransformationErr {
                 )
             },
             TransformationErr::InvalidType(ty, reason, span) => {
-                Diagnostic::error(&format!("Unknown type {}.", ty)).add_span_with_label(span, Some(&reason), true)
+                Diagnostic::error(&format!("Unknown type {ty}.")).add_span_with_label(span, Some(&reason), true)
             },
             TransformationErr::UnknownFunction(span) => {
                 Diagnostic::error("Unknown function.").add_span_with_label(span, Some("Found here"), true)
@@ -183,7 +183,7 @@ impl TransformationErr {
                 )
             }
             TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
-                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {} parameters and {} spawn expressions", paras, targets)).add_span_with_label(
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {paras} parameters and {targets} spawn expressions",)).add_span_with_label(
                     span,
                     Some("here"),
                     true,

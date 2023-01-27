@@ -10,11 +10,11 @@ use crate::mir::{
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Constant::Bool(b) => write!(f, "{}", b),
-            Constant::UInt(u) => write!(f, "{}", u),
-            Constant::Int(i) => write!(f, "{}", i),
-            Constant::Float(fl) => write!(f, "{}", fl),
-            Constant::Str(s) => write!(f, "{}", s),
+            Constant::Bool(b) => write!(f, "{b}"),
+            Constant::UInt(u) => write!(f, "{u}"),
+            Constant::Int(i) => write!(f, "{i}"),
+            Constant::Float(fl) => write!(f, "{fl}"),
+            Constant::Str(s) => write!(f, "{s}"),
         }
     }
 }
@@ -55,11 +55,11 @@ impl Display for Type {
             Type::Float(_) => write!(f, "Float{}", self.size().expect("Floats are sized.").0 * 8),
             Type::UInt(_) => write!(f, "UInt{}", self.size().expect("UInts are sized.").0 * 8),
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
-            Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {}", ret), ","),
+            Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {ret}"), ","),
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),
-            Type::Option(inner) => write!(f, "Option<{}>", inner),
+            Type::Option(inner) => write!(f, "Option<{inner}>"),
             Type::Bool => write!(f, "Bool"),
         }
     }
@@ -105,21 +105,21 @@ pub(crate) fn write_delim_list<T: Display>(
     suff: &str,
     join: &str,
 ) -> Result {
-    write!(f, "{}", pref)?;
+    write!(f, "{pref}")?;
     if let Some(e) = v.first() {
-        write!(f, "{}", e)?;
+        write!(f, "{e}")?;
         for b in &v[1..] {
-            write!(f, "{}{}", join, b)?;
+            write!(f, "{join}{b}")?;
         }
     }
-    write!(f, "{}", suff)?;
+    write!(f, "{suff}")?;
     Ok(())
 }
 
 impl Display for Offset {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Offset::Past(u) => write!(f, "{}", u),
+            Offset::Past(u) => write!(f, "{u}"),
             _ => unimplemented!(),
         }
     }
@@ -177,14 +177,14 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
                     .iter()
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::And.to_string());
-                write!(f, "{}", rs)
+                write!(f, "{rs}")
             },
             ActivationCondition::Disjunction(s) => {
                 let rs = s
                     .iter()
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::Or.to_string());
-                write!(f, "{}", rs)
+                write!(f, "{rs}")
             },
             ActivationCondition::Stream(s) => write!(f, "{}", self.mir.stream(*s).name()),
             ActivationCondition::True => write!(f, "true"),

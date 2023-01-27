@@ -398,11 +398,11 @@ impl ActivationCondition {
             Stream(sr) => stream_names[sr].into(),
             Conjunction(childs) => {
                 let child_string: String = childs.iter().map(|ac| ac.to_string(stream_names)).join(" ∧ ");
-                format!("({})", child_string)
+                format!("({child_string})")
             },
             Disjunction(childs) => {
                 let child_string: String = childs.iter().map(|ac| ac.to_string(stream_names)).join(" ∨ ");
-                format!("({})", child_string)
+                format!("({child_string})")
             },
         }
     }
@@ -433,10 +433,7 @@ impl Resolvable for PacingErrorKind {
                     .add_note("Help: Consider annotating a pacing type explicitly.")
             },
             MalformedAc(span, reason) => {
-                Diagnostic::error(&format!(
-                    "In pacing type analysis:\nMalformed activation condition: {}",
-                    reason
-                ))
+                Diagnostic::error(&format!("In pacing type analysis:\nMalformed activation condition: {reason}",))
                 .add_span_with_label(span, Some("here"), true)
             },
             MixedEventPeriodic(absty1, absty2) => {
@@ -446,15 +443,14 @@ impl Resolvable for PacingErrorKind {
                 let ty2 = absty2.to_pretty_string(names);
                 Diagnostic::error(
                     format!(
-                        "In pacing type analysis:\nMixed an event and a periodic type: {} and {}",
-                        ty1, ty2
+                        "In pacing type analysis:\nMixed an event and a periodic type: {ty1} and {ty2}",
                     )
                     .as_str(),
                 )
-                .maybe_add_span_with_label(span1, Some(format!("Found {} here", ty1).as_str()), true)
+                .maybe_add_span_with_label(span1, Some(format!("Found {ty1} here").as_str()), true)
                 .maybe_add_span_with_label(
                     span2,
-                    Some(format!("and found {} here", ty2).as_str()),
+                    Some(format!("and found {ty2} here").as_str()),
                     false,
                 )
             },
@@ -547,10 +543,7 @@ impl Resolvable for PacingErrorKind {
                 Diagnostic::error("In pacing type analysis:\nParameterization needed")
                     .add_span_with_label(who, Some("here"), true)
                     .add_span_with_label(why, Some("As of synchronous access occurring here"), false)
-                    .add_note(&format!(
-                        "Help: Consider adding the following template annotations:{}{}{}",
-                        spawn_str, filter_str, close_str,
-                    ))
+                    .add_note(&format!("Help: Consider adding the following template annotations:{spawn_str}{filter_str}{close_str}"))
             },
             PacingTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_pretty_string(names);
@@ -558,16 +551,13 @@ impl Resolvable for PacingErrorKind {
                 let bound_span = key1.map(|k| pacing_spans[&k].clone());
                 let inferred_span = key2.and_then(|k| pacing_spans.get(&k).cloned());
                 Diagnostic::error(
-                    format!(
-                        "In pacing type analysis:\nInferred pacing type: {} but expected: {}",
-                        &inferred_str, &bound_str
-                    )
+                    format!("In pacing type analysis:\nInferred pacing type: {inferred_str} but expected: {bound_str}")
                     .as_str(),
                 )
-                .maybe_add_span_with_label(bound_span, Some(format!("Expected {} here", bound_str).as_str()), true)
+                .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
                 .maybe_add_span_with_label(
                     inferred_span,
-                    Some(format!("Inferred {} here", inferred_str).as_str()),
+                    Some(format!("Inferred {inferred_str} here").as_str()),
                     true,
                 )
             },
@@ -577,16 +567,13 @@ impl Resolvable for PacingErrorKind {
                 let bound_span = key1.map(|k| exp_spans[&k].clone());
                 let inferred_span = key2.and_then(|k| exp_spans.get(&k).cloned());
                 Diagnostic::error(
-                    format!(
-                        "In pacing type analysis:\nInferred semantic type: {} but expected: {}",
-                        &inferred_str, &bound_str
-                    )
+                    format!("In pacing type analysis:\nInferred semantic type: {inferred_str} but expected: {bound_str}")
                     .as_str(),
                 )
-                .maybe_add_span_with_label(bound_span, Some(format!("Expected {} here", bound_str).as_str()), true)
+                .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
                 .maybe_add_span_with_label(
                     inferred_span,
-                    Some(format!("Inferred {} here", inferred_str).as_str()),
+                    Some(format!("Inferred {inferred_str} here").as_str()),
                     true,
                 )
             },
@@ -619,11 +606,8 @@ impl Resolvable for PacingErrorKind {
                 Diagnostic::error(
                     "In pacing type analysis:\nInvalid argument for synchronized access:"
                 )
-                .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({})", target_expr)), false)
-                .add_span_with_label(arg.span, Some(&format!("Supplied arguments ({}) resolved to the spawn expressions: ({})",
-                                                             supplied,
-                    own_expr
-                )), true)
+                .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({target_expr})")), false)
+                .add_span_with_label(arg.span, Some(&format!("Supplied arguments ({supplied}) resolved to the spawn expressions: ({own_expr})")), true)
                     .add_note("Note: Each parameter of the accessed stream requires a counterpart which is a parameter of the accessing stream.")
             },
             NonParamInSyncAccess(span) => {
@@ -636,8 +620,8 @@ impl Resolvable for PacingErrorKind {
                 Diagnostic::error(
                                   "In pacing type analysis:\nMismatch between number of given arguments and expected spawn arguments:"
                 )
-                    .add_span_with_label(exp_span, Some(&format!("Got {} arguments here.", given_num)), true)
-                    .add_span_with_label(target_span, Some(&format!("Expected {} arguments here.", expected_num)), false)
+                    .add_span_with_label(exp_span, Some(&format!("Got {given_num} arguments here.")), true)
+                    .add_span_with_label(target_span, Some(&format!("Expected {expected_num} arguments here.")), false)
             },
             InvalidGetOrFreshAccess { is_get, target, target_type, source, source_type } => {
                 let (op, default) = if is_get {
@@ -646,7 +630,7 @@ impl Resolvable for PacingErrorKind {
                     ("'is_fresh()'", "false")
                 };
                 Diagnostic::error(
-                    &format!("In pacing type analysis:\n {} stream access will always result in {} due to a mismatch in pacing types.", op, default)
+                    &format!("In pacing type analysis:\n {op} stream access will always result in {default} due to a mismatch in pacing types.")
                 )
                     .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
                     .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
@@ -690,10 +674,7 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
                 inferred_arity,
                 reported_arity,
             } => {
-                let msg = format!(
-                    "Expected an arity of {} but got {} for type: ",
-                    inferred_arity, reported_arity
-                );
+                let msg = format!("Expected an arity of {inferred_arity} but got {reported_arity} for type: ",);
                 TypeError {
                     kind: PacingErrorKind::Other(Span::Unknown, msg, vec![Box::new(variant)]),
                     key1: Some(key),
@@ -858,7 +839,7 @@ impl PrintableVariant for AbstractSemanticType {
             AbstractSemanticType::Positive(kind) => ("Filter", kind),
         };
         match kind {
-            SemanticTypeKind::Any => format!("Any{}", prefix),
+            SemanticTypeKind::Any => format!("{prefix}Any"),
             SemanticTypeKind::Mixed(e) => format!("{}Mixed({})", prefix, e.expression.pretty_string(names)),
             SemanticTypeKind::Literal(e) => format!("{}Literal({})", prefix, e.expression.pretty_string(names)),
             SemanticTypeKind::Conjunction(conjs) => {
@@ -1130,7 +1111,7 @@ impl std::fmt::Display for AbstractSemanticType {
             AbstractSemanticType::Positive(kind) => ("Filter", kind),
         };
         match kind {
-            SemanticTypeKind::Any => write!(f, "{}Any", prefix),
+            SemanticTypeKind::Any => write!(f, "{prefix}Any"),
             SemanticTypeKind::Mixed(e) => write!(f, "{}Mixed({})", prefix, e.expression),
             SemanticTypeKind::Literal(e) => write!(f, "{}Literal({})", prefix, e.expression),
             SemanticTypeKind::Conjunction(conjs) => {

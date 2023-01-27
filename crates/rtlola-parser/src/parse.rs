@@ -853,7 +853,7 @@ impl RtLolaParser {
                                         Ident::new(val, l.span)
                                     }
                                     _ => {
-                                        return Err(Diagnostic::error(&format!("expected unsigned integer, found {}", l)).add_span_with_label(rhs.span, Some("unexpected"), true).into());
+                                        return Err(Diagnostic::error(&format!("expected unsigned integer, found {l}")).add_span_with_label(rhs.span, Some("unexpected"), true).into());
                                     }
                                 };
                                 let binop_expr =
@@ -951,7 +951,7 @@ impl RtLolaParser {
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
                                                 fun => {
-                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {}", fun)).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                 }
                                             },
                                             _ => {
@@ -993,7 +993,7 @@ impl RtLolaParser {
                                 }
                             }
                             _ => {
-                                return Err(Diagnostic::error(&format!("expected method call or tuple access, found {}", rhs)).add_span_with_label(rhs.span, Some("unexpected"), true).into());
+                                return Err(Diagnostic::error(&format!("expected method call or tuple access, found {rhs}")).add_span_with_label(rhs.span, Some("unexpected"), true).into());
                             }
                         }
                     }
@@ -1125,7 +1125,7 @@ impl RtLolaParser {
             Rule::Expr => self.build_expression_ast(pair.into_inner()),
             Rule::FunctionExpr => self.build_function_expression(pair, span.into()),
             Rule::IntegerLiteral => {
-                let span: Span = span.clone().into();
+                let span: Span = span.into();
                 Ok(Expression::new(
                     self.spec.next_id(),
                     ExpressionKind::Lit(Literal::new_numeric(
@@ -1167,7 +1167,7 @@ impl RtLolaParser {
         let digits = int_digits.to_string() + dec_digits; // actually sign + digits
         let integer = match BigInt::from_str(digits.as_str()) {
             Ok(i) => i,
-            Err(e) => return Err(format!("parsing rational '{}' failed: {}", repr, e)),
+            Err(e) => return Err(format!("parsing rational '{repr}' failed: {e}")),
         };
         let mut r = BigRational::from(integer);
         if !dec_digits.is_empty() {
@@ -1178,14 +1178,13 @@ impl RtLolaParser {
         if !exp_str.is_empty() {
             let exp = match BigInt::from_str(exp_str) {
                 Ok(i) => i,
-                Err(e) => return Err(format!("parsing rational '{}' failed: {}", repr, e)),
+                Err(e) => return Err(format!("parsing rational '{repr}' failed: {e}")),
             };
             let exp = match exp.to_i16() {
                 Some(i) => i,
                 None => {
                     return Err(format!(
-                        "parsing rational '{}' failed: e exponent {} does not fit into i16",
-                        repr, exp
+                        "parsing rational '{repr}' failed: e exponent {exp} does not fit into i16"
                     ))
                 },
             };
@@ -1201,8 +1200,7 @@ impl RtLolaParser {
             (Some(n), Some(d)) => (n, d),
             _ => {
                 return Err(format!(
-                    "parsing rational failed: rational {} does not fit into Rational64",
-                    r
+                    "parsing rational failed: rational {r} does not fit into Rational64"
                 ))
             },
         };
@@ -1221,32 +1219,20 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
                 (false, false) => {
                     format!(
                         "unexpected {}; expected {}",
-                        neg.iter()
-                            .map(|r| format!("{:?}", r))
-                            .collect::<Vec<String>>()
-                            .join(", "),
-                        pos.iter()
-                            .map(|r| format!("{:?}", r))
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", "),
+                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
                     )
                 },
                 (false, true) => {
                     format!(
                         "unexpected {}",
-                        neg.iter()
-                            .map(|r| format!("{:?}", r))
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
                     )
                 },
                 (true, false) => {
                     format!(
                         "expected {}",
-                        pos.iter()
-                            .map(|r| format!("{:?}", r))
-                            .collect::<Vec<String>>()
-                            .join(", ")
+                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
                     )
                 },
                 (true, true) => "unknown parsing error".to_owned(),

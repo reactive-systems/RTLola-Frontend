@@ -26,10 +26,10 @@ impl Expression {
                 ExpressionKind::Lit(l) => {
                     match &l.kind {
                         LitKind::Numeric(val, Some(unit)) => (val, unit),
-                        _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                        _ => return Err(format!("expected numeric value with unit, found `{l}`")),
                     }
                 },
-                _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
+                _ => return Err(format!("expected numeric value with unit, found `{self}`")),
             };
             Ok(Offset::RealTime(
                 RtLolaParser::parse_rational(val)?,
@@ -44,10 +44,10 @@ impl Expression {
             ExpressionKind::Lit(l) => {
                 match &l.kind {
                     LitKind::Numeric(val, None) => val.parse().map_err(|err: ParseIntError| err.to_string()),
-                    _ => Err(format!("expected numeric value without unit, found `{}`", l)),
+                    _ => Err(format!("expected numeric value without unit, found `{l}`")),
                 }
             },
-            _ => Err(format!("expected numeric value without unit, found `{}`", self)),
+            _ => Err(format!("expected numeric value without unit, found `{self}`")),
         }
     }
 
@@ -57,10 +57,10 @@ impl Expression {
             ExpressionKind::Lit(l) => {
                 match &l.kind {
                     LitKind::Numeric(val, Some(unit)) => (RtLolaParser::parse_rational(val)?, unit),
-                    _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                    _ => return Err(format!("expected numeric value with unit, found `{l}`")),
                 }
             },
-            _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
+            _ => return Err(format!("expected numeric value with unit, found `{self}`")),
         };
 
         match unit.as_str() {
@@ -83,14 +83,13 @@ impl Expression {
                     Some(d) => d,
                     _ => {
                         return Err(format!(
-                            "parsing duration failed: rational {}*{} does not fit into Rational64",
-                            val, factor
+                            "parsing duration failed: rational {val}*{factor} does not fit into Rational64"
                         ))
                     },
                 };
                 Ok(UOM_Time::new::<second>(duration))
             },
-            u => Err(format!("expected duration unit, found `{}`", u)),
+            u => Err(format!("expected duration unit, found `{u}`")),
         }
     }
 
@@ -101,10 +100,10 @@ impl Expression {
             ExpressionKind::Lit(l) => {
                 match &l.kind {
                     LitKind::Numeric(val, Some(unit)) => (RtLolaParser::parse_rational(val)?, unit),
-                    _ => return Err(format!("expected numeric value with unit, found `{}`", l)),
+                    _ => return Err(format!("expected numeric value with unit, found `{l}`")),
                 }
             },
-            _ => return Err(format!("expected numeric value with unit, found `{}`", self)),
+            _ => return Err(format!("expected numeric value with unit, found `{self}`")),
         };
 
         if !val.is_positive() {
@@ -130,14 +129,13 @@ impl Expression {
                     Some(f) => f,
                     _ => {
                         return Err(format!(
-                            "parsing frequency failed: rational {}*{} does not fit into Rational64",
-                            val, factor
+                            "parsing frequency failed: rational {val}*{factor} does not fit into Rational64",
                         ))
                     },
                 };
                 Ok(UOM_Frequency::new::<hertz>(freq))
             },
-            u => Err(format!("expected frequency unit, found `{}`", u)),
+            u => Err(format!("expected frequency unit, found `{u}`")),
         }
     }
 
@@ -152,12 +150,11 @@ impl Expression {
                 Ok(UOM_Frequency::new::<hertz>(seconds.inv()))
             } else {
                 Err(format!(
-                    "duration of periodic stream specification must be positive, found `{:#?}`",
-                    period
+                    "duration of periodic stream specification must be positive, found `{period:#?}`"
                 ))
             }
         } else {
-            Err(format!("expected frequency or duration, found `{}`", self))
+            Err(format!("expected frequency or duration, found `{self}`"))
         }
     }
 
@@ -218,7 +215,7 @@ impl FromStr for TimeUnit {
             "d" => Ok(TimeUnit::Day),
             "w" => Ok(TimeUnit::Week),
             "a" => Ok(TimeUnit::Year),
-            _ => Err(format!("unknown time unit `{}`", unit)),
+            _ => Err(format!("unknown time unit `{unit}`")),
         }
     }
 }
