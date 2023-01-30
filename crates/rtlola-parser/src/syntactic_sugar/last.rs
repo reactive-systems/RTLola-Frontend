@@ -9,7 +9,7 @@ use crate::ast::{Expression, ExpressionKind, Offset, RtLolaAst};
 pub(crate) struct Last {}
 
 impl Last {
-    fn apply<'a>(&self, expr: &Expression, ast: &'a RtLolaAst) -> ChangeSet {
+    fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
             ExpressionKind::Method(base, name, _types, arguments) => {
                 if "last(or:)" != name.to_string() {

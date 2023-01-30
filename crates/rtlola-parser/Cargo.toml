@@ -2,6 +2,7 @@
 name = "rtlola-parser"
 version = "0.3.0"
 authors = [
+    "Jan Baumeister <jan.baumeister@cispa.de>",
     "Florian Kohn <florian.kohn@cispa.de>",
     "Stefan Oswald <stefan.oswald@cispa.de>",
     "Malte Schledjewski <malte.schledjewski@cispa.de>",
@@ -18,8 +19,8 @@ keywords = ["verification", "frontend", "monitoring", "parser", "analyzer"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pest = "2.1"         # parser generator
-pest_derive = "2.1"
+pest = "2.5"         # parser generator
+pest_derive = "2.5"
 rtlola-reporting = { path = "../rtlola-reporting" }
 num = "0.3.1"     # infinite precision rationals
 uom = { version = "0.31.1", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}

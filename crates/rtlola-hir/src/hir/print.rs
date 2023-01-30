@@ -22,16 +22,16 @@ impl Expression {
                         "".into()
                     },
                     match kind {
-                        StreamAccessKind::Offset(o) => format!(".offset(by: {})", o),
+                        StreamAccessKind::Offset(o) => format!(".offset(by: {o})"),
                         StreamAccessKind::Hold => ".hold()".into(),
                         StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
-                            format!(".aggregate(ref: {})", r)
+                            format!(".aggregate(ref: {r})")
                         },
                         _ => "".into(),
                     }
                 )
             },
-            LoadConstant(c) => format!("{}", c),
+            LoadConstant(c) => format!("{c}"),
             Function(FnExprKind { name, args, .. }) => {
                 format!("{}({})", name, args.iter().map(|e| e.pretty_string(names)).join(", "))
             },
@@ -55,7 +55,7 @@ impl Expression {
                 } else {
                     format!(
                         "({})",
-                        args.iter().map(|e| e.pretty_string(names)).join(&format!(" {} ", op))
+                        args.iter().map(|e| e.pretty_string(names)).join(&format!(" {op} "))
                     )
                 }
             },
@@ -77,46 +77,42 @@ impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use crate::hir::expression::ExpressionKind::*;
         match &self.kind {
-            LoadConstant(c) => write!(f, "{}", c),
+            LoadConstant(c) => write!(f, "{c}"),
             Function(FnExprKind { name, args, .. }) => {
-                write!(f, "{}({})", name, args.iter().map(|e| format!("{}", e)).join(", "))
+                write!(f, "{}({})", name, args.iter().map(|e| format!("{e}")).join(", "))
             },
-            Tuple(elems) => write!(f, "({})", elems.iter().map(|e| format!("{}", e)).join(", ")),
+            Tuple(elems) => write!(f, "({})", elems.iter().map(|e| format!("{e}")).join(", ")),
             Ite {
                 condition,
                 consequence,
                 alternative,
                 ..
             } => {
-                write!(f, "if {} then {} else {}", condition, consequence, alternative)
+                write!(f, "if {condition} then {consequence} else {alternative}")
             },
             ArithLog(op, args) => {
                 if args.len() == 1 {
                     write!(f, "{}{}", op, args.get(0).unwrap())
                 } else {
-                    write!(
-                        f,
-                        "({})",
-                        args.iter().map(|e| format!("{}", e)).join(&format!(" {} ", op))
-                    )
+                    write!(f, "({})", args.iter().map(|e| format!("{e}")).join(&format!(" {op} ")))
                 }
             },
-            Default { expr, default } => write!(f, "{}.default({})", expr, default),
-            Widen(WidenExprKind { expr: e, ty }) => write!(f, "{}({})", ty, e),
-            TupleAccess(e, idx) => write!(f, "{}.{}", e, idx),
-            ParameterAccess(sref, idx) => write!(f, "Param(ref: {}, idx: {})", sref, idx),
+            Default { expr, default: dft } => write!(f, "{expr}.default({dft})"),
+            Widen(WidenExprKind { expr: e, ty }) => write!(f, "{ty}({e})"),
+            TupleAccess(e, idx) => write!(f, "{e}.{idx}",),
+            ParameterAccess(sref, idx) => write!(f, "Param(ref: {sref}, idx: {idx})"),
             StreamAccess(sref, kind, params) => {
                 write!(
                     f,
                     "Stream(ref: {}, params: ({}))",
                     sref,
-                    params.iter().map(|e| format!("{}", e)).join(", ")
+                    params.iter().map(|e| format!("{e}")).join(", ")
                 )?;
                 match kind {
-                    StreamAccessKind::Offset(o) => write!(f, ".offset(by: {})", o),
+                    StreamAccessKind::Offset(o) => write!(f, ".offset(by: {o})"),
                     StreamAccessKind::Hold => write!(f, ".hold()"),
                     StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
-                        write!(f, ".aggregate(ref: {})", r)
+                        write!(f, ".aggregate(ref: {r})")
                     },
                     _ => Ok(()),
                 }
@@ -132,11 +128,11 @@ impl Display for Constant {
             Constant::Basic(c) => c,
         };
         match lit {
-            Literal::SInt(v) => write!(f, "{}", v),
-            Literal::Integer(v) => write!(f, "{}", v),
-            Literal::Float(v) => write!(f, "{}", v),
-            Literal::Bool(v) => write!(f, "{}", v),
-            Literal::Str(v) => write!(f, "{}", v),
+            Literal::SInt(v) => write!(f, "{v}"),
+            Literal::Integer(v) => write!(f, "{v}"),
+            Literal::Float(v) => write!(f, "{v}"),
+            Literal::Bool(v) => write!(f, "{v}"),
+            Literal::Str(v) => write!(f, "{v}"),
         }
     }
 }
@@ -174,7 +170,7 @@ impl Display for ArithLogOp {
 impl Display for Offset {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Offset::PastDiscrete(u) => write!(f, "{}", u),
+            Offset::PastDiscrete(u) => write!(f, "{u}"),
             _ => unimplemented!(),
         }
     }
@@ -183,8 +179,8 @@ impl Display for Offset {
 impl Display for WindowReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            WindowReference::Sliding(u) => write!(f, "SlidingWin({})", u),
-            WindowReference::Discrete(u) => write!(f, "DiscreteWin({})", u),
+            WindowReference::Sliding(u) => write!(f, "SlidingWin({u})"),
+            WindowReference::Discrete(u) => write!(f, "DiscreteWin({u})"),
         }
     }
 }
@@ -192,8 +188,8 @@ impl Display for WindowReference {
 impl Display for StreamReference {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            StreamReference::Out(ix) => write!(f, "Out({})", ix),
-            StreamReference::In(ix) => write!(f, "In({})", ix),
+            StreamReference::Out(ox) => write!(f, "Out({ox})"),
+            StreamReference::In(ix) => write!(f, "In({ix})"),
         }
     }
 }
@@ -202,18 +198,18 @@ impl Display for AnnotatedType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use AnnotatedType::*;
         match self {
-            Int(s) => write!(f, "Int{}", s),
-            Float(s) => write!(f, "Float{}", s),
-            UInt(s) => write!(f, "UInt{}", s),
+            Int(s) => write!(f, "Int{s}"),
+            Float(s) => write!(f, "Float{s}"),
+            UInt(s) => write!(f, "UInt{s}"),
             Bool => write!(f, "Bool"),
             String => write!(f, "String"),
             Bytes => write!(f, "Bytes"),
-            Option(t) => write!(f, "Option<{}>", t),
-            Tuple(tys) => write!(f, "({})", tys.iter().map(|t| format!("{}", t)).join(",")),
+            Option(t) => write!(f, "Option<{t}>"),
+            Tuple(tys) => write!(f, "({})", tys.iter().map(|t| format!("{t}")).join(",")),
             //Used in function declaration
             Numeric => write!(f, "Numeric"),
             Sequence => write!(f, "Sequence"),
-            Param(idx, name) => write!(f, "FunctionParam({}, {})", *idx, name),
+            Param(idx, name) => write!(f, "FunctionParam({idx}, {name})"),
         }
     }
 }

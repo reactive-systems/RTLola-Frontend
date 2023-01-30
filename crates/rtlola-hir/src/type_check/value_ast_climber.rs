@@ -82,7 +82,7 @@ where
         }
 
         for (ix, tr) in hir.triggers().enumerate() {
-            let n = format!("trigger_{}", ix);
+            let n = format!("trigger_{ix}");
             let key = tyc.get_var_key(&Variable(n));
             node_key.insert(NodeId::SRef(tr.sr), key);
             key_span.insert(key, tr.span.clone());
