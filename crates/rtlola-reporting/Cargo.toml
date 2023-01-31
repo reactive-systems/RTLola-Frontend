@@ -17,5 +17,5 @@ keywords = ["reporting"]
 
 [dependencies]
 codespan-reporting = {version = "0.11.1", features=["serialization"]} # Error Reporting
-pest = "2.1"
+pest = "2.5"
 serde = { version = "1.0.130", features = ["derive"] }
