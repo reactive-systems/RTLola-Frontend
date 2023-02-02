@@ -13,5 +13,5 @@ This crate is part of the RTLola front-end, which includes several sub-modules:
 * Procedural macros: [rtlola-macros](https://crates.io/crates/rtlola-macros)
 
 # Copyright
-Copyright (C) CISPA - Helmholtz Center for Information Security 2021.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
+Copyright (C) CISPA - Helmholtz Center for Information Security 2021-2023.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Maximilian Schwenger.
 Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.

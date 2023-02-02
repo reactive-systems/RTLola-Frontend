@@ -14,6 +14,6 @@ This crate is part of the RTLola front-end, which includes several sub-modules:
 
 # Copyright
 
-Copyright (c) CISPA - Helmholtz Center for Information Security 2021.  Author: Maximilian Schwenger.
+Copyright (c) CISPA - Helmholtz Center for Information Security 2021-23.  Author: Maximilian Schwenger.
 
 Procedural macros for more convenient handling of HirModes in the RTLola-Frontend.
