@@ -73,7 +73,7 @@ impl NamingAnalysis {
         let lower = name.to_lowercase();
         if KEYWORDS.contains(&lower.as_str()) {
             error.add(
-                Diagnostic::error(&format!("`{}` is a reserved keyword", name)).add_span_with_label(
+                Diagnostic::error(&format!("`{name}` is a reserved keyword")).add_span_with_label(
                     span.clone(),
                     Some("use a different name here"),
                     true,
@@ -88,11 +88,11 @@ impl NamingAnalysis {
         };
         if let Some(decl) = self.declarations.get_decl_in_current_scope_for(&decl_name) {
             error.add(
-                Diagnostic::error(&format!("the name `{}` is defined multiple times", name))
-                    .add_span_with_label(span, Some(&format!("`{}` redefined here", name)), true)
+                Diagnostic::error(&format!("the name `{name}` is defined multiple times"))
+                    .add_span_with_label(span, Some(&format!("`{name}` redefined here")), true)
                     .maybe_add_span_with_label(
                         decl.get_span(),
-                        Some(&format!("previous definition of the value `{}` here", name)),
+                        Some(&format!("previous definition of the value `{name}` here")),
                         false,
                     ),
             );
@@ -114,7 +114,7 @@ impl NamingAnalysis {
                 } else {
                     // it does not exist
                     error.add(
-                        Diagnostic::error(&format!("cannot find type `{}` in this scope", name)).add_span_with_label(
+                        Diagnostic::error(&format!("cannot find type `{name}` in this scope")).add_span_with_label(
                             ty.span.clone(),
                             Some("not found in this scope"),
                             true,
@@ -199,9 +199,9 @@ impl NamingAnalysis {
                 "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
                 n => {
                     error.add(
-                        Diagnostic::error(&format!("unresolved import `{}`", n)).add_span_with_label(
+                        Diagnostic::error(&format!("unresolved import `{n}`")).add_span_with_label(
                             import.name.span.clone(),
-                            Some(&format!("no `{}` in the root", n)),
+                            Some(&format!("no `{n}` in the root")),
                             true,
                         ),
                     );
@@ -401,7 +401,7 @@ impl NamingAnalysis {
             self.result.insert(expression.id, Declaration::ParamOut(out));
         } else {
             return Err(
-                Diagnostic::error(&format!("function name `{}` does not exist in current scope", str_repr))
+                Diagnostic::error(&format!("function name `{str_repr}` does not exist in current scope"))
                     .add_span_with_label(name.name.span.clone(), Some("does not exist"), true),
             );
         }

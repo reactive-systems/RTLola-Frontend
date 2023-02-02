@@ -1,6 +1,6 @@
 [package]
 name = "rtlola-reporting"
-version = "0.2.1"
+version = "0.2.2"
 authors = [
     "Florian Kohn <florian.kohn@cispa.de>",
     "Maximilian Schwenger <maximilian.schwenger@cispa.de>"
@@ -17,5 +17,5 @@ keywords = ["reporting"]
 
 [dependencies]
 codespan-reporting = {version = "0.11.1", features=["serialization"]} # Error Reporting
-pest = "2.1"
+pest = "2.5"
 serde = { version = "1.0.130", features = ["derive"] }

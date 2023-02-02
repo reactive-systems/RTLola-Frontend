@@ -244,8 +244,7 @@ impl DependencyErr {
                 }
                 let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
                 let mut diag = Diagnostic::error(&format!(
-                    "Specification is not well-formed: Found dependency cycle: {}",
-                    cycle_string
+                    "Specification is not well-formed: Found dependency cycle: {cycle_string}",
                 ));
                 for stream in cycle.iter().take(cycle.len() - 1) {
                     diag = diag.add_span_with_label(

@@ -64,7 +64,7 @@ impl Mir {
                     trigger_reference: index,
                 };
                 let mir_output_stream = mir::OutputStream {
-                    name: format!("trigger_{}", index), //TODO better name
+                    name: format!("trigger_{index}"), //TODO better name
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                     spawn: Spawn::default(),
                     eval: Self::lower_eval(&hir, sr),

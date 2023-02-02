@@ -6,21 +6,21 @@ use crate::ast::*;
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
 fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff: &str, join: &str) -> Result {
-    write!(f, "{}", pref)?;
+    write!(f, "{pref}")?;
     if let Some(e) = v.first() {
-        write!(f, "{}", e)?;
+        write!(f, "{e}")?;
         for b in &v[1..] {
-            write!(f, "{}{}", join, b)?;
+            write!(f, "{join}{b}")?;
         }
     }
-    write!(f, "{}", suff)?;
+    write!(f, "{suff}")?;
     Ok(())
 }
 
 /// Helper to format an Optional
 fn format_opt<T: Display>(opt: &Option<T>, pref: &str, suff: &str) -> String {
     if let Some(ref e) = opt {
-        format!("{}{}{}", pref, e, suff)
+        format!("{pref}{e}{suff}")
     } else {
         String::new()
     }
@@ -60,16 +60,16 @@ impl Display for Output {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
         }
         if let Some(ty) = &self.annotated_type {
-            write!(f, ": {}", ty)?;
+            write!(f, ": {ty}")?;
         }
         if let Some(spawn) = &self.spawn {
-            write!(f, " {}", spawn)?;
+            write!(f, " {spawn}")?;
         }
         for eval_spec in self.eval.iter() {
-            write!(f, " {}", eval_spec)?;
+            write!(f, " {eval_spec}")?;
         }
         if let Some(close) = &self.close {
-            write!(f, " {}", close)?;
+            write!(f, " {close}")?;
         }
         Ok(())
     }
@@ -90,13 +90,13 @@ impl Display for SpawnSpec {
             write!(f, "spawn")?;
         }
         if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{}", pt)?;
+            write!(f, " @{pt}")?;
         }
         if let Some(condition) = &self.condition {
-            write!(f, " when {}", condition)?;
+            write!(f, " when {condition}")?;
         }
         if let Some(expr) = &self.expression {
-            write!(f, " with {}", expr)?;
+            write!(f, " with {expr}")?;
         }
         Ok(())
     }
@@ -108,13 +108,13 @@ impl Display for EvalSpec {
             write!(f, "eval")?;
         }
         if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{}", pt)?;
+            write!(f, " @{pt}")?;
         }
         if let Some(when) = &self.condition {
-            write!(f, " when {}", when)?;
+            write!(f, " when {when}")?;
         }
         if let Some(exp) = &self.eval_expression {
-            write!(f, " with {}", exp)?;
+            write!(f, " with {exp}")?;
         }
         Ok(())
     }
@@ -124,7 +124,7 @@ impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "close ")?;
         if let Some(pt) = &self.annotated_pacing {
-            write!(f, "@{} ", pt)?;
+            write!(f, "@{pt} ")?;
         }
         write!(f, "when {}", self.condition)
     }
@@ -155,9 +155,9 @@ impl Display for Type {
 impl Display for TypeKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self {
-            TypeKind::Simple(name) => write!(f, "{}", name),
+            TypeKind::Simple(name) => write!(f, "{name}"),
             TypeKind::Tuple(types) => write_delim_list(f, types, "(", ")", ", "),
-            TypeKind::Optional(ty) => write!(f, "{}?", ty),
+            TypeKind::Optional(ty) => write!(f, "{ty}?"),
         }
     }
 }
@@ -178,18 +178,18 @@ impl Display for TypeDeclaration {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.kind {
-            ExpressionKind::Lit(l) => write!(f, "{}", l),
-            ExpressionKind::Ident(ident) => write!(f, "{}", ident),
+            ExpressionKind::Lit(l) => write!(f, "{l}"),
+            ExpressionKind::Ident(ident) => write!(f, "{ident}"),
             ExpressionKind::StreamAccess(expr, access) => {
                 match access {
-                    StreamAccessKind::Sync => write!(f, "{}", expr),
-                    StreamAccessKind::Hold => write!(f, "{}.hold()", expr),
-                    StreamAccessKind::Get => write!(f, "{}.get()", expr),
-                    StreamAccessKind::Fresh => write!(f, "{}.is_fresh()", expr),
+                    StreamAccessKind::Sync => write!(f, "{expr}"),
+                    StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
+                    StreamAccessKind::Get => write!(f, "{expr}.get()"),
+                    StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
                 }
             },
-            ExpressionKind::Default(expr, val) => write!(f, "{}.defaults(to: {})", expr, val),
-            ExpressionKind::Offset(expr, val) => write!(f, "{}.offset(by: {})", expr, val),
+            ExpressionKind::Default(expr, val) => write!(f, "{expr}.defaults(to: {val})"),
+            ExpressionKind::Offset(expr, val) => write!(f, "{expr}.offset(by: {val})"),
             ExpressionKind::DiscreteWindowAggregation {
                 expr,
                 duration,
@@ -200,16 +200,11 @@ impl Display for Expression {
                     true => {
                         write!(
                             f,
-                            "{}.aggregate(over_exactly_discrete: {}, using: {})",
-                            expr, duration, aggregation
+                            "{expr}.aggregate(over_exactly_discrete: {duration}, using: {aggregation})"
                         )
                     },
                     false => {
-                        write!(
-                            f,
-                            "{}.aggregate(over_discrete: {}, using: {})",
-                            expr, duration, aggregation
-                        )
+                        write!(f, "{expr}.aggregate(over_discrete: {duration}, using: {aggregation})")
                     },
                 }
             },
@@ -221,19 +216,15 @@ impl Display for Expression {
             } => {
                 match wait {
                     true => {
-                        write!(
-                            f,
-                            "{}.aggregate(over_exactly: {}, using: {})",
-                            expr, duration, aggregation
-                        )
+                        write!(f, "{expr}.aggregate(over_exactly: {duration}, using: {aggregation})")
                     },
-                    false => write!(f, "{}.aggregate(over: {}, using: {})", expr, duration, aggregation),
+                    false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
                 }
             },
-            ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{} {} {}", lhs, op, rhs),
-            ExpressionKind::Unary(operator, operand) => write!(f, "{}{}", operator, operand),
+            ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
+            ExpressionKind::Unary(operator, operand) => write!(f, "{operator}{operand}"),
             ExpressionKind::Ite(cond, cons, alt) => {
-                write!(f, "if {} then {} else {}", cond, cons, alt)
+                write!(f, "if {cond} then {cons} else {alt}")
             },
             ExpressionKind::ParenthesizedExpression(left, expr, right) => {
                 write!(
@@ -256,14 +247,14 @@ impl Display for Expression {
                     .zip(&name.arg_names)
                     .map(|(arg, arg_name)| {
                         match arg_name {
-                            None => format!("{}", arg),
-                            Some(arg_name) => format!("{}: {}", arg_name, arg),
+                            None => format!("{arg}"),
+                            Some(arg_name) => format!("{arg_name}: {arg}"),
                         }
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
             },
-            ExpressionKind::Field(expr, ident) => write!(f, "{}.{}", expr, ident),
+            ExpressionKind::Field(expr, ident) => write!(f, "{expr}.{ident}"),
             ExpressionKind::Method(expr, name, types, args) => {
                 write!(f, "{}.{}", expr, name.name)?;
                 if !types.is_empty() {
@@ -274,8 +265,8 @@ impl Display for Expression {
                     .zip(&name.arg_names)
                     .map(|(arg, arg_name)| {
                         match arg_name {
-                            None => format!("{}", arg),
-                            Some(arg_name) => format!("{}: {}", arg_name, arg),
+                            None => format!("{arg}"),
+                            Some(arg_name) => format!("{arg_name}: {arg}"),
                         }
                     })
                     .collect();
@@ -294,7 +285,7 @@ impl Display for FunctionName {
             .map(|arg_name| {
                 match arg_name {
                     None => String::from("_:"),
-                    Some(arg_name) => format!("{}:", arg_name),
+                    Some(arg_name) => format!("{arg_name}:"),
                 }
             })
             .collect();
@@ -305,8 +296,8 @@ impl Display for FunctionName {
 impl Display for Offset {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Offset::Discrete(val) => write!(f, "{}", val),
-            Offset::RealTime(val, unit) => write!(f, "{}{}", val, unit),
+            Offset::Discrete(val) => write!(f, "{val}"),
+            Offset::RealTime(val, unit) => write!(f, "{val}{unit}"),
         }
     }
 }
@@ -347,9 +338,9 @@ impl Display for WindowOperation {
             WindowOperation::Variance => "σ²",
             WindowOperation::Covariance => "cov",
             WindowOperation::StandardDeviation => "σ",
-            WindowOperation::NthPercentile(p) => return write!(f, "{}", &format!("pctl{}", p),),
+            WindowOperation::NthPercentile(p) => return write!(f, "pctl{p}"),
         };
-        write!(f, "{}", op_str)
+        write!(f, "{op_str}")
     }
 }
 
@@ -370,9 +361,9 @@ impl Display for UnOp {
 impl Display for Literal {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.kind {
-            LitKind::Bool(val) => write!(f, "{}", val),
+            LitKind::Bool(val) => write!(f, "{val}"),
             LitKind::Numeric(val, unit) => write!(f, "{}{}", val, unit.clone().unwrap_or_default()),
-            LitKind::Str(s) => write!(f, "\"{}\"", s),
+            LitKind::Str(s) => write!(f, "\"{s}\""),
             LitKind::RawStr(s) => {
                 // need to determine padding with `#`
                 let mut padding = 0;
@@ -431,25 +422,25 @@ impl Display for Import {
 impl Display for RtLolaAst {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         for import in &self.imports {
-            writeln!(f, "{}", import)?;
+            writeln!(f, "{import}")?;
         }
         for decl in &self.type_declarations {
-            writeln!(f, "{}", decl)?;
+            writeln!(f, "{decl}")?;
         }
         for constant in &self.constants {
-            writeln!(f, "{}", constant)?;
+            writeln!(f, "{constant}")?;
         }
         for input in &self.inputs {
-            writeln!(f, "{}", input)?;
+            writeln!(f, "{input}")?;
         }
         for output in &self.outputs {
-            writeln!(f, "{}", output)?;
+            writeln!(f, "{output}")?;
         }
         for mirror in &self.mirrors {
-            writeln!(f, "{}", mirror)?;
+            writeln!(f, "{mirror}")?;
         }
         for trigger in &self.trigger {
-            writeln!(f, "{}", trigger)?;
+            writeln!(f, "{trigger}")?;
         }
         Ok(())
     }

@@ -11,7 +11,7 @@ use crate::ast::{BinOp, Expression, ExpressionKind, Offset, RtLolaAst, StreamAcc
 pub(crate) struct Delta {}
 
 impl Delta {
-    fn apply<'a>(&self, expr: &Expression, ast: &'a RtLolaAst) -> ChangeSet {
+    fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
             // Function(FunctionName, Vec<Type>, Vec<Expression>),
             ExpressionKind::Function(name, _types, args) => {
