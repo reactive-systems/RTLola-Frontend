@@ -33,7 +33,7 @@
 mod lowering;
 pub mod mir;
 
-use mir::Mir;
+use mir::{Mir, MirBuilder};
 use rtlola_hir::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 
@@ -56,6 +56,19 @@ pub use crate::mir::RtLolaMir;
 pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
+}
+
+/// Attempts to parse a textual specification into an [RtLolaMir].
+/// Returns an [MirBuilder] allowing to check for language features that are not supported by the backend.
+///
+/// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
+///
+/// # Fail
+/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
+/// due to a semantic error such as inconsistent types or unknown identifiers.
+pub fn parse_to_builder(config: ParserConfig) -> Result<MirBuilder, RtLolaError> {
+    let hir = parse_to_final_hir(config)?;
+    Ok(MirBuilder::new(Mir::from_hir(hir)))
 }
 
 /// Attempts to parse a textual specification into a fully analyzed [`RtLolaHir<CompleteMode>`].

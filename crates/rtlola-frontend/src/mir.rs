@@ -17,6 +17,7 @@
 //! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
+mod builder;
 mod dependency_graph;
 mod print;
 mod schedule;
@@ -24,6 +25,7 @@ mod schedule;
 use std::convert::TryInto;
 use std::time::Duration;
 
+pub use builder::MirBuilder;
 use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
@@ -57,6 +59,8 @@ pub trait Stream {
     fn is_spawned(&self) -> bool;
     /// Indicates whether or not the stream is closed.
     fn is_closed(&self) -> bool;
+    /// Indicated whether or not the stream is filtered.
+    fn is_filtered(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
@@ -633,6 +637,10 @@ impl Stream for OutputStream {
         self.close.condition.is_some()
     }
 
+    fn is_filtered(&self) -> bool {
+        self.eval.condition.is_some()
+    }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
@@ -672,6 +680,10 @@ impl Stream for InputStream {
     }
 
     fn is_closed(&self) -> bool {
+        false
+    }
+
+    fn is_filtered(&self) -> bool {
         false
     }
 
