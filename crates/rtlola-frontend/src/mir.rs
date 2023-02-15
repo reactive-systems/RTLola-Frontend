@@ -17,7 +17,6 @@
 //! * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
-mod builder;
 mod dependency_graph;
 mod print;
 mod schedule;
@@ -25,7 +24,6 @@ mod schedule;
 use std::convert::TryInto;
 use std::time::Duration;
 
-pub use builder::MirBuilder;
 use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;

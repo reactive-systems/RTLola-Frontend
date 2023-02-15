@@ -14,6 +14,7 @@
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod expression;
+mod features;
 mod print;
 pub mod selector;
 
