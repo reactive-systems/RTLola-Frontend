@@ -35,6 +35,7 @@ pub mod mir;
 
 use mir::Mir;
 use rtlola_hir::{BaseMode, CompleteMode};
+use rtlola_hir::hir::FeatureSelector;
 use rtlola_parser::RtLolaAst;
 
 #[cfg(test)]
@@ -58,20 +59,20 @@ pub fn parse(config: ParserConfig) -> Result<RtLolaMir, RtLolaError> {
     Ok(Mir::from_hir(hir))
 }
 
-// /// Attempts to parse a textual specification into an [RtLolaMir].
-// /// Returns an [MirBuilder] allowing to check for language features that are not supported by the backend.
-// ///
-// /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
-// ///
-// /// # Fail
-// /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
-// /// due to a semantic error such as inconsistent types or unknown identifiers.
-// pub fn parse_to_builder(config: ParserConfig) -> Result<MirBuilder, RtLolaError> {
-//     let hir = parse_to_final_hir(config)?;
-//     Ok(MirBuilder::new(Mir::from_hir(hir)))
-// }
+/// Attempts to parse a textual specification into an [RtLolaHir].
+/// Returns an [FeatureSelector] allowing to check for language features that are not supported by the backend.
+///
+/// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
+///
+/// # Fail
+/// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
+/// due to a semantic error such as inconsistent types or unknown identifiers.
+pub fn parse_with_features(config: ParserConfig) -> Result<FeatureSelector, RtLolaError> {
+    let hir = parse_to_final_hir(config)?;
+    Ok(FeatureSelector::new(hir))
+}
 
-/// Attempts to parse a textual specification into a fully analyzed [`RtLolaHir<CompleteMode>`].
+/// Attempts to parse a textual specification into a fully analyzed `RtLolaHir<CompleteMode>`.
 ///
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///
@@ -83,7 +84,7 @@ pub fn parse_to_final_hir(cfg: ParserConfig) -> Result<RtLolaHir<CompleteMode>, 
     rtlola_hir::fully_analyzed(spec)
 }
 
-/// Attempts to parse a textual specification into an [`RtLolaHir<BaseMode>`].
+/// Attempts to parse a textual specification into an `RtLolaHir<BaseMode>`.
 ///
 /// The specification is wrapped into a [ParserConfig] and can either be a string or a path to a specification file.
 ///

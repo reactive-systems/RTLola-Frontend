@@ -25,6 +25,7 @@
     unused_qualifications
 )]
 
+mod features;
 pub mod hir;
 mod modes;
 mod stdlib;

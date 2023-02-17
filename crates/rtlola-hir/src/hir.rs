@@ -14,13 +14,14 @@
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod expression;
-mod features;
+mod feature_selector;
 mod print;
 pub mod selector;
 
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub use feature_selector::{Feature, FeatureSelector};
 use rtlola_reporting::Span;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
