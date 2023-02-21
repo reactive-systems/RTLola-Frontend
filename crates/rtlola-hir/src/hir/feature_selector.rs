@@ -166,13 +166,13 @@ impl FeatureSelector {
     }
 
     /// Exclude a custom feature.
-    pub fn exclude_feature<F: Feature + 'static>(&mut self, feature: F) -> &mut Self {
+    pub fn exclude_feature<F: Feature + 'static>(mut self, feature: F) -> Self {
         self.features.push(Box::new(feature));
         self
     }
 
     /// Constrain the specification to Lola 1.0 features.
-    pub fn lola_1(&mut self) -> &mut Self {
+    pub fn lola_1(self) -> Self {
         self.non_parameterized()
             .no_spawn()
             .no_filter()
@@ -183,61 +183,61 @@ impl FeatureSelector {
     }
 
     /// Constraint the specification to Lola 2.o features.
-    pub fn lola_2(&mut self) -> &mut Self {
+    pub fn lola_2(self) -> Self {
         self.no_discrete_windows().no_sliding_windows().non_periodic()
     }
 
     /// Asserts that the specification does not contain a parameterized output stream
-    pub fn non_parameterized(&mut self) -> &mut Self {
+    pub fn non_parameterized(mut self) -> Self {
         self.features.push(Box::new(Parameterized {}));
         self
     }
 
     /// Asserts that the specification does not contain a spawned output stream
-    pub fn no_spawn(&mut self) -> &mut Self {
+    pub fn no_spawn(mut self) -> Self {
         self.features.push(Box::new(Spawned {}));
         self
     }
 
     /// Asserts that the specification does not contain a filtered output stream
-    pub fn no_filter(&mut self) -> &mut Self {
+    pub fn no_filter(mut self) -> Self {
         self.features.push(Box::new(Filtered {}));
         self
     }
 
     /// Asserts that the specification does not contain a closed output stream
-    pub fn no_close(&mut self) -> &mut Self {
+    pub fn no_close(mut self) -> Self {
         self.features.push(Box::new(Closed {}));
         self
     }
 
     /// Restricts the specification to a non periodic fragment
-    pub fn non_periodic(&mut self) -> &mut Self {
+    pub fn non_periodic(mut self) -> Self {
         self.features.push(Box::new(Periodics {}));
         self
     }
 
     /// Asserts that the specification does not contain sliding windows
-    pub fn no_sliding_windows(&mut self) -> &mut Self {
+    pub fn no_sliding_windows(mut self) -> Self {
         self.features.push(Box::<SlidingWindows>::default());
         self
     }
 
     /// Asserts that the specification does not contain discrete windows
-    pub fn no_discrete_windows(&mut self) -> &mut Self {
+    pub fn no_discrete_windows(mut self) -> Self {
         self.features.push(Box::<DiscreteWindows>::default());
         self
     }
 
     /// Restricts the specification to not contain any of the given value types.
-    pub fn not_value_type(&mut self, types: &[ConcreteValueType]) -> &mut Self {
+    pub fn not_value_type(mut self, types: &[ConcreteValueType]) -> Self {
         self.features
             .push(Box::new(ValueTypes::new(HashSet::from_iter(types.to_vec()))));
         self
     }
 
     /// Restricts the specification to not contain any of the window operations.
-    pub fn not_window_op(&mut self, ops: &[WindowOperation]) -> &mut Self {
+    pub fn not_window_op(mut self, ops: &[WindowOperation]) -> Self {
         let set = HashSet::from_iter(ops.to_vec());
         self.features.push(Box::new(SlidingWindows::new(set.clone())));
         self.features.push(Box::new(DiscreteWindows::new(set)));
@@ -319,6 +319,16 @@ impl FeatureSelector {
             }
         });
         self.hir.triggers.iter().for_each(|t| {
+            let ty = self.hir.stream_type(t.sr);
+            if let Err(e) = self.exclude_value_type(&t.span, &ty.value_ty) {
+                res.join(e);
+            }
+            if let Err(e) = self.exclude_pacing_type(&t.span, &ty.pacing_ty) {
+                res.join(e);
+            }
+            if let Err(e) = self.exclude_expression(self.hir.expression(t.expr_id)) {
+                res.join(e);
+            }
             if let Err(e) = self.exclude_trigger(t) {
                 res.join(e);
             }
@@ -478,5 +488,220 @@ impl FeatureSelector {
         };
 
         res.into()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rtlola_parser::ast::WindowOperation;
+    use rtlola_reporting::Handler;
+
+    use crate::fully_analyzed;
+    use crate::hir::{ConcreteValueType, FeatureSelector};
+
+    fn builder(spec: &str) -> (FeatureSelector, Handler) {
+        use rtlola_parser::{parse, ParserConfig};
+        let cfg = ParserConfig::for_string(spec.to_string());
+        let handler = Handler::from(cfg.clone());
+        let ast = parse(cfg).map_err(|e| handler.emit_error(&e)).unwrap();
+        let hir = fully_analyzed(ast).map_err(|e| handler.emit_error(&e)).unwrap();
+        (FeatureSelector::new(hir), handler)
+    }
+
+    #[test]
+    fn parameterized() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c(p: UInt)
+                spawn with (a)
+                eval with b
+        ",
+        );
+        assert_eq!(
+            builder
+                .non_parameterized()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
+        );
+    }
+
+    #[test]
+    fn spawned() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c
+                spawn when b
+                eval with b
+        ",
+        );
+        assert_eq!(builder.no_spawn().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+    }
+
+    #[test]
+    fn filtered() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c
+                eval with a when b
+        ",
+        );
+        assert_eq!(builder.no_filter().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+    }
+
+    #[test]
+    fn closed() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c
+                eval with a
+                close when b
+        ",
+        );
+        assert_eq!(builder.no_close().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+    }
+
+    #[test]
+    fn periodics() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c @1Hz := b.hold(or: false)
+            trigger c \"c was true\"\
+        ",
+        );
+
+        assert_eq!(
+            builder.non_periodic().build().map_err(|e| e.num_errors()).unwrap_err(),
+            2
+        );
+    }
+
+    #[test]
+    fn sliding_windows() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
+            output d @1Hz := b.aggregate(over: 5s, using: count)
+        ",
+        );
+
+        assert_eq!(
+            builder
+                .no_sliding_windows()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            2
+        );
+    }
+
+    #[test]
+    fn discrete_window() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over_discrete: 5, using: sum)\n\
+            output d @1Hz := b.aggregate(over_discrete: 5, using: count)
+        ",
+        );
+
+        assert_eq!(
+            builder
+                .no_discrete_windows()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            2
+        );
+    }
+
+    #[test]
+    fn window_op() {
+        let (builder, _handler) = builder(
+            "\
+            input a: UInt\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
+            output d @1Hz := b.aggregate(over_discrete: 5, using: count)
+        ",
+        );
+
+        assert_eq!(
+            builder
+                .not_window_op(&[WindowOperation::Sum, WindowOperation::Count])
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            2
+        );
+    }
+
+    #[test]
+    fn value_type() {
+        let (builder, _handler) = builder(
+            "\
+            input a: Float\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
+            output d @a := 42.0 = 0.0
+        ",
+        );
+
+        assert_eq!(
+            builder
+                .not_value_type(&[ConcreteValueType::Float32, ConcreteValueType::Float64])
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            7
+        );
+    }
+
+    #[test]
+    fn lola_1() {
+        let (builder, _handler) = builder(
+            "\
+            input a: Float\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
+            output d(p: Bool)\n\
+                spawn with b\n\
+                eval with b == p when a == 42.0\n\
+                close when b
+        ",
+        );
+
+        assert_eq!(builder.lola_1().build().map_err(|e| e.num_errors()).unwrap_err(), 6);
+    }
+
+    #[test]
+    fn lola_2() {
+        let (builder, _handler) = builder(
+            "\
+            input a: Float\n\
+            input b: Bool\n\
+            output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
+            output d(p: Bool)\n\
+                spawn with b\n\
+                eval with b == p when a == 42.0\n\
+                close when b
+        ",
+        );
+
+        assert_eq!(builder.lola_2().build().map_err(|e| e.num_errors()).unwrap_err(), 2);
     }
 }

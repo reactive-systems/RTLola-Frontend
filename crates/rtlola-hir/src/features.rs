@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 
-use crate::hir::{ConcretePacingType, Feature, Output, SlidingAggr, Window};
+use crate::hir::{ConcretePacingType, DiscreteAggr, Feature, Output, SlidingAggr, Window};
 use crate::type_check::ConcreteValueType;
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl Feature for Filtered {
         if output.eval.condition.is_none() {
             Ok(())
         } else {
-            Err(Diagnostic::error("Unsupported Feature: Conditionally evaluating a stream through when clauses is not supported by the backend.").add_span_with_label(output.span.clone(), Some("Found stream with then clause here."), true).into())
+            Err(Diagnostic::error("Unsupported Feature: Conditionally evaluating a stream through when clauses is not supported by the backend.").add_span_with_label(output.span.clone(), Some("Found stream with when clause here."), true).into())
         }
     }
 }
@@ -150,19 +150,19 @@ impl Feature for DiscreteWindows {
         "Discrete Windows"
     }
 
-    fn exclude_sliding_window(&self, span: &Span, window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
+    fn exclude_discrete_window(&self, span: &Span, window: &Window<DiscreteAggr>) -> Result<(), RtLolaError> {
         let op = &window.aggr.op;
         if self.unsupported.is_empty() {
             Err(
                 Diagnostic::error("Unsupported Feature: Discrete windows are not supported by the backend.")
-                    .add_span_with_label(span.clone(), Some("Found sliding window here"), true)
+                    .add_span_with_label(span.clone(), Some("Found discrete window here"), true)
                     .into(),
             )
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Discrete window operation <{op}> is not supported by the backend."
             ))
-            .add_span_with_label(span.clone(), Some("Found sliding window here"), true)
+            .add_span_with_label(span.clone(), Some("Found discrete window here"), true)
             .into())
         } else {
             Ok(())

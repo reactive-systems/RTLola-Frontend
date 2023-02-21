@@ -34,8 +34,8 @@ mod lowering;
 pub mod mir;
 
 use mir::Mir;
-use rtlola_hir::{BaseMode, CompleteMode};
 use rtlola_hir::hir::FeatureSelector;
+use rtlola_hir::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 
 #[cfg(test)]
