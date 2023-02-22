@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
@@ -13,6 +15,26 @@ use crate::mir::{Close, Eval, Mir, Spawn};
 impl Mir {
     /// Generates an Mir from a complete Hir.
     pub fn from_hir(hir: RtLolaHir<CompleteMode>) -> Mir {
+        let sr_map: HashMap<StreamReference, StreamReference> = hir
+            .inputs()
+            .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
+            .enumerate()
+            .map(|(new_ref, i)| (i.sr(), StreamReference::In(new_ref)))
+            .chain(
+                hir.outputs()
+                    .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
+                    .enumerate()
+                    .map(|(new_ref, o)| (o.sr(), StreamReference::Out(new_ref))),
+            )
+            .chain({
+                let num_outputs = hir.num_outputs();
+                hir.triggers()
+                    .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
+                    .enumerate()
+                    .map(move |(idx, t)| (t.sr(), StreamReference::Out(num_outputs + idx)))
+            })
+            .collect();
+
         let inputs = hir
             .inputs()
             .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
@@ -21,11 +43,11 @@ impl Mir {
                 mir::InputStream {
                     name: i.name.clone(),
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    accessed_by: Self::lower_accessed_streams(hir.direct_accessed_by_with(sr)),
-                    aggregated_by: hir.aggregated_by(sr),
+                    accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
+                    aggregated_by: hir.aggregated_by(sr).into_iter().map(|(sr, wr)| (sr_map[&sr], wr)).collect(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
-                    reference: sr,
+                    reference: sr_map[&sr],
                 }
             })
             .collect::<Vec<mir::InputStream>>();
@@ -39,12 +61,12 @@ impl Mir {
             mir::OutputStream {
                 name: o.name.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                spawn: Self::lower_spawn(&hir, sr),
-                eval: Self::lower_eval(&hir, sr),
-                close: Self::lower_close(&hir, sr),
-                accesses: Self::lower_accessed_streams(hir.direct_accesses_with(sr)),
-                accessed_by: Self::lower_accessed_streams(hir.direct_accessed_by_with(sr)),
-                aggregated_by: hir.aggregated_by(sr),
+                spawn: Self::lower_spawn(&hir, &sr_map, sr),
+                eval: Self::lower_eval(&hir, &sr_map, sr),
+                close: Self::lower_close(&hir, &sr_map, sr),
+                accesses: Self::lower_accessed_streams(&sr_map, hir.direct_accesses_with(sr)),
+                accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
+                aggregated_by: hir.aggregated_by(sr).into_iter().map(|(sr, wr)| (sr_map[&sr], wr)).collect(),
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
                 reference: sr,
@@ -69,9 +91,9 @@ impl Mir {
                     spawn: Spawn::default(),
                     eval: Self::lower_eval(&hir, sr),
                     close: Close::default(),
-                    accesses: Self::lower_accessed_streams(hir.direct_accesses_with(sr)),
-                    accessed_by: Self::lower_accessed_streams(hir.direct_accessed_by_with(sr)),
-                    aggregated_by: hir.aggregated_by(sr),
+                    accesses: Self::lower_accessed_streams(&sr_map, hir.direct_accesses_with(sr)),
+                    accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
+                    aggregated_by: hir.aggregated_by(sr).into_iter().map(|(sr, wr)| (sr_map[&sr], wr)).collect(),
                     memory_bound: hir.memory_bound(sr),
                     layer: hir.stream_layers(sr),
                     reference: sr,
@@ -151,7 +173,7 @@ impl Mir {
         }
     }
 
-    fn lower_activation_condition(ac: &ActivationCondition) -> mir::ActivationCondition {
+    fn lower_activation_condition(ac: &ActivationCondition, sr_map: &HashMap<StreamReference, StreamReference>) -> mir::ActivationCondition {
         match ac {
             ActivationCondition::Conjunction(con) => {
                 mir::ActivationCondition::Conjunction(con.iter().map(Self::lower_activation_condition).collect())
@@ -159,7 +181,7 @@ impl Mir {
             ActivationCondition::Disjunction(dis) => {
                 mir::ActivationCondition::Disjunction(dis.iter().map(Self::lower_activation_condition).collect())
             },
-            ActivationCondition::Stream(sr) => mir::ActivationCondition::Stream(*sr),
+            ActivationCondition::Stream(sr) => mir::ActivationCondition::Stream(sr_map[sr]),
             ActivationCondition::True => mir::ActivationCondition::True,
         }
     }
@@ -175,9 +197,9 @@ impl Mir {
         }
     }
 
-    fn lower_pacing_type(cpt: ConcretePacingType) -> mir::PacingType {
+    fn lower_pacing_type(cpt: ConcretePacingType, sr_map: &HashMap<StreamReference, StreamReference>) -> mir::PacingType {
         match cpt {
-            ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac)),
+            ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map)),
             ConcretePacingType::FixedPeriodic(freq) => mir::PacingType::Periodic(freq),
             ConcretePacingType::Constant => mir::PacingType::Constant,
             ConcretePacingType::Periodic => {
@@ -186,13 +208,13 @@ impl Mir {
         }
     }
 
-    fn lower_spawn(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Spawn {
+    fn lower_spawn(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, sr: StreamReference) -> Spawn {
         let spawn = hir.stream_type(sr).spawn;
-        let spawn_pacing = Self::lower_pacing_type(spawn.0);
+        let spawn_pacing = Self::lower_pacing_type(spawn.0, sr_map);
         let hir_spawn_expr = hir.spawn_expr(sr);
         let hir_spawn_condition = hir.spawn_cond(sr);
-        let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, expr));
-        let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, expr));
+        let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, sr_map, expr));
+        let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, sr_map, expr));
         Spawn {
             expression: spawn_expression,
             pacing: spawn_pacing,
@@ -200,15 +222,16 @@ impl Mir {
         }
     }
 
-    fn lower_eval(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Eval {
+    fn lower_eval(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, sr: StreamReference) -> Eval {
         let pacing_ty = hir.stream_type(sr).pacing_ty;
         let expr = Self::lower_expr(
             hir,
+            sr_map,
             hir.eval_expr(sr).expect("Expr exists for all valid output streams"),
         );
-        let condition = hir.eval_cond(sr).map(|f| Self::lower_expr(hir, f));
+        let condition = hir.eval_cond(sr).map(|f| Self::lower_expr(hir, sr_mpa, f));
         // This lowers the stream pacing type, which combines the pacing of the eval_expr and the condition.
-        let eval_pacing = Self::lower_pacing_type(pacing_ty);
+        let eval_pacing = Self::lower_pacing_type(pacing_ty, sr_map);
         Eval {
             condition,
             expression: expr,
@@ -216,7 +239,7 @@ impl Mir {
         }
     }
 
-    fn lower_close(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Close {
+    fn lower_close(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, sr: StreamReference) -> Close {
         let (close, close_pacing, close_self_ref) = hir
             .close_cond(sr)
             .map(|expr| {
@@ -226,7 +249,7 @@ impl Mir {
                     ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
                 );
                 (
-                    Some(Self::lower_expr(hir, expr)),
+                    Some(Self::lower_expr(hir, sr_map, expr)),
                     Self::lower_pacing_type(cpt),
                     close_self_ref,
                 )
@@ -239,10 +262,10 @@ impl Mir {
         }
     }
 
-    fn lower_sliding_window(hir: &RtLolaHir<CompleteMode>, win: &Window<SlidingAggr>) -> mir::SlidingWindow {
+    fn lower_sliding_window(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, win: &Window<SlidingAggr>) -> mir::SlidingWindow {
         mir::SlidingWindow {
-            target: win.target,
-            caller: win.caller,
+            target: sr_map[&win.target],
+            caller: sr_map[&win.caller],
             duration: win.aggr.duration,
             wait: win.aggr.wait,
             op: Self::lower_window_operation(win.aggr.op),
@@ -251,10 +274,10 @@ impl Mir {
         }
     }
 
-    fn lower_discrete_window(hir: &RtLolaHir<CompleteMode>, win: &Window<DiscreteAggr>) -> mir::DiscreteWindow {
+    fn lower_discrete_window(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, win: &Window<DiscreteAggr>) -> mir::DiscreteWindow {
         mir::DiscreteWindow {
-            target: win.target,
-            caller: win.caller,
+            target: sr_map[&win.target],
+            caller: sr_map[&win.caller],
             duration: win.aggr.duration,
             wait: win.aggr.wait,
             op: Self::lower_window_operation(win.aggr.op),
@@ -286,16 +309,17 @@ impl Mir {
         }
     }
 
-    fn lower_expr(hir: &RtLolaHir<CompleteMode>, expr: &Expression) -> mir::Expression {
+    fn lower_expr(hir: &RtLolaHir<CompleteMode>, sr_map: &HashMap<StreamReference, StreamReference>, expr: &Expression) -> mir::Expression {
         let ty = Self::lower_value_type(&hir.expr_type(expr.id()).value_ty);
         mir::Expression {
-            kind: Self::lower_expression_kind(hir, &expr.kind, &ty),
+            kind: Self::lower_expression_kind(hir, sr_map, &expr.kind, &ty),
             ty,
         }
     }
 
     fn lower_expression_kind(
         hir: &RtLolaHir<CompleteMode>,
+        sr_map: &HashMap<StreamReference, StreamReference>,
         expr: &ExpressionKind,
         ty: &mir::Type,
     ) -> mir::ExpressionKind {
@@ -476,11 +500,12 @@ impl Mir {
     }
 
     fn lower_accessed_streams(
+        sr_map: &HashMap<StreamReference, StreamReference>,
         streams: Vec<(StreamReference, Vec<StreamAccessKind>)>,
     ) -> Vec<(StreamReference, Vec<mir::StreamAccessKind>)> {
         streams
             .into_iter()
-            .map(|(sref, kinds)| (sref, kinds.into_iter().map(Self::lower_stream_access_kind).collect()))
+            .map(|(sref, kinds)| (sr_map[&sref], kinds.into_iter().map(Self::lower_stream_access_kind).collect()))
             .collect()
     }
 
