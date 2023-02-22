@@ -307,7 +307,11 @@ mod tests {
 
     #[test]
     fn discrete_window_lookup() {
-        let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)\noutput c: UInt8 := a + 3\noutput d: UInt8 @1Hz := c.aggregate(over_discrete: 5, using: sum)";
+        let spec = "input a: UInt8\n\
+        output b: UInt8 := a.aggregate(over_discrete: 5, using: sum)\n\
+        output c: UInt8 := a + 3\n\
+        output d: UInt8 := c.aggregate(over_discrete: 5, using: sum)";
+
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::Out(0)),
@@ -318,9 +322,9 @@ mod tests {
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
         ]
         .into_iter()
         .collect();
