@@ -243,7 +243,7 @@ where
             AnnotatedType::Signed => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
-            }
+            },
             AnnotatedType::Sequence => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
@@ -627,7 +627,12 @@ where
                 };
             },
             ExpressionKind::Default { expr, default } => {
-                let ex_key = self.expression_infer(expr, None)?; //Option<X>
+                let ex_key = if matches!(expr.kind, ExpressionKind::TupleAccess(_, _)) {
+                    self.tuple_option_infer(expr.as_ref())?
+                } else {
+                    self.expression_infer(expr, None)?
+                }; //Option<X>
+
                 let def_key = self.expression_infer(default, None)?; // Y
                 self.tyc
                     .impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
@@ -831,6 +836,37 @@ where
         };
 
         Ok(term_key)
+    }
+
+    fn tuple_option_infer(&mut self, exp: &Expression) -> Result<TcKey, TypeError<ValueErrorKind>> {
+        let term_key: TcKey = self.tyc.new_term_key();
+        self.node_key.insert(NodeId::Expr(exp.eid), term_key);
+        self.key_span.insert(term_key, exp.span.clone());
+
+        if let ExpressionKind::TupleAccess(inner, idx) = &exp.kind {
+            let tuple_option = if matches!(inner.kind, ExpressionKind::TupleAccess(_, _)) {
+                self.tuple_option_infer(inner.as_ref())?
+            } else {
+                self.expression_infer(inner.as_ref(), None)?
+            }; //Option<Tuple()>
+
+            self.tyc
+                .impose(tuple_option.concretizes_explicit(AbstractValueType::Option))?;
+            let tuple_key = self.tyc.get_child_key(tuple_option, 0)?; //Tuple()
+            self.tyc
+                .impose(tuple_key.concretizes_explicit(AbstractValueType::AnyTuple))?;
+            let tuple_element_key = self.tyc.get_child_key(tuple_key, *idx)?;
+
+            // Return Option<TupleElement>
+            self.tyc
+                .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+            self.tyc.impose(inner_key.equate_with(tuple_element_key))?;
+
+            Ok(term_key)
+        } else {
+            unreachable!()
+        }
     }
 
     fn replace_type(&mut self, at: &AnnotatedType, to: &[TcKey]) -> Result<TcKey, TypeError<ValueErrorKind>> {
@@ -2003,5 +2039,19 @@ output o_9: Bool @i_0 := true  && true";
                          input  a : UInt\n\
                          output b := abs(a)";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_default_after_projection() {
+        let spec = "input  a : (UInt, Bool)\n\
+                          output b := a.offset(by: -1).0.defaults(to: 5)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_default_after_projection_nested() {
+        let spec = "input  a : (UInt, (Float, Bool))\n\
+                    output b := a.offset(by: -1).1.0.defaults(to: 5.0)";
+        assert_eq!(0, num_errors(spec));
     }
 }

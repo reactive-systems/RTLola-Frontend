@@ -162,8 +162,8 @@ impl Variant for AbstractValueType {
             Any | AnyTuple => Arity::Variable,
             Tuple(x) => Arity::Fixed(*x),
             Option => Arity::Fixed(1),
-            Numeric | SignedNumeric | Integer | SInteger | SizedSInteger(_) | UInteger | SizedUInteger(_) | Float | SizedFloat(_)
-            | Bool | Sequence | String | Bytes => Arity::Fixed(0),
+            Numeric | SignedNumeric | Integer | SInteger | SizedSInteger(_) | UInteger | SizedUInteger(_) | Float
+            | SizedFloat(_) | Bool | Sequence | String | Bytes => Arity::Fixed(0),
         }
     }
 }
