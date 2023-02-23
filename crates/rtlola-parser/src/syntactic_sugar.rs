@@ -7,11 +7,13 @@ mod aggregation_method;
 mod delta;
 mod last;
 mod mirror;
+mod offset_or;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
 
+use self::offset_or::OffsetOr;
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
     Trigger,
@@ -110,6 +112,7 @@ impl Desugarizer {
             Box::new(Last {}),
             Box::new(SynSugMirror {}),
             Box::new(Delta {}),
+            Box::new(OffsetOr {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -873,6 +876,45 @@ impl std::ops::AddAssign<ChangeSet> for ChangeSet {
 mod tests {
     use super::*;
     use crate::ast::{BinOp, Ident, LitKind, Literal, Offset, UnOp, WindowOperation};
+
+    #[test]
+    fn test_offsetor_replace() {
+        let spec = "output x eval @5Hz with x.offset(by: -4, or: 5.0)".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let inner_kind = if let ExpressionKind::Default(inner, default) = out_kind {
+            assert!(matches!(default.kind, ExpressionKind::Lit(_)));
+            inner.kind
+        } else {
+            unreachable!()
+        };
+        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-4))));
+    }
+
+    #[test]
+    fn test_offsetor_replace_nested() {
+        let spec = "output x eval @5Hz with -x.offset(by: -4, or: x.offset(by: -1, or: 5))".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
+            inner.kind
+        } else {
+            unreachable!()
+        };
+        let (inner_kind, default_kind) = if let ExpressionKind::Default(inner, default) = inner_kind {
+            (inner.kind, default.kind)
+        } else {
+            unreachable!()
+        };
+        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-4))));
+        let inner_kind = if let ExpressionKind::Default(inner, default) = default_kind {
+            assert!(matches!(default.kind, ExpressionKind::Lit(_)));
+            inner.kind
+        } else {
+            unreachable!()
+        };
+        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-1))));
+    }
 
     #[test]
     fn test_aggr_replace() {
