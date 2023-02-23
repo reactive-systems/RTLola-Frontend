@@ -240,6 +240,10 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
             },
+            AnnotatedType::Signed => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
+            }
             AnnotatedType::Sequence => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
@@ -833,6 +837,7 @@ where
         match at {
             AnnotatedType::Param(idx, _) => Ok(to[*idx]),
             AnnotatedType::Numeric
+            | AnnotatedType::Signed
             | AnnotatedType::Sequence
             | AnnotatedType::Int(_)
             | AnnotatedType::Float(_)
@@ -1989,6 +1994,14 @@ output o_9: Bool @i_0 := true  && true";
 
         let spec = "input  a : Bool\n\
                           output b @2Hz := a.aggregate(over_exactly: 1s, using: disjunction)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_reject_abs_on_unsigned() {
+        let spec = "import math\n\
+                         input  a : UInt\n\
+                         output b := abs(a)";
         assert_eq!(1, num_errors(spec));
     }
 }

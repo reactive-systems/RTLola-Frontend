@@ -50,6 +50,7 @@ pub(crate) enum AbstractValueType {
     Any,
     /// A numeric value which is either an integer or a float
     Numeric,
+    SignedNumeric,
     /// Either a signed or and unsigned integer
     Integer,
     /// An signed integer of arbitrary size
@@ -94,6 +95,7 @@ impl Variant for AbstractValueType {
             (Any, other) => Ok((other, rhs.least_arity)),
             (other, Any) => Ok((other, lhs.least_arity)),
             (Numeric, Numeric) => Ok((Numeric, 0)),
+            (SignedNumeric, SignedNumeric) => Ok((SignedNumeric, 0)),
             (Integer, Integer) => Ok((Integer, 0)),
             (SInteger, SInteger) => Ok((SInteger, 0)),
             (UInteger, UInteger) => Ok((UInteger, 0)),
@@ -116,6 +118,11 @@ impl Variant for AbstractValueType {
             (Numeric, SizedUInteger(w)) | (SizedUInteger(w), Numeric) => Ok((SizedUInteger(w), 0)),
             (Numeric, Float) | (Float, Numeric) => Ok((Float, 0)),
             (Numeric, SizedFloat(i)) | (SizedFloat(i), Numeric) => Ok((SizedFloat(i), 0)),
+            (Numeric, SignedNumeric) | (SignedNumeric, Numeric) => Ok((SignedNumeric, 0)),
+            (SignedNumeric, SInteger) | (SInteger, SignedNumeric) => Ok((SInteger, 0)),
+            (SignedNumeric, SizedSInteger(w)) | (SizedSInteger(w), SignedNumeric) => Ok((SizedSInteger(w), 0)),
+            (SignedNumeric, Float) | (Float, SignedNumeric) => Ok((Float, 0)),
+            (SignedNumeric, SizedFloat(w)) | (SizedFloat(w), SignedNumeric) => Ok((SizedFloat(w), 0)),
             (Integer, SInteger) | (SInteger, Integer) => Ok((SInteger, 0)),
             (Integer, UInteger) | (UInteger, Integer) => Ok((UInteger, 0)),
             (Integer, SizedSInteger(x)) | (SizedSInteger(x), Integer) => Ok((SizedSInteger(x), 0)),
@@ -134,6 +141,7 @@ impl Variant for AbstractValueType {
             (Tuple(_), _) | (_, Tuple(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Sequence, String) | (String, Sequence) => Ok((String, 0)),
             (Sequence, Bytes) | (Bytes, Sequence) => Ok((Bytes, 0)),
+            (SignedNumeric, _) | (_, SignedNumeric) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Sequence, _) | (_, Sequence) => Err(TypeClash(lhs.variant, rhs.variant)),
             (String, String) => Ok((String, 0)),
             (String, _) | (_, String) => Err(TypeClash(lhs.variant, rhs.variant)),
@@ -154,7 +162,7 @@ impl Variant for AbstractValueType {
             Any | AnyTuple => Arity::Variable,
             Tuple(x) => Arity::Fixed(*x),
             Option => Arity::Fixed(1),
-            Numeric | Integer | SInteger | SizedSInteger(_) | UInteger | SizedUInteger(_) | Float | SizedFloat(_)
+            Numeric | SignedNumeric | Integer | SInteger | SizedSInteger(_) | UInteger | SizedUInteger(_) | Float | SizedFloat(_)
             | Bool | Sequence | String | Bytes => Arity::Fixed(0),
         }
     }
@@ -185,6 +193,7 @@ impl Constructable for AbstractValueType {
             AbstractValueType::SizedFloat(w) if *w <= 64 => Ok(ConcreteValueType::Float64),
             AbstractValueType::SizedFloat(_) => Err(ReificationTooWide(*self)),
             AbstractValueType::Numeric => Err(CannotReify(*self)),
+            AbstractValueType::SignedNumeric => Err(CannotReify(*self)),
             AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
             AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
             AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),
@@ -229,6 +238,7 @@ impl ConcreteValueType {
             },
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
+            AnnotatedType::Signed => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
         }
     }
@@ -261,6 +271,7 @@ impl Display for AbstractValueType {
         match self {
             AbstractValueType::Any => write!(f, "Any"),
             AbstractValueType::Numeric => write!(f, "Numeric"),
+            AbstractValueType::SignedNumeric => write!(f, "SignedNumeric"),
             AbstractValueType::Integer => write!(f, "Integer"),
             AbstractValueType::SInteger => write!(f, "Int"),
             AbstractValueType::SizedSInteger(w) => write!(f, "Int({})", *w),
