@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the `FeatureSelector` to check for unsupported language features.
 - Added `is_eval_filtered` method to stream trait.
 
+### Changed
+- Applying the `abs()` function to unsigned values is now rejected by the typechecker.
+- Discrete windows are now event-based and follow the pacing of the stream they aggregate.
+- Projecting out of optional tuples is now allowed and produces an optional value.
+
 ## [0.4.1] - 02.02.2023
 
 ### Changed

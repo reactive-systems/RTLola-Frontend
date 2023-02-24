@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `is_eval_filtered` method to stream trait.
 
+### Fixed
+- Remap stream references during lowering to MIR to keep streams accessible by index.
+
 ## [0.6.1] - 02.02.2023
 
 ### Changed
