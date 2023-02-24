@@ -1,0 +1,106 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "cargo",
+			"command": "build",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo build"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml",
+				"-p",
+				"rtlola-hir"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check hir"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml",
+				"-p",
+				"rtlola-frontend"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check frontend"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml",
+				"-p",
+				"rtlola-macros"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check macros"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml",
+				"-p",
+				"rtlola-parser"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check parser"
+		},
+		{
+			"type": "cargo",
+			"command": "check",
+			"args": [
+				"--manifest-path",
+				"crates/Cargo.toml",
+				"-p",
+				"rtlola-reporting"
+			],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo check reporting"
+		}
+	]
+}
