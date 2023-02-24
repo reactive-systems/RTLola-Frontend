@@ -54,7 +54,7 @@ impl ConcretePacingType {
 }
 
 /// The external definition for a value type.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum ConcreteValueType {
     /// Bool e.g. true, false
     Bool,

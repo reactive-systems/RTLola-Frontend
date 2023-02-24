@@ -237,7 +237,7 @@ impl Handler {
     }
 }
 
-/// A `Diagnostic` is more flexible way to build and output errors and warnings.
+/// A [Diagnostic] is more flexible way to build and output errors and warnings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
     /// The internal representation of the diagnostic

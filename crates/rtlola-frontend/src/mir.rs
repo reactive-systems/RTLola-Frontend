@@ -57,6 +57,8 @@ pub trait Stream {
     fn is_spawned(&self) -> bool;
     /// Indicates whether or not the stream is closed.
     fn is_closed(&self) -> bool;
+    /// Indicated whether or not the stream is filtered.
+    fn is_eval_filtered(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
@@ -633,6 +635,10 @@ impl Stream for OutputStream {
         self.close.condition.is_some()
     }
 
+    fn is_eval_filtered(&self) -> bool {
+        self.eval.condition.is_some()
+    }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
@@ -672,6 +678,10 @@ impl Stream for InputStream {
     }
 
     fn is_closed(&self) -> bool {
+        false
+    }
+
+    fn is_eval_filtered(&self) -> bool {
         false
     }
 
