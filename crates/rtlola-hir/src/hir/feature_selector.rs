@@ -614,8 +614,8 @@ mod test {
             "\
             input a: UInt\n\
             input b: Bool\n\
-            output c @1Hz := a.aggregate(over_discrete: 5, using: sum)\n\
-            output d @1Hz := b.aggregate(over_discrete: 5, using: count)
+            output c := a.aggregate(over_discrete: 5, using: sum)\n\
+            output d := b.aggregate(over_discrete: 5, using: count)
         ",
         );
 
@@ -636,7 +636,7 @@ mod test {
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
-            output d @1Hz := b.aggregate(over_discrete: 5, using: count)
+            output d := b.aggregate(over_discrete: 5, using: count)
         ",
         );
 
