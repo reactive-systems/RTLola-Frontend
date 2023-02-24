@@ -452,7 +452,7 @@ where
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
                 match kind {
-                    StreamAccessKind::Sync | StreamAccessKind::Offset(_) => {
+                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::Sync | StreamAccessKind::Offset(_) => {
                         self.handle_offset(kind, term_keys)?;
                         self.impose_more_concrete(term_keys, stream_key)?;
 
@@ -512,7 +512,7 @@ where
                         }
                     },
                     StreamAccessKind::Hold | StreamAccessKind::Get | StreamAccessKind::Fresh => {},
-                    StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => {
+                    StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
                             .impose(term_keys.exp_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
@@ -2683,5 +2683,40 @@ mod tests {
             eval @1Hz with 5\n\
             close @a when a.is_fresh()";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_discrete_window() {
+        let spec = "input a: Int8\n\
+        output b := a.aggregate(over_discrete: 5, using: sum)";
+
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let b = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
+        assert_eq!(
+            b.expression_pacing,
+            ConcretePacingType::Event(ActivationCondition::Stream(hir.inputs[0].sr))
+        );
+    }
+
+    #[test]
+    fn test_discrete_window_periodic() {
+        let spec = "input a: Int8\n\
+        output b @1Hz := a.hold(or: 5)
+        output c := b.aggregate(over_discrete: 5, using: sum)";
+
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = tt[&NodeId::SRef(hir.outputs[1].sr)].clone();
+        assert_eq!(
+            c.expression_pacing,
+            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+        );
     }
 }

@@ -92,7 +92,7 @@ lazy_static! {
     // fn abs<T: Numeric>(T) -> T
     static ref ABS: FuncDecl = FuncDecl {
         name: FunctionName::new("abs".to_string(), &[None]),
-        generics: vec![AnnotatedType::Numeric,
+        generics: vec![AnnotatedType::Signed,
         ],
         parameters: vec![AnnotatedType::Param(0, "T".to_string())],
         return_type: AnnotatedType::Param(0, "T".to_string()),
