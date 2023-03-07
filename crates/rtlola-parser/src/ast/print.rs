@@ -393,11 +393,12 @@ impl Display for BinOp {
             Div => write!(f, "/"),
             Rem => write!(f, "%"),
             Pow => write!(f, "**"),
-            And => write!(f, "∧"),
             // Logical
+            And => write!(f, "∧"),
             Or => write!(f, "∨"),
-            Eq => write!(f, "="),
+            Impl => write!(f, "->"),
             // Comparison
+            Eq => write!(f, "="),
             Lt => write!(f, "<"),
             Le => write!(f, "≤"),
             Ne => write!(f, "≠"),

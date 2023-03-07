@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - add `offset(by: off, or: dft)` syntactic sugar
+- add `->` syntactic sugar
 
 ## [0.3.1] - 02.02.2023
 
