@@ -8,7 +8,9 @@ use dot::{LabelText, Style};
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
-use super::{Mir, StreamAccessKind, StreamReference, TriggerReference, WindowReference};
+use super::{
+    ActivationCondition, Mir, PacingType, StreamAccessKind, StreamReference, TriggerReference, WindowReference,
+};
 
 /// Represents the dependency graph of the specification
 #[derive(Debug, Clone)]
@@ -111,36 +113,36 @@ struct Edge {
     to: Node,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct EdgeType(StreamAccessKind);
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+enum EdgeType {
+    Access(StreamAccessKind),
+    Spawn,
+    Eval,
+}
 
 impl From<StreamAccessKind> for EdgeType {
     fn from(value: StreamAccessKind) -> Self {
-        EdgeType(value)
+        EdgeType::Access(value)
     }
 }
 
 impl Display for EdgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self.0 {
-            StreamAccessKind::Sync => "Sync".into(),
-            StreamAccessKind::Hold => "Hold".into(),
-            StreamAccessKind::Offset(o) => format!("Offset({o})"),
-            StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
-            StreamAccessKind::Get => todo!(),
-            StreamAccessKind::Fresh => todo!(),
+        let s = match self {
+            EdgeType::Access(StreamAccessKind::Sync) => "Sync".into(),
+            EdgeType::Access(StreamAccessKind::Hold) => "Hold".into(),
+            EdgeType::Access(StreamAccessKind::Offset(o)) => format!("Offset({o})"),
+            // no label on access, spawn and window access edges
+            EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
+            | EdgeType::Access(StreamAccessKind::SlidingWindow(_))
+            | EdgeType::Spawn
+            | EdgeType::Eval => "".into(),
+
+            EdgeType::Access(StreamAccessKind::Get) => todo!(),
+            EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
         };
 
         write!(f, "{s}")
-    }
-}
-
-impl Serialize for EdgeType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.to_string().as_str())
     }
 }
 
@@ -160,6 +162,7 @@ enum NodeInformation<'a> {
         eval_layer: usize,
         memory_bound: u32,
         pacing_ty: String,
+        spawn_ty: String,
         value_ty: String,
         expression: String,
     },
@@ -170,6 +173,7 @@ enum NodeInformation<'a> {
         eval_layer: usize,
         memory_bound: u32,
         pacing_ty: String,
+        spawn_ty: String,
         value_ty: String,
         expression: String,
         message: &'a str,
@@ -212,6 +216,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
             let output = mir.output(sref);
             let pacing_str = mir.display(&output.eval.eval_pacing).to_string();
             let expr_str = mir.display(&output.eval.expression).to_string();
+            let spawn_str = mir.display(&output.spawn.pacing).to_string();
 
             NodeInformation::Output {
                 reference: sref,
@@ -219,6 +224,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
                 eval_layer,
                 memory_bound,
                 pacing_ty: pacing_str,
+                spawn_ty: spawn_str,
                 value_ty: value_str,
                 expression: expr_str,
             }
@@ -255,6 +261,7 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
         eval_layer,
         memory_bound: _,
         pacing_ty,
+        spawn_ty,
         value_ty,
         expression,
     } = stream_infos(mir, trigger.reference)
@@ -265,6 +272,7 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
             eval_layer,
             memory_bound: 0,
             pacing_ty,
+            spawn_ty,
             value_ty,
             message: &trigger.message,
             expression,
@@ -329,12 +337,70 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         ]
     });
 
-    access_edges.chain(window_edges).collect()
+    let spawn_edges = mir.outputs.iter().flat_map(|output| {
+        let source = out_to_trig
+            .get(&output.reference)
+            .map(|t| Node::Trigger(*t))
+            .unwrap_or_else(|| Node::Stream(output.reference));
+        match &output.spawn.pacing {
+            PacingType::Event(ac) => {
+                flatten_ac(ac)
+                    .into_iter()
+                    .map(|input| {
+                        Edge {
+                            from: source,
+                            with: EdgeType::Spawn,
+                            to: Node::Stream(input),
+                        }
+                    })
+                    .collect()
+            },
+            PacingType::Periodic(_) | PacingType::Constant => vec![],
+        }
+    });
+
+    let ac_edges = mir.outputs.iter().flat_map(|output| {
+        let source = out_to_trig
+            .get(&output.reference)
+            .map(|t| Node::Trigger(*t))
+            .unwrap_or_else(|| Node::Stream(output.reference));
+        match &output.eval.eval_pacing {
+            PacingType::Event(ac) => {
+                flatten_ac(ac)
+                    .into_iter()
+                    .map(|input| {
+                        Edge {
+                            from: source,
+                            with: EdgeType::Eval,
+                            to: Node::Stream(input),
+                        }
+                    })
+                    .collect()
+            },
+            PacingType::Periodic(_) | PacingType::Constant => vec![],
+        }
+    });
+
+    access_edges
+        .chain(window_edges)
+        .chain(spawn_edges)
+        .chain(ac_edges)
+        .collect()
+}
+
+fn flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
+    match ac {
+        ActivationCondition::Disjunction(xs) | ActivationCondition::Conjunction(xs) => {
+            xs.iter().flat_map(flatten_ac).collect()
+        },
+        ActivationCondition::Stream(s) => vec![*s],
+        ActivationCondition::True => vec![],
+    }
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
     fn graph_id(&'a self) -> dot::Id<'a> {
-        dot::Id::new("example1").unwrap()
+        dot::Id::new("dependency_graph").unwrap()
     }
 
     fn node_id(&'a self, n: &Node) -> dot::Id<'a> {
@@ -359,12 +425,17 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 eval_layer,
                 memory_bound,
                 pacing_ty,
+                spawn_ty,
                 value_ty,
                 reference: _,
                 expression: _,
             } => {
                 format!(
-                    "{stream_name}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Memory Bound: {memory_bound}<br/>Layer {eval_layer}"
+                    "{stream_name}: {value_ty}<br/>\
+Pacing: {pacing_ty}<br/>\
+Spawn: {spawn_ty}<br/>\
+Memory Bound: {memory_bound}<br/>\
+Layer {eval_layer}"
                 )
             },
             NodeInformation::Window {
@@ -377,12 +448,19 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 eval_layer,
                 pacing_ty,
                 value_ty,
+                spawn_ty,
                 message,
                 reference: _,
                 memory_bound: _,
                 expression: _,
             } => {
-                format!("Trigger {idx}: {value_ty}<br/>Pacing: {pacing_ty}<br/>Layer: {eval_layer}<br/><br/>{message}")
+                format!(
+                    "Trigger {idx}: {value_ty}<br/>\
+Pacing: {pacing_ty}<br/>\
+Spawn: {spawn_ty}<br/>\
+Layer: {eval_layer}<br/><br/>\
+{message}"
+                )
             },
         };
 
@@ -390,27 +468,18 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn edge_label<'b>(&'b self, edge: &Edge) -> LabelText<'b> {
-        let kind = &edge.with.0;
-        let label = match kind {
-            StreamAccessKind::Sync => "Sync".into(),
-            StreamAccessKind::Hold => "Hold".into(),
-            StreamAccessKind::Offset(o) => format!("Offset({o})"),
-            StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::SlidingWindow(_) => "".into(),
-            StreamAccessKind::Get => todo!(),
-            StreamAccessKind::Fresh => todo!(),
-        };
-        dot::LabelText::LabelStr(label.into())
+        dot::LabelText::LabelStr(edge.with.to_string().into())
     }
 
     fn edge_style(&self, edge: &Edge) -> Style {
-        let kind = &edge.with.0;
-        match kind {
-            StreamAccessKind::Hold => Style::Dashed,
-            StreamAccessKind::Sync
-            | StreamAccessKind::Offset(_)
-            | StreamAccessKind::DiscreteWindow(_)
-            | StreamAccessKind::SlidingWindow(_) => Style::None,
-            StreamAccessKind::Get | StreamAccessKind::Fresh => todo!(),
+        match &edge.with {
+            EdgeType::Access(StreamAccessKind::Hold) => Style::Dashed,
+            EdgeType::Access(StreamAccessKind::Sync)
+            | EdgeType::Access(StreamAccessKind::Offset(_))
+            | EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
+            | EdgeType::Access(StreamAccessKind::SlidingWindow(_)) => Style::None,
+            EdgeType::Spawn | EdgeType::Eval => unreachable!("not rendered in dot format"),
+            EdgeType::Access(StreamAccessKind::Get) | EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
         }
     }
 
@@ -440,7 +509,13 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn edges(&'a self) -> dot::Edges<'a, Edge> {
-        Cow::Borrowed(&self.edges)
+        // in the dot format, we only want to render access edges
+        self.edges
+            .iter()
+            .filter(|edge| matches!(edge.with, EdgeType::Access(_)))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into()
     }
 
     fn source(&self, e: &Edge) -> Node {
@@ -479,15 +554,21 @@ mod tests {
         };
     }
 
-    macro_rules! build_sak {
+    macro_rules! build_edge_kind {
+        ( Spawn ) => {
+            EdgeType::Spawn
+        };
+        ( Eval ) => {
+            EdgeType::Eval
+        };
         ( SW, $i:expr ) => {
-            StreamAccessKind::SlidingWindow(WindowReference::Sliding($i))
+            EdgeType::Access(StreamAccessKind::SlidingWindow(WindowReference::Sliding($i)))
         };
         ( DW, $i:expr ) => {
-            StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i))
+            EdgeType::Access(StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i)))
         };
         ( $sak:ident ) => {
-            StreamAccessKind::$sak
+            EdgeType::Access(StreamAccessKind::$sak)
         };
     }
 
@@ -509,9 +590,9 @@ mod tests {
                 $(
                     let from_node = build_node!($edge_from_ty($edge_from_i));
                     let to_node = build_node!($edge_to_ty($edge_to_i));
-                    let with = build_sak!($with $(,$p)?);
+                    let with = build_edge_kind!($with $(,$p)?);
                     let expected_edge = Edge {
-                        from: from_node, to: to_node, with: with.into()
+                        from: from_node, to: to_node, with
                     };
                     assert!(edges.iter().any(|edge| *edge == expected_edge), "specification did not contain expected edge {:#?}", expected_edge);
                 )+
@@ -526,12 +607,15 @@ mod tests {
         output c := a + b",
         Out(0) => In(0) : Sync,
         Out(0) => In(1) : Sync,
+        Out(0) => In(0) : Eval,
+        Out(0) => In(1) : Eval,
     );
 
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
         T(0) => In(0) : Sync,
+        T(0) => In(0) : Eval,
     );
 
     test_dependency_graph!(more_complex,
@@ -545,5 +629,33 @@ mod tests {
         Out(1) => SW(0) : SW(0),
         SW(0) => In(0) : SW(0),
         T(0) => Out(1) : Sync,
+        Out(0) => In(0) : Eval,
+    );
+
+    test_dependency_graph!(ac,
+        "input a : UInt64
+        input b : UInt64
+        output c @(a||b) := 0
+        output d @(a&&b) := a
+        ",
+        Out(1) => In(0) : Sync,
+        Out(0) => In(0) : Eval,
+        Out(0) => In(1) : Eval,
+        Out(1) => In(0) : Eval,
+        Out(1) => In(1) : Eval,
+    );
+
+    test_dependency_graph!(spawn,
+        "input a : UInt64
+        input b : UInt64
+        output c(x)
+            spawn with a
+            eval with b when x == a
+        ",
+        Out(0) => In(0) : Spawn,
+        Out(0) => In(0) : Eval,
+        Out(0) => In(1) : Eval,
+        Out(0) => In(0) : Sync,
+        Out(0) => In(1) : Sync,
     );
 }
