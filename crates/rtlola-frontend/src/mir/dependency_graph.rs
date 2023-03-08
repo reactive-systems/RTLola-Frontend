@@ -132,12 +132,11 @@ impl Display for EdgeType {
             EdgeType::Access(StreamAccessKind::Sync) => "Sync".into(),
             EdgeType::Access(StreamAccessKind::Hold) => "Hold".into(),
             EdgeType::Access(StreamAccessKind::Offset(o)) => format!("Offset({o})"),
-            // no label on access, spawn and window access edges
+            EdgeType::Spawn => "Spawn".into(),
+            EdgeType::Eval => "Eval".into(),
+            // no label on window access edges
             EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
-            | EdgeType::Access(StreamAccessKind::SlidingWindow(_))
-            | EdgeType::Spawn
-            | EdgeType::Eval => "".into(),
-
+            | EdgeType::Access(StreamAccessKind::SlidingWindow(_)) => "".into(),
             EdgeType::Access(StreamAccessKind::Get) => todo!(),
             EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
         };
@@ -478,7 +477,7 @@ Layer: {eval_layer}<br/><br/>\
             | EdgeType::Access(StreamAccessKind::Offset(_))
             | EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
             | EdgeType::Access(StreamAccessKind::SlidingWindow(_)) => Style::None,
-            EdgeType::Spawn | EdgeType::Eval => unreachable!("not rendered in dot format"),
+            EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
             EdgeType::Access(StreamAccessKind::Get) | EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
         }
     }
@@ -509,10 +508,28 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
     }
 
     fn edges(&'a self) -> dot::Edges<'a, Edge> {
-        // in the dot format, we only want to render access edges
+        // all the sync and offset edges
+        let ac_accesses = self
+            .edges
+            .iter()
+            .filter(|edge| {
+                matches!(
+                    edge.with,
+                    EdgeType::Access(StreamAccessKind::Sync) | EdgeType::Access(StreamAccessKind::Offset(_))
+                )
+            })
+            .map(|edge| (&edge.from, &edge.to))
+            .collect::<HashSet<_>>();
+
+        // in the dot format, we only want to render eval edges, if the edge it not already covered by sync or offset edges
         self.edges
             .iter()
-            .filter(|edge| matches!(edge.with, EdgeType::Access(_)))
+            .filter(|edge| {
+                match edge.with {
+                    EdgeType::Access(_) | EdgeType::Spawn => true,
+                    EdgeType::Eval => !ac_accesses.contains(&(&edge.from, &edge.to)),
+                }
+            })
             .cloned()
             .collect::<Vec<_>>()
             .into()
