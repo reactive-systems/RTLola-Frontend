@@ -397,6 +397,15 @@ pub enum ExpressionKind {
         /// The aggregation function
         aggregation: WindowOperation,
     },
+    /// A aggregation over stream-instances with instances `instances` and aggregation function `aggregation`
+    InstanceAggregation {
+        /// The accesses stream
+        expr: Box<Expression>,
+        /// Flag to indicate which instances are part of the aggregation
+        selection: Instanceselection,
+        /// The aggregation function
+        aggregation: WindowOperation,
+    },
     /// A binary operation (For example: `a + b`, `a * b`)
     Binary(BinOp, Box<Expression>, Box<Expression>),
     /// A unary operation (For example: `!x`, `*x`)
@@ -645,6 +654,15 @@ impl Hash for Ident {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
     }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum Instanceselection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
 }
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.

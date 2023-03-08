@@ -286,6 +286,7 @@ impl Expression {
                 duration: right,
                 ..
             } => Box::new(std::iter::once(self).chain(left.iter()).chain(right.iter())),
+            InstanceAggregation { expr, .. } => Box::new(std::iter::once(self).chain(expr.iter())),
             Ite(cond, normal, alternative) => {
                 Box::new(
                     std::iter::once(self)

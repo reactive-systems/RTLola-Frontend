@@ -419,6 +419,7 @@ impl NamingAnalysis {
             SlidingWindowAggregation { expr, duration, .. } => {
                 RtLolaError::combine(self.check_expression(expr), self.check_expression(duration), |_, _| {})
             },
+            InstanceAggregation { .. } => todo!(),
             Binary(_, left, right) => {
                 RtLolaError::combine(self.check_expression(left), self.check_expression(right), |_, _| {})
             },

@@ -679,6 +679,7 @@ impl ExpressionTransformer {
                 self.sliding_windows.push(window);
                 ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), paras)
             },
+            ast::ExpressionKind::InstanceAggregation { .. } => todo!(),
             ast::ExpressionKind::Binary(op, left, right) => {
                 use rtlola_parser::ast::BinOp;
 
@@ -1458,5 +1459,13 @@ mod tests {
 
         let d_map = ctx.map_for(d).clone();
         assert_eq!(d_map, para_map![((d, 0), vec![0]), ((d, 1), vec![1])]);
+    }
+
+    #[test]
+    fn instance_aggregation_simpl() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over: fresh, using: Σ)\n";
+        obtain_expressions(spec);
     }
 }
