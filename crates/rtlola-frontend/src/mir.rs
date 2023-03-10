@@ -28,7 +28,7 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
+    InputReference, Layer, MemorizationBound, Origin, OutputReference, StreamLayers, StreamReference, WindowReference,
 };
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
@@ -204,7 +204,7 @@ pub struct InputStream {
     /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accessed_by: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
@@ -231,9 +231,9 @@ pub struct OutputStream {
     /// The condition under which the stream is supposed to be closed
     pub close: Close,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
-    pub accesses: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accesses: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accessed_by: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -984,7 +984,7 @@ impl std::ops::Add for ValSize {
 }
 
 /// Representation of the different stream accesses
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
@@ -1009,7 +1009,7 @@ pub enum StreamAccessKind {
 }
 
 /// Offset used in the lookup expression
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
     Future(u32),

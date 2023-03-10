@@ -33,7 +33,7 @@ pub struct EdgeWeight {
 }
 
 /// Represents the origin of a stream lookup
-#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy)]
+#[derive(Hash, Clone, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub enum Origin {
     /// The access occurs in the spawn declaration.
     Spawn,
@@ -78,7 +78,7 @@ impl EdgeWeight {
 }
 
 /// Represents all direct dependencies between streams
-pub(crate) type Streamdependencies = HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>>;
+pub(crate) type Streamdependencies = HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>>;
 /// Represents all transitive dependencies between streams
 pub(crate) type Transitivedependencies = HashMap<SRef, Vec<SRef>>;
 /// Represents all dependencies between streams in which a window lookup is used
@@ -167,7 +167,7 @@ impl DepAnaTrait for DepAna {
             .map_or(Vec::new(), |accesses| accesses.iter().map(|(sref, _)| *sref).collect())
     }
 
-    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)> {
+    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)> {
         self.direct_accesses
             .get(&who)
             .map_or(Vec::new(), |accesses| accesses.to_vec())
@@ -185,7 +185,7 @@ impl DepAnaTrait for DepAna {
         })
     }
 
-    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)> {
+    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)> {
         self.direct_accessed_by
             .get(&who)
             .map_or(Vec::new(), |accessed_by| accessed_by.to_vec())
@@ -333,21 +333,21 @@ impl DepAna {
         // Check well-formedness = no closed-walk with total weight of zero or positive
         Self::check_well_formedness(&graph, spec).map_err(|e| e.into_diagnostic(spec))?;
         // Describe dependencies in HashMaps
-        let mut direct_accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>> =
+        let mut direct_accesses: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, StreamAccessKind)>> =
+        let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();
-            let access = (*tar, w.kind);
+            let access = (*tar, w.origin, w.kind);
             if !cur_accesses.contains(&access) {
                 cur_accesses.push(access);
             }
             let cur_accessed_by = direct_accessed_by.get_mut(tar).unwrap();
-            let access = (*src, w.kind);
+            let access = (*src, w.origin, w.kind);
             if !cur_accessed_by.contains(&access) {
                 cur_accessed_by.push(access);
             }
@@ -400,18 +400,23 @@ impl DepAna {
     }
 
     fn group_access_kinds(
-        accesses: HashMap<SRef, Vec<(SRef, StreamAccessKind)>>,
-    ) -> HashMap<SRef, Vec<(SRef, Vec<StreamAccessKind>)>> {
+        accesses: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>>,
+    ) -> HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>> {
         accesses
             .into_iter()
             .map(|(sr, accesses)| {
                 let groups = accesses
                     .into_iter()
-                    .sorted_by_key(|(target, _)| *target)
-                    .group_by(|(target, _)| *target);
+                    .sorted_by_key(|(target, _, _)| *target)
+                    .group_by(|(target, _, _)| *target);
                 let targets = groups
                     .into_iter()
-                    .map(|(target, access_kinds)| (target, access_kinds.map(|(_, kind)| kind).collect::<Vec<_>>()))
+                    .map(|(target, accesses)| {
+                        (
+                            target,
+                            accesses.map(|(_, origin, kind)| (origin, kind)).collect::<Vec<_>>(),
+                        )
+                    })
                     .collect();
                 (sr, targets)
             })

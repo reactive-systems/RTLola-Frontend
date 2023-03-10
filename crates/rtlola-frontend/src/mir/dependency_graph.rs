@@ -5,11 +5,12 @@ use std::io::BufWriter;
 use std::ops::Not;
 
 use dot::{LabelText, Style};
+use itertools::Itertools;
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
 use super::{
-    ActivationCondition, Mir, PacingType, StreamAccessKind, StreamReference, TriggerReference, WindowReference,
+    ActivationCondition, Mir, Origin, PacingType, StreamAccessKind, StreamReference, TriggerReference, WindowReference,
 };
 
 /// Represents the dependency graph of the specification
@@ -115,30 +116,45 @@ struct Edge {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 enum EdgeType {
-    Access(StreamAccessKind),
+    Access { kind: StreamAccessKind, origin: Origin },
     Spawn,
     Eval,
-}
-
-impl From<StreamAccessKind> for EdgeType {
-    fn from(value: StreamAccessKind) -> Self {
-        EdgeType::Access(value)
-    }
 }
 
 impl Display for EdgeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            EdgeType::Access(StreamAccessKind::Sync) => "Sync".into(),
-            EdgeType::Access(StreamAccessKind::Hold) => "Hold".into(),
-            EdgeType::Access(StreamAccessKind::Offset(o)) => format!("Offset({o})"),
+            EdgeType::Access {
+                kind: StreamAccessKind::Sync,
+                ..
+            } => "Sync".into(),
+            EdgeType::Access {
+                kind: StreamAccessKind::Hold,
+                ..
+            } => "Hold".into(),
+            EdgeType::Access {
+                kind: StreamAccessKind::Offset(o),
+                ..
+            } => format!("Offset({o})"),
             EdgeType::Spawn => "Spawn".into(),
             EdgeType::Eval => "Eval".into(),
             // no label on window access edges
-            EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
-            | EdgeType::Access(StreamAccessKind::SlidingWindow(_)) => "".into(),
-            EdgeType::Access(StreamAccessKind::Get) => todo!(),
-            EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
+            EdgeType::Access {
+                kind: StreamAccessKind::DiscreteWindow(_),
+                ..
+            }
+            | EdgeType::Access {
+                kind: StreamAccessKind::SlidingWindow(_),
+                ..
+            } => "".into(),
+            EdgeType::Access {
+                kind: StreamAccessKind::Get,
+                ..
+            } => todo!(),
+            EdgeType::Access {
+                kind: StreamAccessKind::Fresh,
+                ..
+            } => todo!(),
         };
 
         write!(f, "{s}")
@@ -301,39 +317,38 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                 .get(target_ref)
                 .map(|t| Node::Trigger(*t))
                 .unwrap_or_else(|| Node::Stream(*target_ref));
-            access_kinds.iter().filter_map(move |kind| {
+            access_kinds.iter().flat_map(move |&(origin, kind)| {
                 match kind {
-                    // we remove edges for window accesses, because we add extra nodes for them
-                    StreamAccessKind::SlidingWindow(_) | StreamAccessKind::DiscreteWindow(_) => None,
+                    StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
+                        let window = mir.window(w);
+                        let with = EdgeType::Access { origin, kind };
+                        vec![
+                            Edge {
+                                from: Node::Stream(window.caller()),
+                                with: with.clone(),
+                                to: Node::Window(w),
+                            },
+                            Edge {
+                                from: Node::Window(w),
+                                with,
+                                to: Node::Stream(window.target()),
+                            },
+                        ]
+                    },
                     StreamAccessKind::Fresh
                     | StreamAccessKind::Get
                     | StreamAccessKind::Hold
                     | StreamAccessKind::Offset(_)
                     | StreamAccessKind::Sync => {
-                        Some(Edge {
+                        vec![Edge {
                             from: target,
-                            with: EdgeType::from(*kind),
+                            with: EdgeType::Access { origin, kind },
                             to: source,
-                        })
+                        }]
                     },
                 }
             })
         })
-    });
-
-    let window_edges = mir.sliding_windows.iter().flat_map(|window| {
-        [
-            Edge {
-                from: Node::Stream(window.caller),
-                with: StreamAccessKind::SlidingWindow(window.reference).into(),
-                to: Node::Window(window.reference),
-            },
-            Edge {
-                from: Node::Window(window.reference),
-                with: StreamAccessKind::SlidingWindow(window.reference).into(),
-                to: Node::Stream(window.target),
-            },
-        ]
     });
 
     let spawn_edges = mir.outputs.iter().flat_map(|output| {
@@ -380,11 +395,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         }
     });
 
-    access_edges
-        .chain(window_edges)
-        .chain(spawn_edges)
-        .chain(ac_edges)
-        .collect()
+    access_edges.chain(spawn_edges).chain(ac_edges).collect()
 }
 
 fn flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
@@ -472,13 +483,17 @@ Layer: {eval_layer}<br/><br/>\
 
     fn edge_style(&self, edge: &Edge) -> Style {
         match &edge.with {
-            EdgeType::Access(StreamAccessKind::Hold) => Style::Dashed,
-            EdgeType::Access(StreamAccessKind::Sync)
-            | EdgeType::Access(StreamAccessKind::Offset(_))
-            | EdgeType::Access(StreamAccessKind::DiscreteWindow(_))
-            | EdgeType::Access(StreamAccessKind::SlidingWindow(_)) => Style::None,
+            EdgeType::Access { kind, origin: _ } => {
+                match kind {
+                    StreamAccessKind::Hold => Style::Dashed,
+                    StreamAccessKind::Sync
+                    | StreamAccessKind::Offset(_)
+                    | StreamAccessKind::DiscreteWindow(_)
+                    | StreamAccessKind::SlidingWindow(_) => Style::None,
+                    StreamAccessKind::Get | StreamAccessKind::Fresh => todo!(),
+                }
+            },
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
-            EdgeType::Access(StreamAccessKind::Get) | EdgeType::Access(StreamAccessKind::Fresh) => todo!(),
         }
     }
 
@@ -515,24 +530,43 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
             .filter(|edge| {
                 matches!(
                     edge.with,
-                    EdgeType::Access(StreamAccessKind::Sync) | EdgeType::Access(StreamAccessKind::Offset(_))
+                    EdgeType::Access {
+                        kind: StreamAccessKind::Sync,
+                        ..
+                    } | EdgeType::Access {
+                        kind: StreamAccessKind::Offset(_),
+                        ..
+                    }
                 )
             })
             .map(|edge| (&edge.from, &edge.to))
             .collect::<HashSet<_>>();
 
-        // in the dot format, we only want to render eval edges, if the edge it not already covered by sync or offset edges
-        self.edges
+        let edges = self
+            .edges
             .iter()
+            // remove edges that have the same access kind but different origins, because
+            // the origin is not displayed in the dot-representation
+            .unique_by(|edge| {
+                (
+                    edge.from,
+                    edge.to,
+                    match edge.with {
+                        EdgeType::Access { kind, origin: _ } => Some(kind),
+                        EdgeType::Spawn | EdgeType::Eval => None,
+                    },
+                )
+            })
+            // in the dot format, we only want to render eval edges, if the edge it not already covered by sync or offset edges
             .filter(|edge| {
                 match edge.with {
-                    EdgeType::Access(_) | EdgeType::Spawn => true,
+                    EdgeType::Access{..} | EdgeType::Spawn => true,
                     EdgeType::Eval => !ac_accesses.contains(&(&edge.from, &edge.to)),
                 }
             })
             .cloned()
-            .collect::<Vec<_>>()
-            .into()
+            .collect();
+        Cow::Owned(edges)
     }
 
     fn source(&self, e: &Edge) -> Node {
@@ -578,14 +612,14 @@ mod tests {
         ( Eval ) => {
             EdgeType::Eval
         };
-        ( SW, $i:expr ) => {
-            EdgeType::Access(StreamAccessKind::SlidingWindow(WindowReference::Sliding($i)))
+        ( SW, $i:expr, $origin:ident ) => {
+            EdgeType::Access{origin: Origin::$origin, kind: StreamAccessKind::SlidingWindow(WindowReference::Sliding($i))}
         };
-        ( DW, $i:expr ) => {
-            EdgeType::Access(StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i)))
+        ( DW, $i:expr, $origin:ident ) => {
+            EdgeType::Access{origin: Origin::&origin, kind: StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i))}
         };
-        ( $sak:ident ) => {
-            EdgeType::Access(StreamAccessKind::$sak)
+        ( $sak:ident, $origin:ident ) => {
+            EdgeType::Access{origin: Origin::$origin, kind: StreamAccessKind::$sak}
         };
     }
 
@@ -596,7 +630,7 @@ mod tests {
     }
 
     macro_rules! test_dependency_graph {
-        ( $name:ident, $spec:literal, $( $edge_from_ty:ident($edge_from_i:expr) => $edge_to_ty:ident($edge_to_i:expr) : $with:ident $(($p:expr))? , )+ ) => {
+        ( $name:ident, $spec:literal, $( $edge_from_ty:ident($edge_from_i:expr)$(:$origin:ident)? => $edge_to_ty:ident($edge_to_i:expr) : $with:ident $(($p:expr))? , )+ ) => {
 
             #[test]
             fn $name() {
@@ -607,7 +641,7 @@ mod tests {
                 $(
                     let from_node = build_node!($edge_from_ty($edge_from_i));
                     let to_node = build_node!($edge_to_ty($edge_to_i));
-                    let with = build_edge_kind!($with $(,$p)?);
+                    let with = build_edge_kind!($with $(,$p)? $(,$origin)?);
                     let expected_edge = Edge {
                         from: from_node, to: to_node, with
                     };
@@ -622,8 +656,8 @@ mod tests {
         "input a : UInt64
         input b : UInt64
         output c := a + b",
-        Out(0) => In(0) : Sync,
-        Out(0) => In(1) : Sync,
+        Out(0):Eval => In(0) : Sync,
+        Out(0):Eval => In(1) : Sync,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
     );
@@ -631,7 +665,7 @@ mod tests {
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
-        T(0) => In(0) : Sync,
+        T(0):Eval => In(0) : Sync,
         T(0) => In(0) : Eval,
     );
 
@@ -641,11 +675,11 @@ mod tests {
         output c := a + b.hold().defaults(to:0)
         output d@1Hz := a.aggregate(over:5s, using:count)
         trigger d < 5",
-        Out(0) => In(0) : Sync,
-        Out(0) => In(1) : Hold,
-        Out(1) => SW(0) : SW(0),
-        SW(0) => In(0) : SW(0),
-        T(0) => Out(1) : Sync,
+        Out(0):Eval => In(0) : Sync,
+        Out(0):Eval => In(1) : Hold,
+        Out(1):Eval => SW(0) : SW(0),
+        SW(0):Eval => In(0) : SW(0),
+        T(0):Eval => Out(1) : Sync,
         Out(0) => In(0) : Eval,
     );
 
@@ -655,7 +689,7 @@ mod tests {
         output c @(a||b) := 0
         output d @(a&&b) := a
         ",
-        Out(1) => In(0) : Sync,
+        Out(1):Eval => In(0) : Sync,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
         Out(1) => In(0) : Eval,
@@ -672,7 +706,8 @@ mod tests {
         Out(0) => In(0) : Spawn,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
-        Out(0) => In(0) : Sync,
-        Out(0) => In(1) : Sync,
+        Out(0):Filter => In(0) : Sync,
+        Out(0):Eval => In(1) : Sync,
+        Out(0):Spawn => In(0) : Sync,
     );
 }
