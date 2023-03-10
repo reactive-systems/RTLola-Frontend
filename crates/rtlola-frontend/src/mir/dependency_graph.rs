@@ -115,6 +115,7 @@ struct Edge {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "type")]
 enum EdgeType {
     Access { kind: StreamAccessKind, origin: Origin },
     Spawn,
