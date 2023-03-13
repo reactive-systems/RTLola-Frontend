@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
-    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, SlidingAggr,
+    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, Origin, SlidingAggr,
     StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
@@ -559,14 +559,17 @@ impl Mir {
 
     fn lower_accessed_streams(
         sr_map: &HashMap<StreamReference, StreamReference>,
-        streams: Vec<(StreamReference, Vec<StreamAccessKind>)>,
-    ) -> Vec<(StreamReference, Vec<mir::StreamAccessKind>)> {
+        streams: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
+    ) -> Vec<(StreamReference, Vec<(Origin, mir::StreamAccessKind)>)> {
         streams
             .into_iter()
             .map(|(sref, kinds)| {
                 (
                     sr_map[&sref],
-                    kinds.into_iter().map(Self::lower_stream_access_kind).collect(),
+                    kinds
+                        .into_iter()
+                        .map(|(origin, kind)| (origin, Self::lower_stream_access_kind(kind)))
+                        .collect(),
                 )
             })
             .collect()
