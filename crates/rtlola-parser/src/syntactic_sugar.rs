@@ -383,7 +383,7 @@ impl Desugarizer {
         if ast_expr.id == target_id {
             return new_expr.clone();
         }
-        let span = ast_expr.span.clone();
+        let span = ast_expr.span;
 
         use ExpressionKind::*;
         match &ast_expr.kind {

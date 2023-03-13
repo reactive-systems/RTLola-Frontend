@@ -277,7 +277,7 @@ pub struct TypeDeclField {
 }
 
 /// An Ast node representing an opening or closing parenthesis.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Parenthesis {
     /// The id of the node in the Ast
     pub id: NodeId,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use itertools::Itertools;
 use rtlola_hir::hir::{
@@ -179,7 +179,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> mir::EventDrivenStream {
-        if let ConcretePacingType::Event(ac) = hir.stream_type(sr).pacing_ty {
+        if let ConcretePacingType::Event(ac) = hir.stream_type(sr).eval_pacing {
             mir::EventDrivenStream {
                 reference: sr_map[&sr],
                 ac: Self::lower_activation_condition(&ac, sr_map),
@@ -193,22 +193,28 @@ impl Mir {
         ac: &ActivationCondition,
         sr_map: &HashMap<StreamReference, StreamReference>,
     ) -> mir::ActivationCondition {
-        match ac {
-            ActivationCondition::Conjunction(con) => {
+        let lower_conjunction = |conjs: &BTreeSet<StreamReference>| -> mir::ActivationCondition {
+            if conjs.len() == 1 {
+                let sref = conjs.iter().next().unwrap();
+                mir::ActivationCondition::Stream(sr_map[sref])
+            } else {
                 mir::ActivationCondition::Conjunction(
-                    con.iter()
-                        .map(|ac| Self::lower_activation_condition(ac, sr_map))
+                    conjs
+                        .iter()
+                        .map(|sr| mir::ActivationCondition::Stream(sr_map[sr]))
                         .collect(),
                 )
+            }
+        };
+
+        match ac {
+            ActivationCondition::Models(disjuncts) if disjuncts.len() == 1 => {
+                let conj = disjuncts.iter().next().unwrap();
+                lower_conjunction(conj)
             },
-            ActivationCondition::Disjunction(dis) => {
-                mir::ActivationCondition::Disjunction(
-                    dis.iter()
-                        .map(|ac| Self::lower_activation_condition(ac, sr_map))
-                        .collect(),
-                )
+            ActivationCondition::Models(disjuncts) => {
+                mir::ActivationCondition::Disjunction(disjuncts.iter().map(|conjs| lower_conjunction(conjs)).collect())
             },
-            ActivationCondition::Stream(sr) => mir::ActivationCondition::Stream(sr_map[sr]),
             ActivationCondition::True => mir::ActivationCondition::True,
         }
     }
@@ -218,7 +224,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> mir::TimeDrivenStream {
-        if let ConcretePacingType::FixedPeriodic(freq) = &hir.stream_type(sr).pacing_ty {
+        if let ConcretePacingType::FixedPeriodic(freq) = &hir.stream_type(sr).eval_pacing {
             mir::TimeDrivenStream {
                 reference: sr_map[&sr],
                 frequency: *freq,
@@ -247,8 +253,8 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> Spawn {
-        let spawn = hir.stream_type(sr).spawn;
-        let spawn_pacing = Self::lower_pacing_type(spawn.0, sr_map);
+        let ty = hir.stream_type(sr);
+        let spawn_pacing = Self::lower_pacing_type(ty.spawn_pacing, sr_map);
         let hir_spawn_expr = hir.spawn_expr(sr);
         let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, sr_map, expr));
@@ -265,7 +271,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> Eval {
-        let pacing_ty = hir.stream_type(sr).pacing_ty;
+        let pacing_ty = hir.stream_type(sr).eval_pacing;
         let expr = Self::lower_expr(
             hir,
             sr_map,
@@ -289,9 +295,9 @@ impl Mir {
         let (close, close_pacing, close_self_ref) = hir
             .close_cond(sr)
             .map(|expr| {
-                let cpt = hir.expr_type(expr.id()).pacing_ty;
+                let cpt = hir.expr_type(expr.id()).eval_pacing;
                 let close_self_ref = matches!(
-                    hir.expr_type(expr.id()).spawn.0,
+                    hir.expr_type(expr.id()).spawn_pacing,
                     ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
                 );
                 (

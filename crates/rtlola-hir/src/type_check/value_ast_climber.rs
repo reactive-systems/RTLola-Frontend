@@ -72,20 +72,20 @@ where
         for input in hir.inputs() {
             let key = tyc.get_var_key(&Variable(input.name.clone()));
             node_key.insert(NodeId::SRef(input.sr), key);
-            key_span.insert(key, input.span.clone());
+            key_span.insert(key, input.span);
         }
 
         for out in hir.outputs() {
             let key = tyc.get_var_key(&Variable(out.name.clone()));
             node_key.insert(NodeId::SRef(out.sr), key);
-            key_span.insert(key, out.span.clone());
+            key_span.insert(key, out.span);
         }
 
         for (ix, tr) in hir.triggers().enumerate() {
             let n = format!("trigger_{ix}");
             let key = tyc.get_var_key(&Variable(n));
             node_key.insert(NodeId::SRef(tr.sr), key);
-            key_span.insert(key, tr.span.clone());
+            key_span.insert(key, tr.span);
         }
 
         ValueTypeChecker {
@@ -293,7 +293,7 @@ where
                 let param_key = self.tyc.get_var_key(&Variable::for_parameter(out, param.idx));
 
                 self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
-                self.key_span.insert(param_key, param.span.clone());
+                self.key_span.insert(param_key, param.span);
 
                 if let Some(a_ty) = param.annotated_type.as_ref() {
                     self.handle_annotated_type(param_key, a_ty, None)?;
@@ -387,9 +387,7 @@ where
 
         let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
         let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)]
-            .expression_pacing
-            .to_abstract_freq();
+        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].eval_pacing.to_abstract_freq();
         //special case: period of current output > offset
         // && offset is multiple of target stream (no optional needed)
         if let Ok(Periodic(target_freq)) = target_ratio {
@@ -423,7 +421,7 @@ where
     ) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let term_key: TcKey = self.tyc.new_term_key();
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        self.key_span.insert(term_key, exp.span.clone());
+        self.key_span.insert(term_key, exp.span);
         if let Some(t) = target_type {
             self.tyc.impose(term_key.concretizes_explicit(t))?;
         }
@@ -791,7 +789,7 @@ where
                 let fun_decl = self.hir.func_declaration(name);
                 //Generics
                 if type_param.len() > fun_decl.generics.len() {
-                    return Err(ValueErrorKind::UnnecessaryTypeParam(exp.span.clone()).into());
+                    return Err(ValueErrorKind::UnnecessaryTypeParam(exp.span).into());
                 }
                 let generics: Vec<TcKey> = fun_decl
                     .generics
@@ -841,7 +839,7 @@ where
     fn tuple_option_infer(&mut self, exp: &Expression) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let term_key: TcKey = self.tyc.new_term_key();
         self.node_key.insert(NodeId::Expr(exp.eid), term_key);
-        self.key_span.insert(term_key, exp.span.clone());
+        self.key_span.insert(term_key, exp.span);
 
         if let ExpressionKind::TupleAccess(inner, idx) = &exp.kind {
             let tuple_option = if matches!(inner.kind, ExpressionKind::TupleAccess(_, _)) {

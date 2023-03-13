@@ -74,7 +74,7 @@ impl NamingAnalysis {
         if KEYWORDS.contains(&lower.as_str()) {
             error.add(
                 Diagnostic::error(&format!("`{name}` is a reserved keyword")).add_span_with_label(
-                    span.clone(),
+                    span,
                     Some("use a different name here"),
                     true,
                 ),
@@ -115,7 +115,7 @@ impl NamingAnalysis {
                     // it does not exist
                     error.add(
                         Diagnostic::error(&format!("cannot find type `{name}` in this scope")).add_span_with_label(
-                            ty.span.clone(),
+                            ty.span,
                             Some("not found in this scope"),
                             true,
                         ),
@@ -160,7 +160,7 @@ impl NamingAnalysis {
                         param.name.name
                     ))
                     .add_span_with_label(
-                        param.name.span.clone(),
+                        param.name.span,
                         Some(&format!("`{}` used as a parameter more than once", param.name.name)),
                         true,
                     )
@@ -200,7 +200,7 @@ impl NamingAnalysis {
                 n => {
                     error.add(
                         Diagnostic::error(&format!("unresolved import `{n}`")).add_span_with_label(
-                            import.name.span.clone(),
+                            import.name.span,
                             Some(&format!("no `{n}` in the root")),
                             true,
                         ),
@@ -281,13 +281,13 @@ impl NamingAnalysis {
                     if !matches!(decl, Declaration::Out(_) | Declaration::In(_)) {
                         error.add(
                             Diagnostic::error("Only input and output names are supported in trigger messages.")
-                                .add_span_with_label(info_stream.span.clone(), Some("Found other name here"), true),
+                                .add_span_with_label(info_stream.span, Some("Found other name here"), true),
                         );
                     }
                 } else {
                     error.add(
                         Diagnostic::error(&format!("name `{}` does not exist in current scope", &info_stream.name))
-                            .add_span_with_label(info_stream.span.clone(), Some("does not exist"), true),
+                            .add_span_with_label(info_stream.span, Some("does not exist"), true),
                     );
                 }
             }
@@ -382,7 +382,7 @@ impl NamingAnalysis {
         } else {
             Err(
                 Diagnostic::error(&format!("name `{}` does not exist in current scope", &ident.name))
-                    .add_span_with_label(ident.span.clone(), Some("does not exist"), true),
+                    .add_span_with_label(ident.span, Some("does not exist"), true),
             )
         }
     }
@@ -402,7 +402,7 @@ impl NamingAnalysis {
         } else {
             return Err(
                 Diagnostic::error(&format!("function name `{str_repr}` does not exist in current scope"))
-                    .add_span_with_label(name.name.span.clone(), Some("does not exist"), true),
+                    .add_span_with_label(name.name.span, Some("does not exist"), true),
             );
         }
         Ok(())
@@ -593,11 +593,11 @@ enum DeclName {
 impl Declaration {
     fn get_span(&self) -> Option<Span> {
         match &self {
-            Declaration::Const(constant) => Some(constant.name.span.clone()),
-            Declaration::In(input) => Some(input.name.span.clone()),
-            Declaration::Out(output) => Some(output.name.span.clone()),
-            Declaration::ParamOut(output) => Some(output.name.span.clone()),
-            Declaration::Param(p) => Some(p.name.span.clone()),
+            Declaration::Const(constant) => Some(constant.name.span),
+            Declaration::In(input) => Some(input.name.span),
+            Declaration::Out(output) => Some(output.name.span),
+            Declaration::ParamOut(output) => Some(output.name.span),
+            Declaration::Param(p) => Some(p.name.span),
             Declaration::Type(_) | Declaration::Func(_) => None,
         }
     }

@@ -13,8 +13,7 @@ use codespan_reporting::term::Config;
 use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
-// Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {
@@ -24,8 +23,14 @@ pub enum Span {
         end: usize,
     },
     /// Indirect code reference created through ast refactoring
-    Indirect(Box<Self>),
+    Indirect {
+        /// The start of the span in characters absolute to the beginning of the specification.
+        start: usize,
+        /// The end of the span in characters absolute to the beginning of the specification.
+        end: usize,
+    },
     /// An unknown code reference
+    #[default]
     Unknown,
 }
 impl<'a> From<pest::Span<'a>> for Span {
@@ -49,7 +54,7 @@ impl Span {
     pub fn is_indirect(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
-            Span::Indirect(_) => true,
+            Span::Indirect { .. } => true,
             Span::Unknown => false,
         }
     }
@@ -58,7 +63,7 @@ impl Span {
     pub fn is_unknown(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
-            Span::Indirect(_) => false,
+            Span::Indirect { .. } => false,
             Span::Unknown => true,
         }
     }
@@ -67,32 +72,40 @@ impl Span {
     /// Note: If the span is unknown returns (usize::min, usize::max)
     fn get_bounds(&self) -> (usize, usize) {
         match self {
-            Span::Direct { start: s, end: e } => (*s, *e),
-            Span::Indirect(s) => s.get_bounds(),
-            Span::Unknown => (usize::min_value(), usize::max_value()),
+            Span::Indirect { start, end } | Span::Direct { start, end } => (*start, *end),
+            Span::Unknown => (usize::MIN, usize::MAX),
         }
     }
 
     /// Combines two spans to their union
     pub fn union(&self, other: &Self) -> Self {
         if self.is_unknown() {
-            return other.clone();
+            return *other;
         }
         if other.is_unknown() {
-            return self.clone();
+            return *self;
         }
         let (start1, end1) = self.get_bounds();
         let (start2, end2) = other.get_bounds();
         if self.is_indirect() || other.is_indirect() {
-            Span::Indirect(Box::new(Span::Direct {
+            Span::Indirect {
                 start: start1.min(start2),
                 end: end1.max(end2),
-            }))
+            }
         } else {
             Span::Direct {
                 start: start1.min(start2),
                 end: end1.max(end2),
             }
+        }
+    }
+
+    /// Converts a direct span to an indirect one.
+    pub fn to_indirect(self) -> Self {
+        match self {
+            Span::Direct { start, end } => Span::Indirect { start, end },
+            Span::Indirect { .. } => self,
+            Span::Unknown => self,
         }
     }
 }
@@ -202,7 +215,7 @@ impl Handler {
     pub fn warn_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RawDiagnostic::warning().with_message(message);
         if !span.is_unknown() {
-            let mut label = Label::primary((), span.clone());
+            let mut label = Label::primary((), span);
             if let Some(l) = span_label {
                 label.message = l.into();
             }
@@ -224,7 +237,7 @@ impl Handler {
     pub fn error_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RawDiagnostic::error().with_message(message);
         if !span.is_unknown() {
-            let mut label = Label::primary((), span.clone());
+            let mut label = Label::primary((), span);
             if let Some(l) = span_label {
                 label.message = l.into();
             }
@@ -484,7 +497,7 @@ mod tests {
     fn custom() {
         let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
         let span1 = Span::Direct { start: 9, end: 12 };
-        let span2 = Span::Indirect(Box::new(Span::Direct { start: 20, end: 21 }));
+        let span2 = Span::Indirect { start: 20, end: 21 };
         let span3 = Span::Direct { start: 24, end: 25 };
         handler.emit(
             &Diagnostic::error("Failed with love")

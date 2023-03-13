@@ -130,11 +130,11 @@ impl ExtendedDepGraph for DependencyGraph {
             let lhs = hir.stream_type(lhs_sr);
             let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
             let lhs_pt = match w.origin {
-                Origin::Spawn => lhs.spawn.0,
-                Origin::Filter | Origin::Eval => lhs.pacing_ty,
-                Origin::Close => hir.expr_type(hir.close_cond(lhs_sr).unwrap().eid).pacing_ty,
+                Origin::Spawn => lhs.spawn_pacing,
+                Origin::Filter | Origin::Eval => lhs.eval_pacing,
+                Origin::Close => lhs.close_pacing,
             };
-            let rhs_pt = rhs.pacing_ty;
+            let rhs_pt = rhs.eval_pacing;
             match (lhs_pt, rhs_pt) {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
                 (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
@@ -234,8 +234,8 @@ impl DependencyErr {
         let names = hir.names();
         let spans: HashMap<SRef, Span> = hir
             .inputs()
-            .map(|i| (i.sr, i.span.clone()))
-            .chain(hir.outputs().map(|o| (o.sr, o.span.clone())))
+            .map(|i| (i.sr, i.span))
+            .chain(hir.outputs().map(|o| (o.sr, o.span)))
             .collect();
         match self {
             DependencyErr::WellFormedNess(mut cycle) => {
@@ -248,7 +248,7 @@ impl DependencyErr {
                 ));
                 for stream in cycle.iter().take(cycle.len() - 1) {
                     diag = diag.add_span_with_label(
-                        spans[stream].clone(),
+                        spans[stream],
                         Some(&format!("Stream {} found here", names[stream])),
                         true,
                     );
