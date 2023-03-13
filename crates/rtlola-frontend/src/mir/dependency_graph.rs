@@ -151,11 +151,11 @@ impl Display for EdgeType {
             EdgeType::Access {
                 kind: StreamAccessKind::Get,
                 ..
-            } => todo!(),
+            } => "Get".into(),
             EdgeType::Access {
                 kind: StreamAccessKind::Fresh,
                 ..
-            } => todo!(),
+            } => "Fresh".into(),
         };
 
         write!(f, "{s}")
@@ -486,12 +486,11 @@ Layer: {eval_layer}<br/><br/>\
         match &edge.with {
             EdgeType::Access { kind, origin: _ } => {
                 match kind {
-                    StreamAccessKind::Hold => Style::Dashed,
+                    StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
                     StreamAccessKind::Sync
                     | StreamAccessKind::Offset(_)
                     | StreamAccessKind::DiscreteWindow(_)
                     | StreamAccessKind::SlidingWindow(_) => Style::None,
-                    StreamAccessKind::Get | StreamAccessKind::Fresh => todo!(),
                 }
             },
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
