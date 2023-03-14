@@ -1263,13 +1263,21 @@ mod tests {
         let (hir, _) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
+
+        let a = get_sr_for_name(&hir, "a");
+        let b = get_sr_for_name(&hir, "b");
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
             tt[&get_node_for_name(&hir, "x")].eval_pacing,
-            ConcretePacingType::Event(ActivationCondition::disjunction(&[
-                get_sr_for_name(&hir, "a"),
-                get_sr_for_name(&hir, "b")
-            ]))
+            ConcretePacingType::Event(ActivationCondition::Models(
+                vec![
+                    vec![a].into_iter().collect(),
+                    vec![b].into_iter().collect(),
+                    vec![a, b].into_iter().collect()
+                ]
+                .into_iter()
+                .collect()
+            ))
         );
     }
 
@@ -2738,6 +2746,28 @@ mod tests {
         input b: Bool\n\
         output c @(a || b) := 42
         output d @a := c";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_disjunctive_annotated2() {
+        let spec = "input a: Int8\n\
+        input b: Bool\n\
+        output c @(a || b) := 42
+        output d @a&b := c";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_annotated_pacing_complex() {
+        let spec = "input a: Int8\n\
+        input b: Bool\n\
+        input c: Bool\n\
+        input d: Bool\n\
+        output e @(((a&b)| c) & ((a & c) | b)) := 42
+        output f @a&b := e";
 
         assert_eq!(0, num_errors(spec));
     }

@@ -39,11 +39,6 @@ impl ActivationCondition {
     pub(crate) fn conjunction(conjuncts: &[SRef]) -> Self {
         ActivationCondition::Models(vec![conjuncts.iter().copied().collect()].into_iter().collect())
     }
-
-    #[cfg(test)]
-    pub(crate) fn disjunction(disjuncts: &[SRef]) -> Self {
-        ActivationCondition::Models(disjuncts.iter().map(|sref| vec![*sref].into_iter().collect()).collect())
-    }
 }
 
 /// Represents the frequency of a periodic stream
@@ -273,9 +268,24 @@ impl std::ops::BitOr for ActivationCondition {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
+        // Solution set is equal to: {self, rhs, self & rhs}
+
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        let conjunction = if let ActivationCondition::Models(m) = self.clone() & rhs.clone() {
+            m
+        } else {
+            BTreeSet::new()
+        };
         match (self, rhs) {
             (ActivationCondition::Models(left), ActivationCondition::Models(right)) => {
-                ActivationCondition::Models(left.union(&right).map(BTreeSet::clone).collect())
+                ActivationCondition::Models(
+                    left.union(&right)
+                        .map(BTreeSet::clone)
+                        .collect::<BTreeSet<_>>()
+                        .union(&conjunction)
+                        .cloned()
+                        .collect(),
+                )
             },
             (ActivationCondition::True, _) | (_, ActivationCondition::True) => ActivationCondition::True,
         }
