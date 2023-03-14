@@ -1290,7 +1290,7 @@ impl AbstractSemanticType {
             // Lattice for positive types
             // (Self::Negative(l_kind), Self::Negative(r_kind)) |
             (Self::Positive(l_kind), Self::Positive(r_kind)) => {
-                match (l_kind.clone(), r_kind.clone()) {
+                match (l_kind, r_kind) {
                     (SemanticTypeKind::Any, _) => false,
                     (_, SemanticTypeKind::Any) => true,
                     (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => a == b,
@@ -1314,7 +1314,7 @@ impl AbstractSemanticType {
 
             // Lattice for negative Types
             (Self::Negative(l_kind), Self::Negative(r_kind)) => {
-                match (l_kind.clone(), r_kind.clone()) {
+                match (l_kind, r_kind) {
                     (SemanticTypeKind::Any, _) => true,
                     (_, SemanticTypeKind::Any) => false,
                     (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => a == b,
