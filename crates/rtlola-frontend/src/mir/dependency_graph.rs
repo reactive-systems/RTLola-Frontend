@@ -399,7 +399,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     access_edges.chain(spawn_edges).chain(ac_edges).collect()
 }
 
-fn flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
+fn inner_flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
     match ac {
         ActivationCondition::Disjunction(xs) | ActivationCondition::Conjunction(xs) => {
             xs.iter().flat_map(flatten_ac).collect()
@@ -407,6 +407,13 @@ fn flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
         ActivationCondition::Stream(s) => vec![*s],
         ActivationCondition::True => vec![],
     }
+}
+
+fn flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
+    let mut vec = inner_flatten_ac(ac);
+    vec.sort();
+    vec.dedup();
+    vec
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {

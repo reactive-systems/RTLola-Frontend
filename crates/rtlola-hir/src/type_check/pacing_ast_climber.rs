@@ -1134,14 +1134,14 @@ mod tests {
     }
 
     fn num_errors(spec: &str) -> usize {
-        use rtlola_reporting::Handler;
-        let handler = Handler::from(ParserConfig::for_string(spec.to_string()));
+        // use rtlola_reporting::Handler;
+        // let handler = Handler::from(ParserConfig::for_string(spec.to_string()));
         let (spec, _) = setup_ast(spec);
         let mut ltc = LolaTypeChecker::new(&spec);
         match ltc.pacing_type_infer() {
             Ok(_) => 0,
             Err(e) => {
-                handler.emit_error(&e);
+                // handler.emit_error(&e);
                 e.num_errors()
             },
         }
