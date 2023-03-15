@@ -1244,6 +1244,16 @@ mod tests {
         check_graph_for_spec(spec, None);
     }
 
+    #[ignore = "This should be rejected. See Issue #33"]
+    #[test]
+    fn test_filter_self_lookup() {
+        let spec = "input a: Int8\n\
+        input b: Bool\n\
+        output c eval when c.offset(by:-1).defaults(to: true) with b";
+
+        check_graph_for_spec(spec, None);
+    }
+
     #[test]
     fn delay() {
         let spec = "
