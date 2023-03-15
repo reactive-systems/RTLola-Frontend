@@ -536,7 +536,24 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a when a < b eval with p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b when c(4).hold().defaults(to: 0) < 4 eval with b + 5\noutput e(p) spawn with b eval with d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b eval when e(p).hold().defaults(to: 0) < 6 with b + 5\noutput g(p) spawn with b close @true when f(p).hold().defaults(to: 0) < 6 eval with b + 5";
+        let spec = "\
+        input a: Int8\n\
+        input b: Int8\n\
+        output c(p) \n\
+            spawn with a when a < b\n\
+            eval with p + b + g(p).hold().defaults(to: 0)\n\
+        output d(p) \n\
+            spawn with b when c(4).hold().defaults(to: 0) < 4\n\
+            eval with b + 5\n\
+        output e(p)\n\
+            spawn with b\n\
+            eval with d(p).hold().defaults(to: 0) + b\n\
+        output f(p)\n\
+            spawn with b\n\
+            eval when e(p).hold().defaults(to: 0) < 6 with b + 5\n\
+        output g(p)\n\
+            spawn with b close @true when f(p).hold().defaults(to: 0) < 6\n\
+            eval with b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),

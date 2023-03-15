@@ -95,10 +95,12 @@ where
             let concrete_pacing = pacing_tt[id].clone();
             let st = StreamType {
                 value_ty: value_tt[id].clone(),
-                pacing_ty: concrete_pacing.expression_pacing,
-                filter: concrete_pacing.filter,
-                spawn: (concrete_pacing.spawn.0, concrete_pacing.spawn.1),
-                close: concrete_pacing.close,
+                eval_pacing: concrete_pacing.eval_pacing,
+                eval_condition: concrete_pacing.eval_condition,
+                spawn_pacing: concrete_pacing.spawn_pacing,
+                spawn_condition: concrete_pacing.spawn_condition,
+                close_pacing: concrete_pacing.close_pacing,
+                close_condition: concrete_pacing.close_condition,
             };
             match id {
                 NodeId::SRef(sref) => {

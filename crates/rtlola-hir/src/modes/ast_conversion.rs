@@ -258,14 +258,14 @@ impl ExpressionTransformer {
                         .map_or(Ok(None), |ty| {
                             Self::annotated_type(ty)
                                 .map(Some)
-                                .map_err(|reason| (reason, ty.clone(), p.span.clone()))
+                                .map_err(|reason| (reason, ty.clone(), p.span))
                         })
                         .map(|p_ty| {
                             Parameter {
                                 name: p.name.name.clone(),
                                 annotated_type: p_ty,
                                 idx: p.param_idx,
-                                span: p.span.clone(),
+                                span: p.span,
                             }
                         })
                 })
@@ -276,7 +276,7 @@ impl ExpressionTransformer {
                 .map_or(Ok(None), |ty| {
                     Self::annotated_type(ty)
                         .map(Some)
-                        .map_err(|reason| (reason, ty.clone(), ty.span.clone()))
+                        .map_err(|reason| (reason, ty.clone(), ty.span))
                 })
                 .map_err(|(reason, ty, span)| TransformationErr::InvalidType(ty, reason, span))?;
 
@@ -286,13 +286,13 @@ impl ExpressionTransformer {
 
             //Check that if the output has parameters it has a spawn condition with a target and the other way around
             if !params.is_empty() && spawn.as_ref().and_then(|st| st.expression).is_none() {
-                return Err(TransformationErr::MissingSpawn(o.span.clone()));
+                return Err(TransformationErr::MissingSpawn(o.span));
             }
 
             if let Some(target) = spawn.as_ref().and_then(|st| st.expression) {
                 let spawn_expr = &exprid_to_expr[&target];
                 if params.is_empty() {
-                    return Err(TransformationErr::MissingParameters(spawn_expr.span.clone()));
+                    return Err(TransformationErr::MissingParameters(spawn_expr.span));
                 }
                 // check that they are equal length
                 let num_spawn_expr = match &spawn_expr.kind {
@@ -301,7 +301,7 @@ impl ExpressionTransformer {
                 };
                 if num_spawn_expr != params.len() {
                     return Err(TransformationErr::SpawnParameterMismatch(
-                        o.span.clone(),
+                        o.span,
                         params.len(),
                         num_spawn_expr,
                     ));
@@ -316,7 +316,7 @@ impl ExpressionTransformer {
                 eval,
                 close,
                 annotated_type,
-                span: o.span.clone(),
+                span: o.span,
             });
         }
         let hir_outputs = hir_outputs;
@@ -353,10 +353,10 @@ impl ExpressionTransformer {
             .map(|(ix, i)| {
                 Ok(Input {
                     annotated_type: Self::annotated_type(&i.ty)
-                        .map_err(|reason| TransformationErr::InvalidType(i.ty.clone(), reason, i.span.clone()))?,
+                        .map_err(|reason| TransformationErr::InvalidType(i.ty.clone(), reason, i.span))?,
                     name: i.name.name.clone(),
                     sr: SRef::In(ix),
-                    span: i.span.clone(),
+                    span: i.span,
                 })
             })
             .collect::<Result<Vec<_>, TransformationErr>>()?;
@@ -446,10 +446,10 @@ impl ExpressionTransformer {
                 match &self.decl_table[&expr.id] {
                     Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                     Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
-                    Declaration::ParamOut(_) => Err(TransformationErr::MissingArguments(expr.span.clone())),
+                    Declaration::ParamOut(_) => Err(TransformationErr::MissingArguments(expr.span)),
                     _ => {
                         Err(TransformationErr::InvalidRefExpr(
-                            expr.span.clone(),
+                            expr.span,
                             String::from("Non-identifier transformed to SRef"),
                         ))
                     },
@@ -465,15 +465,10 @@ impl ExpressionTransformer {
                                 .collect::<Result<Vec<_>, TransformationErr>>()?,
                         ))
                     },
-                    _ => Err(TransformationErr::InvalidIdentRef(expr.span.clone(), name.clone())),
+                    _ => Err(TransformationErr::InvalidIdentRef(expr.span, name.clone())),
                 }
             },
-            _ => {
-                Err(TransformationErr::InvalidRefExpr(
-                    expr.span.clone(),
-                    format!("{:?}", expr.kind),
-                ))
-            },
+            _ => Err(TransformationErr::InvalidRefExpr(expr.span, format!("{:?}", expr.kind))),
         }
     }
 
@@ -489,7 +484,7 @@ impl ExpressionTransformer {
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => Literal::Str(s.clone()),
             ast::LitKind::Numeric(num_str, postfix) => {
                 match postfix {
-                    Some(s) if !s.is_empty() => return Err(TransformationErr::InvalidLiteral(lit.span.clone())),
+                    Some(s) if !s.is_empty() => return Err(TransformationErr::InvalidLiteral(lit.span)),
                     _ => {},
                 }
 
@@ -498,19 +493,19 @@ impl ExpressionTransformer {
                     Literal::Float(
                         num_str
                             .parse()
-                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
+                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span))?,
                     )
                 } else if num_str.starts_with('-') {
                     Literal::SInt(
                         num_str
                             .parse()
-                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
+                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span))?,
                     )
                 } else {
                     Literal::Integer(
                         num_str
                             .parse()
-                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span.clone()))?,
+                            .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span))?,
                     )
                 }
             },
@@ -527,9 +522,9 @@ impl ExpressionTransformer {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
                 let val = pt_expr
                     .parse_freqspec()
-                    .map_err(|reason| TransformationErr::InvalidAc(pt_expr.span.clone(), reason))?;
+                    .map_err(|reason| TransformationErr::InvalidAc(pt_expr.span, reason))?;
                 return Ok(AnnotatedPacingType::Frequency {
-                    span: pt_expr.span.clone(),
+                    span: pt_expr.span,
                     value: val,
                 });
             }
@@ -565,9 +560,9 @@ impl ExpressionTransformer {
                     Declaration::Const(c) => {
                         let ty =
                             c.ty.as_ref()
-                                .ok_or_else(|| TransformationErr::ConstantWithoutType(span.clone()))?;
+                                .ok_or_else(|| TransformationErr::ConstantWithoutType(span))?;
                         let annotated_type = Self::annotated_type(ty)
-                            .map_err(|reason| TransformationErr::InvalidType(ty.clone(), reason, span.clone()))?;
+                            .map_err(|reason| TransformationErr::InvalidType(ty.clone(), reason, span))?;
                         ExpressionKind::LoadConstant(HirConstant::Inlined(Inlined {
                             lit: self.transform_literal(&c.literal)?,
                             ty: annotated_type,
@@ -608,7 +603,7 @@ impl ExpressionTransformer {
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time = offset
                             .to_uom_time()
-                            .ok_or_else(|| TransformationErr::InvalidRealtimeOffset(span.clone()))?;
+                            .ok_or_else(|| TransformationErr::InvalidRealtimeOffset(span))?;
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
                         let time = offset_uom_time.get::<nanosecond>();
@@ -641,7 +636,7 @@ impl ExpressionTransformer {
                 let wref = WRef::Discrete(idx);
                 let duration = (*duration)
                     .parse_discrete_duration()
-                    .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
+                    .map_err(|e| TransformationErr::InvalidDuration(e, span))?;
                 let window = Window {
                     target: sref,
                     caller: current_output,
@@ -666,7 +661,7 @@ impl ExpressionTransformer {
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
                 let duration = Self::parse_duration_from_expr(duration.as_ref())
-                    .map_err(|e| TransformationErr::InvalidDuration(e, span.clone()))?;
+                    .map_err(|e| TransformationErr::InvalidDuration(e, span))?;
                 let window = Window {
                     target: sref,
                     caller: current_output,
@@ -790,7 +785,7 @@ impl ExpressionTransformer {
         let decl = self
             .decl_table
             .get(&id)
-            .ok_or_else(|| TransformationErr::UnknownFunction(span.clone()))?;
+            .ok_or_else(|| TransformationErr::UnknownFunction(*span))?;
         match decl {
             Declaration::Func(_) => {
                 let name = name.name.name;
@@ -800,15 +795,13 @@ impl ExpressionTransformer {
                     .collect::<Result<Vec<_>, TransformationErr>>()?;
 
                 if name.starts_with("widen") {
-                    let widen_arg = args
-                        .get(0)
-                        .ok_or_else(|| TransformationErr::MissingWidenArg(span.clone()))?;
+                    let widen_arg = args.get(0).ok_or_else(|| TransformationErr::MissingWidenArg(*span))?;
                     Ok(ExpressionKind::Widen(WidenExprKind {
                         expr: Box::new(widen_arg.clone()),
                         ty: match type_param.get(0) {
                             Some(t) => {
                                 Self::annotated_type(t)
-                                    .map_err(|reason| TransformationErr::InvalidType(t.clone(), reason, span.clone()))?
+                                    .map_err(|reason| TransformationErr::InvalidType(t.clone(), reason, *span))?
                             },
                             None => todo!("error case"),
                         },
@@ -821,7 +814,7 @@ impl ExpressionTransformer {
                             .into_iter()
                             .map(|t| {
                                 Self::annotated_type(&t)
-                                    .map_err(|reason| TransformationErr::InvalidType(t, reason, span.clone()))
+                                    .map_err(|reason| TransformationErr::InvalidType(t, reason, *span))
                             })
                             .collect::<Result<Vec<_>, TransformationErr>>()?,
                     }))
@@ -837,10 +830,10 @@ impl ExpressionTransformer {
                             .collect::<Result<Vec<_>, TransformationErr>>()?,
                     ))
                 } else {
-                    Err(TransformationErr::UnknownFunction(span.clone()))
+                    Err(TransformationErr::UnknownFunction(*span))
                 }
             },
-            _ => Err(TransformationErr::UnknownFunction(span.clone())),
+            _ => Err(TransformationErr::UnknownFunction(*span)),
         }
     }
 
@@ -881,6 +874,7 @@ impl ExpressionTransformer {
                 expression,
                 annotated_pacing,
                 condition,
+                span,
                 ..
             } = spawn_spec;
             let expression = expression.map_or(Ok(None), |expr| {
@@ -904,6 +898,7 @@ impl ExpressionTransformer {
                 expression,
                 pacing,
                 condition,
+                span,
             }))
         })
     }
@@ -937,6 +932,7 @@ impl ExpressionTransformer {
                 expr: eval_expr_id,
                 condition,
                 annotated_pacing_type: pacing,
+                span: eval_spec.span,
             }
         } else {
             unreachable!("Grammar requires at least one eval declaration")
@@ -958,7 +954,11 @@ impl ExpressionTransformer {
                 exprid_to_expr,
                 self.transform_expression(close_spec.condition, current_output)?,
             );
-            Ok(Some(Close { condition, pacing }))
+            Ok(Some(Close {
+                condition,
+                pacing,
+                span: close_spec.span,
+            }))
         })
     }
 }

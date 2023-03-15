@@ -36,7 +36,7 @@ impl Expression {
 
     /// Returns the [Span] of the [Expression] identifying its position in the specification.
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 
     /// Returns all streams that are synchronous accesses

@@ -20,11 +20,7 @@ impl Feature for Parameterized {
         } else {
             Err(
                 Diagnostic::error("Unsupported Feature: Parameters are not supported by the backend.")
-                    .add_span_with_label(
-                        output.span.clone(),
-                        Some("Found parameterized output stream here"),
-                        true,
-                    )
+                    .add_span_with_label(output.span, Some("Found parameterized output stream here"), true)
                     .into(),
             )
         }
@@ -46,7 +42,7 @@ impl Feature for Spawned {
             Err(Diagnostic::error(
                 "Unsupported Feature: Dynamically creating streams through spawn is not supported by the backend.",
             )
-            .add_span_with_label(output.span.clone(), Some("Found spawned stream here"), true)
+            .add_span_with_label(output.span, Some("Found spawned stream here"), true)
             .into())
         }
     }
@@ -64,7 +60,7 @@ impl Feature for Filtered {
         if output.eval.condition.is_none() {
             Ok(())
         } else {
-            Err(Diagnostic::error("Unsupported Feature: Conditionally evaluating a stream through when clauses is not supported by the backend.").add_span_with_label(output.span.clone(), Some("Found stream with when clause here."), true).into())
+            Err(Diagnostic::error("Unsupported Feature: Conditionally evaluating a stream through when clauses is not supported by the backend.").add_span_with_label(output.span, Some("Found stream with when clause here."), true).into())
         }
     }
 }
@@ -83,7 +79,7 @@ impl Feature for Closed {
         } else {
             Err(
                 Diagnostic::error("Unsupported Feature: Dynamically closing streams is not supported by the backend.")
-                    .add_span_with_label(output.span.clone(), Some("Found closed stream here"), true)
+                    .add_span_with_label(output.span, Some("Found closed stream here"), true)
                     .into(),
             )
         }
@@ -115,14 +111,14 @@ impl Feature for SlidingWindows {
         if self.unsupported.is_empty() {
             Err(
                 Diagnostic::error("Unsupported Feature: Sliding windows are not supported by the backend.")
-                    .add_span_with_label(span.clone(), Some("Found sliding window here"), true)
+                    .add_span_with_label(*span, Some("Found sliding window here"), true)
                     .into(),
             )
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Sliding window operation <{op}> is not supported by the backend."
             ))
-            .add_span_with_label(span.clone(), Some("Found sliding window here"), true)
+            .add_span_with_label(*span, Some("Found sliding window here"), true)
             .into())
         } else {
             Ok(())
@@ -155,14 +151,14 @@ impl Feature for DiscreteWindows {
         if self.unsupported.is_empty() {
             Err(
                 Diagnostic::error("Unsupported Feature: Discrete windows are not supported by the backend.")
-                    .add_span_with_label(span.clone(), Some("Found discrete window here"), true)
+                    .add_span_with_label(*span, Some("Found discrete window here"), true)
                     .into(),
             )
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Discrete window operation <{op}> is not supported by the backend."
             ))
-            .add_span_with_label(span.clone(), Some("Found discrete window here"), true)
+            .add_span_with_label(*span, Some("Found discrete window here"), true)
             .into())
         } else {
             Ok(())
@@ -185,11 +181,7 @@ impl Feature for Periodics {
                 let str_ty = ty.to_pretty_string(&HashMap::new());
                 Err(
                     Diagnostic::error("Unsupported Feature: Periodic evaluation is not supported by the backend.")
-                        .add_span_with_label(
-                            span.clone(),
-                            Some(&format!("Found periodic pacing <{str_ty}> here")),
-                            true,
-                        )
+                        .add_span_with_label(*span, Some(&format!("Found periodic pacing <{str_ty}> here")), true)
                         .into(),
                 )
             },
@@ -220,11 +212,7 @@ impl Feature for ValueTypes {
     fn exclude_value_type(&self, span: &Span, ty: &ConcreteValueType) -> Result<(), RtLolaError> {
         if self.unsupported.contains(ty) {
             Err(Diagnostic::error("Unsupported Feature: Value type not supported.")
-                .add_span_with_label(
-                    span.clone(),
-                    Some(&format!("Found unsupported value type <{ty}> here")),
-                    true,
-                )
+                .add_span_with_label(*span, Some(&format!("Found unsupported value type <{ty}> here")), true)
                 .into())
         } else {
             Ok(())

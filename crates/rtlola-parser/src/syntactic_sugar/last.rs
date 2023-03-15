@@ -22,12 +22,12 @@ impl Last {
                 let new_access = Expression {
                     kind: ExpressionKind::Offset(target_stream, Offset::Discrete(-1)),
                     id: new_id,
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 let new_expr = Expression {
                     kind: ExpressionKind::Default(Box::new(new_access), Box::new(default)),
                     id: ast.next_id(),
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 ChangeSet::replace_current_expression(new_expr)
             },

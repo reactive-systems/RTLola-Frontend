@@ -23,12 +23,12 @@ impl OffsetOr {
                         Offset::Discrete(offset.to_string().parse::<i16>().unwrap()),
                     ),
                     id: new_id,
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 let new_expr = Expression {
                     kind: ExpressionKind::Default(Box::new(new_access), Box::new(default)),
                     id: ast.next_id(),
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 ChangeSet::replace_current_expression(new_expr)
             },

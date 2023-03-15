@@ -1,5 +1,3 @@
-use rtlola_reporting::Span;
-
 use super::{ChangeSet, SynSugar};
 use crate::ast::{BinOp, Expression, ExpressionKind, Offset, RtLolaAst, StreamAccessKind};
 
@@ -33,23 +31,23 @@ impl Delta {
                 let target_stream = args[0].clone();
                 let new_id = expr.id.primed();
 
-                let indirect_span = Span::Indirect(Box::new(expr.span.clone()));
+                let indirect_span = expr.span.to_indirect();
 
                 let sync = Expression {
                     kind: ExpressionKind::StreamAccess(Box::new(target_stream.clone()), StreamAccessKind::Sync),
                     id: ast.next_id(),
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 let offset = Expression {
                     kind: ExpressionKind::Offset(Box::new(target_stream), Offset::Discrete(-1)),
                     id: new_id,
-                    span: expr.span.clone(),
+                    span: expr.span,
                 };
                 let default_expr = args[1].clone();
                 let default = Expression {
                     kind: ExpressionKind::Default(Box::new(offset), Box::new(default_expr)),
                     id: ast.next_id(),
-                    span: indirect_span.clone(),
+                    span: indirect_span,
                 };
                 let res = Expression {
                     kind: ExpressionKind::Binary(BinOp::Sub, Box::new(sync), Box::new(default)),

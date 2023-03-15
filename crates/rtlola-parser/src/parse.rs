@@ -265,7 +265,7 @@ impl RtLolaParser {
                 Rule::SpawnDecl => {
                     if let Some(old_spawn) = &spawn {
                         let err = Diagnostic::error("Multiple Spawn clauses found")
-                            .add_span_with_label(old_spawn.span.clone(), Some("first Spawn here"), true)
+                            .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
                         error.add(err);
                     }
@@ -281,7 +281,7 @@ impl RtLolaParser {
                 Rule::CloseDecl => {
                     if let Some(old_close) = &close {
                         let err = Diagnostic::error("Multiple Close clauses found")
-                            .add_span_with_label(old_close.span.clone(), Some("first Close here"), true)
+                            .add_span_with_label(old_close.span, Some("first Close here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
                         error.add(err);
                     }
@@ -387,7 +387,7 @@ impl RtLolaParser {
                 Rule::SpawnWhen => {
                     if let Some(old_condition) = &condition {
                         let err = Diagnostic::error("Multiple Spawn conditions found")
-                            .add_span_with_label(old_condition.span.clone(), Some("first spawn condition here"), true)
+                            .add_span_with_label(old_condition.span, Some("first spawn condition here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
                         error.add(err);
                     }
@@ -404,7 +404,7 @@ impl RtLolaParser {
                 Rule::SpawnWith => {
                     if let Some(old_expression) = &expression {
                         let err = Diagnostic::error("Multiple Spawn expressions found")
-                            .add_span_with_label(old_expression.span.clone(), Some("first spawn expression here"), true)
+                            .add_span_with_label(old_expression.span, Some("first spawn expression here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
                         error.add(err);
                     }
@@ -425,7 +425,7 @@ impl RtLolaParser {
         if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
             error.add(
                 Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
-                    span_inv.clone(),
+                    span_inv,
                     Some("found spawn here"),
                     true,
                 ),
@@ -499,7 +499,7 @@ impl RtLolaParser {
                 Rule::EvalWhen => {
                     if let Some(old_cond) = &condition {
                         let err = Diagnostic::error("Multiple evaluation conditions found")
-                            .add_span_with_label(old_cond.span.clone(), Some("first condition here"), true)
+                            .add_span_with_label(old_cond.span, Some("first condition here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
                         error.add(err);
                     }
@@ -516,7 +516,7 @@ impl RtLolaParser {
                 Rule::EvalWith => {
                     if let Some(old_eval) = &eval_expr {
                         let err = Diagnostic::error("Multiple eval expressions found")
-                            .add_span_with_label(old_eval.span.clone(), Some("first eval expression here"), true)
+                            .add_span_with_label(old_eval.span, Some("first eval expression here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
                         error.add(err);
                     }
@@ -537,7 +537,7 @@ impl RtLolaParser {
         if eval_expr.is_none() && condition.is_none() && annotated_pacing.is_none() {
             error.add(
                 Diagnostic::error("Eval clause needs either expression or condition").add_span_with_label(
-                    span_ext.clone(),
+                    span_ext,
                     Some("found eval clause here"),
                     true,
                 ),
@@ -545,7 +545,7 @@ impl RtLolaParser {
         } else if eval_expr.is_none() {
             eval_expr = Some(Expression {
                 id: self.spec.next_id(),
-                span: span_ext.clone(),
+                span: span_ext,
                 kind: ExpressionKind::Tuple(Vec::new()),
             })
         }
@@ -629,7 +629,7 @@ impl RtLolaParser {
             .next()
             .map(|pair| {
                 assert_eq!(pair.as_rule(), Rule::IdentList);
-                pair.into_inner().into_iter().map(|p| self.parse_ident(&p)).collect()
+                pair.into_inner().map(|p| self.parse_ident(&p)).collect()
             })
             .unwrap_or_default();
 
@@ -842,7 +842,7 @@ impl RtLolaParser {
                     Rule::Dot => {
                         let (unop, binop_span, inner) = match lhs.kind {
                             ExpressionKind::Unary(unop, inner) => (Some(unop), inner.span.union(&rhs.span), inner),
-                            _ => (None, span.clone(), Box::new(lhs)),
+                            _ => (None, span, Box::new(lhs)),
                         };
                         match rhs.kind {
                             // access to a tuple
@@ -880,7 +880,7 @@ impl RtLolaParser {
                                     "offset(by:)" => {
                                         assert_eq!(args.len(), 1);
                                         let offset_expr = &args[0];
-                                        let rhs_span = rhs.span.clone();
+                                        let rhs_span = rhs.span;
                                         let offset = offset_expr.parse_offset().map_err(|reason| Diagnostic::error("failed to parse offset").add_span_with_label(rhs_span, Some(&reason), true))?;
 
                                         ExpressionKind::Offset(inner, offset)
@@ -894,7 +894,7 @@ impl RtLolaParser {
                                         let lhs = Expression::new(
                                             self.spec.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Hold),
-                                            span.clone(),
+                                            span,
                                         );
                                         ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
@@ -907,7 +907,7 @@ impl RtLolaParser {
                                         let lhs = Expression::new(
                                             self.spec.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Get),
-                                            span.clone(),
+                                            span,
                                         );
                                         ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
@@ -942,20 +942,20 @@ impl RtLolaParser {
                                                     let n_string = i.name.as_str().to_string();
                                                     let n_string: String = n_string.chars().skip("pctl".len()).collect();
                                                     let percentile: usize = n_string.parse::<usize>().map_err(|_|
-                                                        RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
+                                                        RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
                                                     )?;
                                                     if percentile > 100{
-                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label( i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label( i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
 
                                                     }
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
                                                 fun => {
-                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                 }
                                             },
                                             _ => {
-                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                             }
                                         };
                                         if signature.contains("discrete") {
@@ -998,7 +998,7 @@ impl RtLolaParser {
                         }
                     }
                     Rule::OpeningBracket => {
-                        let rhs_span = rhs.span.clone();
+                        let rhs_span = rhs.span;
                         let offset = rhs.parse_offset().map_err(|reason| Diagnostic::error("failed to parse offset expression").add_span_with_label(rhs_span, Some(&reason), true))?;
                         match lhs.kind {
                             ExpressionKind::Unary(unop, inner) => {
@@ -1128,12 +1128,7 @@ impl RtLolaParser {
                 let span: Span = span.into();
                 Ok(Expression::new(
                     self.spec.next_id(),
-                    ExpressionKind::Lit(Literal::new_numeric(
-                        self.spec.next_id(),
-                        pair.as_str(),
-                        None,
-                        span.clone(),
-                    )),
+                    ExpressionKind::Lit(Literal::new_numeric(self.spec.next_id(), pair.as_str(), None, span)),
                     span,
                 ))
             },

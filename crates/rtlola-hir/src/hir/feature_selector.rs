@@ -265,13 +265,13 @@ impl FeatureSelector {
                 .and_then(|spawn| {
                     spawn
                         .expression
-                        .map(|expr| self.hir.expression(expr).span.clone())
-                        .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span.clone()))
+                        .map(|expr| self.hir.expression(expr).span)
+                        .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
                         .or_else(|| {
                             spawn.pacing.as_ref().map(|apt| {
                                 match &apt {
-                                    AnnotatedPacingType::Frequency { span, .. } => span.clone(),
-                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span.clone(),
+                                    AnnotatedPacingType::Frequency { span, .. } => *span,
+                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
                                 }
                             })
                         })
@@ -284,10 +284,10 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_value_type(&o.span, &ty.value_ty) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(&o.span, &ty.pacing_ty) {
+            if let Err(e) = self.exclude_pacing_type(&o.span, &ty.eval_pacing) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn.0) {
+            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_expr(o.sr)) {
@@ -323,7 +323,7 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_value_type(&t.span, &ty.value_ty) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(&t.span, &ty.pacing_ty) {
+            if let Err(e) = self.exclude_pacing_type(&t.span, &ty.eval_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression(self.hir.expression(t.expr_id)) {
@@ -344,10 +344,10 @@ impl FeatureSelector {
         fn find_access_expr(expr: &Expression, window: WRef) -> Option<Span> {
             match &expr.kind {
                 ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(w), _) if *w == window => {
-                    Some(expr.span.clone())
+                    Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, StreamAccessKind::DiscreteWindow(w), _) if *w == window => {
-                    Some(expr.span.clone())
+                    Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, _, _)
                 | ExpressionKind::LoadConstant(_)

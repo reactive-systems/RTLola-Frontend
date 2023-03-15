@@ -8,11 +8,11 @@ impl TypedTrait for Typed {
     }
 
     fn is_periodic(&self, sr: SRef) -> bool {
-        self.get_type_for_stream(sr).pacing_ty.is_periodic()
+        self.get_type_for_stream(sr).eval_pacing.is_periodic()
     }
 
     fn is_event(&self, sr: SRef) -> bool {
-        self.get_type_for_stream(sr).pacing_ty.is_event_based()
+        self.get_type_for_stream(sr).eval_pacing.is_event_based()
     }
 
     fn expr_type(&self, eid: ExprId) -> HirType {
