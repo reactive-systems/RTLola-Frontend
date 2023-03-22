@@ -57,7 +57,7 @@ IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
 //      < CompExpr < AddExpr < MultiExpr < ExpoExpr < UnaryExpr < DefaultExpr 
 //      < FunctionExpr
 
-Operation = _{ And | Or | Impl | Add | Subtract | Power | Multiply | Divide | Mod | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight | CompOp }
+Operation = _{ And | Or | Implies | Add | Subtract | Power | Multiply | Divide | Mod | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight | CompOp }
     Add      = { "+"  }
     Subtract = { "-"  }
     Multiply = { "*"  }
@@ -66,7 +66,7 @@ Operation = _{ And | Or | Impl | Add | Subtract | Power | Multiply | Divide | Mo
     Power    = { "**" }
     And      = { "∧" | "&&" | "and" }
     Or       = { "∨" | "||" | "or"  }
-    Impl     = { "->" | "→" | "impl"}
+    Implies     = { "->" | "→" | "implies"}
     Dot      = { "." }
     BitAnd   = { "&" }
     BitOr    = { "|" }

@@ -11,7 +11,7 @@ pub(crate) struct Implication {}
 impl Implication {
     fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
-            ExpressionKind::Binary(BinOp::Impl, lhs, rhs) => {
+            ExpressionKind::Binary(BinOp::Implies, lhs, rhs) => {
                 let lhs = lhs.clone();
                 let rhs = rhs.clone();
                 let new_id = expr.id.primed();

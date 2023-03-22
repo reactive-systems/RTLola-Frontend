@@ -34,7 +34,7 @@ lazy_static! {
         use self::Rule::*;
 
         PrattParser::new()
-            .op(Op::infix(Impl, Right))
+            .op(Op::infix(Implies, Right))
             .op(Op::infix(Or, Left))
             .op(Op::infix(And, Left))
             .op(Op::infix(BitOr, Left))
@@ -827,7 +827,7 @@ impl RtLolaParser {
                     // Logical
                     Rule::And => BinOp::And,
                     Rule::Or => BinOp::Or,
-                    Rule::Impl => BinOp::Impl,
+                    Rule::Implies => BinOp::Implies,
                     // Comparison
                     Rule::LessThan => BinOp::Lt,
                     Rule::LessThanOrEqual => BinOp::Le,

@@ -571,7 +571,7 @@ pub enum BinOp {
     /// The `||` operator (logical or)
     Or,
     /// The `->` operator (logical implication)
-    Impl,
+    Implies,
     /// The `^` operator (bitwise xor)
     BitXor,
     /// The `&` operator (bitwise and)

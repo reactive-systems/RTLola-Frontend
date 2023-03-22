@@ -396,7 +396,7 @@ impl Display for BinOp {
             // Logical
             And => write!(f, "∧"),
             Or => write!(f, "∨"),
-            Impl => write!(f, "->"),
+            Implies => write!(f, "->"),
             // Comparison
             Eq => write!(f, "="),
             Lt => write!(f, "<"),
