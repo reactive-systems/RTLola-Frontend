@@ -45,16 +45,16 @@ impl Implication {
                             kind: ExpressionKind::ParenthesizedExpression(
                                 Some(Box::new(Parenthesis {
                                     id: ast.next_id(),
-                                    span: expr.span.clone(),
+                                    span: expr.span.to_indirect(),
                                 })),
                                 lhs,
                                 Some(Box::new(Parenthesis {
                                     id: ast.next_id(),
-                                    span: expr.span.clone(),
+                                    span: expr.span.to_indirect(),
                                 })),
                             ),
                             id: new_id,
-                            span: expr.span.clone(),
+                            span: expr.span.to_indirect(),
                         };
                         Box::new(lhs)
                     },
@@ -62,12 +62,12 @@ impl Implication {
                 let lhs = Expression {
                     kind: ExpressionKind::Unary(UnOp::Not, lhs),
                     id: ast.next_id(),
-                    span: expr.span.clone(),
+                    span: expr.span.to_indirect(),
                 };
                 let new_expr = Expression {
                     kind: ExpressionKind::Binary(BinOp::Or, Box::new(lhs), rhs),
                     id: ast.next_id(),
-                    span: expr.span.clone(),
+                    span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
             },

@@ -28,7 +28,7 @@ impl OffsetOr {
                 let new_expr = Expression {
                     kind: ExpressionKind::Default(Box::new(new_access), Box::new(default)),
                     id: ast.next_id(),
-                    span: expr.span,
+                    span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
             },
