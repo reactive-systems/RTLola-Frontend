@@ -37,7 +37,7 @@ impl AggrMethodToWindow {
                         aggregation: op,
                     },
                     id: new_id,
-                    span: expr.span,
+                    span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
             },

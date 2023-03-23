@@ -5,6 +5,7 @@ use std::rc::Rc;
 // List for all syntactic sugar transformer
 mod aggregation_method;
 mod delta;
+mod implication;
 mod last;
 mod mirror;
 mod offset_or;
@@ -13,6 +14,7 @@ use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
 
+use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
@@ -108,6 +110,7 @@ impl Desugarizer {
     /// New structs have to be added in this function.
     pub fn all() -> Self {
         let all_transformers: Vec<Box<dyn SynSugar>> = vec![
+            Box::new(Implication {}),
             Box::new(AggrMethodToWindow {}),
             Box::new(Last {}),
             Box::new(SynSugMirror {}),
@@ -876,6 +879,54 @@ impl std::ops::AddAssign<ChangeSet> for ChangeSet {
 mod tests {
     use super::*;
     use crate::ast::{BinOp, Ident, LitKind, Literal, Offset, UnOp, WindowOperation};
+
+    #[test]
+    fn test_impl_simpl_replace() {
+        let spec = "input a:Bool\ninput b:Bool\noutput c eval with a -> b".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let inner_kind = if let ExpressionKind::Binary(op, lhs, _rhs) = out_kind {
+            assert!(matches!(op, BinOp::Or));
+            lhs.kind
+        } else {
+            unreachable!()
+        };
+        assert!(matches!(inner_kind, ExpressionKind::Unary(UnOp::Not, _)));
+    }
+
+    #[test]
+    fn test_impl_nested_replace() {
+        let spec = "input a:Bool\ninput b:Bool\ninput c:Bool\noutput d eval with a -> b -> c".to_string();
+        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let inner_kind = if let ExpressionKind::Binary(op, lhs, rhs) = out_kind {
+            assert!(matches!(op, BinOp::Or));
+            let inner = if let ExpressionKind::Unary(op, inner) = lhs.kind {
+                assert!(matches!(op, UnOp::Not));
+                inner
+            } else {
+                unreachable!()
+            };
+            assert_eq!(inner.to_string(), "a");
+            rhs.kind
+        } else {
+            unreachable!();
+        };
+        let inner = if let ExpressionKind::Binary(op, lhs, rhs) = inner_kind {
+            assert!(matches!(op, BinOp::Or));
+            let inner = if let ExpressionKind::Unary(op, inner) = lhs.kind {
+                assert!(matches!(op, UnOp::Not));
+                inner
+            } else {
+                unreachable!()
+            };
+            assert_eq!(inner.to_string(), "b");
+            rhs
+        } else {
+            unreachable!()
+        };
+        assert_eq!(inner.to_string(), "c");
+    }
 
     #[test]
     fn test_offsetor_replace() {

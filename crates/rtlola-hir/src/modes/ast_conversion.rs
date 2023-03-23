@@ -700,6 +700,7 @@ impl ExpressionTransformer {
                     BinOp::Ne => Ne,
                     BinOp::Ge => Ge,
                     BinOp::Gt => Gt,
+                    BinOp::Implies => unreachable!(),
                 };
                 let arguments: Vec<Expression> = vec![
                     self.transform_expression(*left, current_output)?,

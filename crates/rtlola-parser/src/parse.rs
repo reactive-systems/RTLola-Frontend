@@ -29,20 +29,22 @@ pub(crate) struct RtLolaParser {
 }
 
 lazy_static! {
-    // precedence taken from C/C++: https://en.wikipedia.org/wiki/Operators_in_C_and_C++
-    // Precedence climber can be used to build the AST, see https://pest-parser.github.io/book/ for more details
     static ref PRATT_PARSER: PrattParser<Rule> = {
         use self::Assoc::*;
         use self::Rule::*;
 
         PrattParser::new()
+            .op(Op::infix(Implies, Right))
             .op(Op::infix(Or, Left))
             .op(Op::infix(And, Left))
             .op(Op::infix(BitOr, Left))
             .op(Op::infix(BitXor, Left))
             .op(Op::infix(BitAnd, Left))
             .op(Op::infix(Equal, Left) | Op::infix(NotEqual, Left))
-            .op(Op::infix(LessThan, Left) | Op::infix(LessThanOrEqual, Left) | Op::infix(MoreThan, Left) | Op::infix(MoreThanOrEqual, Left))
+            .op(Op::infix(LessThan, Left)
+                | Op::infix(LessThanOrEqual, Left)
+                | Op::infix(MoreThan, Left)
+                | Op::infix(MoreThanOrEqual, Left))
             .op(Op::infix(ShiftLeft, Left) | Op::infix(ShiftRight, Left))
             .op(Op::infix(Add, Left) | Op::infix(Subtract, Left))
             .op(Op::infix(Multiply, Left) | Op::infix(Divide, Left) | Op::infix(Mod, Left))
@@ -825,6 +827,7 @@ impl RtLolaParser {
                     // Logical
                     Rule::And => BinOp::And,
                     Rule::Or => BinOp::Or,
+                    Rule::Implies => BinOp::Implies,
                     // Comparison
                     Rule::LessThan => BinOp::Lt,
                     Rule::LessThanOrEqual => BinOp::Le,
@@ -1999,5 +2002,40 @@ mod tests {
         output c eval @1Hz with b(false).aggregate(over: 1s, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn parse_impl_simpl() {
+        let spec = "input a: Bool\n\
+        input b: Bool\n\
+        output c eval with a -> b\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "input a: Bool\n\
+            input b: Bool\n\
+            output c eval with !a ∨ b\n",
+        );
+    }
+
+    #[test]
+    fn parse_impl_right_associative() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with a -> b -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !a ∨ !b ∨ c\n");
+    }
+
+    #[test]
+    fn parse_impl_left() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with (a -> b) -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !(!a ∨ b) ∨ c\n");
+    }
+
+    #[test]
+    fn parse_impl_nested() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with a ∧ b -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !(a ∧ b) ∨ c\n");
     }
 }
