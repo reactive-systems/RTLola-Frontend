@@ -50,7 +50,7 @@ impl Mir {
                         .map(|(sr, wr)| (sr_map[&sr], wr))
                         .collect(),
                     layer: hir.stream_layers(sr),
-                    memory_bound: hir.memory_bound(sr),
+                    memory_bound: hir.stream_memory_bound(sr),
                     reference: sr_map[&sr],
                 }
             })
@@ -75,7 +75,7 @@ impl Mir {
                     .into_iter()
                     .map(|(sr, wr)| (sr_map[&sr], wr))
                     .collect(),
-                memory_bound: hir.memory_bound(sr),
+                memory_bound: hir.stream_memory_bound(sr),
                 layer: hir.stream_layers(sr),
                 reference: sr_map[&sr],
                 params: Self::lower_parameters(&hir, sr),
@@ -106,7 +106,7 @@ impl Mir {
                         .into_iter()
                         .map(|(sr, wr)| (sr_map[&sr], wr))
                         .collect(),
-                    memory_bound: hir.memory_bound(sr),
+                    memory_bound: hir.stream_memory_bound(sr),
                     layer: hir.stream_layers(sr),
                     reference: sr_map[&sr],
                     params: Default::default(), // no parameters for a trigger
@@ -319,10 +319,12 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         win: &Window<SlidingAggr>,
     ) -> mir::SlidingWindow {
+        let num_buckets = hir.window_memory_bound(win.reference());
         mir::SlidingWindow {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
             duration: win.aggr.duration,
+            num_buckets,
             wait: win.aggr.wait,
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
