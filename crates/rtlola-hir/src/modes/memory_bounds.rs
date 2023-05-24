@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uom::si::rational64::Time as UOM_Time;
 
 use super::TypedTrait;
-use crate::hir::{ConcretePacingType, Hir, SRef, WRef};
+use crate::hir::{ConcretePacingType, Hir, SRef, StreamAccessKind, WRef, WindowReference};
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
 /// This enum indicates how much memory is required to store a stream.
@@ -107,9 +107,13 @@ impl MemBound {
             .all_streams()
             .map(|sr| (sr, MemorizationBound::default_value(dynamic)))
             .collect::<HashMap<SRef, MemorizationBound>>();
+
+        let mut memory_bound_per_window = HashMap::new();
+
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
-            let cur_edge_bound = spec.graph().edge_weight(edge_index).unwrap().as_memory_bound(dynamic);
+            let cur_edge_weight = spec.graph().edge_weight(edge_index).unwrap();
+            let cur_edge_bound = cur_edge_weight.as_memory_bound(dynamic);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bound_per_stream.get_mut(sr).unwrap();
@@ -118,13 +122,18 @@ impl MemBound {
             } else {
                 cur_edge_bound
             };
-        });
 
-        let memory_bound_per_window = spec
-            .sliding_windows()
-            .iter()
-            .map(|window| {
-                let caller_frequency = match spec.mode.stream_type(window.caller).eval_pacing {
+            if let StreamAccessKind::SlidingWindow(wr @ WindowReference::Sliding(_)) = cur_edge_weight.kind {
+                let window = &spec.single_sliding(wr);
+                let caller_ty = spec.mode.stream_type(window.caller);
+
+                let caller_pacing = match cur_edge_weight.origin {
+                    super::dependencies::Origin::Spawn => caller_ty.spawn_pacing,
+                    super::dependencies::Origin::Filter | super::dependencies::Origin::Eval => caller_ty.eval_pacing,
+                    super::dependencies::Origin::Close => caller_ty.close_pacing,
+                };
+
+                let caller_frequency = match caller_pacing {
                     ConcretePacingType::FixedPeriodic(p) => p,
                     _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
                 };
@@ -136,9 +145,10 @@ impl MemBound {
                 let window_duration = window.aggr.duration.as_nanos() as i64;
                 let bucket_count = (lcm(window_duration, caller_period) / caller_period) as usize;
 
-                (window.reference, bucket_count)
-            })
-            .collect();
+                assert!(!memory_bound_per_window.contains_key(&wr));
+                memory_bound_per_window.insert(wr, bucket_count);
+            }
+        });
 
         MemBound {
             memory_bound_per_stream,
