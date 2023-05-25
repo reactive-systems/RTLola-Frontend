@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include origin of stream access in `accessed_by` and `accesses` of input- and output streams.
 - Include spawn and eval edges in dependency graph and annotate access edges with origin.
 - Include memory bound of windows in MIR and dependency graph.
+- Include bucket size for sliding windows.
 
 ### Added
 - Added `is_eval_filtered` method to stream trait.

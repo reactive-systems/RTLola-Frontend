@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::ops::Add;
+use std::time::Duration;
 
-use num::integer::lcm;
+use num::integer::{gcd, lcm};
 use num::traits::Inv;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Time as UOM_Time;
@@ -91,6 +92,10 @@ impl MemBoundTrait for MemBound {
     fn window_num_buckets(&self, wr: WRef) -> MemorizationBound {
         self.memory_bound_per_window[&wr]
     }
+
+    fn sliding_window_bucket_size(&self, wr: WRef) -> Duration {
+        self.sliding_window_bucket_size[&wr]
+    }
 }
 
 impl MemBound {
@@ -110,6 +115,7 @@ impl MemBound {
             .collect::<HashMap<SRef, MemorizationBound>>();
 
         let mut memory_bound_per_window = HashMap::new();
+        let mut sliding_window_bucket_size = HashMap::new();
 
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
@@ -126,7 +132,13 @@ impl MemBound {
 
             if let StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) = cur_edge_weight.kind {
                 let num_buckets = match wr {
-                    WindowReference::Sliding(_) => Self::calculate_num_window_buckets(spec, wr, cur_edge_weight.origin),
+                    WindowReference::Sliding(_) => {
+                        let (bucket_count, bucket_size) =
+                            Self::calculate_num_window_buckets(spec, wr, cur_edge_weight.origin);
+                        assert!(!sliding_window_bucket_size.contains_key(&wr));
+                        sliding_window_bucket_size.insert(wr, bucket_size);
+                        bucket_count
+                    },
                     WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
                 };
                 let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
@@ -138,10 +150,11 @@ impl MemBound {
         MemBound {
             memory_bound_per_stream,
             memory_bound_per_window,
+            sliding_window_bucket_size,
         }
     }
 
-    fn calculate_num_window_buckets<M>(spec: &Hir<M>, window: WRef, origin: Origin) -> usize
+    fn calculate_num_window_buckets<M>(spec: &Hir<M>, window: WRef, origin: Origin) -> (usize, Duration)
     where
         M: HirMode + TypedTrait,
     {
@@ -164,7 +177,11 @@ impl MemBound {
                 .to_integer();
 
         let window_duration = window.aggr.duration.as_nanos() as i64;
-        (lcm(window_duration, caller_period) / caller_period) as usize
+        let bucket_count = (lcm(window_duration, caller_period) / caller_period) as usize;
+        let bucket_size = gcd(window_duration, caller_period);
+        let bucket_size = Duration::from_nanos(bucket_size as u64);
+
+        (bucket_count, bucket_size)
     }
 }
 
@@ -414,12 +431,16 @@ mod static_memory_bound_tests {
         });
     }
 
-    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, MemorizationBound>) {
+    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, (MemorizationBound, Duration)>) {
         let bounds = calculate_memory_bound(spec);
         assert_eq!(bounds.memory_bound_per_window.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_window.iter().for_each(|(wr, b)| {
-            let ref_b = ref_memory_bounds.get(wr).unwrap();
-            assert_eq!(b, ref_b, "{}", wr);
+            let ref_b = ref_memory_bounds.get(wr).unwrap().0.unwrap();
+            assert_eq!(b.unwrap(), ref_b, "{}", wr);
+        });
+        bounds.sliding_window_bucket_size.iter().for_each(|(wr, b)| {
+            let ref_b = ref_memory_bounds.get(wr).unwrap().1;
+            assert_eq!(*b, ref_b, "{}", wr);
         })
     }
 
@@ -618,11 +639,24 @@ mod static_memory_bound_tests {
 
     #[test]
     fn sliding_window_memory_bound() {
-        let spec = "input a : UInt64\noutput b@1s := a.aggregate(over: 3s, using: sum)\noutput c@2s := a.aggregate(over: 1s, using: sum)\noutput d@2s := a.aggregate(over: 3s, using: sum)";
+        let spec = "input a : UInt64\noutput b@1s := a.aggregate(over: 3s, using: sum)\noutput c@4s := a.aggregate(over: 2s, using: sum)\noutput d@2s := a.aggregate(over: 3s, using: sum)\noutput e@3s := a.aggregate(over: 2s, using: sum)";
         let ref_memory_bounds = vec![
-            (WRef::Sliding(0), MemorizationBound::Bounded(3)),
-            (WRef::Sliding(1), MemorizationBound::Bounded(1)),
-            (WRef::Sliding(2), MemorizationBound::Bounded(3)),
+            (
+                WRef::Sliding(0),
+                (MemorizationBound::Bounded(3), Duration::from_secs(1)),
+            ),
+            (
+                WRef::Sliding(1),
+                (MemorizationBound::Bounded(1), Duration::from_secs(2)),
+            ),
+            (
+                WRef::Sliding(2),
+                (MemorizationBound::Bounded(3), Duration::from_secs(1)),
+            ),
+            (
+                WRef::Sliding(3),
+                (MemorizationBound::Bounded(2), Duration::from_secs(1)),
+            ),
         ]
         .into_iter()
         .collect();
