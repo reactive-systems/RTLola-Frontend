@@ -199,6 +199,8 @@ enum NodeInformation<'a> {
         reference: WindowReference,
         operation: String,
         duration: String,
+        pacing: String,
+        memory_bound: u32,
     },
 }
 
@@ -261,11 +263,33 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
             format!("{duration} values")
         },
     };
+    let caller = mir.output(window.caller());
+
+    let origin = caller
+        .accesses
+        .iter()
+        .flat_map(|(_, accesses)| accesses)
+        .find(|(_, kind)| {
+            *kind == StreamAccessKind::SlidingWindow(wref) || *kind == StreamAccessKind::DiscreteWindow(wref)
+        })
+        .expect("access has to exist")
+        .0;
+
+    let pacing = match origin {
+        Origin::Spawn => &caller.spawn.pacing,
+        Origin::Filter | Origin::Eval => &caller.eval.eval_pacing,
+        Origin::Close => &caller.close.pacing,
+    };
+
+    let pacing_str = mir.display(pacing).to_string();
+    let memory_bound = window.memory_bound().unwrap();
 
     NodeInformation::Window {
         reference: wref,
         operation: operation_str,
         duration: duration_str,
+        pacing: pacing_str,
+        memory_bound,
     }
 }
 
@@ -460,6 +484,8 @@ Layer {eval_layer}"
                 reference,
                 operation,
                 duration,
+                pacing: _,
+                memory_bound: _,
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
             NodeInformation::Trigger {
                 idx,
