@@ -371,7 +371,7 @@ impl Hir<OrderedMode> {
 #[derive(Debug, Clone)]
 pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
-    memory_bound_per_window: HashMap<WRef, usize>,
+    memory_bound_per_window: HashMap<WRef, MemorizationBound>,
 }
 
 /// Represents the mode after the memory analysis
@@ -398,14 +398,13 @@ pub trait MemBoundTrait {
     ///
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
-    fn stream_memory_bound(&self, sr: SRef) -> MemorizationBound;
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound;
 
     /// Returns the memory bound of the given sliding window
     ///
     /// # Panic
-    /// The function panics if the [WindowReference](crate::hir::WindowReference) is not a reference
-    /// to a sliding window.
-    fn window_memory_bound(&self, wr: WRef) -> usize;
+    /// The function panics if the [WindowReference](crate::hir::WindowReference) is invalid.
+    fn window_num_buckets(&self, wr: WRef) -> MemorizationBound;
 }
 
 impl HirStage for Hir<MemBoundMode> {

@@ -6,6 +6,7 @@ use num::traits::Inv;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Time as UOM_Time;
 
+use super::dependencies::Origin;
 use super::TypedTrait;
 use crate::hir::{ConcretePacingType, Hir, SRef, StreamAccessKind, WRef, WindowReference};
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
@@ -83,11 +84,11 @@ impl PartialOrd for MemorizationBound {
 }
 
 impl MemBoundTrait for MemBound {
-    fn stream_memory_bound(&self, sr: SRef) -> MemorizationBound {
+    fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.memory_bound_per_stream[&sr]
     }
 
-    fn window_memory_bound(&self, wr: WRef) -> usize {
+    fn window_num_buckets(&self, wr: WRef) -> MemorizationBound {
         self.memory_bound_per_window[&wr]
     }
 }
@@ -123,30 +124,14 @@ impl MemBound {
                 cur_edge_bound
             };
 
-            if let StreamAccessKind::SlidingWindow(wr @ WindowReference::Sliding(_)) = cur_edge_weight.kind {
-                let window = &spec.single_sliding(wr);
-                let caller_ty = spec.mode.stream_type(window.caller);
-
-                let caller_pacing = match cur_edge_weight.origin {
-                    super::dependencies::Origin::Spawn => caller_ty.spawn_pacing,
-                    super::dependencies::Origin::Filter | super::dependencies::Origin::Eval => caller_ty.eval_pacing,
-                    super::dependencies::Origin::Close => caller_ty.close_pacing,
+            if let StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) = cur_edge_weight.kind {
+                let num_buckets = match wr {
+                    WindowReference::Sliding(_) => Self::calculate_num_window_buckets(spec, wr, cur_edge_weight.origin),
+                    WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
                 };
-
-                let caller_frequency = match caller_pacing {
-                    ConcretePacingType::FixedPeriodic(p) => p,
-                    _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
-                };
-                let caller_period =
-                    UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())
-                        .get::<uom::si::time::nanosecond>()
-                        .to_integer();
-
-                let window_duration = window.aggr.duration.as_nanos() as i64;
-                let bucket_count = (lcm(window_duration, caller_period) / caller_period) as usize;
-
+                let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
                 assert!(!memory_bound_per_window.contains_key(&wr));
-                memory_bound_per_window.insert(wr, bucket_count);
+                memory_bound_per_window.insert(wr, memory_bound);
             }
         });
 
@@ -154,6 +139,32 @@ impl MemBound {
             memory_bound_per_stream,
             memory_bound_per_window,
         }
+    }
+
+    fn calculate_num_window_buckets<M>(spec: &Hir<M>, window: WRef, origin: Origin) -> usize
+    where
+        M: HirMode + TypedTrait,
+    {
+        let window = &spec.single_sliding(window);
+        let caller_ty = spec.mode.stream_type(window.caller);
+
+        let caller_pacing = match origin {
+            super::dependencies::Origin::Spawn => caller_ty.spawn_pacing,
+            super::dependencies::Origin::Filter | super::dependencies::Origin::Eval => caller_ty.eval_pacing,
+            super::dependencies::Origin::Close => caller_ty.close_pacing,
+        };
+
+        let caller_frequency = match caller_pacing {
+            ConcretePacingType::FixedPeriodic(p) => p,
+            _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
+        };
+        let caller_period =
+            UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())
+                .get::<uom::si::time::nanosecond>()
+                .to_integer();
+
+        let window_duration = window.aggr.duration.as_nanos() as i64;
+        (lcm(window_duration, caller_period) / caller_period) as usize
     }
 }
 
@@ -403,7 +414,7 @@ mod static_memory_bound_tests {
         });
     }
 
-    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, usize>) {
+    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, MemorizationBound>) {
         let bounds = calculate_memory_bound(spec);
         assert_eq!(bounds.memory_bound_per_window.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_window.iter().for_each(|(wr, b)| {
@@ -608,9 +619,13 @@ mod static_memory_bound_tests {
     #[test]
     fn sliding_window_memory_bound() {
         let spec = "input a : UInt64\noutput b@1s := a.aggregate(over: 3s, using: sum)\noutput c@2s := a.aggregate(over: 1s, using: sum)\noutput d@2s := a.aggregate(over: 3s, using: sum)";
-        let ref_memory_bounds = vec![(WRef::Sliding(0), 3), (WRef::Sliding(1), 1), (WRef::Sliding(2), 3)]
-            .into_iter()
-            .collect();
+        let ref_memory_bounds = vec![
+            (WRef::Sliding(0), MemorizationBound::Bounded(3)),
+            (WRef::Sliding(1), MemorizationBound::Bounded(1)),
+            (WRef::Sliding(2), MemorizationBound::Bounded(3)),
+        ]
+        .into_iter()
+        .collect();
         check_memory_bound_for_windows(spec, ref_memory_bounds)
     }
 }

@@ -544,7 +544,7 @@ pub struct SlidingWindow {
     /// The duration over which the window aggregates
     pub duration: Duration,
     /// The number of buckets that are needed for the window.
-    pub num_buckets: usize,
+    pub num_buckets: MemorizationBound,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once
     pub wait: bool,
     /// The aggregation operation
@@ -603,7 +603,7 @@ pub trait Window {
     fn ty(&self) -> &Type;
 
     /// Returns the memorization bound of the window.
-    fn memory_bound(&self) -> usize;
+    fn memory_bound(&self) -> MemorizationBound;
 }
 
 ////////// Implementations //////////
@@ -716,7 +716,7 @@ impl Window for SlidingWindow {
         &self.ty
     }
 
-    fn memory_bound(&self) -> usize {
+    fn memory_bound(&self) -> MemorizationBound {
         self.num_buckets
     }
 }
@@ -738,8 +738,8 @@ impl Window for DiscreteWindow {
         &self.ty
     }
 
-    fn memory_bound(&self) -> usize {
-        self.duration
+    fn memory_bound(&self) -> MemorizationBound {
+        MemorizationBound::Bounded(self.duration as u32)
     }
 }
 
