@@ -89,11 +89,12 @@ impl MemBoundTrait for MemBound {
         self.memory_bound_per_stream[&sr]
     }
 
-    fn window_num_buckets(&self, wr: WRef) -> MemorizationBound {
+    fn num_buckets(&self, wr: WRef) -> MemorizationBound {
         self.memory_bound_per_window[&wr]
     }
 
-    fn sliding_window_bucket_size(&self, wr: WRef) -> Duration {
+    fn bucket_size(&self, wr: WRef) -> Duration {
+        assert!(matches!(wr, WindowReference::Sliding(_)));
         self.sliding_window_bucket_size[&wr]
     }
 }
@@ -162,9 +163,9 @@ impl MemBound {
         let caller_ty = spec.mode.stream_type(window.caller);
 
         let caller_pacing = match origin {
-            super::dependencies::Origin::Spawn => caller_ty.spawn_pacing,
-            super::dependencies::Origin::Filter | super::dependencies::Origin::Eval => caller_ty.eval_pacing,
-            super::dependencies::Origin::Close => caller_ty.close_pacing,
+            Origin::Spawn => caller_ty.spawn_pacing,
+            Origin::Filter | Origin::Eval => caller_ty.eval_pacing,
+            Origin::Close => caller_ty.close_pacing,
         };
 
         let caller_frequency = match caller_pacing {

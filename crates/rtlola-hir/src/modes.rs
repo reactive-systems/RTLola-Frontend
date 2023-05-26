@@ -406,14 +406,14 @@ pub trait MemBoundTrait {
     ///
     /// # Panic
     /// The function panics if the [WindowReference](crate::hir::WindowReference) is invalid.
-    fn window_num_buckets(&self, wr: WRef) -> MemorizationBound;
+    fn num_buckets(&self, wr: WRef) -> MemorizationBound;
 
     /// Returns the time per bucket of a sliding window.
     ///
     /// # Panic
     /// The function panics if the [WindowReference](crate::hir::WindowReference) is not a valid
     /// sliding window reference.
-    fn sliding_window_bucket_size(&self, wr: WRef) -> Duration;
+    fn bucket_size(&self, wr: WRef) -> Duration;
 }
 
 impl HirStage for Hir<MemBoundMode> {
