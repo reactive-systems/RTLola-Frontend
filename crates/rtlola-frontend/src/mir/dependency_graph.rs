@@ -199,7 +199,7 @@ enum NodeInformation<'a> {
         reference: WindowReference,
         operation: String,
         duration: String,
-        pacing: String,
+        pacing_ty: String,
         memory_bound: u32,
     },
 }
@@ -288,7 +288,7 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
         reference: wref,
         operation: operation_str,
         duration: duration_str,
-        pacing: pacing_str,
+        pacing_ty: pacing_str,
         memory_bound,
     }
 }
@@ -484,7 +484,7 @@ Layer {eval_layer}"
                 reference,
                 operation,
                 duration,
-                pacing: _,
+                pacing_ty: _,
                 memory_bound: _,
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
             NodeInformation::Trigger {
