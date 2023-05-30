@@ -5,6 +5,7 @@ pub(crate) mod ordering;
 pub(crate) mod types;
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use rtlola_reporting::RtLolaError;
 
@@ -371,6 +372,8 @@ impl Hir<OrderedMode> {
 #[derive(Debug, Clone)]
 pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
+    memory_bound_per_window: HashMap<WRef, MemorizationBound>,
+    sliding_window_bucket_size: HashMap<WRef, Duration>,
 }
 
 /// Represents the mode after the memory analysis
@@ -398,6 +401,19 @@ pub trait MemBoundTrait {
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
+
+    /// Returns the memory bound of the given sliding window
+    ///
+    /// # Panic
+    /// The function panics if the [WindowReference](crate::hir::WindowReference) is invalid.
+    fn num_buckets(&self, wr: WRef) -> MemorizationBound;
+
+    /// Returns the time per bucket of a sliding window.
+    ///
+    /// # Panic
+    /// The function panics if the [WindowReference](crate::hir::WindowReference) is not a valid
+    /// sliding window reference.
+    fn bucket_size(&self, wr: WRef) -> Duration;
 }
 
 impl HirStage for Hir<MemBoundMode> {

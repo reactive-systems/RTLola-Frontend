@@ -1,9 +1,15 @@
 use std::collections::HashMap;
 use std::ops::Add;
+use std::time::Duration;
 
+use num::integer::{gcd, lcm};
+use num::traits::Inv;
 use serde::{Deserialize, Serialize};
+use uom::si::rational64::Time as UOM_Time;
 
-use crate::hir::{Hir, SRef};
+use super::dependencies::Origin;
+use super::TypedTrait;
+use crate::hir::{ConcretePacingType, Hir, SRef, StreamAccessKind, WRef, WindowReference};
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
 /// This enum indicates how much memory is required to store a stream.
@@ -82,6 +88,15 @@ impl MemBoundTrait for MemBound {
     fn memory_bound(&self, sr: SRef) -> MemorizationBound {
         self.memory_bound_per_stream[&sr]
     }
+
+    fn num_buckets(&self, wr: WRef) -> MemorizationBound {
+        self.memory_bound_per_window[&wr]
+    }
+
+    fn bucket_size(&self, wr: WRef) -> Duration {
+        assert!(matches!(wr, WindowReference::Sliding(_)));
+        self.sliding_window_bucket_size[&wr]
+    }
 }
 
 impl MemBound {
@@ -92,28 +107,82 @@ impl MemBound {
     /// The static memory computation assumes that each value is stored in the global memory, so the starting value of each stream is 1.
     pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
     where
-        M: HirMode + DepAnaTrait,
+        M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Assign streams to default value
-        let mut memory_bounds = spec
+        let mut memory_bound_per_stream = spec
             .all_streams()
             .map(|sr| (sr, MemorizationBound::default_value(dynamic)))
             .collect::<HashMap<SRef, MemorizationBound>>();
+
+        let mut memory_bound_per_window = HashMap::new();
+        let mut sliding_window_bucket_size = HashMap::new();
+
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
-            let cur_edge_bound = spec.graph().edge_weight(edge_index).unwrap().as_memory_bound(dynamic);
+            let cur_edge_weight = spec.graph().edge_weight(edge_index).unwrap();
+            let cur_edge_bound = cur_edge_weight.as_memory_bound(dynamic);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
-            let cur_mem_bound = memory_bounds.get_mut(sr).unwrap();
+            let cur_mem_bound = memory_bound_per_stream.get_mut(sr).unwrap();
             *cur_mem_bound = if *cur_mem_bound > cur_edge_bound {
                 *cur_mem_bound
             } else {
                 cur_edge_bound
             };
+
+            if let StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) = cur_edge_weight.kind {
+                let num_buckets = match wr {
+                    WindowReference::Sliding(_) => {
+                        let (bucket_count, bucket_size) =
+                            Self::calculate_num_window_buckets(spec, wr, cur_edge_weight.origin);
+                        assert!(!sliding_window_bucket_size.contains_key(&wr));
+                        sliding_window_bucket_size.insert(wr, bucket_size);
+                        bucket_count
+                    },
+                    WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
+                };
+                let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
+                assert!(!memory_bound_per_window.contains_key(&wr));
+                memory_bound_per_window.insert(wr, memory_bound);
+            }
         });
+
         MemBound {
-            memory_bound_per_stream: memory_bounds,
+            memory_bound_per_stream,
+            memory_bound_per_window,
+            sliding_window_bucket_size,
         }
+    }
+
+    fn calculate_num_window_buckets<M>(spec: &Hir<M>, window: WRef, origin: Origin) -> (usize, Duration)
+    where
+        M: HirMode + TypedTrait,
+    {
+        let window = &spec.single_sliding(window);
+        let caller_ty = spec.mode.stream_type(window.caller);
+
+        let caller_pacing = match origin {
+            Origin::Spawn => caller_ty.spawn_pacing,
+            Origin::Filter | Origin::Eval => caller_ty.eval_pacing,
+            Origin::Close => caller_ty.close_pacing,
+        };
+
+        let caller_frequency = match caller_pacing {
+            ConcretePacingType::FixedPeriodic(p) => p,
+            _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
+        };
+        let caller_period =
+            UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())
+                .get::<uom::si::time::nanosecond>()
+                .to_integer();
+
+        let window_duration = window.aggr.duration.as_nanos() as i64;
+        let bucket_count = (lcm(window_duration, caller_period) / caller_period) as usize;
+        let bucket_size = gcd(window_duration, caller_period);
+        let bucket_size = Duration::from_nanos(bucket_size as u64);
+
+        (bucket_count, bucket_size)
     }
 }
 
@@ -341,7 +410,8 @@ mod static_memory_bound_tests {
 
     use super::*;
     use crate::modes::BaseMode;
-    fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
+
+    fn calculate_memory_bound(spec: &str) -> MemBound {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
@@ -351,12 +421,28 @@ mod static_memory_bound_tests {
             .unwrap()
             .determine_evaluation_order()
             .unwrap();
-        let bounds = MemBound::analyze(&hir, false);
+        MemBound::analyze(&hir, false)
+    }
+    fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
+        let bounds = calculate_memory_bound(spec);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
             assert_eq!(b, ref_b);
         });
+    }
+
+    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, (MemorizationBound, Duration)>) {
+        let bounds = calculate_memory_bound(spec);
+        assert_eq!(bounds.memory_bound_per_window.len(), ref_memory_bounds.len());
+        bounds.memory_bound_per_window.iter().for_each(|(wr, b)| {
+            let ref_b = ref_memory_bounds.get(wr).unwrap().0.unwrap();
+            assert_eq!(b.unwrap(), ref_b, "{}", wr);
+        });
+        bounds.sliding_window_bucket_size.iter().for_each(|(wr, b)| {
+            let ref_b = ref_memory_bounds.get(wr).unwrap().1;
+            assert_eq!(*b, ref_b, "{}", wr);
+        })
     }
 
     #[test]
@@ -550,5 +636,31 @@ mod static_memory_bound_tests {
         .into_iter()
         .collect();
         check_memory_bound_for_spec(spec, memory_bounds)
+    }
+
+    #[test]
+    fn sliding_window_memory_bound() {
+        let spec = "input a : UInt64\noutput b@1s := a.aggregate(over: 3s, using: sum)\noutput c@4s := a.aggregate(over: 2s, using: sum)\noutput d@2s := a.aggregate(over: 3s, using: sum)\noutput e@3s := a.aggregate(over: 2s, using: sum)";
+        let ref_memory_bounds = vec![
+            (
+                WRef::Sliding(0),
+                (MemorizationBound::Bounded(3), Duration::from_secs(1)),
+            ),
+            (
+                WRef::Sliding(1),
+                (MemorizationBound::Bounded(1), Duration::from_secs(2)),
+            ),
+            (
+                WRef::Sliding(2),
+                (MemorizationBound::Bounded(3), Duration::from_secs(1)),
+            ),
+            (
+                WRef::Sliding(3),
+                (MemorizationBound::Bounded(2), Duration::from_secs(1)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        check_memory_bound_for_windows(spec, ref_memory_bounds)
     }
 }

@@ -323,6 +323,8 @@ impl Mir {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
             duration: win.aggr.duration,
+            num_buckets: hir.num_buckets(win.reference()),
+            bucket_size: hir.bucket_size(win.reference()),
             wait: win.aggr.wait,
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
