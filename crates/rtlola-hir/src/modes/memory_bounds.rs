@@ -164,7 +164,7 @@ impl MemBound {
 
         let caller_pacing = match origin {
             Origin::Spawn => caller_ty.spawn_pacing,
-            Origin::Filter | Origin::Eval => caller_ty.eval_pacing,
+            Origin::Filter(_) | Origin::Eval(_) => caller_ty.eval_pacing,
             Origin::Close => caller_ty.close_pacing,
         };
 

@@ -38,9 +38,9 @@ pub enum Origin {
     /// The access occurs in the spawn declaration.
     Spawn,
     /// The access occurs in the filter expression.
-    Filter,
+    Filter(usize),
     /// The access occurs in the stream expression.
-    Eval,
+    Eval(usize),
     /// The access occurs in the close expression.
     Close,
 }
@@ -131,7 +131,7 @@ impl ExtendedDepGraph for DependencyGraph {
             let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
             let lhs_pt = match w.origin {
                 Origin::Spawn => lhs.spawn_pacing,
-                Origin::Filter | Origin::Eval => lhs.eval_pacing,
+                Origin::Filter(_) | Origin::Eval(_) => lhs.eval_pacing,
                 Origin::Close => lhs.close_pacing,
             };
             let rhs_pt = rhs.eval_pacing;
@@ -272,8 +272,18 @@ impl DepAna {
             .outputs()
             .map(|o| o.sr)
             .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.eval_unchecked(sr).expression))
-            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
+            .flat_map(|sr| {
+                spec.eval_unchecked(sr)
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, eval)| {
+                        Self::collect_edges(sr, &eval.expression)
+                            .into_iter()
+                            .map(move |a| (i, a))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map(|(i, (src, w, tar))| (src, EdgeWeight::new(w, Origin::Eval(i)), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
@@ -298,11 +308,13 @@ impl DepAna {
             .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
-                    .condition
-                    .map(|filter| Self::collect_edges(sr, filter))
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, eval)| eval.condition.map(|cond| (i, cond)))
+                    .flat_map(|(i, filter)| Self::collect_edges(sr, filter).into_iter().map(move |a| (i, a)))
+                    .collect::<Vec<_>>()
             })
-            .flatten()
-            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
+            .map(|(i, (src, w, tar))| (src, EdgeWeight::new(w, Origin::Filter(i)), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)

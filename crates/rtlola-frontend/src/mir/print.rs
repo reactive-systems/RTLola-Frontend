@@ -360,7 +360,6 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             ..
         } = self.inner;
 
-        let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
         let display_parameters = if !params.is_empty() {
             let parameter_list = params
                 .iter()
@@ -383,13 +382,16 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             writeln!(f)?;
         }
 
-        write!(f, "  eval @{display_pacing} ")?;
-        if let Some(eval_condition) = &eval.condition {
-            let display_eval_condition = display_expression(self.mir, eval_condition, 0);
-            write!(f, "when {display_eval_condition} ")?;
+        for clause in eval {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &clause.eval_pacing).to_string();
+            write!(f, "  eval @{display_pacing} ")?;
+            if let Some(eval_condition) = &clause.condition {
+                let display_eval_condition = display_expression(self.mir, eval_condition, 0);
+                write!(f, "when {display_eval_condition} ")?;
+            }
+            let display_eval_expr = display_expression(self.mir, &clause.expression, 0);
+            write!(f, "with {display_eval_expr}")?;
         }
-        let display_eval_expr = display_expression(self.mir, &eval.expression, 0);
-        write!(f, "with {display_eval_expr}")?;
 
         if let Some(close_condition) = &close.condition {
             let display_close_condition = display_expression(self.mir, close_condition, 0);
@@ -444,7 +446,7 @@ mod tests {
                 let spec = format!("input a : UInt64\noutput b@a := {}", $test);
                 let config = ParserConfig::for_string(spec);
                 let mir = parse(config).expect("should parse");
-                let expr = &mir.outputs[0].eval.expression;
+                let expr = &mir.outputs[0].eval[0].expression;
                 let display_expr = display_expression(&mir, expr, 0);
                 assert_eq!(display_expr, $expected);
             }

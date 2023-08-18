@@ -296,11 +296,13 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_cond(o.sr)) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_expr(o.sr)) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_cond(o.sr)) {
-                res.join(e);
+            for eval in self.hir.eval_unchecked(o.sr) {
+                if let Err(e) = self.exclude_expression(eval.expression) {
+                    res.join(e);
+                }
+                if let Err(e) = self.exclude_expression_opt(eval.condition) {
+                    res.join(e);
+                }
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.close_cond(o.sr)) {
                 res.join(e);
@@ -395,12 +397,17 @@ impl FeatureSelector {
                         .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
                 })
         });
-        let eval = find_access_expr(self.hir.expression(caller.eval.expr), window).or_else(|| {
-            caller
-                .eval
-                .condition
-                .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
-        });
+        let eval = caller
+            .eval
+            .iter()
+            .find_map(|eval| find_access_expr(self.hir.expression(eval.expr), window))
+            .or_else(|| {
+                caller
+                    .eval
+                    .iter()
+                    .flat_map(|eval| eval.condition)
+                    .find_map(|expr| find_access_expr(self.hir.expression(expr), window))
+            });
         let close = caller
             .close
             .as_ref()

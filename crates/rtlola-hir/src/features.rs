@@ -57,10 +57,31 @@ impl Feature for Filtered {
     }
 
     fn exclude_output(&self, output: &Output) -> Result<(), RtLolaError> {
-        if output.eval.condition.is_none() {
+        if output.eval.iter().all(|eval| eval.condition.is_none()) {
             Ok(())
         } else {
             Err(Diagnostic::error("Unsupported Feature: Conditionally evaluating a stream through when clauses is not supported by the backend.").add_span_with_label(output.span, Some("Found stream with when clause here."), true).into())
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+/// The RTLola feature for a stream to have multiple eval clauses
+pub struct MultipleEvals {}
+impl Feature for MultipleEvals {
+    fn name(&self) -> &'static str {
+        "MutlipleEvals"
+    }
+
+    fn exclude_output(&self, output: &Output) -> Result<(), RtLolaError> {
+        if output.eval().len() == 1 {
+            Ok(())
+        } else {
+            Err(Diagnostic::error(
+                "Unsuported Feature: Output stream with multiple eval cluases are not supported by the backend.",
+            )
+            .add_span_with_label(output.span.clone(), Some("Found muliple eval cluases here."), true)
+            .into())
         }
     }
 }

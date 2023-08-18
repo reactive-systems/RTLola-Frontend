@@ -245,6 +245,7 @@ pub(crate) enum PacingErrorKind {
         source: Span,
         source_type: ConcretePacingType,
     },
+    IncompatibleEvalPacings(ConcretePacingType, ConcretePacingType, Span),
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -621,6 +622,7 @@ impl Resolvable for PacingErrorKind {
                     .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
                     .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
             }
+            IncompatibleEvalPacings(should, is, span) => Diagnostic::error(&format!("In pacing type analysis:\n eval cases have different pacing types.")).add_span_with_label(span, Some(&format!("Found pacing type {} here, but stream has pacing type {}", is.to_pretty_string(names), should.to_pretty_string(names))), false)
         }
     }
 }
@@ -1426,8 +1428,8 @@ mod tests {
             output a(p: Int32) spawn with i eval with i + p\n\
             output b(q: Int32) spawn with i eval with i + q",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].eval_expr());
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval[0].expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
         assert!(a_exp.value_neq_ignore_parameters(b_exp));
         assert!(a_exp.value_eq(b_exp, env.ctx.as_ref()));
         let a_hash_expr = HashableExpression {
@@ -1455,8 +1457,8 @@ mod tests {
             output b(q: Int32) spawn with i eval with a(q)\n\
             output c(r: Int32) spawn with i eval with a(r)",
         );
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
-        let c_exp = env.hir.expression(env.hir.outputs[2].eval_expr());
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval[0].expr);
         assert!(b_exp.value_neq_ignore_parameters(c_exp));
         assert!(b_exp.value_eq(c_exp, env.ctx.as_ref()));
 
@@ -1491,12 +1493,12 @@ mod tests {
             output e := i1 && !(i2 && i3)\n\
             output f := !i1",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].eval_expr());
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
-        let c_exp = env.hir.expression(env.hir.outputs[2].eval_expr());
-        let d_exp = env.hir.expression(env.hir.outputs[3].eval_expr());
-        let e_exp = env.hir.expression(env.hir.outputs[4].eval_expr());
-        let f_exp = env.hir.expression(env.hir.outputs[5].eval_expr());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval[0].expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval[0].expr);
+        let d_exp = env.hir.expression(env.hir.outputs[3].eval[0].expr);
+        let e_exp = env.hir.expression(env.hir.outputs[4].eval[0].expr);
+        let f_exp = env.hir.expression(env.hir.outputs[5].eval[0].expr);
 
         assert!(matches!(
             AbstractSemanticType::for_filter(a_exp, env.ctx.clone()),

@@ -227,7 +227,7 @@ pub struct OutputStream {
     /// Information on the spawn behavior of the stream
     pub spawn: Spawn,
     /// Information on the evaluation behavior of the stream
-    pub eval: Eval,
+    pub eval: Vec<Eval>,
     /// The condition under which the stream is supposed to be closed
     pub close: Close,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
@@ -643,7 +643,7 @@ impl Stream for OutputStream {
     }
 
     fn is_eval_filtered(&self) -> bool {
-        self.eval.condition.is_some()
+        self.eval.iter().any(|eval| eval.condition.is_some())
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
