@@ -230,7 +230,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
         },
         StreamReference::Out(_) => {
             let output = mir.output(sref);
-            let pacing_str = mir.display(&output.eval[0].eval_pacing).to_string();
+            let pacing_str = mir.display(&output.eval.eval_pacing).to_string();
             let spawn_str = mir.display(&output.spawn.pacing).to_string();
 
             NodeInformation::Output {
@@ -273,7 +273,7 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
 
     let pacing = match origin {
         Origin::Spawn => &caller.spawn.pacing,
-        Origin::Filter(i) | Origin::Eval(i) => &caller.eval[i].eval_pacing,
+        Origin::Filter(_) | Origin::Eval(_) => &caller.eval.eval_pacing,
         Origin::Close => &caller.close.pacing,
     };
 
@@ -397,7 +397,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             .get(&output.reference)
             .map(|t| Node::Trigger(*t))
             .unwrap_or_else(|| Node::Stream(output.reference));
-        match &output.eval[0].eval_pacing {
+        match &output.eval.eval_pacing {
             PacingType::Event(ac) => {
                 flatten_ac(ac)
                     .into_iter()
@@ -734,5 +734,22 @@ mod tests {
         Out(0):Filter(0) => In(0) : Sync,
         Out(0):Eval(0) => In(1) : Sync,
         Out(0):Spawn => In(0) : Sync,
+    );
+
+    test_dependency_graph!(multiple_evals,
+        "input a : UInt64
+        input b : UInt64
+        output c
+            eval when a == 0 with 0
+            eval when b == 0 with 1
+            eval when a + b == 1 with a  
+        ",
+        Out(0) => In(0) : Eval,
+        Out(0) => In(1) : Eval,
+        Out(0):Filter(0) => In(0) : Sync,
+        Out(0):Filter(1) => In(1) : Sync,
+        Out(0):Filter(2) => In(0) : Sync,
+        Out(0):Filter(2) => In(1) : Sync,
+        Out(0):Eval(2) => In(0) : Sync,
     );
 }

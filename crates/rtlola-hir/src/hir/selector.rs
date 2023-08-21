@@ -47,7 +47,7 @@ impl Selectable for FilterSelector {
         match self {
             FilterSelector::Any => true,
             FilterSelector::Filtered => output.eval().iter().any(|eval| eval.condition.is_some()),
-            FilterSelector::Unfiltered => output.eval.iter().all(|eval| eval.condition.is_none()),
+            FilterSelector::Unfiltered => output.eval().iter().all(|eval| eval.condition.is_none()),
         }
     }
 }

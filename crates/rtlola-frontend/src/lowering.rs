@@ -9,8 +9,7 @@ use rtlola_hir::hir::{
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::WindowOperation;
 
-use crate::mir;
-use crate::mir::{Close, Eval, Mir, Spawn};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -270,22 +269,23 @@ impl Mir {
         hir: &RtLolaHir<CompleteMode>,
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
-    ) -> Vec<Eval> {
-        let pacing_ty = hir.stream_type(sr).eval_pacing;
+    ) -> Eval {
         assert_eq!(hir.eval_expr(sr).unwrap().len(), hir.eval_cond(sr).unwrap().len());
-        zip(hir.eval_expr(sr).unwrap(), hir.eval_cond(sr).unwrap())
+
+        let clauses = zip(hir.eval_expr(sr).unwrap(), hir.eval_cond(sr).unwrap())
             .map(|(expr, cond)| {
                 let expr = Self::lower_expr(hir, sr_map, expr);
                 let condition = cond.map(|f| Self::lower_expr(hir, sr_map, f));
                 // This lowers the stream pacing type, which combines the pacing of the eval_expr and the condition.
-                let eval_pacing = Self::lower_pacing_type(pacing_ty.clone(), sr_map);
-                Eval {
+                EvalClause {
                     condition,
                     expression: expr,
-                    eval_pacing,
                 }
             })
-            .collect()
+            .collect();
+
+        let eval_pacing = Self::lower_pacing_type(hir.stream_type(sr).eval_pacing.clone(), sr_map);
+        Eval { clauses, eval_pacing }
     }
 
     fn lower_close(
@@ -699,7 +699,7 @@ mod tests {
             &mir::PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
         );
         assert_eq!(
-            &mir_d.eval[0].expression,
+            &mir_d.eval.clauses[0].expression,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
                 ty: mir::Type::Int(Int8)
@@ -736,7 +736,7 @@ mod tests {
             mir::PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
-            mir_d.eval[0].condition,
+            mir_d.eval.clauses[0].condition,
             Some(mir::Expression {
                 kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
                 ty: _,
@@ -792,7 +792,7 @@ mod tests {
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 
-        let expr = mir.outputs[1].eval[0].expression.kind.clone();
+        let expr = mir.outputs[1].eval.clauses[0].expression.kind.clone();
         assert!(
             matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
         );
@@ -804,7 +804,7 @@ mod tests {
         output b := cast<Int64, Float64>(a)";
         let (_, mir) = lower_spec(spec);
         assert!(matches!(
-            mir.outputs[0].eval[0].expression.kind,
+            mir.outputs[0].eval.clauses[0].expression.kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
     }

@@ -227,7 +227,7 @@ pub struct OutputStream {
     /// Information on the spawn behavior of the stream
     pub spawn: Spawn,
     /// Information on the evaluation behavior of the stream
-    pub eval: Vec<Eval>,
+    pub eval: Eval,
     /// The condition under which the stream is supposed to be closed
     pub close: Close,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
@@ -304,12 +304,19 @@ impl Default for Close {
 /// Information on the evaluation behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Eval {
+    /// The eval clauses of the stream.
+    pub clauses: Vec<EvalClause>,
+    /// The eval pacing of the stream, combining the condition and expr pacings. This is equal to the top level stream pacing.
+    pub eval_pacing: PacingType,
+}
+
+/// Information on an eval clause of a stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvalClause {
     /// The expression of this stream needs to be evaluated whenever this condition evaluates to `True`.
     pub condition: Option<Expression>,
     /// The evaluation expression of this stream, defining the returned and accessed value.
     pub expression: Expression,
-    /// The eval pacing of the stream, combining the condition and expr pacing. This is equal to the top level stream pacing.
-    pub eval_pacing: PacingType,
 }
 
 /// Information of a parameter of a parametrized output stream
@@ -643,7 +650,7 @@ impl Stream for OutputStream {
     }
 
     fn is_eval_filtered(&self) -> bool {
-        self.eval.iter().any(|eval| eval.condition.is_some())
+        self.eval.clauses.iter().any(|eval| eval.condition.is_some())
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {

@@ -156,7 +156,12 @@ where
                 .spawn(output.sr)
                 .map(|spawn| spawn.span)
                 .unwrap_or_else(|| Span::Unknown);
-            let eval_span = self.hir.eval(output.sr).and_then(|e| e.get(0).map(|eval| eval.span)) // TODO!
+            let eval_span = self
+                .hir
+                .eval_unchecked(output.sr)
+                .iter()
+                .map(|eval| eval.span)
+                .reduce(|e1, e2| e1.union(&e2))
                 .unwrap_or_else(|| Span::Unknown);
             let close_span = self
                 .hir
@@ -179,9 +184,10 @@ where
                 key.eval_condition,
                 output
                     .eval
-                    .get(0) // TODO!
-                    .and_then(|eval| eval.condition)
+                    .iter()
+                    .filter_map(|eval| eval.condition)
                     .map(|id| self.hir.expression(id).span)
+                    .reduce(|e1, e2| e1.union(&e2))
                     .unwrap_or(Span::Unknown),
             );
             self.expression_key_span.insert(
@@ -755,21 +761,24 @@ where
         }
 
         // Check that every eval case has the same pacing type
-        for output in &hir.outputs {
-            let ct = &pacing_tt[&nid_key[&NodeId::SRef(output.sr)].eval_pacing];
-            for eval in output.eval() {
-                let other = &pacing_tt[&nid_key[&NodeId::Expr(eval.expr)].eval_pacing];
-                if ct != other {
-                    // errors.push(
-                    //     PacingErrorKind::IncompatibleEvalPacings(
-                    //         ct.clone(),
-                    //         other.clone(),
-                    //         hir.expression(eval.expr).span,
-                    //     )
-                    //     .into(),
-                    // )
-                }
-            }
+        for _output in &hir.outputs {
+            // let first_pacing = &pacing_tt[&nid_key[&NodeId::Expr(output.eval()[0].expr)].eval_pacing];
+            // for eval in output.eval() {
+            //     let ct = &pacing_tt[&nid_key[&NodeId::SRef(output.sr)].eval_pacing];
+            //     for eval in output.eval() {
+            //         if let Some(annoated_pacing) = eval.annotated_pacing_type {
+            //             if annotated_pacing
+            //         }
+            //         if ct != other {
+            // errors.push(
+            //     PacingErrorKind::IncompatibleEvalPacings(
+            //         ct.clone(),
+            //         other.clone(),
+            //         hir.expression(eval.expr).span,
+            //     )
+            //     .into(),
+            // )
+            // }
         }
 
         //Check that trigger expression does not access parameterized stream
@@ -954,7 +963,7 @@ where
                             .map(|eval| {
                                 (
                                     eval.expression,
-                                    &hir.output(sr).expect("StreamReference created above is anvalid").span,
+                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
                                 )
                             })
                             .collect()
@@ -2801,13 +2810,23 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let c = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
+        let c = &tt[&NodeId::SRef(hir.outputs[0].sr)];
         assert_eq!(
             c.eval_pacing,
             ConcretePacingType::Event(ActivationCondition::conjunction(&[
                 StreamReference::In(0),
                 StreamReference::In(1)
             ]))
+        );
+        let c1 = &tt[&NodeId::Expr(hir.outputs[0].eval[0].expr)];
+        assert_eq!(
+            c1.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+        let c2 = &tt[&NodeId::Expr(hir.outputs[0].eval[1].expr)];
+        assert_eq!(
+            c2.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(1)))
         );
     }
 
@@ -2828,6 +2847,16 @@ mod tests {
                 StreamReference::In(0),
                 StreamReference::In(1)
             ]))
+        );
+        let c1 = &tt[&NodeId::Expr(hir.outputs[0].eval[0].expr)];
+        assert_eq!(
+            c1.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+        let c2 = &tt[&NodeId::Expr(hir.outputs[0].eval[1].expr)];
+        assert_eq!(
+            c2.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(1)))
         );
     }
 

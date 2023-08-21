@@ -2055,4 +2055,21 @@ output o_9: Bool @i_0 := true  && true";
                     output b := a.offset(by: -1).1.0.defaults(to: 5.0)";
         assert_eq!(0, num_errors(spec));
     }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a : Int8\ninput b : Int16\n\
+                    output c eval when a == 0 with a eval when a > 0 with b";
+        assert_eq!(0, num_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_type_erro() {
+        let spec = "input a : Int8\ninput b : Bool\n\
+                    output c eval when a == 0 with a eval when a > 0 with b";
+        assert_eq!(1, num_errors(spec));
+    }
 }

@@ -272,7 +272,7 @@ impl<M: HirMode> Hir<M> {
         self.spawn(sr).expect("Invalid for input and triggers references")
     }
 
-    /// Retrieves the eval definition of a particular output stream or trigger or `None` for input references.
+    /// Retrieves the eval definitions of a particular output stream or trigger or `None` for input references.
     pub fn eval(&self, sr: SRef) -> Option<Vec<EvalDef>> {
         match sr {
             SRef::In(_) => None,
@@ -308,7 +308,9 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
-    /// Retrieves the eval condition of a particular output stream or `None` for input and trigger references.
+    /// Retrieves all eval conditions of the clauses of a particular output stream or `None` for input and trigger references.
+    /// For each eval clause of the stream, the element in the Vec is `None` if no condition is
+    /// or the coresponding condition otherwise.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_cond(&self, sr: SRef) -> Option<Vec<Option<&Expression>>> {
         match sr {
@@ -329,7 +331,7 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
-    /// Retrieves the eval expression of a particular output stream or trigger and `None` for input references.
+    /// Retrieves the eval expressions of all eval clauses of a particular output stream or trigger and `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
@@ -349,7 +351,7 @@ impl<M: HirMode> Hir<M> {
         }
     }
 
-    /// Retrieves the eval pacing of a particular output stream or trigger `None` for input references.
+    /// Retrieves the annotated eval pacing of each eval clause of a particular output stream or trigger `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
     pub fn eval_pacing(&self, sr: SRef) -> Option<Vec<&AnnotatedPacingType>> {
         match sr {

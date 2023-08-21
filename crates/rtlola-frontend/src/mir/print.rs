@@ -382,8 +382,8 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             writeln!(f)?;
         }
 
-        for clause in eval {
-            let display_pacing = RtLolaMirPrinter::new(self.mir, &clause.eval_pacing).to_string();
+        for clause in &eval.clauses {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
             write!(f, "  eval @{display_pacing} ")?;
             if let Some(eval_condition) = &clause.condition {
                 let display_eval_condition = display_expression(self.mir, eval_condition, 0);
@@ -446,7 +446,7 @@ mod tests {
                 let spec = format!("input a : UInt64\noutput b@a := {}", $test);
                 let config = ParserConfig::for_string(spec);
                 let mir = parse(config).expect("should parse");
-                let expr = &mir.outputs[0].eval[0].expression;
+                let expr = &mir.outputs[0].eval.clauses.get(0).expect("only one clause").expression;
                 let display_expr = display_expression(&mir, expr, 0);
                 assert_eq!(display_expr, $expected);
             }
@@ -491,6 +491,10 @@ mod tests {
             spawn with a when b == 0
             eval when x == a with e(x).offset(by:-1).defaults(to:0) + 1
             close when x == a && e(x) == 0
+        output f
+            eval when a == 0 with 0
+            eval when a > 5 && a <= 10 with 1
+            eval when a > 10 with 2
         trigger c > 5 \"message\"
         ";
 

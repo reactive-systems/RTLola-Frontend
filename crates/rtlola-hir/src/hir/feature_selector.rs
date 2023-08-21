@@ -6,7 +6,7 @@ use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
+    Closed, DiscreteWindows, Filtered, MultipleEvals, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
@@ -177,6 +177,7 @@ impl FeatureSelector {
             .no_spawn()
             .no_filter()
             .no_close()
+            .no_multiple_evals()
             .no_discrete_windows()
             .no_sliding_windows()
             .non_periodic()
@@ -241,6 +242,12 @@ impl FeatureSelector {
         let set = HashSet::from_iter(ops.to_vec());
         self.features.push(Box::new(SlidingWindows::new(set.clone())));
         self.features.push(Box::new(DiscreteWindows::new(set)));
+        self
+    }
+
+    /// Restricts the specification to not contain output streams with multiple eval clauses.
+    pub fn no_multiple_evals(mut self) -> Self {
+        self.features.push(Box::new(MultipleEvals {}));
         self
     }
 
