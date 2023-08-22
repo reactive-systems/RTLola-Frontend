@@ -2058,18 +2058,18 @@ output o_9: Bool @i_0 := true  && true";
 
     #[test]
     fn test_multiple_eval_clauses() {
-        let spec = "input a : Int8\ninput b : Int16\n\
-                    output c eval when a == 0 with a eval when a > 0 with b";
+        let spec = "input a : Int8\ninput b : Int8\n\
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
         assert_eq!(0, num_errors(spec));
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("c");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
     }
 
     #[test]
-    fn test_multiple_eval_clauses_type_erro() {
+    fn test_multiple_eval_clauses_type_error() {
         let spec = "input a : Int8\ninput b : Bool\n\
-                    output c eval when a == 0 with a eval when a > 0 with b";
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
         assert_eq!(1, num_errors(spec));
     }
 }

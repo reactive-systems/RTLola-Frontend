@@ -2867,4 +2867,26 @@ mod tests {
 
         assert_eq!(1, num_errors(spec));
     }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b
+        output d eval when a >= 0 with c";
+
+        // assert_eq!(0, num_errors(spec));
+
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let d = tt[&NodeId::SRef(hir.outputs[1].sr)].clone();
+        assert_eq!(
+            d.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::conjunction(&[
+                StreamReference::In(0),
+                StreamReference::In(1)
+            ]))
+        );
+    }
 }
