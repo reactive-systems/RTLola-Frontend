@@ -284,7 +284,7 @@ impl Mir {
             })
             .collect();
 
-        let eval_pacing = Self::lower_pacing_type(hir.stream_type(sr).eval_pacing.clone(), sr_map);
+        let eval_pacing = Self::lower_pacing_type(hir.stream_type(sr).eval_pacing, sr_map);
         Eval { clauses, eval_pacing }
     }
 

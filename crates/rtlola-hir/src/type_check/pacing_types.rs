@@ -622,7 +622,7 @@ impl Resolvable for PacingErrorKind {
                     .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
                     .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
             }
-            IncompatibleEvalPacings(should, is, span) => Diagnostic::error(&format!("In pacing type analysis:\n eval cases have different pacing types.")).add_span_with_label(span, Some(&format!("Found pacing type {} here, but stream has pacing type {}", is.to_pretty_string(names), should.to_pretty_string(names))), false)
+            IncompatibleEvalPacings(should, is, span) => Diagnostic::error("In pacing type analysis:\n eval cases have different pacing types.").add_span_with_label(span, Some(&format!("Found pacing type {} here, but stream has pacing type {}", is.to_pretty_string(names), should.to_pretty_string(names))), false)
         }
     }
 }
@@ -1282,11 +1282,36 @@ impl AbstractSemanticType {
         AbstractSemanticType::Positive(kind)
     }
 
+    pub(crate) fn for_filters(exps: &[Option<&Expression>], context: Rc<ExpressionContext>) -> Self {
+        if exps.iter().any(|exp| exp.is_none()) {
+            return AbstractSemanticType::Positive(SemanticTypeKind::Any);
+        }
+        if exps.len() > 1 {
+            let mut disjunction = HashSet::new();
+            for exp in exps.iter().flatten() {
+                match Self::parse_pure(exp, None, context.clone()) {
+                    Ok(SemanticTypeKind::Disjunction(exps)) => {
+                        disjunction.extend(exps);
+                    },
+                    Ok(_) | Err(_) => {
+                        disjunction.insert(HashableExpression {
+                            context: context.clone(),
+                            expression: (*exp).clone(),
+                        });
+                    },
+                }
+            }
+            AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(disjunction))
+        } else {
+            Self::for_filter(exps[0].expect("not none because check above"), context)
+        }
+    }
+
     pub(crate) fn implies(&self, other: &Self) -> bool {
         fn kind_implies(l_kind: &SemanticTypeKind, r_kind: &SemanticTypeKind) -> bool {
             match (l_kind, r_kind) {
-                (SemanticTypeKind::Any, _) => false,
                 (_, SemanticTypeKind::Any) => true,
+                (SemanticTypeKind::Any, _) => false,
                 (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => a == b,
                 (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => a == b,
                 (SemanticTypeKind::Literal(_), SemanticTypeKind::Conjunction(_)) => false,

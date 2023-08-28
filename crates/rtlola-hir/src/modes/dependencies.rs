@@ -277,7 +277,7 @@ impl DepAna {
                     .iter()
                     .enumerate()
                     .flat_map(|(i, eval)| {
-                        Self::collect_edges(sr, &eval.expression)
+                        Self::collect_edges(sr, eval.expression)
                             .into_iter()
                             .map(move |a| (i, a))
                     })

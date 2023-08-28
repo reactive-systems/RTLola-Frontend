@@ -913,7 +913,6 @@ impl ExpressionTransformer {
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         current_output: SRef,
     ) -> Result<Eval, TransformationErr> {
-        let eval_spec = eval_spec.to_owned();
         let eval_expr = if let Some(eval_expr) = eval_spec.eval_expression {
             self.transform_expression(eval_expr, current_output)?
         } else {

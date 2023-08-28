@@ -80,7 +80,7 @@ impl Feature for MultipleEvals {
             Err(Diagnostic::error(
                 "Unsuported Feature: Output stream with multiple eval cluases are not supported by the backend.",
             )
-            .add_span_with_label(output.span.clone(), Some("Found muliple eval cluases here."), true)
+            .add_span_with_label(output.span, Some("Found muliple eval cluases here."), true)
             .into())
         }
     }
