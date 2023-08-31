@@ -276,7 +276,6 @@ impl Mir {
             .map(|(expr, cond)| {
                 let expr = Self::lower_expr(hir, sr_map, expr);
                 let condition = cond.map(|f| Self::lower_expr(hir, sr_map, f));
-                // This lowers the stream pacing type, which combines the pacing of the eval_expr and the condition.
                 EvalClause {
                     condition,
                     expression: expr,
@@ -608,6 +607,7 @@ mod tests {
 
     use super::*;
     use crate::mir::IntTy::Int8;
+    use crate::mir::PacingType;
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let ast = ParserConfig::for_string(spec.into())
@@ -807,5 +807,40 @@ mod tests {
             mir.outputs[0].eval.clauses[0].expression.kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a: Int64\ninput b: Int64\ninput c: Bool\n\
+        output d eval when c with a eval when !c with b";
+        let (_, mir) = lower_spec(spec);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.inputs.len(), 3);
+        assert_eq!(mir.triggers.len(), 0);
+
+        let output = &mir.outputs[0];
+        assert_eq!(output.eval.clauses.len(), 2);
+        assert_eq!(
+            output.eval.eval_pacing,
+            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+                mir::ActivationCondition::Stream(StreamReference::In(0)),
+                mir::ActivationCondition::Stream(StreamReference::In(1)),
+                mir::ActivationCondition::Stream(StreamReference::In(2))
+            ]))
+        );
+        // assert_eq!(
+        //     output.eval.clauses[0].pacing,
+        //     PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+        //         mir::ActivationCondition::Stream(StreamReference::In(0)),
+        //         mir::ActivationCondition::Stream(StreamReference::In(2)),
+        //     ]))
+        // );
+        // assert_eq!(
+        //     output.eval.clauses[1].pacing,
+        //     PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+        //         mir::ActivationCondition::Stream(StreamReference::In(0)),
+        //         mir::ActivationCondition::Stream(StreamReference::In(1)),
+        //     ]))
+        // );
     }
 }

@@ -318,9 +318,18 @@ where
         }
 
         // eval condition infer
-        if eval.condition.is_some() {
+        if let Some(filter) = eval.condition {
+            let condition_key = self.new_stream_key();
+            self.add_span_to_stream_key(condition_key, filter.span);
+
+            self.expression_tyc.impose(
+                condition_key
+                    .eval_condition
+                    .concretizes_explicit(AbstractSemanticType::for_filter(filter, self.exp_context.clone())),
+            )?;
+
             // filter implies filter of the expression
-            self.exp_type_implies(stream_keys.eval_condition, eval_keys.eval_condition, false);
+            self.exp_type_implies(condition_key.eval_condition, eval_keys.eval_condition, false);
         } else {
             self.expression_tyc
                 .impose(stream_keys.eval_condition.concretizes(eval_keys.eval_condition))?;
@@ -2910,6 +2919,24 @@ mod tests {
         let spec = "input a: Int8\ninput b: Int8
         output c eval @(a&&b) when a == 0 with a eval @(a&&b) with b
         output d := c";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access4() {
+        let spec = "input a: Int8\ninput b: Bool\ninput c: Bool
+        output d eval when b with a
+        output e eval when b with d eval when c with a";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access5() {
+        let spec = "input a: Int8\ninput b: Bool\ninput c: Bool
+        output d eval when b || c with a
+        output e eval when b with d eval when c with a";
 
         assert_eq!(0, num_errors(spec));
     }
