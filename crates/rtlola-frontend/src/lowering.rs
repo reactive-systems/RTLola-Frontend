@@ -273,10 +273,13 @@ impl Mir {
         assert_eq!(hir.eval_expr(sr).unwrap().len(), hir.eval_cond(sr).unwrap().len());
 
         let clauses = zip(hir.eval_expr(sr).unwrap(), hir.eval_cond(sr).unwrap())
-            .map(|(expr, cond)| {
+            .enumerate()
+            .map(|(idx, (expr, cond))| {
                 let expr = Self::lower_expr(hir, sr_map, expr);
                 let condition = cond.map(|f| Self::lower_expr(hir, sr_map, f));
+                let pacing = Self::lower_pacing_type(hir.eval_pacing_type(sr, idx), sr_map);
                 EvalClause {
+                    pacing,
                     condition,
                     expression: expr,
                 }
@@ -828,19 +831,19 @@ mod tests {
                 mir::ActivationCondition::Stream(StreamReference::In(2))
             ]))
         );
-        // assert_eq!(
-        //     output.eval.clauses[0].pacing,
-        //     PacingType::Event(mir::ActivationCondition::Conjunction(vec![
-        //         mir::ActivationCondition::Stream(StreamReference::In(0)),
-        //         mir::ActivationCondition::Stream(StreamReference::In(2)),
-        //     ]))
-        // );
-        // assert_eq!(
-        //     output.eval.clauses[1].pacing,
-        //     PacingType::Event(mir::ActivationCondition::Conjunction(vec![
-        //         mir::ActivationCondition::Stream(StreamReference::In(0)),
-        //         mir::ActivationCondition::Stream(StreamReference::In(1)),
-        //     ]))
-        // );
+        assert_eq!(
+            output.eval.clauses[0].pacing,
+            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+                mir::ActivationCondition::Stream(StreamReference::In(0)),
+                mir::ActivationCondition::Stream(StreamReference::In(2)),
+            ]))
+        );
+        assert_eq!(
+            output.eval.clauses[1].pacing,
+            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+                mir::ActivationCondition::Stream(StreamReference::In(1)),
+                mir::ActivationCondition::Stream(StreamReference::In(2)),
+            ]))
+        );
     }
 }

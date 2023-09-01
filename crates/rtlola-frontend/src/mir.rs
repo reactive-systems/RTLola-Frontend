@@ -306,7 +306,7 @@ impl Default for Close {
 pub struct Eval {
     /// The eval clauses of the stream.
     pub clauses: Vec<EvalClause>,
-    /// The eval pacing of the stream, combining the condition and expr pacings. This is equal to the top level stream pacing.
+    /// The eval pacing of the stream, combining the condition and expr pacings of all eval clauses
     pub eval_pacing: PacingType,
 }
 
@@ -317,6 +317,8 @@ pub struct EvalClause {
     pub condition: Option<Expression>,
     /// The evaluation expression of this stream, defining the returned and accessed value.
     pub expression: Expression,
+    /// The eval pacing of the stream, combining the condition and expr pacings of the clause.
+    pub pacing: PacingType,
 }
 
 /// Information of a parameter of a parametrized output stream

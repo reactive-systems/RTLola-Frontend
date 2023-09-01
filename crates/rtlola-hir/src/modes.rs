@@ -11,7 +11,7 @@ use rtlola_reporting::RtLolaError;
 
 use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
 use self::types::HirType;
-use crate::hir::{ExprId, Hir, SRef, StreamAccessKind, WRef};
+use crate::hir::{ConcretePacingType, ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
@@ -82,6 +82,7 @@ pub struct Typed {
     stream_types: HashMap<SRef, StreamType>,
     expression_types: HashMap<ExprId, StreamType>,
     param_types: HashMap<(SRef, usize), ConcreteValueType>,
+    eval_types: HashMap<(SRef, usize), ConcretePacingType>,
 }
 
 /// Represents the mode after the type checker call
@@ -100,11 +101,13 @@ impl Typed {
         stream_types: HashMap<SRef, StreamType>,
         expression_types: HashMap<ExprId, StreamType>,
         param_types: HashMap<(SRef, usize), ConcreteValueType>,
+        eval_types: HashMap<(SRef, usize), ConcretePacingType>,
     ) -> Self {
         Typed {
             stream_types,
             expression_types,
             param_types,
+            eval_types,
         }
     }
 }
@@ -141,6 +144,13 @@ pub trait TypedTrait {
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) or the index is invalid.
     fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType;
+
+    /// Returns the [ConcretePacingType] of the given stream
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid
+    /// or the index of the eval clause is out of bounds.
+    fn eval_pacing_type(&self, sr: SRef, idx: usize) -> ConcretePacingType;
 }
 
 impl HirStage for Hir<TypedMode> {

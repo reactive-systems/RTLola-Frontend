@@ -27,6 +27,7 @@ where
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NodeId {
     SRef(StreamReference),
+    Eval(usize, StreamReference),
     Expr(ExprId),
     Param(usize, StreamReference),
 }
@@ -112,10 +113,24 @@ where
                 NodeId::Param(id, sref) => {
                     parameters.insert((*sref, *id), st.value_ty);
                 },
+                NodeId::Eval(_, _) => {
+                    unreachable!("no value type for eval clauses")
+                },
             }
         });
 
-        Ok(Typed::new(stream_map, expression_map, parameters))
+        let mut eval_clauses = HashMap::new();
+        pacing_tt.keys().for_each(|id| {
+            if let NodeId::Eval(idx, sref) = id {
+                let eval_pacing = pacing_tt[id].eval_pacing.clone();
+                eval_clauses.insert((*sref, *idx), eval_pacing);
+            };
+        });
+        for trigger in &self.hir.triggers {
+            let eval_pacing = pacing_tt[&NodeId::SRef(trigger.sr)].eval_pacing.clone();
+            eval_clauses.insert((trigger.sr, 0), eval_pacing);
+        }
+        Ok(Typed::new(stream_map, expression_map, parameters, eval_clauses))
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].

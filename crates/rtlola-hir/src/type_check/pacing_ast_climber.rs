@@ -170,6 +170,12 @@ where
                 .unwrap_or(Span::Unknown);
 
             self.node_key.insert(NodeId::SRef(output.sr), key);
+            for (i, expr) in self.hir.eval_expr(output.sr).unwrap().iter().enumerate() {
+                let eval_key = self.new_stream_key();
+                self.node_key.insert(NodeId::Eval(i, output.sr), eval_key);
+                self.add_span_to_stream_key(eval_key, expr.span);
+            }
+
             self.pacing_key_span.insert(key.eval_pacing, eval_span);
             self.pacing_key_span.insert(key.spawn_pacing, spawn_span);
             self.pacing_key_span.insert(key.close_pacing, close_span);
@@ -263,9 +269,10 @@ where
 
         let eval_keys = self.new_stream_key();
         // Type filter
-        for eval in self.hir.eval_unchecked(output.sr) {
-            let temp_key = self.eval_infer(&eval, stream_keys)?;
-            self.impose_more_concrete(eval_keys, temp_key)?;
+        for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
+            let current_eval_keys = self.node_key[&NodeId::Eval(i, output.sr)];
+            self.eval_infer(eval, stream_keys, current_eval_keys)?;
+            self.impose_more_concrete(eval_keys, current_eval_keys)?;
         }
 
         let filters = self.hir.eval_cond(output.sr).unwrap();
@@ -290,11 +297,8 @@ where
         &mut self,
         eval: &EvalDef,
         stream_keys: StreamTypeKeys,
-    ) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
-        // Keys to capture the types of the eval clause
-        let eval_keys = self.new_stream_key();
-        self.add_span_to_stream_key(eval_keys, eval.span);
-
+        eval_keys: StreamTypeKeys,
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let expr_keys = self.expression_infer(eval.expression)?;
         let filter_keys = eval
             .condition
@@ -309,7 +313,9 @@ where
             let (annotated_ty, span) = AbstractPacingType::from_pt(annotated_pacing, self.hir)?;
             self.pacing_key_span.insert(stream_keys.eval_pacing, span);
             self.pacing_tyc
-                .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_ty))?;
+                .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_ty.clone()))?;
+            self.pacing_tyc
+                .impose(eval_keys.eval_pacing.concretizes_explicit(annotated_ty))?;
 
             self.pacing_type_implies(stream_keys.eval_pacing, eval_keys.eval_pacing, false);
         } else {
@@ -334,8 +340,7 @@ where
             self.expression_tyc
                 .impose(stream_keys.eval_condition.concretizes(eval_keys.eval_condition))?;
         }
-
-        Ok(eval_keys)
+        Ok(())
     }
 
     fn spawn_infer(
@@ -982,6 +987,7 @@ where
                     },
                     NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
                     NodeId::Param(_, _) => unreachable!(),
+                    NodeId::Eval(_, _) => unreachable!(),
                 };
                 for (expr, span) in exprs {
                     let accesses_streams: Vec<StreamReference> = expr.get_sync_accesses();

@@ -1,5 +1,5 @@
 use super::{Typed, TypedTrait};
-use crate::hir::{ExprId, SRef};
+use crate::hir::{ConcretePacingType, ExprId, SRef};
 use crate::type_check::{ConcreteValueType, StreamType};
 
 impl TypedTrait for Typed {
@@ -21,6 +21,10 @@ impl TypedTrait for Typed {
 
     fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType {
         self.param_types[&(sr, idx)].clone()
+    }
+
+    fn eval_pacing_type(&self, sr: SRef, idx: usize) -> ConcretePacingType {
+        self.eval_types[&(sr, idx)].clone()
     }
 }
 
