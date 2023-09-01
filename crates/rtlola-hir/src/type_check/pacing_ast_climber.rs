@@ -170,10 +170,10 @@ where
                 .unwrap_or(Span::Unknown);
 
             self.node_key.insert(NodeId::SRef(output.sr), key);
-            for (i, expr) in self.hir.eval_expr(output.sr).unwrap().iter().enumerate() {
+            for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
                 let eval_key = self.new_stream_key();
                 self.node_key.insert(NodeId::Eval(i, output.sr), eval_key);
-                self.add_span_to_stream_key(eval_key, expr.span);
+                self.add_span_to_stream_key(eval_key, eval.span);
             }
 
             self.pacing_key_span.insert(key.eval_pacing, eval_span);
