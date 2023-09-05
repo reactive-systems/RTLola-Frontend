@@ -14,8 +14,8 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 use crate::hir::{
-    AnnotatedPacingType, ArithLogOp, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir,
-    Inlined, Literal, SRef, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
+    AnnotatedPacingType, ArithLogOp, Constant, EvalDef, ExprId, Expression, ExpressionContext, ExpressionKind,
+    FnExprKind, Hir, Inlined, Literal, SRef, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
@@ -245,7 +245,7 @@ pub(crate) enum PacingErrorKind {
         source: Span,
         source_type: ConcretePacingType,
     },
-    IncompatibleEvalPacings(ConcretePacingType, ConcretePacingType, Span),
+    MultipleEvalsWithoutAnnotation(Span),
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -622,7 +622,7 @@ impl Resolvable for PacingErrorKind {
                     .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
                     .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
             }
-            IncompatibleEvalPacings(should, is, span) => Diagnostic::error("In pacing type analysis:\n eval cases have different pacing types.").add_span_with_label(span, Some(&format!("Found pacing type {} here, but stream has pacing type {}", is.to_pretty_string(names), should.to_pretty_string(names))), false)
+            MultipleEvalsWithoutAnnotation(span) => Diagnostic::error("In pacing type analysis:\noutputs with multiple eval clauses require pacing annotations on each clause.").add_span_with_label(span, None, false)
         }
     }
 }
@@ -750,6 +750,14 @@ impl Freq {
         let r: Ratio<i64> = Ratio::new(r1, r2);
         Freq::Fixed(UOM_Frequency::new::<hertz>(r))
     }
+
+    fn disjunction(&self, other: &Self) -> Self {
+        if self == other {
+            *self
+        } else {
+            todo!()
+        }
+    }
 }
 
 impl Variant for AbstractPacingType {
@@ -850,6 +858,40 @@ impl AbstractPacingType {
                 (AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span)
             },
         })
+    }
+
+    pub(crate) fn from_clauses<M: HirMode>(clauses: &[EvalDef], hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
+        clauses
+            .iter()
+            .map(|eval| {
+                let annotated_pacing = eval
+                    .annotated_pacing
+                    .ok_or_else(|| PacingErrorKind::MultipleEvalsWithoutAnnotation(eval.span))?;
+                let (pacing_ty, _) = AbstractPacingType::from_pt(annotated_pacing, hir)?;
+                Ok(pacing_ty)
+            })
+            .reduce(|a, b| a?.disjunct(b?))
+            .expect("each output has at least one eval clause")
+    }
+
+    fn disjunct(self, other: Self) -> Result<Self, PacingErrorKind> {
+        match (self, other) {
+            (AbstractPacingType::Event(ac1), AbstractPacingType::Event(ac2)) => {
+                Ok(AbstractPacingType::Event(ac1 | ac2))
+            },
+            (AbstractPacingType::Periodic(p1), AbstractPacingType::Periodic(p2)) => {
+                let f = match (p1, p2) {
+                    (Freq::Any, _) | (_, Freq::Any) => Freq::Any,
+                    (f1 @ Freq::Fixed(_), f2 @ Freq::Fixed(_)) => f1.disjunction(&f2),
+                };
+                Ok(AbstractPacingType::Periodic(f))
+            },
+            (s @ AbstractPacingType::Periodic(_), o @ AbstractPacingType::Event(_))
+            | (s @ AbstractPacingType::Event(_), o @ AbstractPacingType::Periodic(_)) => {
+                Err(PacingErrorKind::MixedEventPeriodic(s, o))
+            },
+            (AbstractPacingType::Any, _) | (_, AbstractPacingType::Any) => Ok(AbstractPacingType::Any),
+        }
     }
 }
 

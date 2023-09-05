@@ -492,9 +492,9 @@ mod tests {
             eval when x == a with e(x).offset(by:-1).defaults(to:0) + 1
             close when x == a && e(x) == 0
         output f
-            eval when a == 0 with 0
-            eval when a > 5 && a <= 10 with 1
-            eval when a > 10 with 2
+            eval @a when a == 0 with 0
+            eval @a when a > 5 && a <= 10 with 1
+            eval @a when a > 10 with 2
         trigger c > 5 \"message\"
         ";
 

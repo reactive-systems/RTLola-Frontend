@@ -815,7 +815,7 @@ mod tests {
     #[test]
     fn test_multiple_eval_clauses() {
         let spec = "input a: Int64\ninput b: Int64\ninput c: Bool\n\
-        output d eval when c with a eval when !c with b";
+        output d eval @(c&&a) when c with a eval @(c&&b) when !c with b";
         let (_, mir) = lower_spec(spec);
         assert_eq!(mir.outputs.len(), 1);
         assert_eq!(mir.inputs.len(), 3);
@@ -825,10 +825,21 @@ mod tests {
         assert_eq!(output.eval.clauses.len(), 2);
         assert_eq!(
             output.eval.eval_pacing,
-            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
-                mir::ActivationCondition::Stream(StreamReference::In(0)),
-                mir::ActivationCondition::Stream(StreamReference::In(1)),
-                mir::ActivationCondition::Stream(StreamReference::In(2))
+            PacingType::Event(mir::ActivationCondition::Disjunction(vec![
+                mir::ActivationCondition::Conjunction(vec![
+                    // TODO:??
+                    mir::ActivationCondition::Stream(StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
+                mir::ActivationCondition::Conjunction(vec![
+                    mir::ActivationCondition::Stream(StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
+                mir::ActivationCondition::Conjunction(vec![
+                    mir::ActivationCondition::Stream(StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
             ]))
         );
         assert_eq!(

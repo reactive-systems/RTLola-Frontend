@@ -740,9 +740,9 @@ mod tests {
         "input a : UInt64
         input b : UInt64
         output c
-            eval when a == 0 with 0
-            eval when b == 0 with 1
-            eval when a + b == 1 with a  
+            eval @(a&&b) when a == 0 with 0
+            eval @(a&&b) when b == 0 with 1
+            eval @(a&&b) when a + b == 1 with a  
         ",
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,

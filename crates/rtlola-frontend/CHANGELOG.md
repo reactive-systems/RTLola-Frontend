@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `is_eval_filtered` method to stream trait.
 - Added `memory_bound` method to window trait.
+- Added support for multiple eval clauses.
 
 ### Fixed
 - Remap stream references during lowering to MIR to keep streams accessible by index.
