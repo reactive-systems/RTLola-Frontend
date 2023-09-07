@@ -2961,4 +2961,20 @@ mod tests {
 
         assert_eq!(1, num_errors(spec));
     }
+
+    #[test]
+    fn test_multiple_eval_clauses_mixed_event_periodic() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a eval @1Hz with 0";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_mixed_different_periods() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @2Hz with 1 eval @1Hz with 2";
+
+        assert_eq!(1, num_errors(spec));
+    }
 }
