@@ -33,6 +33,8 @@
 mod lowering;
 pub mod mir;
 
+use std::io::Read;
+
 use mir::Mir;
 use rtlola_hir::hir::FeatureSelector;
 use rtlola_hir::{BaseMode, CompleteMode};
@@ -104,4 +106,9 @@ pub fn parse_to_base_hir(cfg: ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLol
 /// Fails if the parsing was unsuccessful due to parsing errors such as incorrect syntax.
 pub fn parse_to_ast(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
+}
+
+/// Attempts to import a json representation of the analyzed specification into [RtLolaMir].
+pub fn import_json<R: Read>(reader: R) -> Result<RtLolaMir, serde_json::Error> {
+    RtLolaMir::import_json(reader)
 }
