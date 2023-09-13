@@ -22,7 +22,6 @@ mod print;
 mod schedule;
 
 use std::convert::TryInto;
-use std::io::{Read, Write};
 use std::time::Duration;
 
 use num::traits::Inv;
@@ -1077,16 +1076,6 @@ impl RtLolaMir {
     /// Represents the specification as a dependency graph
     pub fn dependency_graph(&self) -> DependencyGraph<'_> {
         DependencyGraph::new(self)
-    }
-
-    /// Export the specification into json format
-    pub fn export_json<W: Write>(&self, writer: W) -> Result<(), serde_json::Error> {
-        serde_json::to_writer(writer, &self)
-    }
-
-    /// Attempts to import a json representation of the analyzed specification into [RtLolaMir].
-    pub(crate) fn import_json<R: Read>(reader: R) -> Result<RtLolaMir, serde_json::Error> {
-        serde_json::from_reader(reader)
     }
 }
 
