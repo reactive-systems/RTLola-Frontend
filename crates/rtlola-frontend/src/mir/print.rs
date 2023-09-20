@@ -13,7 +13,7 @@ impl Display for Constant {
             Constant::Bool(b) => write!(f, "{b}"),
             Constant::UInt(u) => write!(f, "{u}"),
             Constant::Int(i) => write!(f, "{i}"),
-            Constant::Float(fl) => write!(f, "{fl}"),
+            Constant::Float(fl) => write!(f, "{fl:?}"),
             Constant::Str(s) => write!(f, "{s}"),
         }
     }
@@ -370,21 +370,23 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             "".into()
         };
 
-        writeln!(f, "output {name}{display_parameters} : {ty}")?;
+        write!(f, "output {name}{display_parameters} : {ty}")?;
 
-        if let Some(spawn_expr) = &spawn.expression {
-            let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
-            write!(f, "  spawn with {display_spawn_expr}")?;
+        if spawn.expression.is_some() || spawn.condition.is_some() {
+            write!(f, "\n  spawn")?;
+            if let Some(spawn_expr) = &spawn.expression {
+                let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
+                write!(f, " with {display_spawn_expr}")?;
+            }
             if let Some(spawn_condition) = &spawn.condition {
                 let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
                 write!(f, " when {display_spawn_condition}")?;
             }
-            writeln!(f)?;
         }
 
         for clause in &eval.clauses {
             let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
-            write!(f, "  eval @{display_pacing} ")?;
+            write!(f, "\n  eval @{display_pacing} ")?;
             if let Some(eval_condition) = &clause.condition {
                 let display_eval_condition = display_expression(self.mir, eval_condition, 0);
                 write!(f, "when {display_eval_condition} ")?;
@@ -479,13 +481,15 @@ mod tests {
         "a.hold().defaults(to: 0)" => "a.hold().defaults(to: 0)",
         offset_access:
         "a.offset(by:-2).defaults(to: 2+2)" => "a.offset(by:-2).defaults(to: 2 + 2)",
+        floats:
+        "1.0 + 1.5" => "1.0 + 1.5",
     }
 
     #[test]
     fn test() {
         let example = "input a : UInt64
         input b : UInt64
-        output c := a + b.hold().defaults(to:0)
+        output c@(a&&b) := a + b.hold().defaults(to:0)
         output d@10Hz := b.aggregate(over: 2s, using: sum) + c.hold().defaults(to:0)
         output e(x)
             spawn with a when b == 0
