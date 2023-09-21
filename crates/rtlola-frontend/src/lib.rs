@@ -42,7 +42,7 @@ use rtlola_parser::RtLolaAst;
 #[cfg(test)]
 mod tests;
 
-pub use export::{import_mir, import_unchecked, ExportError};
+pub use export::ExportError;
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
 pub use rtlola_reporting::{Diagnostic, Handler, RawDiagnostic, RtLolaError, Span};
