@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 
+use rtlola_reporting::Diagnostic;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -34,6 +35,24 @@ pub enum ExportError {
         /// the hash of the current specification
         current_hash: String,
     },
+}
+
+impl From<ExportError> for Diagnostic {
+    fn from(error: ExportError) -> Self {
+        match error {
+            ExportError::Serde(e) => Diagnostic::error(&format!("Error while exporting to json:\n{e}")),
+            ExportError::FrontendVersionMismatch {
+                imported_version,
+                current_version,
+            } => {
+                Diagnostic::error(&format!("The imported file was exported with frontend version {imported_version}, but the current frontend version is {current_version}."))
+            }
+            ExportError::HashMismatch {
+                imported_hash,
+                current_hash,
+            } => Diagnostic::error(&format!("The imported file was exported from a specification with hash {imported_hash}, but the current specification has hash {current_hash}.")),
+        }
+    }
 }
 
 impl RtLolaMir {
