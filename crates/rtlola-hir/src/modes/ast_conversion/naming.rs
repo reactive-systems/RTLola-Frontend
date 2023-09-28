@@ -650,7 +650,7 @@ mod tests {
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
-        let ast = parse(ParserConfig::for_string(content.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(content.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let mut naming_analyzer = NamingAnalysis::new();
         match naming_analyzer.check(&ast) {
             Ok(_) => 0,

@@ -1020,7 +1020,7 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
+        let ast: RtLolaAst = match parse(&ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };

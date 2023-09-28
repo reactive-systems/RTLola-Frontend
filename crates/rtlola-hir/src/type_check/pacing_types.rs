@@ -1482,7 +1482,7 @@ mod tests {
 
     impl TestEnv {
         fn from_spec(spec: &str) -> Self {
-            let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
+            let ast: RtLolaAst = match rtlola_parser::parse(&ParserConfig::for_string(spec.to_string())) {
                 Ok(s) => s,
                 Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
             };

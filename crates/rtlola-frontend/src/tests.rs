@@ -3,7 +3,7 @@ use super::*;
 
 fn parse(spec: &str) -> Result<RtLolaMir, String> {
     let cfg = ParserConfig::for_string(String::from(spec));
-    crate::parse(cfg).map_err(|e| format!("parsing failed with the following error:\n{:?}", e))
+    crate::parse(&cfg).map_err(|e| format!("parsing failed with the following error:\n{:?}", e))
 }
 
 #[test]

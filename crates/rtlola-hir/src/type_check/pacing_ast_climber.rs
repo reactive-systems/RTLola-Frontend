@@ -1190,7 +1190,7 @@ mod tests {
     }
 
     fn setup_ast(spec: &str) -> (RtLolaHir<BaseMode>, ExpressionContext) {
-        let ast: RtLolaAst = match rtlola_parser::parse(ParserConfig::for_string(spec.to_string())) {
+        let ast: RtLolaAst = match rtlola_parser::parse(&ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };

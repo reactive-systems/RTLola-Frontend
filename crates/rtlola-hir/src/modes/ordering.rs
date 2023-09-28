@@ -197,7 +197,7 @@ mod tests {
     use super::*;
     use crate::modes::BaseMode;
     fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>) {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
             .check_types()

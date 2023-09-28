@@ -672,7 +672,7 @@ mod tests {
             #[test]
             fn $name() {
                 let config = ParserConfig::for_string($spec.into());
-                let mir = parse(config).expect("should parse");
+                let mir = parse(&config).expect("should parse");
                 let dep_graph = mir.dependency_graph();
                 let edges = &dep_graph.edges;
                 $(
