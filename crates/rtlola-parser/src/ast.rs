@@ -3,6 +3,7 @@
 //! Every node in the abstract syntax tree is assigned a unique id and has a span referencing the node's location in the specification.
 
 use std::cell::RefCell;
+use std::convert::TryFrom;
 use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
@@ -402,9 +403,9 @@ pub enum ExpressionKind {
         /// The accesses stream
         expr: Box<Expression>,
         /// Flag to indicate which instances are part of the aggregation
-        selection: Instanceselection,
+        selection: InstanceSelection,
         /// The aggregation function
-        aggregation: WindowOperation,
+        aggregation: InstanceOperation,
     },
     /// A binary operation (For example: `a + b`, `a * b`)
     Binary(BinOp, Box<Expression>, Box<Expression>),
@@ -457,6 +458,78 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// A subset of the window operations that are suitable to be performed over a set of instances.
+pub enum InstanceOperation {
+    /// Aggregation function to count the number of instances of the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
+    Conjunction,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    Disjunction,
+    /// Aggregation function to return the variance of all values, assumes equal probability.
+    Variance,
+    /// Aggregation function to return the covariance of all values in a tuple stream, assumes equal probability.
+    Covariance,
+    /// Aggregation function to return the standard deviation of all values, assumes equal probability.
+    StandardDeviation,
+    /// Aggregation function to return the Nth-Percentile
+    NthPercentile(u8),
+}
+
+impl TryFrom<WindowOperation> for InstanceOperation {
+    type Error = String;
+
+    fn try_from(value: WindowOperation) -> Result<Self, Self::Error> {
+        match value {
+            WindowOperation::Count => Ok(InstanceOperation::Count),
+            WindowOperation::Min => Ok(InstanceOperation::Min),
+            WindowOperation::Max => Ok(InstanceOperation::Max),
+            WindowOperation::Sum => Ok(InstanceOperation::Sum),
+            WindowOperation::Product => Ok(InstanceOperation::Product),
+            WindowOperation::Average => Ok(InstanceOperation::Average),
+            WindowOperation::Conjunction => Ok(InstanceOperation::Conjunction),
+            WindowOperation::Disjunction => Ok(InstanceOperation::Disjunction),
+            WindowOperation::Variance => Ok(InstanceOperation::Variance),
+            WindowOperation::Covariance => Ok(InstanceOperation::Covariance),
+            WindowOperation::StandardDeviation => Ok(InstanceOperation::StandardDeviation),
+            WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
+            WindowOperation::Integral | WindowOperation::Last => {
+                Err(format!("Operation {value} not supported over instances."))
+            },
+        }
+    }
+}
+
+impl From<InstanceOperation> for WindowOperation {
+    fn from(val: InstanceOperation) -> Self {
+        match val {
+            InstanceOperation::Count => WindowOperation::Count,
+            InstanceOperation::Min => WindowOperation::Min,
+            InstanceOperation::Max => WindowOperation::Max,
+            InstanceOperation::Sum => WindowOperation::Sum,
+            InstanceOperation::Product => WindowOperation::Product,
+            InstanceOperation::Average => WindowOperation::Average,
+            InstanceOperation::Conjunction => WindowOperation::Conjunction,
+            InstanceOperation::Disjunction => WindowOperation::Disjunction,
+            InstanceOperation::Variance => WindowOperation::Variance,
+            InstanceOperation::Covariance => WindowOperation::Covariance,
+            InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
+            InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+        }
+    }
 }
 
 /// Describes the operation used to access a stream
@@ -658,7 +731,7 @@ impl Hash for Ident {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 /// Enum to indicate which instances are part of the aggregation
-pub enum Instanceselection {
+pub enum InstanceSelection {
     /// Only instances that are updated in this evaluation cycle are part of the aggregation
     Fresh,
     /// All instances are part of the aggregation

@@ -93,6 +93,7 @@ impl Display for Node {
             Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
+            Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
             Node::Trigger(i) => write!(f, "T_{i}"),
         }
     }
@@ -139,6 +140,10 @@ impl Display for EdgeType {
             } => format!("Offset({o})"),
             EdgeType::Spawn => "Spawn".into(),
             EdgeType::Eval => "Eval".into(),
+            EdgeType::Access {
+                kind: StreamAccessKind::InstanceAggregation(_),
+                ..
+            } => "Instances".into(),
             // no label on window access edges
             EdgeType::Access {
                 kind: StreamAccessKind::DiscreteWindow(_),
@@ -258,6 +263,11 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
             let duration = mir.discrete_window(wref).duration;
             format!("{duration} values")
         },
+
+        WindowReference::Instance(_) => {
+            let selection = mir.instance_aggregation(wref).selection;
+            format!("{selection} instances")
+        },
     };
     let caller = mir.output(window.caller());
 
@@ -358,6 +368,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     | StreamAccessKind::Get
                     | StreamAccessKind::Hold
                     | StreamAccessKind::Offset(_)
+                    | StreamAccessKind::InstanceAggregation(_)
                     | StreamAccessKind::Sync => {
                         vec![Edge {
                             from: target,
@@ -513,6 +524,7 @@ Layer: {eval_layer}<br/><br/>\
                 match kind {
                     StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
                     StreamAccessKind::Sync
+                    | StreamAccessKind::InstanceAggregation(_)
                     | StreamAccessKind::Offset(_)
                     | StreamAccessKind::DiscreteWindow(_)
                     | StreamAccessKind::SlidingWindow(_) => Style::None,

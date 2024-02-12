@@ -97,6 +97,8 @@ pub struct RtLolaMir {
     pub discrete_windows: Vec<DiscreteWindow>,
     /// A collection of all sliding windows.
     pub sliding_windows: Vec<SlidingWindow>,
+    /// A collection of all instance aggregations.
+    pub instance_aggregations: Vec<InstanceAggregation>,
     /// References and message information of all triggers.
     pub triggers: Vec<Trigger>,
 }
@@ -566,6 +568,61 @@ pub struct SlidingWindow {
     pub ty: Type,
 }
 
+/// Represents an instance of an instance aggregation
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct InstanceAggregation {
+    /// The stream whose values will be aggregated
+    pub target: StreamReference,
+    /// The stream calling and evaluating this window
+    pub caller: StreamReference,
+    /// A filter over the instances
+    pub selection: InstanceSelection,
+    /// The operation to be performed over the instances
+    pub aggr: InstanceOperation,
+    /// The reference of this window.
+    pub reference: WindowReference,
+    /// The type of value the window produces
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum InstanceSelection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
+/// A subset of the window operations that are suitable to be performed over a set of instances.
+pub enum InstanceOperation {
+    /// Aggregation function to count the number of instances of the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
+    Conjunction,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    Disjunction,
+    /// Aggregation function to return the variance of all values, assumes equal probability.
+    Variance,
+    /// Aggregation function to return the covariance of all values in a tuple stream, assumes equal probability.
+    Covariance,
+    /// Aggregation function to return the standard deviation of all values, assumes equal probability.
+    StandardDeviation,
+    /// Aggregation function to return the Nth-Percentile
+    NthPercentile(u8),
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 /// The Ast representation of the different aggregation functions
 pub enum WindowOperation {
@@ -597,6 +654,25 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+}
+
+impl From<InstanceOperation> for WindowOperation {
+    fn from(value: InstanceOperation) -> Self {
+        match value {
+            InstanceOperation::Count => WindowOperation::Count,
+            InstanceOperation::Min => WindowOperation::Min,
+            InstanceOperation::Max => WindowOperation::Max,
+            InstanceOperation::Sum => WindowOperation::Sum,
+            InstanceOperation::Product => WindowOperation::Product,
+            InstanceOperation::Average => WindowOperation::Average,
+            InstanceOperation::Conjunction => WindowOperation::Conjunction,
+            InstanceOperation::Disjunction => WindowOperation::Disjunction,
+            InstanceOperation::Variance => WindowOperation::Variance,
+            InstanceOperation::Covariance => WindowOperation::Covariance,
+            InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
+            InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+        }
+    }
 }
 
 /// A trait for any kind of window
@@ -754,6 +830,28 @@ impl Window for DiscreteWindow {
     }
 }
 
+impl Window for InstanceAggregation {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.aggr.into()
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    fn memory_bound(&self) -> MemorizationBound {
+        MemorizationBound::Bounded(1)
+    }
+}
+
 impl RtLolaMir {
     /// Returns a collection containing a reference to each input stream in the specification.
     pub fn input_refs(&self) -> impl Iterator<Item = InputReference> {
@@ -857,22 +955,39 @@ impl RtLolaMir {
     /// Provides immutable access to a discrete window.
     ///
     /// # Panic
-    /// Panics if `window` is a [WindowReference::Sliding].
+    /// Panics if `window` is not a [WindowReference::Discrete].
     pub fn discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
         match window {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
-            WindowReference::Sliding(_) => panic!("wrong type of window reference passed to getter"),
+            WindowReference::Sliding(_) | WindowReference::Instance(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
+        }
+    }
+
+    /// Provides immutable access to a instance aggregation.
+    ///
+    /// # Panic
+    /// Panics if `window` is not a [WindowReference::Instance].
+    pub fn instance_aggregation(&self, window: WindowReference) -> &InstanceAggregation {
+        match window {
+            WindowReference::Instance(x) => &self.instance_aggregations[x],
+            WindowReference::Sliding(_) | WindowReference::Discrete(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
         }
     }
 
     /// Provides immutable access to a sliding window.
     ///
     /// # Panic
-    /// Panics if `window` is a [WindowReference::Discrete].
+    /// Panics if `window` is not a [WindowReference::Sliding].
     pub fn sliding_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
-            WindowReference::Discrete(_) => panic!("wrong type of window reference passed to getter"),
+            WindowReference::Discrete(_) | WindowReference::Instance(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
         }
     }
 
@@ -881,6 +996,7 @@ impl RtLolaMir {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(x) => &self.discrete_windows[x],
+            WindowReference::Instance(x) => &self.instance_aggregations[x],
         }
     }
 
@@ -1020,6 +1136,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the reference to the (sliding window)[SlidingWindow] whose value is used in the [Expression].
     SlidingWindow(WindowReference),
+    /// Represents the access to a (instance aggregation)[InstanceAggregation]
+    ///
+    /// The argument contains the reference to the (instance aggregation)[InstanceAggregation] whose value is used in the [Expression].
+    InstanceAggregation(WindowReference),
     /// Representation of sample and hold accesses
     Hold,
     /// Representation of offset accesses

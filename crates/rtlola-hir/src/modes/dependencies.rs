@@ -58,6 +58,7 @@ impl EdgeWeight {
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
             StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
         }
@@ -70,6 +71,7 @@ impl EdgeWeight {
             | StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
             StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
@@ -101,6 +103,7 @@ pub(crate) trait ExtendedDepGraph {
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Hold => false,
             StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
@@ -522,8 +525,8 @@ impl DepAna {
             } => {
                 Self::collect_edges(src, condition)
                     .into_iter()
-                    .chain(Self::collect_edges(src, consequence).into_iter())
-                    .chain(Self::collect_edges(src, alternative).into_iter())
+                    .chain(Self::collect_edges(src, consequence))
+                    .chain(Self::collect_edges(src, alternative))
                     .collect()
             },
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
@@ -531,7 +534,7 @@ impl DepAna {
             ExpressionKind::Default { expr, default } => {
                 Self::collect_edges(src, expr)
                     .into_iter()
-                    .chain(Self::collect_edges(src, default).into_iter())
+                    .chain(Self::collect_edges(src, default))
                     .collect()
             },
         }

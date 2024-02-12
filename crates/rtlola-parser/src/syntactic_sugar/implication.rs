@@ -31,6 +31,7 @@ impl Implication {
                         wait: _,
                         aggregation: _,
                     }
+                    | ExpressionKind::InstanceAggregation { .. }
                     | ExpressionKind::Function(_, _, _)
                     | ExpressionKind::Method(_, _, _, _)
                     | ExpressionKind::Ident(_)

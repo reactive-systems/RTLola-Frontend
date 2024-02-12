@@ -387,12 +387,19 @@ impl Display for Ident {
     }
 }
 
-impl Display for Instanceselection {
+impl Display for InstanceSelection {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Instanceselection::Fresh => write!(f, "fresh"),
-            Instanceselection::All => write!(f, "all"),
+            InstanceSelection::Fresh => write!(f, "fresh"),
+            InstanceSelection::All => write!(f, "all"),
         }
+    }
+}
+
+impl Display for InstanceOperation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let wo: WindowOperation = (*self).into();
+        wo.fmt(f)
     }
 }
 

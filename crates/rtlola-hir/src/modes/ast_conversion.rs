@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use super::BaseMode;
 use crate::hir::{
     AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId, Expression,
-    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output, Parameter, SRef,
-    SlidingAggr, Spawn, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
+    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset, Output,
+    Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, Trigger, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -95,6 +95,10 @@ pub enum TransformationErr {
     /// The number of parameters of an output differs from the number of spawn expressions.
     /// Span of the output, number of parameters, number of spawn expressions
     SpawnParameterMismatch(Span, usize, usize),
+    /// An instance aggregation is performed over a single instance by giving stream parameters.
+    InstanceAggregationPara(Span),
+    /// An instance aggregation is performed over a non parameterized stream.
+    InstanceAggregationNonPara(Span),
 }
 
 impl TransformationErr {
@@ -188,6 +192,20 @@ impl TransformationErr {
                     Some("here"),
                     true,
                 )
+            },
+            TransformationErr::InstanceAggregationPara(span) => {
+                Diagnostic::error("Instance aggregations can only be applied to all instances of a stream.").add_span_with_label(
+                    span,
+                    Some("Remove the parameters here."),
+                    true,
+                )
+            },
+            TransformationErr::InstanceAggregationNonPara(span) => {
+                Diagnostic::error("Instance aggregations can only be computed over parameterized streams.").add_span_with_label(
+                    span,
+                    Some("Found non-parameterized stream here."),
+                    true,
+                )
             }
         }
     }
@@ -197,6 +215,7 @@ impl TransformationErr {
 struct ExpressionTransformer {
     sliding_windows: Vec<Window<SlidingAggr>>,
     discrete_windows: Vec<Window<DiscreteAggr>>,
+    instance_aggregations: Vec<InstanceAggregation>,
     decl_table: HashMap<NodeId, Declaration>,
     stream_by_name: HashMap<String, SRef>,
     current_exp_id: u32,
@@ -212,6 +231,7 @@ impl ExpressionTransformer {
         ExpressionTransformer {
             sliding_windows: vec![],
             discrete_windows: vec![],
+            instance_aggregations: vec![],
             decl_table,
             stream_by_name,
             current_exp_id: 0,
@@ -367,11 +387,19 @@ impl ExpressionTransformer {
         let ExpressionTransformer {
             sliding_windows,
             discrete_windows,
+            instance_aggregations,
             ..
         } = self;
         let sliding_windows = sliding_windows.into_iter().map(|w| (w.reference, w)).collect();
         let discrete_windows = discrete_windows.into_iter().map(|w| (w.reference, w)).collect();
-        let expr_maps = ExpressionMaps::new(exprid_to_expr, sliding_windows, discrete_windows, func_table);
+        let instance_aggregations = instance_aggregations.into_iter().map(|w| (w.reference, w)).collect();
+        let expr_maps = ExpressionMaps::new(
+            exprid_to_expr,
+            sliding_windows,
+            discrete_windows,
+            instance_aggregations,
+            func_table,
+        );
 
         let new_mode = BaseMode {};
 
@@ -443,12 +471,14 @@ impl ExpressionTransformer {
         &mut self,
         expr: &ast::Expression,
         current_output: SRef,
+        check_parameter: bool,
     ) -> Result<(SRef, Vec<Expression>), TransformationErr> {
         match &expr.kind {
             ast::ExpressionKind::Ident(_) => {
                 match &self.decl_table[&expr.id] {
                     Declaration::In(i) => Ok((self.stream_by_name[&i.name.name], Vec::new())),
                     Declaration::Out(o) => Ok((self.stream_by_name[&o.name.name], Vec::new())),
+                    Declaration::ParamOut(o) if !check_parameter => Ok((self.stream_by_name[&o.name.name], Vec::new())),
                     Declaration::ParamOut(_) => Err(TransformationErr::MissingArguments(expr.span)),
                     _ => {
                         Err(TransformationErr::InvalidRefExpr(
@@ -588,7 +618,7 @@ impl ExpressionTransformer {
                     StreamAccessKind::Get => IRAccess::Get,
                     StreamAccessKind::Fresh => IRAccess::Fresh,
                 };
-                let (expr_ref, args) = self.get_stream_ref(expr.as_ref(), current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(expr.as_ref(), current_output, true)?;
                 ExpressionKind::StreamAccess(expr_ref, access_kind, args)
             },
             ast::ExpressionKind::Default(expr, def) => {
@@ -600,7 +630,7 @@ impl ExpressionTransformer {
             ast::ExpressionKind::Offset(ref target_expr, offset) => {
                 use uom::si::time::nanosecond;
                 let ir_offset = match offset {
-                    ast::Offset::Discrete(i) if i == 0 => None,
+                    ast::Offset::Discrete(0) => None,
                     ast::Offset::Discrete(i) if i > 0 => Some(Offset::FutureDiscrete(i.unsigned_abs().into())),
                     ast::Offset::Discrete(i) => Some(Offset::PastDiscrete(i.unsigned_abs().into())),
                     ast::Offset::RealTime(_, _) => {
@@ -624,7 +654,7 @@ impl ExpressionTransformer {
                         }
                     },
                 };
-                let (expr_ref, args) = self.get_stream_ref(target_expr, current_output)?;
+                let (expr_ref, args) = self.get_stream_ref(target_expr, current_output, true)?;
                 let kind = ir_offset.map(IRAccess::Offset).unwrap_or(IRAccess::Sync);
                 ExpressionKind::StreamAccess(expr_ref, kind, args)
             },
@@ -634,7 +664,7 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output, true)?;
                 let idx = self.discrete_windows.len();
                 let wref = WRef::Discrete(idx);
                 let duration = (*duration)
@@ -660,7 +690,7 @@ impl ExpressionTransformer {
                 wait,
                 aggregation: win_op,
             } => {
-                let (sref, paras) = self.get_stream_ref(&w_expr, current_output)?;
+                let (sref, paras) = self.get_stream_ref(&w_expr, current_output, true)?;
                 let idx = self.sliding_windows.len();
                 let wref = WRef::Sliding(idx);
                 let duration = Self::parse_duration_from_expr(duration.as_ref())
@@ -679,7 +709,32 @@ impl ExpressionTransformer {
                 self.sliding_windows.push(window);
                 ExpressionKind::StreamAccess(sref, IRAccess::SlidingWindow(WRef::Sliding(idx)), paras)
             },
-            ast::ExpressionKind::InstanceAggregation { .. } => todo!(),
+            ast::ExpressionKind::InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => {
+                if !matches!(self.decl_table[&expr.id], Declaration::ParamOut(_)) {
+                    return Err(TransformationErr::InstanceAggregationNonPara(expr.span));
+                }
+                let (sref, paras) = self.get_stream_ref(&expr, current_output, false)?;
+                if !paras.is_empty() {
+                    return Err(TransformationErr::InstanceAggregationPara(expr.span));
+                }
+
+                let idx = self.instance_aggregations.len();
+                let wref = WRef::Instance(idx);
+                let window = InstanceAggregation {
+                    target: sref,
+                    caller: current_output,
+                    selection,
+                    aggr: aggregation,
+                    reference: wref,
+                    eid: new_id,
+                };
+                self.instance_aggregations.push(window);
+                ExpressionKind::StreamAccess(sref, IRAccess::InstanceAggregation(WRef::Instance(idx)), paras)
+            },
             ast::ExpressionKind::Binary(op, left, right) => {
                 use rtlola_parser::ast::BinOp;
 
@@ -800,10 +855,10 @@ impl ExpressionTransformer {
                     .collect::<Result<Vec<_>, TransformationErr>>()?;
 
                 if name.starts_with("widen") {
-                    let widen_arg = args.get(0).ok_or_else(|| TransformationErr::MissingWidenArg(*span))?;
+                    let widen_arg = args.first().ok_or_else(|| TransformationErr::MissingWidenArg(*span))?;
                     Ok(ExpressionKind::Widen(WidenExprKind {
                         expr: Box::new(widen_arg.clone()),
-                        ty: match type_param.get(0) {
+                        ty: match type_param.first() {
                             Some(t) => {
                                 Self::annotated_type(t)
                                     .map_err(|reason| TransformationErr::InvalidType(t.clone(), reason, *span))?
@@ -1465,7 +1520,7 @@ mod tests {
     fn instance_aggregation_simpl() {
         let spec = "input a: Int32\n\
         output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
-        output c eval with b.aggregate(over: fresh, using: Σ)\n";
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
         obtain_expressions(spec);
     }
 }

@@ -476,7 +476,9 @@ where
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     },
-                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                    StreamAccessKind::DiscreteWindow(wref)
+                    | StreamAccessKind::SlidingWindow(wref)
+                    | StreamAccessKind::InstanceAggregation(wref) => {
                         let (target, op, wait) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
@@ -485,6 +487,10 @@ where
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_discrete(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
+                            },
+                            WindowReference::Instance(_) => {
+                                let win = self.hir.single_instance_aggregation(*wref);
+                                (win.target, win.aggr.into(), false)
                             },
                         };
                         let target_key = *self

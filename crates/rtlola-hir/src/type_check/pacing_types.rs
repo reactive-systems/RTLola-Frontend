@@ -282,7 +282,7 @@ impl std::ops::BitOr for ActivationCondition {
             (ActivationCondition::Models(left), ActivationCondition::Models(right)) => {
                 ActivationCondition::Models(
                     left.union(&right)
-                        .map(BTreeSet::clone)
+                        .cloned()
                         .collect::<BTreeSet<_>>()
                         .union(&conjunction)
                         .cloned()

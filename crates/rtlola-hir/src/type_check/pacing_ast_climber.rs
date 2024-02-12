@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use rtlola_parser::ast::InstanceSelection;
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{Constructable, PreliminaryTypeTable, TcKey, TypeChecker, TypeTable};
 
@@ -482,6 +483,7 @@ where
             },
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
+
                 match kind {
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::Sync | StreamAccessKind::Offset(_) => {
                         self.handle_offset(kind, term_keys)?;
@@ -493,7 +495,7 @@ where
                             .output(*sref)
                             .and_then(|o| o.spawn())
                             .map(|st| st.spawn_args(self.hir))
-                            .unwrap_or_else(Vec::new);
+                            .unwrap_or_default();
 
                         let target_span = match sref {
                             StreamReference::In(_) => self.hir.input(*sref).unwrap().span,
@@ -547,6 +549,21 @@ where
                         self.pacing_tyc
                             .impose(term_keys.eval_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
+                    },
+                    StreamAccessKind::InstanceAggregation(w) => {
+                        let aggregation = self.hir.single_instance_aggregation(*w);
+                        match aggregation.selection {
+                            InstanceSelection::Fresh => {
+                                self.impose_more_concrete(term_keys, stream_key)?;
+                                // Fresh access only allowed on event based streams
+                                self.pacing_tyc.impose(
+                                    term_keys
+                                        .eval_pacing
+                                        .concretizes_explicit(Event(ActivationCondition::True)),
+                                )?;
+                            },
+                            InstanceSelection::All => {},
+                        }
                     },
                 };
 
@@ -721,12 +738,12 @@ where
         own_pacing: &ConcretePacingType,
     ) -> Vec<TypeError<PacingErrorKind>> {
         expr.map(|e| Self::get_or_fresh_targets(hir.expression(e)))
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_default()
             .iter()
             .chain(
                 condition
                     .map(|e| Self::get_or_fresh_targets(hir.expression(e)))
-                    .unwrap_or_else(Vec::new)
+                    .unwrap_or_default()
                     .iter(),
             )
             .flat_map(|(is_get, span, target)| {

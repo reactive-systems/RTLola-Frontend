@@ -167,6 +167,11 @@ impl<M: HirMode> Hir<M> {
         self.expr_maps.discrete_windows.values().clone().collect()
     }
 
+    /// Provides access to a collection of references for all discrete windows occurring in the Hir.
+    pub fn instance_aggregations(&self) -> Vec<&InstanceAggregation> {
+        self.expr_maps.instance_aggregations.values().clone().collect()
+    }
+
     /// Retrieves an expression for a given expression id.
     ///
     /// # Panic
@@ -202,6 +207,18 @@ impl<M: HirMode> Hir<M> {
     pub fn single_discrete(&self, window: WRef) -> Window<DiscreteAggr> {
         *self
             .discrete_windows()
+            .into_iter()
+            .find(|w| w.reference == window)
+            .unwrap()
+    }
+
+    /// Retrieves a single discrete window for a given reference.  
+    ///
+    /// # Panic
+    /// Panics if no such window exists.
+    pub fn single_instance_aggregation(&self, window: WRef) -> InstanceAggregation {
+        *self
+            .instance_aggregations()
             .into_iter()
             .find(|w| w.reference == window)
             .unwrap()
@@ -439,6 +456,7 @@ pub(crate) struct ExpressionMaps {
     exprid_to_expr: HashMap<ExprId, Expression>,
     sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
     discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+    instance_aggregations: HashMap<WRef, InstanceAggregation>,
     func_table: HashMap<String, FuncDecl>,
 }
 
@@ -448,12 +466,14 @@ impl ExpressionMaps {
         exprid_to_expr: HashMap<ExprId, Expression>,
         sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
         discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+        instance_aggregations: HashMap<WRef, InstanceAggregation>,
         func_table: HashMap<String, FuncDecl>,
     ) -> Self {
         Self {
             exprid_to_expr,
             sliding_windows,
             discrete_windows,
+            instance_aggregations,
             func_table,
         }
     }
@@ -876,6 +896,8 @@ pub enum WindowReference {
     Sliding(usize),
     /// Refers to a discrete window
     Discrete(usize),
+    /// Refers to a instance aggregation
+    Instance(usize),
 }
 
 pub(crate) type WRef = WindowReference;
@@ -886,6 +908,7 @@ impl WindowReference {
         match self {
             WindowReference::Sliding(u) => u,
             WindowReference::Discrete(u) => u,
+            WindowReference::Instance(u) => u,
         }
     }
 }

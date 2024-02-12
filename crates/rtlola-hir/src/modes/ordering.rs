@@ -132,13 +132,8 @@ impl Ordered {
                     } else {
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
@@ -171,13 +166,8 @@ impl Ordered {
                         // eval_layer = max(successor_eval_layers) + 1
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
