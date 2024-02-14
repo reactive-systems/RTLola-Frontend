@@ -1303,6 +1303,33 @@ mod tests {
     }
 
     #[test]
+    fn instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let sname_to_sref = vec![("b", SRef::Out(0)), ("c", SRef::Out(1)), ("a", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b", "a")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
     fn test_get_dep() {
         let spec = "
             input x:Int8\n\

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use rtlola_parser::ast::WindowOperation;
+use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 
-use crate::hir::{ConcretePacingType, DiscreteAggr, Feature, Output, SlidingAggr, Window};
+use crate::hir::{ConcretePacingType, DiscreteAggr, Feature, InstanceAggregation, Output, SlidingAggr, Window};
 use crate::type_check::ConcreteValueType;
 
 #[derive(Debug, Clone)]
@@ -180,6 +180,46 @@ impl Feature for DiscreteWindows {
                 "Unsupported Feature: Discrete window operation <{op}> is not supported by the backend."
             ))
             .add_span_with_label(*span, Some("Found discrete window here"), true)
+            .into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+/// A generic feature to exclude a set of discrete [WindowOperation]s.
+pub struct InstanceAggregations {
+    /// The set of unsupported instance operations.
+    /// An empty set symbolizes that instance aggregations are not supported at all.
+    unsupported: HashSet<InstanceOperation>,
+}
+
+impl InstanceAggregations {
+    /// Creates a new instance aggregation feature given a set of unsupported instance operations.
+    pub fn new(unsupported: HashSet<InstanceOperation>) -> Self {
+        Self { unsupported }
+    }
+}
+
+impl Feature for InstanceAggregations {
+    fn name(&self) -> &'static str {
+        "Discrete Windows"
+    }
+
+    fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
+        let op = &aggregation.aggr;
+        if self.unsupported.is_empty() {
+            Err(
+                Diagnostic::error("Unsupported Feature: Instance aggregations are not supported by the backend.")
+                    .add_span_with_label(*span, Some("Found instance aggregation here"), true)
+                    .into(),
+            )
+        } else if self.unsupported.contains(op) {
+            Err(Diagnostic::error(&format!(
+                "Unsupported Feature: Instance aggregation operation <{op}> is not supported by the backend."
+            ))
+            .add_span_with_label(*span, Some("Found instance aggregation here"), true)
             .into())
         } else {
             Ok(())

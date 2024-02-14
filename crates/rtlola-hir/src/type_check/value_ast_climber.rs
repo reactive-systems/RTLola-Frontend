@@ -2063,6 +2063,20 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + a\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("a");
+        let b_id = tb.output("b");
+        let c_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(b_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(c_id)], ConcreteValueType::Integer32);
+    }
+
+    #[test]
     fn test_multiple_eval_clauses() {
         let spec = "input a : Int8\ninput b : Int8\n\
                     output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";

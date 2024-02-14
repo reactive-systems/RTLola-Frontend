@@ -2,15 +2,17 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 
-use rtlola_parser::ast::WindowOperation;
+use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, MultipleEvals, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
+    Closed, DiscreteWindows, Filtered, InstanceAggregations, Parameterized, Periodics, SlidingWindows, Spawned,
+    ValueTypes,MultipleEvals
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
-    Input, Output, SlidingAggr, StreamAccessKind, StreamType, Trigger, TypedTrait, WRef, WidenExprKind, Window,
+    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, Trigger, TypedTrait, WRef,
+    WidenExprKind, Window,
 };
 use crate::{CompleteMode, RtLolaHir};
 
@@ -42,6 +44,17 @@ pub trait Feature {
     /// The given span corresponds to the code range where the window was defined.
     /// If the sliding window contains constructs part of the feature an Err should be returned describing which construct was used.
     fn exclude_sliding_window(&self, _span: &Span, _window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
+        Ok(())
+    }
+
+    /// Specifies whether to exclude a given instance aggregation.
+    /// The given span corresponds to the code range where the instance aggregation was defined.
+    /// If the instance aggregation contains constructs part of the feature an Err should be returned describing which construct was used.
+    fn exclude_instance_aggregation(
+        &self,
+        _span: &Span,
+        _aggregation: &InstanceAggregation,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 
@@ -107,6 +120,10 @@ impl Feature for FeatureSelector {
 
     fn exclude_sliding_window(&self, span: &Span, window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_sliding_window(span, window))
+    }
+
+    fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
+        self.iter_features(|f| f.exclude_instance_aggregation(span, aggregation))
     }
 
     fn exclude_trigger(&self, trigger: &Trigger) -> Result<(), RtLolaError> {
@@ -180,6 +197,7 @@ impl FeatureSelector {
             .no_multiple_evals()
             .no_discrete_windows()
             .no_sliding_windows()
+            .no_instance_aggregation()
             .non_periodic()
     }
 
@@ -230,6 +248,12 @@ impl FeatureSelector {
         self
     }
 
+    /// Asserts that the specification does not contain instance aggregations
+    pub fn no_instance_aggregation(mut self) -> Self {
+        self.features.push(Box::<InstanceAggregations>::default());
+        self
+    }
+
     /// Restricts the specification to not contain any of the given value types.
     pub fn not_value_type(mut self, types: &[ConcreteValueType]) -> Self {
         self.features
@@ -248,6 +272,13 @@ impl FeatureSelector {
     /// Restricts the specification to not contain output streams with multiple eval clauses.
     pub fn no_multiple_evals(mut self) -> Self {
         self.features.push(Box::new(MultipleEvals {}));
+        self
+    }
+
+    /// Restricts the specification to not contain any of the instance operations.
+    pub fn not_instance_op(mut self, ops: &[InstanceOperation]) -> Self {
+        let set = HashSet::from_iter(ops.to_vec());
+        self.features.push(Box::new(InstanceAggregations::new(set)));
         self
     }
 
@@ -327,6 +358,12 @@ impl FeatureSelector {
                 res.join(e);
             }
         });
+        self.hir.instance_aggregations().iter().for_each(|aggr| {
+            let span = self.find_window_span(aggr.reference);
+            if let Err(e) = self.exclude_instance_aggregation(&span, aggr) {
+                res.join(e);
+            }
+        });
         self.hir.triggers.iter().for_each(|t| {
             let ty = self.hir.stream_type(t.sr);
             if let Err(e) = self.exclude_value_type(&t.span, &ty.value_ty) {
@@ -356,6 +393,9 @@ impl FeatureSelector {
                     Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, StreamAccessKind::DiscreteWindow(w), _) if *w == window => {
+                    Some(expr.span)
+                },
+                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _) if *w == window => {
                     Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, _, _)
@@ -641,6 +681,26 @@ mod test {
                 .map_err(|e| e.num_errors())
                 .unwrap_err(),
             2
+        );
+    }
+
+    #[test]
+    fn instance_aggregation() {
+        let (builder, _handler) = builder(
+            "\
+            input a: Int32\n\
+            output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+            output c eval with b.aggregate(over_instances: fresh, using: Σ)\n
+        ",
+        );
+
+        assert_eq!(
+            builder
+                .no_instance_aggregation()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
         );
     }
 

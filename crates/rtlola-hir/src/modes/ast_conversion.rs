@@ -1020,11 +1020,11 @@ impl ExpressionTransformer {
 mod tests {
     use std::collections::HashSet;
 
-    use rtlola_parser::ast::WindowOperation;
+    use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
-    use crate::hir::{ExpressionContext, SpawnDef, StreamAccessKind};
+    use crate::hir::{ExpressionContext, SpawnDef, StreamAccessKind, WindowReference};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
@@ -1521,6 +1521,16 @@ mod tests {
         let spec = "input a: Int32\n\
         output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
         output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
-        obtain_expressions(spec);
+        let hir = obtain_expressions(spec);
+        let aggr = hir.instance_aggregations().first().cloned().unwrap();
+        let expected = InstanceAggregation {
+            target: SRef::Out(0),
+            caller: SRef::Out(1),
+            selection: InstanceSelection::Fresh,
+            aggr: InstanceOperation::Sum,
+            reference: WindowReference::Instance(0),
+            eid: aggr.eid.clone(),
+        };
+        assert_eq!(aggr, &expected);
     }
 }
