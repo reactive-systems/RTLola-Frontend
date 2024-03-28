@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
+use std::iter::zip;
 
-use itertools::{zip, Itertools};
+use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
     Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, Origin, SlidingAggr,
