@@ -6,7 +6,7 @@ use rtlola_parser::ast::WindowOperation;
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
+    Closed, DiscreteWindows, Filtered, MultipleEvals, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
@@ -177,6 +177,7 @@ impl FeatureSelector {
             .no_spawn()
             .no_filter()
             .no_close()
+            .no_multiple_evals()
             .no_discrete_windows()
             .no_sliding_windows()
             .non_periodic()
@@ -244,6 +245,12 @@ impl FeatureSelector {
         self
     }
 
+    /// Restricts the specification to not contain output streams with multiple eval clauses.
+    pub fn no_multiple_evals(mut self) -> Self {
+        self.features.push(Box::new(MultipleEvals {}));
+        self
+    }
+
     /// Validates the [RtLolaHir] against the given feature set.
     pub fn build(self) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
         let mut res = RtLolaError::new();
@@ -296,11 +303,13 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_cond(o.sr)) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_expr(o.sr)) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_cond(o.sr)) {
-                res.join(e);
+            for eval in self.hir.eval_unchecked(o.sr) {
+                if let Err(e) = self.exclude_expression(eval.expression) {
+                    res.join(e);
+                }
+                if let Err(e) = self.exclude_expression_opt(eval.condition) {
+                    res.join(e);
+                }
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.close_cond(o.sr)) {
                 res.join(e);
@@ -395,12 +404,17 @@ impl FeatureSelector {
                         .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
                 })
         });
-        let eval = find_access_expr(self.hir.expression(caller.eval.expr), window).or_else(|| {
-            caller
-                .eval
-                .condition
-                .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
-        });
+        let eval = caller
+            .eval
+            .iter()
+            .find_map(|eval| find_access_expr(self.hir.expression(eval.expr), window))
+            .or_else(|| {
+                caller
+                    .eval
+                    .iter()
+                    .flat_map(|eval| eval.condition)
+                    .find_map(|expr| find_access_expr(self.hir.expression(expr), window))
+            });
         let close = caller
             .close
             .as_ref()

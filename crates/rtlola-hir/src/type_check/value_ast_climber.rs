@@ -336,19 +336,18 @@ where
             self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
 
-        if let Some(cond) = &self.hir.eval_cond(out.sr) {
+        for cond in self.hir.eval_cond(out.sr).unwrap().iter().flatten() {
             self.expression_infer(cond, Some(AbstractValueType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(
-            self.hir.eval_expr(out.sr).expect("Always present for valid streams"),
-            None,
-        )?;
-        if let Some(a_ty) = out.annotated_type.as_ref() {
-            self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
-        }
+        for eval in self.hir.eval_unchecked(out.sr) {
+            let expression_key = self.expression_infer(eval.expression, None)?;
+            if let Some(a_ty) = out.annotated_type.as_ref() {
+                self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
+            }
 
-        self.tyc.impose(out_key.equate_with(expression_key))?;
+            self.tyc.impose(out_key.equate_with(expression_key))?;
+        }
 
         Ok(out_key)
     }
@@ -357,7 +356,11 @@ where
     pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
         let expression_key = self.expression_infer(
-            self.hir.eval_expr(tr.sr).expect("always present for valid triggers"),
+            self.hir
+                .eval_expr(tr.sr)
+                .expect("always present for valid triggers")
+                .get(0)
+                .expect("trigger always have exactly one eval clause"),
             Some(AbstractValueType::Bool),
         )?;
         self.tyc.impose(tr_key.concretizes(expression_key))?;
@@ -2051,5 +2054,22 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input  a : (UInt, (Float, Bool))\n\
                     output b := a.offset(by: -1).1.0.defaults(to: 5.0)";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a : Int8\ninput b : Int8\n\
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
+        assert_eq!(0, num_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_type_error() {
+        let spec = "input a : Int8\ninput b : Bool\n\
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
+        assert_eq!(1, num_errors(spec));
     }
 }

@@ -180,7 +180,6 @@ enum NodeInformation<'a> {
         pacing_ty: String,
         spawn_ty: String,
         value_ty: String,
-        expression: String,
     },
 
     Trigger {
@@ -191,7 +190,6 @@ enum NodeInformation<'a> {
         pacing_ty: String,
         spawn_ty: String,
         value_ty: String,
-        expression: String,
         message: &'a str,
     },
 
@@ -233,7 +231,6 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
         StreamReference::Out(_) => {
             let output = mir.output(sref);
             let pacing_str = mir.display(&output.eval.eval_pacing).to_string();
-            let expr_str = mir.display(&output.eval.expression).to_string();
             let spawn_str = mir.display(&output.spawn.pacing).to_string();
 
             NodeInformation::Output {
@@ -244,7 +241,6 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
                 pacing_ty: pacing_str,
                 spawn_ty: spawn_str,
                 value_ty: value_str,
-                expression: expr_str,
             }
         },
     }
@@ -277,7 +273,7 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
 
     let pacing = match origin {
         Origin::Spawn => &caller.spawn.pacing,
-        Origin::Filter | Origin::Eval => &caller.eval.eval_pacing,
+        Origin::Filter(_) | Origin::Eval(_) => &caller.eval.eval_pacing,
         Origin::Close => &caller.close.pacing,
     };
 
@@ -303,7 +299,6 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
         pacing_ty,
         spawn_ty,
         value_ty,
-        expression,
     } = stream_infos(mir, trigger.reference)
     {
         NodeInformation::Trigger {
@@ -315,7 +310,6 @@ fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
             spawn_ty,
             value_ty,
             message: &trigger.message,
-            expression,
         }
     } else {
         unreachable!("is NodeInformation::Stream");
@@ -470,7 +464,6 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 spawn_ty,
                 value_ty,
                 reference: _,
-                expression: _,
             } => {
                 format!(
                     "{stream_name}: {value_ty}<br/>\
@@ -496,7 +489,6 @@ Layer {eval_layer}"
                 message,
                 reference: _,
                 memory_bound: _,
-                expression: _,
             } => {
                 format!(
                     "Trigger {idx}: {value_ty}<br/>\
@@ -645,14 +637,14 @@ mod tests {
         ( Eval ) => {
             EdgeType::Eval
         };
-        ( SW, $i:expr, $origin:ident ) => {
-            EdgeType::Access{origin: Origin::$origin, kind: StreamAccessKind::SlidingWindow(WindowReference::Sliding($i))}
+        ( SW, $i:expr, $origin:ident $(, $origin_i:expr )? ) => {
+            EdgeType::Access{origin: Origin::$origin$(($origin_i))?, kind: StreamAccessKind::SlidingWindow(WindowReference::Sliding($i))}
         };
         ( DW, $i:expr, $origin:ident ) => {
             EdgeType::Access{origin: Origin::&origin, kind: StreamAccessKind::DiscreteWindow(WindowReference::Discrete($i))}
         };
-        ( $sak:ident, $origin:ident ) => {
-            EdgeType::Access{origin: Origin::$origin, kind: StreamAccessKind::$sak}
+        ( $sak:ident, $origin:ident $(, $origin_i:expr )? ) => {
+            EdgeType::Access{origin: Origin::$origin$(($origin_i))?, kind: StreamAccessKind::$sak}
         };
     }
 
@@ -663,7 +655,7 @@ mod tests {
     }
 
     macro_rules! test_dependency_graph {
-        ( $name:ident, $spec:literal, $( $edge_from_ty:ident($edge_from_i:expr)$(:$origin:ident)? => $edge_to_ty:ident($edge_to_i:expr) : $with:ident $(($p:expr))? , )+ ) => {
+        ( $name:ident, $spec:literal, $( $edge_from_ty:ident($edge_from_i:expr)$(:$origin:ident$(($origin_i:expr))?)? => $edge_to_ty:ident($edge_to_i:expr) : $with:ident $(($p:expr))? , )+ ) => {
 
             #[test]
             fn $name() {
@@ -674,7 +666,7 @@ mod tests {
                 $(
                     let from_node = build_node!($edge_from_ty($edge_from_i));
                     let to_node = build_node!($edge_to_ty($edge_to_i));
-                    let with = build_edge_kind!($with $(,$p)? $(,$origin)?);
+                    let with = build_edge_kind!($with $(,$p)? $(,$origin $(,$origin_i)?)?);
                     let expected_edge = Edge {
                         from: from_node, to: to_node, with
                     };
@@ -689,8 +681,8 @@ mod tests {
         "input a : UInt64
         input b : UInt64
         output c := a + b",
-        Out(0):Eval => In(0) : Sync,
-        Out(0):Eval => In(1) : Sync,
+        Out(0):Eval(0) => In(0) : Sync,
+        Out(0):Eval(0) => In(1) : Sync,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
     );
@@ -698,7 +690,7 @@ mod tests {
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
-        T(0):Eval => In(0) : Sync,
+        T(0):Eval(0) => In(0) : Sync,
         T(0) => In(0) : Eval,
     );
 
@@ -708,11 +700,11 @@ mod tests {
         output c := a + b.hold().defaults(to:0)
         output d@1Hz := a.aggregate(over:5s, using:count)
         trigger d < 5",
-        Out(0):Eval => In(0) : Sync,
-        Out(0):Eval => In(1) : Hold,
-        Out(1):Eval => SW(0) : SW(0),
-        SW(0):Eval => In(0) : SW(0),
-        T(0):Eval => Out(1) : Sync,
+        Out(0):Eval(0) => In(0) : Sync,
+        Out(0):Eval(0) => In(1) : Hold,
+        Out(1):Eval(0) => SW(0) : SW(0),
+        SW(0):Eval(0) => In(0) : SW(0),
+        T(0):Eval(0) => Out(1) : Sync,
         Out(0) => In(0) : Eval,
     );
 
@@ -722,7 +714,7 @@ mod tests {
         output c @(a||b) := 0
         output d @(a&&b) := a
         ",
-        Out(1):Eval => In(0) : Sync,
+        Out(1):Eval(0) => In(0) : Sync,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
         Out(1) => In(0) : Eval,
@@ -739,8 +731,25 @@ mod tests {
         Out(0) => In(0) : Spawn,
         Out(0) => In(0) : Eval,
         Out(0) => In(1) : Eval,
-        Out(0):Filter => In(0) : Sync,
-        Out(0):Eval => In(1) : Sync,
+        Out(0):Filter(0) => In(0) : Sync,
+        Out(0):Eval(0) => In(1) : Sync,
         Out(0):Spawn => In(0) : Sync,
+    );
+
+    test_dependency_graph!(multiple_evals,
+        "input a : UInt64
+        input b : UInt64
+        output c
+            eval @(a&&b) when a == 0 with 0
+            eval @(a&&b) when b == 0 with 1
+            eval @(a&&b) when a + b == 1 with a  
+        ",
+        Out(0) => In(0) : Eval,
+        Out(0) => In(1) : Eval,
+        Out(0):Filter(0) => In(0) : Sync,
+        Out(0):Filter(1) => In(1) : Sync,
+        Out(0):Filter(2) => In(0) : Sync,
+        Out(0):Filter(2) => In(1) : Sync,
+        Out(0):Eval(2) => In(0) : Sync,
     );
 }

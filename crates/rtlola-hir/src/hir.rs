@@ -272,56 +272,68 @@ impl<M: HirMode> Hir<M> {
         self.spawn(sr).expect("Invalid for input and triggers references")
     }
 
-    /// Retrieves the eval definition of a particular output stream or trigger or `None` for input references.
-    pub fn eval(&self, sr: SRef) -> Option<EvalDef> {
+    /// Retrieves the eval definitions of a particular output stream or trigger or `None` for input references.
+    pub fn eval(&self, sr: SRef) -> Option<Vec<EvalDef>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(idx) => {
                 if idx < self.outputs.len() {
                     let output = self.outputs.iter().find(|o| o.sr == sr);
                     output.map(|o| {
-                        let et = o.eval();
-                        EvalDef::new(
-                            et.condition.map(|id| self.expression(id)),
-                            self.expression(et.expr),
-                            et.annotated_pacing_type.as_ref(),
-                            et.span,
-                        )
+                        o.eval()
+                            .iter()
+                            .map(|eval| {
+                                EvalDef::new(
+                                    eval.condition.map(|id| self.expression(id)),
+                                    self.expression(eval.expr),
+                                    eval.annotated_pacing_type.as_ref(),
+                                    eval.span,
+                                )
+                            })
+                            .collect()
                     })
                 } else {
                     // Trigger case
                     let tr = self.triggers().find(|tr| tr.sr == sr);
                     tr.map(|trigger| {
-                        EvalDef::new(
+                        vec![EvalDef::new(
                             None,
                             self.expression(trigger.expr_id),
                             trigger.annotated_pacing_type.as_ref(),
                             trigger.span,
-                        )
+                        )]
                     })
                 }
             },
         }
     }
 
-    /// Retrieves the eval condition of a particular output stream or `None` for input and trigger references.
+    /// Retrieves all eval conditions of the clauses of a particular output stream or `None` for input and trigger references.
+    /// For each eval clause of the stream, the element in the Vec is `None` if no condition is
+    /// or the coresponding condition otherwise.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_cond(&self, sr: SRef) -> Option<&Expression> {
+    pub fn eval_cond(&self, sr: SRef) -> Option<Vec<Option<&Expression>>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.eval_cond())
-                    .map(|eid| self.expression(eid))
+            SRef::Out(o) => {
+                if o < self.outputs.len() {
+                    self.outputs.iter().find(|o| o.sr == sr).map(|output| {
+                        output
+                            .eval
+                            .iter()
+                            .map(|e| e.condition.map(|eid| self.expression(eid)))
+                            .collect()
+                    })
+                } else {
+                    Some(vec![None])
+                }
             },
         }
     }
 
-    /// Retrieves the eval expression of a particular output stream or trigger and `None` for input references.
+    /// Retrieves the eval expressions of all eval clauses of a particular output stream or trigger and `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_expr(&self, sr: SRef) -> Option<&Expression> {
+    pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(o) => {
@@ -329,27 +341,34 @@ impl<M: HirMode> Hir<M> {
                     self.outputs
                         .iter()
                         .find(|o| o.sr == sr)
-                        .map(|o| o.eval_expr())
-                        .map(|eid| self.expression(eid))
+                        .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect())
                 } else {
-                    let tr = self.triggers().find(|tr| tr.sr == sr);
-                    tr.map(|tr| tr.expr_id).map(|eid| self.expression(eid))
+                    self.triggers()
+                        .find(|tr| tr.sr == sr)
+                        .map(|tr| vec![self.expression(tr.expr_id)])
                 }
             },
         }
     }
 
-    /// Retrieves the eval pacing of a particular output stream or trigger `None` for input references.
+    /// Retrieves the annotated eval pacing of each eval clause of a particular output stream or trigger `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
+    pub fn eval_pacing(&self, sr: SRef) -> Option<Vec<&AnnotatedPacingType>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(o) => {
                 if o < self.outputs.len() {
-                    self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.eval_pacing())
+                    let output = self.outputs.iter().find(|o| o.sr == sr)?;
+                    Some(
+                        output
+                            .eval
+                            .iter()
+                            .filter_map(|eval| eval.annotated_pacing_type.as_ref())
+                            .collect(),
+                    )
                 } else {
                     let tr = self.triggers().find(|tr| tr.sr == sr);
-                    tr.and_then(|tr| tr.annotated_pacing_type.as_ref())
+                    tr.and_then(|tr| tr.annotated_pacing_type.as_ref().map(|pt| vec![pt]))
                 }
             },
         }
@@ -358,7 +377,7 @@ impl<M: HirMode> Hir<M> {
     /// Same behavior as [`eval`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input.
-    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> EvalDef {
+    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> Vec<EvalDef> {
         self.eval(sr).expect("Invalid for input references")
     }
 
@@ -496,7 +515,7 @@ pub struct Output {
     /// The optional information on the spawning behavior of the stream
     pub(crate) spawn: Option<Spawn>,
     /// The information regarding evaluation expression and condition of the stream
-    pub(crate) eval: Eval,
+    pub(crate) eval: Vec<Eval>,
     /// The optional closing condition
     pub(crate) close: Option<Close>,
     /// The reference pointing to this stream.
@@ -559,23 +578,8 @@ impl Output {
     }
 
     /// Returns the [Eval] template of the stream
-    pub(crate) fn eval(&self) -> &Eval {
+    pub(crate) fn eval(&self) -> &[Eval] {
         &self.eval
-    }
-
-    /// Returns the expression id for the evaluation condition of this stream
-    pub(crate) fn eval_cond(&self) -> Option<ExprId> {
-        self.eval.condition
-    }
-
-    /// Returns the expression id for the eval expression of this stream
-    pub(crate) fn eval_expr(&self) -> ExprId {
-        self.eval.expr
-    }
-
-    /// Returns the annotated pacing for the stream evaluation
-    pub(crate) fn eval_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.eval.annotated_pacing_type.as_ref()
     }
 
     /// Yields the span referring to a part of the specification from which this stream originated.

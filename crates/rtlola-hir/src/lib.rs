@@ -37,15 +37,15 @@ pub use modes::{BaseMode, CompleteMode};
 use rtlola_parser::RtLolaAst;
 use rtlola_reporting::RtLolaError;
 
-/// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir).
+/// Transforms a [RtLolaAst] into the [RtLolaHir].
 ///
 /// For a given specification the [parse](rtlola_parser::parse) function parses the input into the [RtLolaAst].
-/// The [RtLolaHir](crate::hir::RtLolaHir) is the result of the first transformation and is used for all following analyses and transformations.
+/// The [RtLolaHir] is the result of the first transformation and is used for all following analyses and transformations.
 pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
     Hir::<BaseMode>::from_ast(ast)
 }
 
-/// Transforms a [RtLolaAst] into the [RtLolaHir](crate::hir::RtLolaHir) and completes all mode transformations.
+/// Transforms a [RtLolaAst] into the [RtLolaHir] and completes all mode transformations.
 ///
 /// The [RtLolaAst] can be obtained by [parse](rtlola_parser::parse)  and its sibling functions.
 /// Analyses are performed sequentially in the following order:
@@ -55,7 +55,7 @@ pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
 /// - Layer analysis (see [determine_evaluation_order](crate::hir::RtLolaHir::<TypedMode>::determine_evaluation_order)):
 /// - Memory analysis (see [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
 ///
-/// This function returns the fully analysed [RtLolaHir](crate::hir::RtLolaHir)  which can be lowered into the [Mir](rtlola-frontend::Mir).
+/// This function returns the fully analysed [RtLolaHir]  which can be lowered into the [Mir](rtlola-frontend::Mir).
 pub fn fully_analyzed(ast: RtLolaAst) -> Result<Hir<CompleteMode>, RtLolaError> {
     Hir::<BaseMode>::from_ast(ast)?
         .check_types()?

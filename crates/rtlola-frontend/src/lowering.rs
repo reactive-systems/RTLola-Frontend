@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::iter::zip;
 
 use itertools::Itertools;
 use rtlola_hir::hir::{
@@ -9,8 +10,7 @@ use rtlola_hir::hir::{
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::WindowOperation;
 
-use crate::mir;
-use crate::mir::{Close, Eval, Mir, Spawn};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -271,20 +271,24 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> Eval {
-        let pacing_ty = hir.stream_type(sr).eval_pacing;
-        let expr = Self::lower_expr(
-            hir,
-            sr_map,
-            hir.eval_expr(sr).expect("Expr exists for all valid output streams"),
-        );
-        let condition = hir.eval_cond(sr).map(|f| Self::lower_expr(hir, sr_map, f));
-        // This lowers the stream pacing type, which combines the pacing of the eval_expr and the condition.
-        let eval_pacing = Self::lower_pacing_type(pacing_ty, sr_map);
-        Eval {
-            condition,
-            expression: expr,
-            eval_pacing,
-        }
+        assert_eq!(hir.eval_expr(sr).unwrap().len(), hir.eval_cond(sr).unwrap().len());
+
+        let clauses = zip(hir.eval_expr(sr).unwrap(), hir.eval_cond(sr).unwrap())
+            .enumerate()
+            .map(|(idx, (expr, cond))| {
+                let expr = Self::lower_expr(hir, sr_map, expr);
+                let condition = cond.map(|f| Self::lower_expr(hir, sr_map, f));
+                let pacing = Self::lower_pacing_type(hir.eval_pacing_type(sr, idx), sr_map);
+                EvalClause {
+                    pacing,
+                    condition,
+                    expression: expr,
+                }
+            })
+            .collect();
+
+        let eval_pacing = Self::lower_pacing_type(hir.stream_type(sr).eval_pacing, sr_map);
+        Eval { clauses, eval_pacing }
     }
 
     fn lower_close(
@@ -607,6 +611,7 @@ mod tests {
 
     use super::*;
     use crate::mir::IntTy::Int8;
+    use crate::mir::PacingType;
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let ast = ParserConfig::for_string(spec.into())
@@ -698,7 +703,7 @@ mod tests {
             &mir::PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
         );
         assert_eq!(
-            &mir_d.eval.expression,
+            &mir_d.eval.clauses[0].expression,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
                 ty: mir::Type::Int(Int8)
@@ -735,7 +740,7 @@ mod tests {
             mir::PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
-            mir_d.eval.condition,
+            mir_d.eval.clauses[0].condition,
             Some(mir::Expression {
                 kind: mir::ExpressionKind::ArithLog(mir::ArithLogOp::Eq, _),
                 ty: _,
@@ -791,7 +796,7 @@ mod tests {
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 
-        let expr = mir.outputs[1].eval.expression.kind.clone();
+        let expr = mir.outputs[1].eval.clauses[0].expression.kind.clone();
         assert!(
             matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
         );
@@ -803,8 +808,54 @@ mod tests {
         output b := cast<Int64, Float64>(a)";
         let (_, mir) = lower_spec(spec);
         assert!(matches!(
-            mir.outputs[0].eval.expression.kind,
+            mir.outputs[0].eval.clauses[0].expression.kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a: Int64\ninput b: Int64\ninput c: Bool\n\
+        output d eval @(c&&a) when c with a eval @(c&&b) when !c with b";
+        let (_, mir) = lower_spec(spec);
+        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.inputs.len(), 3);
+        assert_eq!(mir.triggers.len(), 0);
+
+        let output = &mir.outputs[0];
+        assert_eq!(output.eval.clauses.len(), 2);
+        assert_eq!(
+            output.eval.eval_pacing,
+            PacingType::Event(mir::ActivationCondition::Disjunction(vec![
+                mir::ActivationCondition::Conjunction(vec![
+                    // TODO:??
+                    mir::ActivationCondition::Stream(StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
+                mir::ActivationCondition::Conjunction(vec![
+                    mir::ActivationCondition::Stream(StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
+                mir::ActivationCondition::Conjunction(vec![
+                    mir::ActivationCondition::Stream(StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                ]),
+            ]))
+        );
+        assert_eq!(
+            output.eval.clauses[0].pacing,
+            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+                mir::ActivationCondition::Stream(StreamReference::In(0)),
+                mir::ActivationCondition::Stream(StreamReference::In(2)),
+            ]))
+        );
+        assert_eq!(
+            output.eval.clauses[1].pacing,
+            PacingType::Event(mir::ActivationCondition::Conjunction(vec![
+                mir::ActivationCondition::Stream(StreamReference::In(1)),
+                mir::ActivationCondition::Stream(StreamReference::In(2)),
+            ]))
+        );
     }
 }

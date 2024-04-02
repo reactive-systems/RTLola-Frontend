@@ -155,19 +155,27 @@ where
                 .hir
                 .spawn(output.sr)
                 .map(|spawn| spawn.span)
-                .unwrap_or_else(|| Span::Unknown);
+                .unwrap_or(Span::Unknown);
             let eval_span = self
                 .hir
-                .eval(output.sr)
+                .eval_unchecked(output.sr)
+                .iter()
                 .map(|eval| eval.span)
-                .unwrap_or_else(|| Span::Unknown);
+                .reduce(|e1, e2| e1.union(&e2))
+                .unwrap_or(Span::Unknown);
             let close_span = self
                 .hir
                 .close(output.sr)
                 .map(|close| close.span)
-                .unwrap_or_else(|| Span::Unknown);
+                .unwrap_or(Span::Unknown);
 
             self.node_key.insert(NodeId::SRef(output.sr), key);
+            for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
+                let eval_key = self.new_stream_key();
+                self.node_key.insert(NodeId::Eval(i, output.sr), eval_key);
+                self.add_span_to_stream_key(eval_key, eval.span);
+            }
+
             self.pacing_key_span.insert(key.eval_pacing, eval_span);
             self.pacing_key_span.insert(key.spawn_pacing, spawn_span);
             self.pacing_key_span.insert(key.close_pacing, close_span);
@@ -181,8 +189,11 @@ where
             self.expression_key_span.insert(
                 key.eval_condition,
                 output
-                    .eval_cond()
+                    .eval
+                    .iter()
+                    .filter_map(|eval| eval.condition)
                     .map(|id| self.hir.expression(id).span)
+                    .reduce(|e1, e2| e1.union(&e2))
                     .unwrap_or(Span::Unknown),
             );
             self.expression_key_span.insert(
@@ -231,7 +242,9 @@ where
 
     fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
         let stream_keys = self.node_key[&NodeId::SRef(trigger.sr)];
-        let exp_key = self.expression_infer(self.hir.eval_unchecked(trigger.sr).expression)?;
+        let eval = self.hir.eval_unchecked(trigger.sr);
+        assert_eq!(eval.len(), 1, "trigger can only have one eval clause");
+        let exp_key = self.expression_infer(eval[0].expression)?;
 
         // Check if there is a type is annotated
         if let Some(ac) = &trigger.annotated_pacing_type {
@@ -254,10 +267,27 @@ where
         // Keys to capture the types of a whole stream
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
 
-        // Type filter
-        let eval = self.hir.eval_unchecked(output.sr);
-        let eval_keys = self.eval_infer(&eval, stream_keys)?;
+        let infer_pacing = self.hir.eval_unchecked(output.sr).len() == 1;
+        if !infer_pacing {
+            let annotated_pacing = AbstractPacingType::from_clauses(&self.hir.eval_unchecked(output.sr), self.hir)?;
+            self.pacing_tyc
+                .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_pacing))?;
+        }
 
+        let eval_keys = self.new_stream_key();
+        // Type filter
+        for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
+            let current_eval_keys = self.node_key[&NodeId::Eval(i, output.sr)];
+            self.eval_infer(eval, stream_keys, current_eval_keys, infer_pacing)?;
+            self.impose_more_concrete(eval_keys, current_eval_keys)?;
+        }
+
+        let filters = self.hir.eval_cond(output.sr).unwrap();
+        self.expression_tyc.impose(
+            stream_keys
+                .eval_condition
+                .concretizes_explicit(AbstractSemanticType::for_filters(&filters, self.exp_context.clone())),
+        )?;
         // Type spawn condition
         if let Some(spawn) = self.hir.spawn(output.sr) {
             self.spawn_infer(&spawn, stream_keys, eval_keys)?;
@@ -274,49 +304,52 @@ where
         &mut self,
         eval: &EvalDef,
         stream_keys: StreamTypeKeys,
-    ) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
-        // Keys to capture the types of the eval clause
-        let eval_keys = self.new_stream_key();
-        self.add_span_to_stream_key(eval_keys, eval.span);
-
+        eval_keys: StreamTypeKeys,
+        infer_pacing: bool,
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let expr_keys = self.expression_infer(eval.expression)?;
         let filter_keys = eval
             .condition
             .map(|expr| self.expression_infer(expr))
             .unwrap_or_else(|| Ok(self.new_stream_key()))?;
 
-        // eval pacing infer
-        self.impose_more_concrete(eval_keys, expr_keys)?;
-        self.impose_more_concrete(eval_keys, filter_keys)?;
+        let inferred_eval_keys = self.new_stream_key();
+        self.impose_more_concrete(inferred_eval_keys, expr_keys)?;
+        self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
+        self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
 
         if let Some(annotated_pacing) = eval.annotated_pacing {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(annotated_pacing, self.hir)?;
-            self.pacing_key_span.insert(stream_keys.eval_pacing, span);
+            let (annotated_ty, _) = AbstractPacingType::from_pt(annotated_pacing, self.hir)?;
+            let annotation_key = self.new_stream_key();
+            self.add_span_to_stream_key(annotation_key, annotated_pacing.span(self.hir));
             self.pacing_tyc
-                .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_ty))?;
-
-            self.pacing_type_implies(stream_keys.eval_pacing, eval_keys.eval_pacing, false);
-        } else {
+                .impose(annotation_key.eval_pacing.concretizes_explicit(annotated_ty))?;
+            self.impose_more_concrete(eval_keys, annotation_key)?;
+            self.pacing_type_implies(annotation_key.eval_pacing, inferred_eval_keys.eval_pacing, false);
+        }
+        if infer_pacing {
             self.pacing_tyc
                 .impose(stream_keys.eval_pacing.concretizes(eval_keys.eval_pacing))?;
         }
 
         // eval condition infer
         if let Some(filter) = eval.condition {
+            let condition_key = self.new_stream_key();
+            self.add_span_to_stream_key(condition_key, filter.span);
+
             self.expression_tyc.impose(
-                stream_keys
+                condition_key
                     .eval_condition
                     .concretizes_explicit(AbstractSemanticType::for_filter(filter, self.exp_context.clone())),
             )?;
 
             // filter implies filter of the expression
-            self.exp_type_implies(stream_keys.eval_condition, eval_keys.eval_condition, false);
+            self.exp_type_implies(condition_key.eval_condition, eval_keys.eval_condition, false);
         } else {
             self.expression_tyc
                 .impose(stream_keys.eval_condition.concretizes(eval_keys.eval_condition))?;
         }
-
-        Ok(eval_keys)
+        Ok(())
     }
 
     fn spawn_infer(
@@ -840,8 +873,11 @@ where
         //Check that stream without close does not access closed stream
         let positive_top = AbstractSemanticType::positive_top();
         let negative_top = AbstractSemanticType::negative_top();
-        for output in hir.outputs() {
-            let keys = nid_key[&NodeId::Expr(output.eval_expr())];
+        for (output, eval) in hir
+            .outputs()
+            .flat_map(|output| output.eval.iter().map(move |eval| (output, eval)))
+        {
+            let keys = nid_key[&NodeId::Expr(eval.expr)];
             let spawn_pacing = pacing_tt[&keys.spawn_pacing].clone();
             let spawn_cond = &exp_tt[&keys.spawn_condition].variant;
             let filter_type = &exp_tt[&keys.eval_condition].variant;
@@ -851,7 +887,7 @@ where
                 (output.spawn().is_none() && spawn_pacing != ConcretePacingType::Constant).then_some(spawn_pacing);
             let spawn_cond = (output.spawn_cond().is_none() && spawn_cond != &positive_top)
                 .then(|| spawn_cond.construct(&[]).expect("variant to not be any"));
-            let filter = (output.eval_cond().is_none() && filter_type != &positive_top)
+            let filter = (eval.condition.is_none() && filter_type != &positive_top)
                 .then(|| filter_type.construct(&[]).expect("variant to not be any"));
             let close = (output.close().is_none() && close_type != &negative_top)
                 .then(|| close_type.construct(&[]).expect("variant to not be any"));
@@ -860,7 +896,7 @@ where
                 errors.push(
                     PacingErrorKind::ParameterizationNeeded {
                         who: output.span,
-                        why: hir.expression(output.eval_expr()).span,
+                        why: hir.expression(eval.expr).span,
                         inferred: Box::new(InferredTemplates {
                             spawn_pacing,
                             spawn_cond,
@@ -890,10 +926,13 @@ where
         }
 
         //Warning unintuitive exp pacing
-        for output in hir.outputs() {
-            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(output.eval_expr())].eval_pacing].clone();
+        for (output, eval) in hir
+            .outputs()
+            .flat_map(|output| output.eval.iter().map(move |eval| (output, eval)))
+        {
+            let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(eval.expr)].eval_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].eval_pacing].clone();
-            if output.eval_pacing().is_none() && exp_pacing != stream_pacing {
+            if eval.annotated_pacing_type.is_none() && exp_pacing != stream_pacing {
                 errors.push(PacingErrorKind::UnintuitivePacingWarning(output.span, stream_pacing).into());
             }
         }
@@ -903,11 +942,10 @@ where
             .outputs
             .iter()
             .flat_map(|o| {
-                vec![
-                    Some(NodeId::SRef(o.sr)),
-                    o.eval_cond().map(NodeId::Expr),
-                    o.close_cond().map(NodeId::Expr),
-                ]
+                o.eval()
+                    .iter()
+                    .map(|eval| Some(NodeId::Expr(eval.expr)))
+                    .chain(vec![Some(NodeId::SRef(o.sr)), o.close_cond().map(NodeId::Expr)])
             })
             .flatten()
             .collect();
@@ -920,38 +958,46 @@ where
             if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
                 && spawn_pacing != ConcretePacingType::Constant
             {
-                let (expr, span) = match node {
+                let exprs = match node {
                     NodeId::SRef(sr) => {
-                        (
-                            hir.eval_unchecked(sr).expression,
-                            &hir.output(sr).expect("StreamReference created above is invalid").span,
-                        )
-                    },
-                    NodeId::Expr(eid) => (hir.expression(eid), &hir.expression(eid).span),
-                    NodeId::Param(_, _) => unreachable!(),
-                };
-                let accesses_streams: Vec<StreamReference> = expr.get_sync_accesses();
-                for target in accesses_streams {
-                    let target_keys = nid_key[&NodeId::SRef(target)];
-                    let target_spawn_pacing = pacing_tt[&target_keys.spawn_pacing].clone();
-                    let target_spawn_condition = &exp_tt[&target_keys.spawn_condition].variant;
-                    if spawn_pacing != target_spawn_pacing || spawn_cond != target_spawn_condition {
-                        let target_span = hir
-                            .outputs()
-                            .find(|o| o.sr == target)
-                            .map(|o| o.span)
-                            .unwrap_or(Span::Unknown);
-                        errors.push(
-                            PacingErrorKind::SpawnPeriodicMismatch(
-                                *span,
-                                target_span,
+                        hir.eval_unchecked(sr)
+                            .iter()
+                            .map(|eval| {
                                 (
-                                    spawn_pacing.clone(),
-                                    spawn_cond.construct(&[]).expect("Variant not to be Any"),
-                                ),
-                            )
-                            .into(),
-                        );
+                                    eval.expression,
+                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
+                                )
+                            })
+                            .collect()
+                    },
+                    NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
+                    NodeId::Param(_, _) => unreachable!(),
+                    NodeId::Eval(_, _) => unreachable!(),
+                };
+                for (expr, span) in exprs {
+                    let accesses_streams: Vec<StreamReference> = expr.get_sync_accesses();
+                    for target in accesses_streams {
+                        let target_keys = nid_key[&NodeId::SRef(target)];
+                        let target_spawn_pacing = pacing_tt[&target_keys.spawn_pacing].clone();
+                        let target_spawn_condition = &exp_tt[&target_keys.spawn_condition].variant;
+                        if spawn_pacing != target_spawn_pacing || spawn_cond != target_spawn_condition {
+                            let target_span = hir
+                                .outputs()
+                                .find(|o| o.sr == target)
+                                .map(|o| o.span)
+                                .unwrap_or(Span::Unknown);
+                            errors.push(
+                                PacingErrorKind::SpawnPeriodicMismatch(
+                                    *span,
+                                    target_span,
+                                    (
+                                        spawn_pacing.clone(),
+                                        spawn_cond.construct(&[]).expect("Variant not to be Any"),
+                                    ),
+                                )
+                                .into(),
+                            );
+                        }
                     }
                 }
             }
@@ -974,16 +1020,17 @@ where
             }
 
             // Eval clause
-            let eval = &output.eval;
             let own_pacing: &ConcretePacingType = &pacing_tt[&keys.eval_pacing];
-            errors.append(&mut Self::check_get_and_fresh_access(
-                hir,
-                pacing_tt,
-                nid_key,
-                Some(eval.expr),
-                eval.condition,
-                own_pacing,
-            ));
+            for eval in output.eval() {
+                errors.append(&mut Self::check_get_and_fresh_access(
+                    hir,
+                    pacing_tt,
+                    nid_key,
+                    Some(eval.expr),
+                    eval.condition,
+                    own_pacing,
+                ));
+            }
 
             // Close clause
             if let Some(close) = &output.close {
@@ -998,6 +1045,7 @@ where
                 ));
             }
         }
+
         errors
     }
 
@@ -1532,7 +1580,7 @@ mod tests {
         assert_eq!(0, num_errors(spec));
 
         let type_a = tt[&get_node_for_name(&hir, "a")].clone();
-        let exp_a = tt[&NodeId::Expr(hir.eval_unchecked(get_sr_for_name(&hir, "a")).expression.eid)].clone();
+        let exp_a = tt[&NodeId::Expr(hir.eval_unchecked(get_sr_for_name(&hir, "a"))[0].expression.eid)].clone();
 
         assert_eq!(exp_a.eval_pacing, ConcretePacingType::Constant);
         assert_eq!(
@@ -1774,7 +1822,7 @@ mod tests {
         let tt = ltc.pacing_type_infer().unwrap();
 
         let b = tt[&get_node_for_name(&hir, "b")].clone();
-        let exp_b = tt[&NodeId::Expr(hir.eval_unchecked(get_sr_for_name(&hir, "b")).expression.eid)].clone();
+        let exp_b = tt[&NodeId::Expr(hir.eval_unchecked(get_sr_for_name(&hir, "b"))[0].expression.eid)].clone();
         assert_value_eq!(
             b.spawn_condition,
             Expression {
@@ -2082,7 +2130,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let filter = tt[&NodeId::Expr(hir.outputs[0].eval_cond().unwrap())].clone();
+        let filter = tt[&NodeId::Expr(hir.outputs[0].eval[0].condition.unwrap())].clone();
         assert_eq!(
             filter.eval_pacing,
             ConcretePacingType::Event(ActivationCondition::with_stream(get_sr_for_name(&hir, "y")))
@@ -2736,5 +2784,197 @@ mod tests {
         output c eval when c.offset(by:-1).defaults(to: true) with b";
 
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a: Int8
+        output b eval @a when a == 0 with a eval @a when a > 0 with a + 1";
+
+        // assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
+        assert_eq!(
+            c.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_derive_pacing() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a eval @b with b";
+
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = &tt[&NodeId::SRef(hir.outputs[0].sr)];
+        assert_eq!(
+            c.eval_pacing,
+            ConcretePacingType::Event(
+                ActivationCondition::with_stream(StreamReference::In(0))
+                    | ActivationCondition::with_stream(StreamReference::In(1))
+            )
+        );
+        let c1 = &tt[&NodeId::Expr(hir.outputs[0].eval[0].expr)];
+        assert_eq!(
+            c1.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+        let c2 = &tt[&NodeId::Expr(hir.outputs[0].eval[1].expr)];
+        assert_eq!(
+            c2.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(1)))
+        );
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_annotated_pacing() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) with a eval @(a&&b) with b";
+
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
+        assert_eq!(
+            c.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::conjunction(&[
+                StreamReference::In(0),
+                StreamReference::In(1)
+            ]))
+        );
+        let c1 = &tt[&NodeId::Expr(hir.outputs[0].eval[0].expr)];
+        assert_eq!(
+            c1.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+        let c2 = &tt[&NodeId::Expr(hir.outputs[0].eval[1].expr)];
+        assert_eq!(
+            c2.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(1)))
+        );
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_annotated_pacing2() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a eval @b with b";
+
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
+        assert_eq!(
+            c.eval_pacing,
+            ConcretePacingType::Event(
+                ActivationCondition::with_stream(StreamReference::In(0))
+                    | ActivationCondition::with_stream(StreamReference::In(1))
+            )
+        );
+        let c1 = &tt[&NodeId::Expr(hir.outputs[0].eval[0].expr)];
+        assert_eq!(
+            c1.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+        let c2 = &tt[&NodeId::Expr(hir.outputs[0].eval[1].expr)];
+        assert_eq!(
+            c2.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(1)))
+        );
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b
+        output d eval when a == 0 || a > 0 with c
+        output e eval when a == 0 with c";
+
+        assert_eq!(0, num_errors(spec));
+
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        for out_idx in 1..=2 {
+            let p = &tt[&NodeId::SRef(hir.outputs[out_idx].sr)];
+            assert_eq!(
+                p.eval_pacing,
+                ConcretePacingType::Event(ActivationCondition::conjunction(&[
+                    StreamReference::In(0),
+                    StreamReference::In(1)
+                ]))
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access2() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b
+        output d eval when a < 0 with c";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access3() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) when a == 0 with a eval @(a&&b) with b
+        output d := c";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access4() {
+        let spec = "input a: Int8\ninput b: Bool\ninput c: Bool
+        output d eval when b with a
+        output e eval @(a&&b) when b with d eval @(a&&c) when c with a";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access5() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a eval @b with b
+        output d @b := c";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_sync_access6() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a + b eval @b with b";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_mixed_event_periodic() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @a with a eval @1Hz with 0";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_mixed_different_periods() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @2Hz with 1 eval @1Hz with 2";
+
+        assert_eq!(1, num_errors(spec));
     }
 }

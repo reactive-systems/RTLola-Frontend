@@ -345,30 +345,28 @@ impl NamingAnalysis {
                 }
             }
 
-            assert!(
-                output.eval.len() <= 1,
-                "Multiple eval conditions should be removed during desugarization."
-            );
-            if let Some(eval_spec) = &output.eval.get(0) {
-                if let Some(pt) = eval_spec.annotated_pacing.as_ref() {
+            for eval in &output.eval {
+                if let Some(pt) = eval.annotated_pacing.as_ref() {
                     if let Err(e) = self.check_expression(pt) {
                         error.join(e);
                     }
                 }
-                if let Some(eval_cond) = &eval_spec.condition {
+                if let Some(eval_cond) = &eval.condition {
                     if let Err(e) = self.check_expression(eval_cond) {
                         error.join(e);
                     }
                 }
+            }
 
-                self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
-                if let Some(eval_expr) = &eval_spec.eval_expression {
+            self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
+            for eval in &output.eval {
+                if let Some(eval_expr) = &eval.eval_expression {
                     if let Err(e) = self.check_expression(eval_expr) {
                         error.join(e);
                     }
                 }
-                self.declarations.pop();
             }
+            self.declarations.pop();
         }
         error.into()
     }

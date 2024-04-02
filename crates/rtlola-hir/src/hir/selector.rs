@@ -46,8 +46,8 @@ impl Selectable for FilterSelector {
         let output = hir.output(sref).unwrap();
         match self {
             FilterSelector::Any => true,
-            FilterSelector::Filtered => output.eval_cond().is_some(),
-            FilterSelector::Unfiltered => output.eval_cond().is_none(),
+            FilterSelector::Filtered => output.eval().iter().any(|eval| eval.condition.is_some()),
+            FilterSelector::Unfiltered => output.eval().iter().all(|eval| eval.condition.is_none()),
         }
     }
 }

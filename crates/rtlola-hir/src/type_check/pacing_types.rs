@@ -14,8 +14,8 @@ use uom::si::frequency::hertz;
 use uom::si::rational64::Frequency as UOM_Frequency;
 
 use crate::hir::{
-    AnnotatedPacingType, ArithLogOp, Constant, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind, Hir,
-    Inlined, Literal, SRef, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
+    AnnotatedPacingType, ArithLogOp, Constant, EvalDef, ExprId, Expression, ExpressionContext, ExpressionKind,
+    FnExprKind, Hir, Inlined, Literal, SRef, StreamAccessKind, StreamReference, ValueEq, WidenExprKind,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{Resolvable, TypeError};
@@ -245,6 +245,8 @@ pub(crate) enum PacingErrorKind {
         source: Span,
         source_type: ConcretePacingType,
     },
+    MultipleEvalsWithoutAnnotation(Span),
+    MultipleEvalsDifferentPeriods(AbstractPacingType, AbstractPacingType, Span),
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -621,6 +623,14 @@ impl Resolvable for PacingErrorKind {
                     .add_span_with_label(source, Some(&format!("Found {} access here for which the pacing {} was inferred", op, source_type.to_pretty_string(names))), true)
                     .add_span_with_label(target, Some(&format!("The access target has incompatible pacing type {}.", target_type.to_pretty_string(names))), false)
             }
+            MultipleEvalsWithoutAnnotation(span) => {
+                Diagnostic::error("In pacing type analysis:\noutputs with multiple eval clauses require pacing annotations on each clause.").add_span_with_label(span, None, false)
+            },
+            MultipleEvalsDifferentPeriods(absty1, absty2, span) => {
+                let ty1 = absty1.to_pretty_string(names);
+                let ty2 = absty2.to_pretty_string(names);
+                Diagnostic::error(&format!("In pacing type analysis:\neval clauses of output stream have different frequencies {ty1} and {ty2}.")).add_span_with_label(span, None, false)
+            }
         }
     }
 }
@@ -848,6 +858,50 @@ impl AbstractPacingType {
                 (AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span)
             },
         })
+    }
+
+    pub(crate) fn from_clauses<M: HirMode>(clauses: &[EvalDef], hir: &Hir<M>) -> Result<Self, PacingErrorKind> {
+        let clause_annotations = clauses
+            .iter()
+            .map(|eval| {
+                let annotated_pacing = eval
+                    .annotated_pacing
+                    .ok_or_else(|| PacingErrorKind::MultipleEvalsWithoutAnnotation(eval.span))?;
+                AbstractPacingType::from_pt(annotated_pacing, hir)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let clauses_span = clause_annotations
+            .iter()
+            .map(|(_, span)| span)
+            .copied()
+            .reduce(|span1, span2| span1.union(&span2))
+            .expect("each output has at least one eval clause");
+
+        clause_annotations
+            .into_iter()
+            .map(|(pacing, _)| Ok(pacing))
+            .reduce(|a, b| a?.disjunct(b?, clauses_span))
+            .expect("each output has at least one eval clause")
+    }
+
+    fn disjunct(self, other: Self, span: Span) -> Result<Self, PacingErrorKind> {
+        match (self, other) {
+            (AbstractPacingType::Event(ac1), AbstractPacingType::Event(ac2)) => {
+                Ok(AbstractPacingType::Event(ac1 | ac2))
+            },
+            (AbstractPacingType::Periodic(p1), AbstractPacingType::Periodic(p2)) if p1 == p2 => {
+                Ok(AbstractPacingType::Periodic(p1))
+            },
+            (p1 @ AbstractPacingType::Periodic(_), p2 @ AbstractPacingType::Periodic(_)) => {
+                Err(PacingErrorKind::MultipleEvalsDifferentPeriods(p1, p2, span))
+            },
+            (s @ AbstractPacingType::Periodic(_), o @ AbstractPacingType::Event(_))
+            | (s @ AbstractPacingType::Event(_), o @ AbstractPacingType::Periodic(_)) => {
+                Err(PacingErrorKind::MixedEventPeriodic(s, o))
+            },
+            (AbstractPacingType::Any, _) | (_, AbstractPacingType::Any) => Ok(AbstractPacingType::Any),
+        }
     }
 }
 
@@ -1280,11 +1334,36 @@ impl AbstractSemanticType {
         AbstractSemanticType::Positive(kind)
     }
 
+    pub(crate) fn for_filters(exps: &[Option<&Expression>], context: Rc<ExpressionContext>) -> Self {
+        if exps.iter().any(|exp| exp.is_none()) {
+            return AbstractSemanticType::Positive(SemanticTypeKind::Any);
+        }
+        if exps.len() > 1 {
+            let mut disjunction = HashSet::new();
+            for exp in exps.iter().flatten() {
+                match Self::parse_pure(exp, None, context.clone()) {
+                    Ok(SemanticTypeKind::Disjunction(exps)) => {
+                        disjunction.extend(exps);
+                    },
+                    Ok(_) | Err(_) => {
+                        disjunction.insert(HashableExpression {
+                            context: context.clone(),
+                            expression: (*exp).clone(),
+                        });
+                    },
+                }
+            }
+            AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(disjunction))
+        } else {
+            Self::for_filter(exps[0].expect("not none because check above"), context)
+        }
+    }
+
     pub(crate) fn implies(&self, other: &Self) -> bool {
         fn kind_implies(l_kind: &SemanticTypeKind, r_kind: &SemanticTypeKind) -> bool {
             match (l_kind, r_kind) {
-                (SemanticTypeKind::Any, _) => false,
                 (_, SemanticTypeKind::Any) => true,
+                (SemanticTypeKind::Any, _) => false,
                 (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => a == b,
                 (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => a == b,
                 (SemanticTypeKind::Literal(_), SemanticTypeKind::Conjunction(_)) => false,
@@ -1426,8 +1505,8 @@ mod tests {
             output a(p: Int32) spawn with i eval with i + p\n\
             output b(q: Int32) spawn with i eval with i + q",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].eval_expr());
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval[0].expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
         assert!(a_exp.value_neq_ignore_parameters(b_exp));
         assert!(a_exp.value_eq(b_exp, env.ctx.as_ref()));
         let a_hash_expr = HashableExpression {
@@ -1455,8 +1534,8 @@ mod tests {
             output b(q: Int32) spawn with i eval with a(q)\n\
             output c(r: Int32) spawn with i eval with a(r)",
         );
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
-        let c_exp = env.hir.expression(env.hir.outputs[2].eval_expr());
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval[0].expr);
         assert!(b_exp.value_neq_ignore_parameters(c_exp));
         assert!(b_exp.value_eq(c_exp, env.ctx.as_ref()));
 
@@ -1491,12 +1570,12 @@ mod tests {
             output e := i1 && !(i2 && i3)\n\
             output f := !i1",
         );
-        let a_exp = env.hir.expression(env.hir.outputs[0].eval_expr());
-        let b_exp = env.hir.expression(env.hir.outputs[1].eval_expr());
-        let c_exp = env.hir.expression(env.hir.outputs[2].eval_expr());
-        let d_exp = env.hir.expression(env.hir.outputs[3].eval_expr());
-        let e_exp = env.hir.expression(env.hir.outputs[4].eval_expr());
-        let f_exp = env.hir.expression(env.hir.outputs[5].eval_expr());
+        let a_exp = env.hir.expression(env.hir.outputs[0].eval[0].expr);
+        let b_exp = env.hir.expression(env.hir.outputs[1].eval[0].expr);
+        let c_exp = env.hir.expression(env.hir.outputs[2].eval[0].expr);
+        let d_exp = env.hir.expression(env.hir.outputs[3].eval[0].expr);
+        let e_exp = env.hir.expression(env.hir.outputs[4].eval[0].expr);
+        let f_exp = env.hir.expression(env.hir.outputs[5].eval[0].expr);
 
         assert!(matches!(
             AbstractSemanticType::for_filter(a_exp, env.ctx.clone()),
