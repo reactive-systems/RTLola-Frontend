@@ -419,6 +419,7 @@ impl NamingAnalysis {
             SlidingWindowAggregation { expr, duration, .. } => {
                 RtLolaError::combine(self.check_expression(expr), self.check_expression(duration), |_, _| {})
             },
+            InstanceAggregation { expr, .. } => self.check_expression(expr),
             Binary(_, left, right) => {
                 RtLolaError::combine(self.check_expression(left), self.check_expression(right), |_, _| {})
             },
@@ -429,8 +430,8 @@ impl NamingAnalysis {
                 let alt_errs: RtLolaError = self.check_expression(else_case).into();
                 cond_errs
                     .into_iter()
-                    .chain(cons_errs.into_iter())
-                    .chain(alt_errs.into_iter())
+                    .chain(cons_errs)
+                    .chain(alt_errs)
                     .collect::<RtLolaError>()
                     .into()
             },
@@ -457,8 +458,8 @@ impl NamingAnalysis {
                     .collect();
                 func_err
                     .into_iter()
-                    .chain(type_errs.into_iter())
-                    .chain(expr_errs.into_iter())
+                    .chain(type_errs)
+                    .chain(expr_errs)
                     .collect::<RtLolaError>()
                     .into()
             },
@@ -492,9 +493,9 @@ impl NamingAnalysis {
                     .collect();
                 func_errs
                     .into_iter()
-                    .chain(type_errs.into_iter())
-                    .chain(expr_errs.into_iter())
-                    .chain(arg_errs.into_iter())
+                    .chain(type_errs)
+                    .chain(expr_errs)
+                    .chain(arg_errs)
                     .collect::<RtLolaError>()
                     .into()
             },

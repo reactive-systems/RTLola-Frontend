@@ -51,7 +51,7 @@ impl Expression {
             },
             ArithLog(op, args) => {
                 if args.len() == 1 {
-                    format!("{}{}", op, args.get(0).unwrap().pretty_string(names))
+                    format!("{}{}", op, args.first().unwrap().pretty_string(names))
                 } else {
                     format!(
                         "({})",
@@ -92,7 +92,7 @@ impl Display for Expression {
             },
             ArithLog(op, args) => {
                 if args.len() == 1 {
-                    write!(f, "{}{}", op, args.get(0).unwrap())
+                    write!(f, "{}{}", op, args.first().unwrap())
                 } else {
                     write!(f, "({})", args.iter().map(|e| format!("{e}")).join(&format!(" {op} ")))
                 }
@@ -181,6 +181,7 @@ impl Display for WindowReference {
         match self {
             WindowReference::Sliding(u) => write!(f, "SlidingWin({u})"),
             WindowReference::Discrete(u) => write!(f, "DiscreteWin({u})"),
+            WindowReference::Instance(u) => write!(f, "InstanceAggr({u})"),
         }
     }
 }

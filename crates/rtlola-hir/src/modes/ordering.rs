@@ -132,13 +132,8 @@ impl Ordered {
                     } else {
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
@@ -171,13 +166,8 @@ impl Ordered {
                         // eval_layer = max(successor_eval_layers) + 1
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
@@ -660,5 +650,23 @@ mod tests {
         .into_iter()
         .collect();
         check_eval_order_for_spec(spec, ref_layers)
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + a\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
+            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
     }
 }

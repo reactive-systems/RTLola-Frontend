@@ -51,13 +51,15 @@ impl EdgeWeight {
         EdgeWeight { kind, origin }
     }
 
-    /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
+    /// Returns the window reference if the [EdgeWeight] contains a sliding or discrete Aggregation or None otherwise.
+    /// Note: This functions returns None for Instance Aggregations as they are not sliding windows in the traditional sense.
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
             StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
             StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
         }
@@ -70,6 +72,7 @@ impl EdgeWeight {
             | StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
             StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
@@ -101,6 +104,7 @@ pub(crate) trait ExtendedDepGraph {
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Hold => false,
             StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
@@ -522,8 +526,8 @@ impl DepAna {
             } => {
                 Self::collect_edges(src, condition)
                     .into_iter()
-                    .chain(Self::collect_edges(src, consequence).into_iter())
-                    .chain(Self::collect_edges(src, alternative).into_iter())
+                    .chain(Self::collect_edges(src, consequence))
+                    .chain(Self::collect_edges(src, alternative))
                     .collect()
             },
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
@@ -531,7 +535,7 @@ impl DepAna {
             ExpressionKind::Default { expr, default } => {
                 Self::collect_edges(src, expr)
                     .into_iter()
-                    .chain(Self::collect_edges(src, default).into_iter())
+                    .chain(Self::collect_edges(src, default))
                     .collect()
             },
         }
@@ -1286,6 +1290,33 @@ mod tests {
         let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
         let aggregates = checking_map!(sname_to_sref, ["a", (("x", WRef::Sliding(0)))], ["x", ()]);
         let aggregated_by = checking_map!(sname_to_sref, ["a", ()], ["x", (("a", WRef::Sliding(0)))]);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let sname_to_sref = vec![("b", SRef::Out(0)), ("c", SRef::Out(1)), ("a", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b", "a")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((

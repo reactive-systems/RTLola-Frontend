@@ -3,12 +3,12 @@ use std::iter::zip;
 
 use itertools::Itertools;
 use rtlola_hir::hir::{
-    ActivationCondition, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr,
-    Expression, ExpressionKind, FnExprKind, Inlined, MemBoundTrait, Offset, OrderedTrait, Origin, SlidingAggr,
-    StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
+    ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
+    DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, MemBoundTrait, Offset,
+    OrderedTrait, Origin, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
-use rtlola_parser::ast::WindowOperation;
+use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 
 use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn};
 
@@ -115,7 +115,7 @@ impl Mir {
             })
             .unzip();
         let outputs = outputs
-            .chain(trigger_streams.into_iter())
+            .chain(trigger_streams)
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
@@ -141,12 +141,13 @@ impl Mir {
             .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
             .map(|win| Self::lower_discrete_window(&hir, &sr_map, win))
             .collect::<Vec<mir::DiscreteWindow>>();
+
         assert!(
             discrete_windows
                 .iter()
                 .enumerate()
                 .all(|(idx, w)| idx == w.reference.idx()),
-            "WRefs need to enumerated from 0 to the number of discrete windows"
+            "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
         let sliding_windows = hir
@@ -160,7 +161,21 @@ impl Mir {
                 .iter()
                 .enumerate()
                 .all(|(idx, w)| idx == w.reference.idx()),
-            "WRefs need to enumerated from 0 to the number of sliding windows"
+            "WRefs need to enumerate from 0 to the number of sliding windows"
+        );
+
+        let instance_aggregations = hir
+            .instance_aggregations()
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
+            .map(|win| Self::lower_instance_aggregation(&hir, &sr_map, win))
+            .collect::<Vec<mir::InstanceAggregation>>();
+        assert!(
+            instance_aggregations
+                .iter()
+                .enumerate()
+                .all(|(idx, w)| idx == w.reference.idx()),
+            "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
         Mir {
@@ -170,6 +185,7 @@ impl Mir {
             event_driven,
             discrete_windows,
             sliding_windows,
+            instance_aggregations,
             triggers,
         }
     }
@@ -213,7 +229,7 @@ impl Mir {
                 lower_conjunction(conj)
             },
             ActivationCondition::Models(disjuncts) => {
-                mir::ActivationCondition::Disjunction(disjuncts.iter().map(|conjs| lower_conjunction(conjs)).collect())
+                mir::ActivationCondition::Disjunction(disjuncts.iter().map(lower_conjunction).collect())
             },
             ActivationCondition::True => mir::ActivationCondition::True,
         }
@@ -348,6 +364,21 @@ impl Mir {
             wait: win.aggr.wait,
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
+            ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+        }
+    }
+
+    fn lower_instance_aggregation(
+        hir: &RtLolaHir<CompleteMode>,
+        sr_map: &HashMap<StreamReference, StreamReference>,
+        win: &InstanceAggregation,
+    ) -> mir::InstanceAggregation {
+        mir::InstanceAggregation {
+            target: sr_map[&win.target],
+            caller: sr_map[&win.caller],
+            reference: win.reference(),
+            selection: Self::lower_instance_selection(win.selection),
+            aggr: Self::lower_instance_operation(win.aggr),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
         }
     }
@@ -547,11 +578,36 @@ impl Mir {
         }
     }
 
+    fn lower_instance_operation(op: InstanceOperation) -> mir::InstanceOperation {
+        match op {
+            InstanceOperation::Count => mir::InstanceOperation::Count,
+            InstanceOperation::Min => mir::InstanceOperation::Min,
+            InstanceOperation::Max => mir::InstanceOperation::Max,
+            InstanceOperation::Sum => mir::InstanceOperation::Sum,
+            InstanceOperation::Product => mir::InstanceOperation::Product,
+            InstanceOperation::Average => mir::InstanceOperation::Average,
+            InstanceOperation::Conjunction => mir::InstanceOperation::Conjunction,
+            InstanceOperation::Disjunction => mir::InstanceOperation::Disjunction,
+            InstanceOperation::Variance => mir::InstanceOperation::Variance,
+            InstanceOperation::Covariance => mir::InstanceOperation::Covariance,
+            InstanceOperation::StandardDeviation => mir::InstanceOperation::StandardDeviation,
+            InstanceOperation::NthPercentile(x) => mir::InstanceOperation::NthPercentile(x),
+        }
+    }
+
+    fn lower_instance_selection(sel: InstanceSelection) -> mir::InstanceSelection {
+        match sel {
+            InstanceSelection::Fresh => mir::InstanceSelection::Fresh,
+            InstanceSelection::All => mir::InstanceSelection::All,
+        }
+    }
+
     fn lower_stream_access_kind(kind: StreamAccessKind) -> mir::StreamAccessKind {
         match kind {
             StreamAccessKind::Sync => mir::StreamAccessKind::Sync,
             StreamAccessKind::DiscreteWindow(wref) => mir::StreamAccessKind::DiscreteWindow(wref),
             StreamAccessKind::SlidingWindow(wref) => mir::StreamAccessKind::SlidingWindow(wref),
+            StreamAccessKind::InstanceAggregation(wref) => mir::StreamAccessKind::InstanceAggregation(wref),
             StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
             StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
             StreamAccessKind::Get => mir::StreamAccessKind::Get,
@@ -688,7 +744,7 @@ mod tests {
                     parameters: vec![],
                     access_kind: mir::StreamAccessKind::Sync,
                 },
-                ty: mir::Type::Int(Int8)
+                ty: mir::Type::Int(Int8),
             })
         );
         assert!(matches!(
@@ -706,7 +762,7 @@ mod tests {
             &mir_d.eval.clauses[0].expression,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
-                ty: mir::Type::Int(Int8)
+                ty: mir::Type::Int(Int8),
             }
         );
     }

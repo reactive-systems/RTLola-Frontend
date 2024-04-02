@@ -141,6 +141,7 @@ impl MemBound {
                         bucket_count
                     },
                     WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
+                    WindowReference::Instance(_) => unreachable!(),
                 };
                 let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
                 assert!(!memory_bound_per_window.contains_key(&wr));

@@ -2,7 +2,10 @@ use std::fmt::{Display, Formatter, Result};
 
 use itertools::Itertools;
 
-use super::{FloatTy, InputStream, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, WindowOperation};
+use super::{
+    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, Window,
+    WindowOperation,
+};
 use crate::mir::{
     ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
 };
@@ -92,6 +95,15 @@ impl Display for FloatTy {
         match self {
             FloatTy::Float32 => write!(f, "32"),
             FloatTy::Float64 => write!(f, "64"),
+        }
+    }
+}
+
+impl Display for InstanceSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            InstanceSelection::Fresh => write!(f, "Fresh"),
+            InstanceSelection::All => write!(f, "All"),
         }
     }
 }
@@ -277,13 +289,26 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
 
             match access_kind {
                 StreamAccessKind::Sync => target_name,
-                StreamAccessKind::DiscreteWindow(_) => todo!(),
+                StreamAccessKind::DiscreteWindow(w) => {
+                    let window = mir.discrete_window(*w);
+                    let target_name = mir.stream(window.target).name();
+                    let duration = window.duration;
+                    let op = &window.op;
+                    format!("{target_name}.aggregate(over_discrete: {duration}, using: {op})")
+                },
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
                     let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
+                },
+                StreamAccessKind::InstanceAggregation(w) => {
+                    let window = mir.instance_aggregation(*w);
+                    let target_name = mir.stream(window.target).name();
+                    let duration = window.selection.to_string();
+                    let op = &window.op().to_string();
+                    format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
                 },
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),

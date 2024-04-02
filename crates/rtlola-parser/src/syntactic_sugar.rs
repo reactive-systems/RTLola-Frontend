@@ -498,6 +498,21 @@ impl Desugarizer {
                     ..*ast_expr
                 }
             },
+            InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => {
+                Expression {
+                    kind: InstanceAggregation {
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                        selection: *selection,
+                        aggregation: *aggregation,
+                    },
+                    span,
+                    ..*ast_expr
+                }
+            },
             Ite(condition, normal, alternative) => {
                 Expression {
                     kind: Ite(
@@ -671,6 +686,23 @@ impl Desugarizer {
                         expr: Box::new(expr),
                         duration: Box::new(dur),
                         wait,
+                        aggregation,
+                    },
+                    span,
+                    id,
+                }
+            },
+            InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => {
+                let (expr, ecs) = Self::desugarize_expression(*expr, ast, current_sugar);
+                return_cs += ecs;
+                Expression {
+                    kind: InstanceAggregation {
+                        expr: Box::new(expr),
+                        selection,
                         aggregation,
                     },
                     span,

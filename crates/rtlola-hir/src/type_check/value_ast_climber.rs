@@ -476,7 +476,9 @@ where
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     },
-                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                    StreamAccessKind::DiscreteWindow(wref)
+                    | StreamAccessKind::SlidingWindow(wref)
+                    | StreamAccessKind::InstanceAggregation(wref) => {
                         let (target, op, wait) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
@@ -485,6 +487,10 @@ where
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_discrete(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
+                            },
+                            WindowReference::Instance(_) => {
+                                let win = self.hir.single_instance_aggregation(*wref);
+                                (win.target, win.aggr.into(), false)
                             },
                         };
                         let target_key = *self
@@ -2054,6 +2060,20 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input  a : (UInt, (Float, Bool))\n\
                     output b := a.offset(by: -1).1.0.defaults(to: 5.0)";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + a\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("a");
+        let b_id = tb.output("b");
+        let c_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(b_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(c_id)], ConcreteValueType::Integer32);
     }
 
     #[test]

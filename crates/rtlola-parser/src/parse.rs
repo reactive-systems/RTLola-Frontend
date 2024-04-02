@@ -1,5 +1,6 @@
 //! This module contains the parser for the Lola Language.
 
+use std::convert::TryInto;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -918,7 +919,7 @@ impl RtLolaParser {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Fresh)
                                     }
-                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" | "aggregate(over_instances:using:)"=> {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
                                             ExpressionKind::Ident(i) => match i.name.as_str() {
@@ -961,7 +962,23 @@ impl RtLolaParser {
                                                 return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                             }
                                         };
-                                        if signature.contains("discrete") {
+                                        if signature.contains("instances") {
+                                            let instances = match &args[0].kind {
+                                                ExpressionKind::Ident(i) => match i.name.as_str() {
+                                                    "fresh" | "Fresh" => InstanceSelection::Fresh,
+                                                    "all" | "All" => InstanceSelection::All,
+                                                    sel => {
+                                                        return Err(Diagnostic::error(&format!("unknown instance selection {sel}")).add_span_with_label(i.span, Some("available: fresh, all"), true).into());
+                                                    }
+                                                }
+                                                _ => {
+                                                    return Err(Diagnostic::error("expected instance selection").add_span_with_label(args[0].span, Some("available: fresh, all"), true).into());
+                                                }
+                                            };
+                                            let aggregation = window_op.try_into().map_err(|reason| Diagnostic::error(&format!("Operation not supported: {reason}")).add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))?;
+                                            ExpressionKind::InstanceAggregation { expr: inner, selection: instances, aggregation }
+                                        }
+                                        else if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
                                                 // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
@@ -1918,7 +1935,7 @@ mod tests {
     #[test]
     fn spawn_duplicate_when() {
         let spec = "output x spawn when true when true eval with 5\n";
-        let parser = create_parser(spec.clone());
+        let parser = create_parser(spec);
 
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
@@ -2037,5 +2054,22 @@ mod tests {
         let spec = "input a: Bool\ninput b: Bool\noutput c eval with a ∧ b -> c\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !(a ∧ b) ∨ c\n");
+    }
+
+    #[test]
+    fn instance_aggregation_simpl_fresh() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+    #[test]
+    fn instance_aggregation_simpl_all() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: all, using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
     }
 }

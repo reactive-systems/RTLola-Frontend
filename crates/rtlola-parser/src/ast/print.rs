@@ -221,6 +221,11 @@ impl Display for Expression {
                     false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
                 }
             },
+            ExpressionKind::InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => write!(f, "{expr}.aggregate(over_instances: {selection}, using: {aggregation})"),
             ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
             ExpressionKind::Unary(operator, operand) => write!(f, "{operator}{operand}"),
             ExpressionKind::Ite(cond, cons, alt) => {
@@ -379,6 +384,22 @@ impl Display for Literal {
 impl Display for Ident {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", self.name)
+    }
+}
+
+impl Display for InstanceSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            InstanceSelection::Fresh => write!(f, "fresh"),
+            InstanceSelection::All => write!(f, "all"),
+        }
+    }
+}
+
+impl Display for InstanceOperation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let wo: WindowOperation = (*self).into();
+        wo.fmt(f)
     }
 }
 

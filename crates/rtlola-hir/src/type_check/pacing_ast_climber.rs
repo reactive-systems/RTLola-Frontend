@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use rtlola_parser::ast::InstanceSelection;
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{Constructable, PreliminaryTypeTable, TcKey, TypeChecker, TypeTable};
 
@@ -482,6 +483,7 @@ where
             },
             ExpressionKind::StreamAccess(sref, kind, args) => {
                 let stream_key = self.node_key[&NodeId::SRef(*sref)];
+
                 match kind {
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::Sync | StreamAccessKind::Offset(_) => {
                         self.handle_offset(kind, term_keys)?;
@@ -493,7 +495,7 @@ where
                             .output(*sref)
                             .and_then(|o| o.spawn())
                             .map(|st| st.spawn_args(self.hir))
-                            .unwrap_or_else(Vec::new);
+                            .unwrap_or_default();
 
                         let target_span = match sref {
                             StreamReference::In(_) => self.hir.input(*sref).unwrap().span,
@@ -547,6 +549,22 @@ where
                         self.pacing_tyc
                             .impose(term_keys.eval_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
+                    },
+                    StreamAccessKind::InstanceAggregation(w) => {
+                        let aggregation = self.hir.single_instance_aggregation(*w);
+                        match aggregation.selection {
+                            InstanceSelection::Fresh => {
+                                self.pacing_tyc
+                                    .impose(term_keys.eval_pacing.concretizes(stream_key.eval_pacing))?;
+                                // Fresh access only allowed on event based streams
+                                self.pacing_tyc.impose(
+                                    term_keys
+                                        .eval_pacing
+                                        .concretizes_explicit(Event(ActivationCondition::True)),
+                                )?;
+                            },
+                            InstanceSelection::All => {},
+                        }
                     },
                 };
 
@@ -721,12 +739,12 @@ where
         own_pacing: &ConcretePacingType,
     ) -> Vec<TypeError<PacingErrorKind>> {
         expr.map(|e| Self::get_or_fresh_targets(hir.expression(e)))
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_default()
             .iter()
             .chain(
                 condition
                     .map(|e| Self::get_or_fresh_targets(hir.expression(e)))
-                    .unwrap_or_else(Vec::new)
+                    .unwrap_or_default()
                     .iter(),
             )
             .flat_map(|(is_get, span, target)| {
@@ -2784,6 +2802,46 @@ mod tests {
         output c eval when c.offset(by:-1).defaults(to: true) with b";
 
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_instance_aggregation_simple() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_instance_aggregation_fresh() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let c = tt[&get_node_for_name(&hir, "c")].clone();
+        assert_eq!(
+            c.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(get_sr_for_name(&hir, "a")))
+        );
+    }
+
+    #[test]
+    fn test_instance_aggregation_all() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval @a with b.aggregate(over_instances: all, using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_instance_aggregation_fresh_periodic() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval @1Hz with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]

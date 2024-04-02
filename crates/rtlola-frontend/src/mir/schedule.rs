@@ -71,7 +71,8 @@ impl Schedule {
         let stream_periods = ir
             .time_driven
             .iter()
-            .filter_map(|tds| ir.output(tds.reference).is_spawned().not().then(|| tds.period()));
+            .filter(|tds| !ir.output(tds.reference).is_spawned())
+            .map(|tds| tds.period());
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::Periodic(freq) = &o.spawn.pacing {
                 Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
