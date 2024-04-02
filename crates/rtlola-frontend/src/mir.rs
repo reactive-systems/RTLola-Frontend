@@ -154,6 +154,7 @@ pub enum IntTy {
     /// Represents a 64-bit integer.
     Int64,
 }
+
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UIntTy {
@@ -250,6 +251,7 @@ pub struct OutputStream {
 
 /// A type alias for references to triggers.
 pub type TriggerReference = usize;
+
 /// Wrapper for output streams that are in-fact triggers.  Provides additional information specific to triggers.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Trigger {
@@ -273,6 +275,7 @@ pub struct Spawn {
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
 }
+
 impl Default for Spawn {
     fn default() -> Self {
         Spawn {
@@ -293,6 +296,7 @@ pub struct Close {
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
 }
+
 impl Default for Close {
     fn default() -> Self {
         Close {
@@ -611,7 +615,7 @@ pub enum InstanceOperation {
     Average,
     /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
     Conjunction,
-    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    /// Aggregation function to return the disjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
     Disjunction,
     /// Aggregation function to return the variance of all values, assumes equal probability.
     Variance,

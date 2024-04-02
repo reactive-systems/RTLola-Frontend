@@ -212,10 +212,10 @@ impl<M: HirMode> Hir<M> {
             .unwrap()
     }
 
-    /// Retrieves a single discrete window for a given reference.  
+    /// Retrieves a single instance aggregation for a given reference.
     ///
     /// # Panic
-    /// Panics if no such window exists.
+    /// Panics if no such aggregation exists.
     pub fn single_instance_aggregation(&self, window: WRef) -> InstanceAggregation {
         *self
             .instance_aggregations()

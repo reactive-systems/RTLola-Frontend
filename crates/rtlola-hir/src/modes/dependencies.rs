@@ -51,7 +51,8 @@ impl EdgeWeight {
         EdgeWeight { kind, origin }
     }
 
-    /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
+    /// Returns the window reference if the [EdgeWeight] contains a sliding or discrete Aggregation or None otherwise.
+    /// Note: This functions returns None for Instance Aggregations as they are not sliding windows in the traditional sense.
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
             StreamAccessKind::Get

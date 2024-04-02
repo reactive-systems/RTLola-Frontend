@@ -147,7 +147,7 @@ impl Mir {
                 .iter()
                 .enumerate()
                 .all(|(idx, w)| idx == w.reference.idx()),
-            "WRefs need to enumerated from 0 to the number of discrete windows"
+            "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
         let sliding_windows = hir
@@ -161,7 +161,7 @@ impl Mir {
                 .iter()
                 .enumerate()
                 .all(|(idx, w)| idx == w.reference.idx()),
-            "WRefs need to enumerated from 0 to the number of sliding windows"
+            "WRefs need to enumerate from 0 to the number of sliding windows"
         );
 
         let instance_aggregations = hir
@@ -175,7 +175,7 @@ impl Mir {
                 .iter()
                 .enumerate()
                 .all(|(idx, w)| idx == w.reference.idx()),
-            "WRefs need to enumerated from 0 to the number of discrete windows"
+            "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
         Mir {
@@ -744,7 +744,7 @@ mod tests {
                     parameters: vec![],
                     access_kind: mir::StreamAccessKind::Sync,
                 },
-                ty: mir::Type::Int(Int8)
+                ty: mir::Type::Int(Int8),
             })
         );
         assert!(matches!(
@@ -762,7 +762,7 @@ mod tests {
             &mir_d.eval.clauses[0].expression,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
-                ty: mir::Type::Int(Int8)
+                ty: mir::Type::Int(Int8),
             }
         );
     }

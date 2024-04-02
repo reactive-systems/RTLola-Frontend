@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 
 mod conversion;
 mod print;
+
 use std::rc::Rc;
 
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
+
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the Ast node, a span, and declaration-specific components.
 ///
@@ -477,7 +479,7 @@ pub enum InstanceOperation {
     Average,
     /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
     Conjunction,
-    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    /// Aggregation function to return the disjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
     Disjunction,
     /// Aggregation function to return the variance of all values, assumes equal probability.
     Variance,
