@@ -293,6 +293,7 @@ impl std::ops::BitOr for ActivationCondition {
         }
     }
 }
+
 impl ActivationCondition {
     fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
         use ExpressionKind::*;
@@ -414,16 +415,16 @@ impl Resolvable for PacingErrorKind {
                     Some("here"),
                     true,
                 )
-            },
+            }
             NeverEval(span) => {
                 Diagnostic::error("In pacing type analysis:\nThe following stream or expression is never evaluated.")
                     .add_span_with_label(span, Some("here"), true)
                     .add_note("Help: Consider annotating a pacing type explicitly.")
-            },
+            }
             MalformedAc(span, reason) => {
-                Diagnostic::error(&format!("In pacing type analysis:\nMalformed activation condition: {reason}",))
-                .add_span_with_label(span, Some("here"), true)
-            },
+                Diagnostic::error(&format!("In pacing type analysis:\nMalformed activation condition: {reason}", ))
+                    .add_span_with_label(span, Some("here"), true)
+            }
             MixedEventPeriodic(absty1, absty2) => {
                 let span1 = key1.and_then(|k| pacing_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| pacing_spans.get(&k).cloned());
@@ -433,15 +434,15 @@ impl Resolvable for PacingErrorKind {
                     format!(
                         "In pacing type analysis:\nMixed an event and a periodic type: {ty1} and {ty2}",
                     )
-                    .as_str(),
+                        .as_str(),
                 )
-                .maybe_add_span_with_label(span1, Some(format!("Found {ty1} here").as_str()), true)
-                .maybe_add_span_with_label(
-                    span2,
-                    Some(format!("and found {ty2} here").as_str()),
-                    false,
-                )
-            },
+                    .maybe_add_span_with_label(span1, Some(format!("Found {ty1} here").as_str()), true)
+                    .maybe_add_span_with_label(
+                        span2,
+                        Some(format!("and found {ty2} here").as_str()),
+                        false,
+                    )
+            }
             IncompatibleExpressions(e1, e2) => {
                 let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
@@ -451,36 +452,36 @@ impl Resolvable for PacingErrorKind {
                         e1.to_pretty_string(names),
                         e2.to_pretty_string(names)
                     )
-                    .as_str(),
+                        .as_str(),
                 )
-                .maybe_add_span_with_label(
-                    span1,
-                    Some(format!("Found {} here", e1.to_pretty_string(names)).as_str()),
-                    true,
-                )
-                .maybe_add_span_with_label(
-                    span2,
-                    Some(format!("and found {} here", e2.to_pretty_string(names)).as_str()),
-                    false,
-                )
-            },
+                    .maybe_add_span_with_label(
+                        span1,
+                        Some(format!("Found {} here", e1.to_pretty_string(names)).as_str()),
+                        true,
+                    )
+                    .maybe_add_span_with_label(
+                        span2,
+                        Some(format!("and found {} here", e2.to_pretty_string(names)).as_str()),
+                        false,
+                    )
+            }
             UnintuitivePacingWarning(span, inferred) => {
                 Diagnostic::warning(
                     format!(
                         "In pacing type analysis:\nInferred complex pacing type: {}",
                         inferred.to_pretty_string(names)
                     )
-                    .as_str(),
+                        .as_str(),
                 )
-                .add_span_with_label(span, Some("here"), true)
-                .add_note(
-                    format!(
-                        "Help: Consider annotating the type explicitly for better readability using: @{}",
-                        inferred.to_pretty_string(names)
+                    .add_span_with_label(span, Some("here"), true)
+                    .add_note(
+                        format!(
+                            "Help: Consider annotating the type explicitly for better readability using: @{}",
+                            inferred.to_pretty_string(names)
+                        )
+                            .as_str(),
                     )
-                    .as_str(),
-                )
-            },
+            }
             Other(span, reason, causes) => {
                 Diagnostic::error(
                     format!(
@@ -488,23 +489,23 @@ impl Resolvable for PacingErrorKind {
                         reason,
                         causes.iter().map(|ty| ty.to_pretty_string(names)).join(" and ")
                     )
-                    .as_str(),
+                        .as_str(),
                 )
-                .add_span_with_label(span, Some("here"), true)
-                .maybe_add_span_with_label(key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
-                .maybe_add_span_with_label(
-                    key2.and_then(|k| pacing_spans.get(&k).cloned()),
-                    Some("here"),
-                    true,
-                )
-            },
+                    .add_span_with_label(span, Some("here"), true)
+                    .maybe_add_span_with_label(key1.and_then(|k| pacing_spans.get(&k).cloned()), Some("here"), true)
+                    .maybe_add_span_with_label(
+                        key2.and_then(|k| pacing_spans.get(&k).cloned()),
+                        Some("here"),
+                        true,
+                    )
+            }
             ParameterizationNotAllowed(span) => {
                 Diagnostic::error(
                     "In pacing type analysis:\nSynchronous access to a parameterized stream is not allowed here.",
                 )
-                .add_span_with_label(span, Some("here"), true)
-                .add_note("Help: Consider using a hold access")
-            },
+                    .add_span_with_label(span, Some("here"), true)
+                    .add_note("Help: Consider using a hold access")
+            }
             ParameterizationNeeded { who, why, inferred } => {
                 let InferredTemplates {
                     spawn_pacing,
@@ -519,7 +520,7 @@ impl Resolvable for PacingErrorKind {
                             pacing.to_pretty_string(names),
                             cond.pretty_string(names)
                         )
-                    },
+                    }
                     (Some(pacing), None) => format!("\nspawn @{} with <...>", pacing.to_pretty_string(names)),
                     (None, Some(cond)) => format!("\nspawn <...> if {}", cond.pretty_string(names)),
                     (None, None) => "".to_string(),
@@ -532,7 +533,7 @@ impl Resolvable for PacingErrorKind {
                     .add_span_with_label(who, Some("here"), true)
                     .add_span_with_label(why, Some("As of synchronous access occurring here"), false)
                     .add_note(&format!("Help: Consider adding the following template annotations:{spawn_str}{filter_str}{close_str}"))
-            },
+            }
             PacingTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_pretty_string(names);
                 let inferred_str = inferred.to_pretty_string(names);
@@ -540,15 +541,15 @@ impl Resolvable for PacingErrorKind {
                 let inferred_span = key2.and_then(|k| pacing_spans.get(&k)).copied();
                 Diagnostic::error(
                     format!("In pacing type analysis:\nInferred pacing type: {inferred_str} but expected: {bound_str}")
-                    .as_str(),
+                        .as_str(),
                 )
-                .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
-                .maybe_add_span_with_label(
-                    inferred_span,
-                    Some(format!("Inferred {inferred_str} here").as_str()),
-                    true,
-                )
-            },
+                    .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
+                    .maybe_add_span_with_label(
+                        inferred_span,
+                        Some(format!("Inferred {inferred_str} here").as_str()),
+                        true,
+                    )
+            }
             SemanticTypeMismatch(bound, inferred) => {
                 let bound_str = bound.to_pretty_string(names);
                 let inferred_str = inferred.to_pretty_string(names);
@@ -556,31 +557,31 @@ impl Resolvable for PacingErrorKind {
                 let inferred_span = key2.and_then(|k| exp_spans.get(&k)).copied();
                 Diagnostic::error(
                     format!("In pacing type analysis:\nInferred semantic type: {inferred_str} but expected: {bound_str}")
-                    .as_str(),
+                        .as_str(),
                 )
-                .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
-                .maybe_add_span_with_label(
-                    inferred_span,
-                    Some(format!("Inferred {inferred_str} here").as_str()),
-                    true,
-                )
-            },
+                    .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
+                    .maybe_add_span_with_label(
+                        inferred_span,
+                        Some(format!("Inferred {inferred_str} here").as_str()),
+                        true,
+                    )
+            }
             SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
                 "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
             )
-            .add_span_with_label(
-                access_span,
-                Some(
-                    format!(
-                        "Found accessing stream here with: spawn @{} <...> if {}",
-                        access_pacing.to_pretty_string(names),
-                        access_condition.pretty_string(names)
-                    )
-                    .as_str(),
-                ),
-                true,
-            )
-            .add_span_with_label(target_span, Some("Found target stream here"), false),
+                .add_span_with_label(
+                    access_span,
+                    Some(
+                        format!(
+                            "Found accessing stream here with: spawn @{} <...> if {}",
+                            access_pacing.to_pretty_string(names),
+                            access_condition.pretty_string(names)
+                        )
+                            .as_str(),
+                    ),
+                    true,
+                )
+                .add_span_with_label(target_span, Some("Found target stream here"), false),
             InvalidSyncAccessParameter {
                 target_span,
                 target_spawn_expr,
@@ -594,23 +595,23 @@ impl Resolvable for PacingErrorKind {
                 Diagnostic::error(
                     "In pacing type analysis:\nInvalid argument for synchronized access:"
                 )
-                .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({target_expr})")), false)
-                .add_span_with_label(arg.span, Some(&format!("Supplied arguments ({supplied}) resolved to the spawn expressions: ({own_expr})")), true)
+                    .add_span_with_label(target_span, Some(&format!("Target expected the argument to be equal to the spawn expression: ({target_expr})")), false)
+                    .add_span_with_label(arg.span, Some(&format!("Supplied arguments ({supplied}) resolved to the spawn expressions: ({own_expr})")), true)
                     .add_note("Note: Each parameter of the accessed stream requires a counterpart which is a parameter of the accessing stream.")
-            },
+            }
             NonParamInSyncAccess(span) => {
                 Diagnostic::error(
-                                  "In pacing type analysis:\nOnly parameters are allowed as arguments when synchronously accessing a stream:"
+                    "In pacing type analysis:\nOnly parameters are allowed as arguments when synchronously accessing a stream:"
                 )
                     .add_span_with_label(span, Some("Found an expression that is not a parameter here"), true)
-            },
-            ParameterAmountMismatch { target_span, exp_span, given_num, expected_num} => {
+            }
+            ParameterAmountMismatch { target_span, exp_span, given_num, expected_num } => {
                 Diagnostic::error(
-                                  "In pacing type analysis:\nMismatch between number of given arguments and expected spawn arguments:"
+                    "In pacing type analysis:\nMismatch between number of given arguments and expected spawn arguments:"
                 )
                     .add_span_with_label(exp_span, Some(&format!("Got {given_num} arguments here.")), true)
                     .add_span_with_label(target_span, Some(&format!("Expected {expected_num} arguments here.")), false)
-            },
+            }
             InvalidGetOrFreshAccess { is_get, target, target_type, source, source_type } => {
                 let (op, default) = if is_get {
                     ("'get'", "default value")
@@ -625,7 +626,7 @@ impl Resolvable for PacingErrorKind {
             }
             MultipleEvalsWithoutAnnotation(span) => {
                 Diagnostic::error("In pacing type analysis:\noutputs with multiple eval clauses require pacing annotations on each clause.").add_span_with_label(span, None, false)
-            },
+            }
             MultipleEvalsDifferentPeriods(absty1, absty2, span) => {
                 let ty1 = absty1.to_pretty_string(names);
                 let ty2 = absty2.to_pretty_string(names);
@@ -921,7 +922,7 @@ impl Variant for AbstractSemanticType {
                 return Ok(Partial {
                     variant: other,
                     least_arity: 0,
-                })
+                });
             },
             (Self::Positive(_), Self::Negative(_)) | (Self::Negative(_), Self::Positive(_)) => {
                 unreachable!("Positive and Negative semantic types should never be combined")
@@ -1076,7 +1077,7 @@ impl Constructable for AbstractSemanticType {
                     Span::Unknown,
                     "Cannot concretize semantic type 'Any'".into(),
                     vec![],
-                ))
+                ));
             },
             AbstractSemanticType::Negative(kind) => (true, kind),
             AbstractSemanticType::Positive(kind) => (false, kind),
@@ -1175,7 +1176,8 @@ impl SemanticTypeKind {
             | (Mixed(_), _)
             | (Conjunction(_), Disjunction(_))
             | (Disjunction(_), Conjunction(_)) => panic!("Can only join Conjunctions, Disjunctions or Literals"),
-            (Literal(a), Literal(b)) => literal_constructor(vec![a, b].into_iter().collect()),
+            (Literal(a), Literal(b)) if a != b => literal_constructor(vec![a, b].into_iter().collect()),
+            (Literal(a), Literal(_)) => Literal(a),
             (Literal(this), Conjunction(mut other)) | (Conjunction(mut other), Literal(this)) => {
                 other.insert(this);
                 Conjunction(other)
@@ -1338,25 +1340,20 @@ impl AbstractSemanticType {
         if exps.iter().any(|exp| exp.is_none()) {
             return AbstractSemanticType::Positive(SemanticTypeKind::Any);
         }
-        if exps.len() > 1 {
-            let mut disjunction = HashSet::new();
-            for exp in exps.iter().flatten() {
-                match Self::parse_pure(exp, None, context.clone()) {
-                    Ok(SemanticTypeKind::Disjunction(exps)) => {
-                        disjunction.extend(exps);
-                    },
-                    Ok(_) | Err(_) => {
-                        disjunction.insert(HashableExpression {
-                            context: context.clone(),
-                            expression: (*exp).clone(),
-                        });
-                    },
+        let disj = exps
+            .iter()
+            .copied()
+            .flatten()
+            .cloned()
+            .reduce(|acc, exp| {
+                Expression {
+                    kind: ExpressionKind::ArithLog(ArithLogOp::Or, vec![acc, exp]),
+                    eid: ExprId(u32::MAX),
+                    span: Span::Unknown,
                 }
-            }
-            AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(disjunction))
-        } else {
-            Self::for_filter(exps[0].expect("not none because check above"), context)
-        }
+            })
+            .expect("not none because check above");
+        Self::for_filter(&disj, context)
     }
 
     pub(crate) fn implies(&self, other: &Self) -> bool {

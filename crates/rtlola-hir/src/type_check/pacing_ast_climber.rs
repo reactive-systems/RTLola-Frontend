@@ -1220,6 +1220,7 @@ mod tests {
             hir.get_output_with_name(name).unwrap().sr
         }
     }
+
     fn get_node_for_name(hir: &RtLolaHir<BaseMode>, name: &str) -> NodeId {
         NodeId::SRef(get_sr_for_name(hir, name))
     }
@@ -1282,7 +1283,7 @@ mod tests {
                 vec![
                     vec![a].into_iter().collect(),
                     vec![b].into_iter().collect(),
-                    vec![a, b].into_iter().collect()
+                    vec![a, b].into_iter().collect(),
                 ]
                 .into_iter()
                 .collect()
@@ -1818,6 +1819,7 @@ mod tests {
             output b(p:Int8) spawn @(z&y) with (z) when y eval with a(x, x)";
         assert_eq!(1, num_errors(spec));
     }
+
     #[test]
     fn test_sync_access_missing_spawn() {
         let spec = "
@@ -2974,6 +2976,24 @@ mod tests {
                 ]))
             );
         }
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_same_cond() {
+        let spec = "input a: Int8\ninput b: Int8
+        output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a == 0 with b";
+
+        assert_eq!(0, num_errors(spec));
+
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let p = &tt[&NodeId::SRef(hir.outputs[0].sr)];
+        assert!(matches!(
+            p.eval_condition.kind,
+            ExpressionKind::ArithLog(ArithLogOp::Eq, _)
+        ));
     }
 
     #[test]
