@@ -6,8 +6,8 @@ use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, InstanceAggregations, Parameterized, Periodics, SlidingWindows, Spawned,
-    ValueTypes,MultipleEvals
+    Closed, DiscreteWindows, Filtered, InstanceAggregations, MultipleEvals, Parameterized, Periodics, SlidingWindows,
+    Spawned, ValueTypes,
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
