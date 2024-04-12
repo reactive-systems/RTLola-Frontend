@@ -549,31 +549,31 @@ impl FeatureSelector {
 #[cfg(test)]
 mod test {
     use rtlola_parser::ast::WindowOperation;
+    use rtlola_parser::ParserConfig;
     use rtlola_reporting::Handler;
 
     use crate::fully_analyzed;
     use crate::hir::{ConcreteValueType, FeatureSelector};
 
-    fn builder(spec: &str) -> (FeatureSelector, Handler) {
-        use rtlola_parser::{parse, ParserConfig};
-        let cfg = ParserConfig::for_string(spec.to_string());
-        let handler = Handler::from(cfg.clone());
-        let ast = parse(cfg).map_err(|e| handler.emit_error(&e)).unwrap();
+    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler) {
+        use rtlola_parser::parse;
+        let handler = Handler::from(cfg);
+        let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();
         let hir = fully_analyzed(ast).map_err(|e| handler.emit_error(&e)).unwrap();
         (FeatureSelector::new(hir), handler)
     }
 
     #[test]
     fn parameterized() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c(p: UInt)
                 spawn with (a)
                 eval with b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(
             builder
                 .non_parameterized()
@@ -586,55 +586,55 @@ mod test {
 
     #[test]
     fn spawned() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 spawn when b
                 eval with b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_spawn().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn filtered() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 eval with a when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_filter().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn closed() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 eval with a
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_close().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn periodics() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := b.hold(or: false)
-            trigger c \"c was true\"\
-        ",
-        );
+            trigger c
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder.non_periodic().build().map_err(|e| e.num_errors()).unwrap_err(),
@@ -644,14 +644,14 @@ mod test {
 
     #[test]
     fn sliding_windows() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
             output d @1Hz := b.aggregate(over: 5s, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -665,14 +665,14 @@ mod test {
 
     #[test]
     fn discrete_window() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c := a.aggregate(over_discrete: 5, using: sum)\n\
             output d := b.aggregate(over_discrete: 5, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -686,13 +686,13 @@ mod test {
 
     #[test]
     fn instance_aggregation() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Int32\n\
             output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
             output c eval with b.aggregate(over_instances: fresh, using: Σ)\n
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -706,14 +706,14 @@ mod test {
 
     #[test]
     fn window_op() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
             output d := b.aggregate(over_discrete: 5, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -727,14 +727,14 @@ mod test {
 
     #[test]
     fn value_type() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
             output d @a := 42.0 = 0.0
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -748,8 +748,7 @@ mod test {
 
     #[test]
     fn lola_1() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
@@ -757,16 +756,16 @@ mod test {
                 spawn with b\n\
                 eval with b == p when a == 42.0\n\
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(builder.lola_1().build().map_err(|e| e.num_errors()).unwrap_err(), 6);
     }
 
     #[test]
     fn lola_2() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
@@ -774,8 +773,9 @@ mod test {
                 spawn with b\n\
                 eval with b == p when a == 42.0\n\
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(builder.lola_2().build().map_err(|e| e.num_errors()).unwrap_err(), 2);
     }

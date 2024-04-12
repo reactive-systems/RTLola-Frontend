@@ -24,9 +24,9 @@ use crate::ParserConfig;
 struct LolaParser;
 
 #[derive(Debug, Clone)]
-pub(crate) struct RtLolaParser {
+pub(crate) struct RtLolaParser<'a> {
     spec: RtLolaAst,
-    config: ParserConfig,
+    config: &'a ParserConfig,
 }
 
 lazy_static! {
@@ -55,8 +55,8 @@ lazy_static! {
     };
 }
 
-impl RtLolaParser {
-    pub(crate) fn new(config: ParserConfig) -> Self {
+impl<'a> RtLolaParser<'a> {
+    pub(crate) fn new(config: &'a ParserConfig) -> Self {
         RtLolaParser {
             spec: RtLolaAst::empty(),
             config,
@@ -65,7 +65,7 @@ impl RtLolaParser {
 
     /// Transforms a textual representation of a Lola specification into
     /// an AST representation.
-    pub(crate) fn parse(config: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
+    pub(crate) fn parse(config: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
         RtLolaParser::new(config)
             .parse_spec()
             .map(|ast| Desugarizer::all().remove_syn_sugar(ast))
@@ -1270,17 +1270,13 @@ mod tests {
 
     use super::*;
 
-    fn create_parser(spec: &str) -> RtLolaParser {
-        RtLolaParser::new(ParserConfig::for_string(spec.into()))
-    }
-
     fn parse(spec: &str) -> RtLolaAst {
-        super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
+        super::super::parse(&ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
     }
 
     fn parse_without_desugar(spec: &str) -> RtLolaAst {
         let cfg = ParserConfig::for_string(spec.into());
-        RtLolaParser::new(cfg)
+        RtLolaParser::new(&cfg)
             .parse_spec()
             .unwrap_or_else(|e| panic!("{:?}", e))
     }
@@ -1322,7 +1318,8 @@ mod tests {
     #[test]
     fn parse_constant_ast() {
         let spec = "constant five : Int := 5";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1334,7 +1331,8 @@ mod tests {
     #[test]
     fn parse_constant_double() {
         let spec = "constant fiveoh: Double := 5.0";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1363,7 +1361,8 @@ mod tests {
     #[test]
     fn parse_input_ast() {
         let spec = "input a: Int, b: Int, c: Bool";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::InputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1378,7 +1377,8 @@ mod tests {
     #[test]
     fn parse_mirror_ast() {
         let spec = "output a mirrors b when 3 > 5";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::MirrorStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1425,7 +1425,8 @@ mod tests {
     #[test]
     fn parse_output_ast() {
         let spec = "output out: Int eval with in + 1";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::OutputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1456,7 +1457,8 @@ mod tests {
     #[test]
     fn parse_trigger_ast() {
         let spec = "trigger in ≠ out \"some message\"";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::Trigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1468,7 +1470,8 @@ mod tests {
     #[test]
     fn parse_expression() {
         let content = "in + 1";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1480,7 +1483,8 @@ mod tests {
     #[test]
     fn parse_expression_precedence() {
         let content = "(a ∨ b ∧ c)";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1492,7 +1496,8 @@ mod tests {
     #[test]
     fn parse_missing_closing_parenthesis() {
         let content = "(a ∨ b ∧ c";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1607,7 +1612,8 @@ mod tests {
     #[test]
     fn build_trigger_message_with_info_streams_faulty() {
         let spec = "trigger in > 5 (i, o, x)\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         assert!(matches!(parser.parse_spec(), Err(_)));
     }
 
@@ -1897,7 +1903,8 @@ mod tests {
     #[test]
     fn build_multiple_close() {
         let spec = "output x close when true eval with 5 close when false\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => assert_eq!(e.num_errors(), 1),
@@ -1935,7 +1942,8 @@ mod tests {
     #[test]
     fn spawn_duplicate_when() {
         let spec = "output x spawn when true when true eval with 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
 
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
@@ -1951,7 +1959,8 @@ mod tests {
     #[test]
     fn spawn_duplicate_with() {
         let spec = "output x (p) spawn @1Hz with 3 with 3 eval with 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => {
@@ -1966,7 +1975,8 @@ mod tests {
     #[test]
     fn duplicate_close_clauses() {
         let spec = "output x eval with 5 close when true close when x == 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => {
@@ -1981,7 +1991,8 @@ mod tests {
     #[test]
     fn spawn_no_expr_no_condition_np_pacing() {
         let spec = "output x spawn eval with 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => assert_eq!(e.num_errors(), 1),

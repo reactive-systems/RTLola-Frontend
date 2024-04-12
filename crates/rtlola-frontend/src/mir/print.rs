@@ -472,7 +472,7 @@ mod tests {
             fn $name() {
                 let spec = format!("input a : UInt64\noutput b@a := {}", $test);
                 let config = ParserConfig::for_string(spec);
-                let mir = parse(config).expect("should parse");
+                let mir = parse(&config).expect("should parse");
                 let expr = &mir.outputs[0].eval.clauses.get(0).expect("only one clause").expression;
                 let display_expr = display_expression(&mir, expr, 0);
                 assert_eq!(display_expr, $expected);
@@ -528,8 +528,8 @@ mod tests {
         ";
 
         let config = ParserConfig::for_string(example.into());
-        let mir = parse(config).expect("should parse");
+        let mir = parse(&config).expect("should parse");
         let config = ParserConfig::for_string(mir.to_string());
-        parse(config).expect("should also parse");
+        parse(&config).expect("should also parse");
     }
 }

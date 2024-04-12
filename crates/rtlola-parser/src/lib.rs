@@ -81,7 +81,7 @@ impl ParserConfig {
     }
 
     /// Invokes the parser on the specification given in the configuration.
-    pub fn parse(self) -> Result<RtLolaAst, RtLolaError> {
+    pub fn parse(&self) -> Result<RtLolaAst, RtLolaError> {
         parse(self)
     }
 
@@ -97,15 +97,15 @@ impl ParserConfig {
 }
 
 /// Invokes the parser with the given configuration.
-pub fn parse(cfg: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
+pub fn parse(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     crate::parse::RtLolaParser::parse(cfg)
 }
 
-impl From<ParserConfig> for Handler {
-    fn from(cfg: ParserConfig) -> Self {
-        match cfg.path {
-            Some(path) => Handler::new(path, cfg.spec),
-            None => Handler::without_file(cfg.spec),
+impl<'a> From<&'a ParserConfig> for Handler<'a> {
+    fn from(cfg: &'a ParserConfig) -> Self {
+        match &cfg.path {
+            Some(path) => Handler::new(path, cfg.spec()),
+            None => Handler::without_file(cfg.spec()),
         }
     }
 }

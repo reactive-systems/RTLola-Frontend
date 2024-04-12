@@ -336,7 +336,7 @@ mod tests {
 
     fn to_ir(spec: &str) -> RtLolaMir {
         let cfg = ParserConfig::for_string(String::from(spec));
-        crate::parse(cfg).expect("spec was invalid")
+        crate::parse(&cfg).expect("spec was invalid")
     }
 
     /// Divides two durations. If `rhs` is not a divider of `lhs`, a warning is emitted and the

@@ -1027,7 +1027,7 @@ mod tests {
     use crate::hir::{ExpressionContext, SpawnDef, StreamAccessKind, WindowReference};
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         crate::from_ast(ast).unwrap()
     }
 

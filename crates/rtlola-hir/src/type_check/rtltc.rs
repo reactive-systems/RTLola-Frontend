@@ -170,7 +170,7 @@ mod tests {
     use crate::type_check::rtltc::LolaTypeChecker;
 
     fn setup_ast(spec: &str) -> RtLolaHir<BaseMode> {
-        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
+        let ast: RtLolaAst = match parse(&ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };

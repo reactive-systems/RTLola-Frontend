@@ -580,7 +580,7 @@ mod tests {
             HashMap<SRef, Vec<(SRef, WRef)>>,
         )>,
     ) {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast).unwrap().check_types().unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
