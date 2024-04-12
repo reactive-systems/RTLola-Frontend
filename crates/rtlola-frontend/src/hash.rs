@@ -13,8 +13,7 @@ use crate::RtLolaMir;
 /// Represents an [RtLolaMir] with a hash of the specification and frontend version attached to it.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HashedMir {
-    // we use Value here, so that we can first import the spec and check the frontend_version
-    // in case the Mir is different in two versions
+    // the intermediate representation of the specification
     spec: RtLolaMir,
     /// the hash of the specification and frontend version
     hash: [u8; 32],
@@ -56,14 +55,16 @@ impl From<HashError> for Diagnostic {
 fn hash_spec(config: &ParserConfig) -> [u8; 32] {
     Sha256::new()
         .chain_update(config.spec())
-        .chain_update(env!("CARGO_PKG_VERSION"))
+        .chain_update(env!("CARGO_PKG_VERSION_MAJOR"))
+        .chain_update(".")
+        .chain_update(env!("CARGO_PKG_VERSION_MINOR"))
         .finalize()
         .into()
 }
 
 impl HashedMir {
     /// Checks the hash of the [HashedMir].
-    pub fn check(self, config: &ParserConfig) -> Result<Self, HashError> {
+    pub fn check(self, config: &ParserConfig) -> Result<RtLolaMir, HashError> {
         let Self { spec, hash } = self;
         let current_hash = hash_spec(config);
         if hash != current_hash {
@@ -72,13 +73,7 @@ impl HashedMir {
                 current_hash,
             });
         }
-        Ok(Self { spec, hash })
-    }
-}
-
-impl From<HashedMir> for RtLolaMir {
-    fn from(value: HashedMir) -> Self {
-        value.spec
+        Ok(spec)
     }
 }
 
@@ -92,8 +87,6 @@ impl RtLolaMir {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
-
     use rtlola_parser::ParserConfig;
 
     use super::HashedMir;
@@ -122,8 +115,7 @@ mod tests {
         let imported: RtLolaMir = from_json(json)
             .expect("should parse")
             .check(&config)
-            .expect("should pass")
-            .into();
+            .expect("should pass");
 
         let mir = parse(&config).expect("should parse");
 
@@ -148,7 +140,5 @@ mod tests {
             .clone()
             .check(&new_config)
             .expect_err("should fail because checksum");
-
-        RtLolaMir::try_from(imported).expect("should work");
     }
 }
