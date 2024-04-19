@@ -330,6 +330,32 @@ impl<'a> RtLolaParser<'a> {
             }
         });
 
+        let eval = eval
+            .into_iter()
+            .map(|mut eval| {
+                // if the output is a trigger, a missing eval-with clause is replaced with an empty trigger message
+                // if the output is a named output, a missing eval-with clause is replaced by an empty tuple
+                eval.eval_expression.get_or_insert_with(|| {
+                    let kind = match kind {
+                        OutputKind::Trigger => {
+                            ExpressionKind::Lit(Literal {
+                                kind: LitKind::Str("".into()),
+                                id: self.spec.next_id(),
+                                span: Span::Unknown,
+                            })
+                        },
+                        OutputKind::NamedOutput(_) => ExpressionKind::Tuple(vec![]),
+                    };
+                    Expression {
+                        kind,
+                        id: self.spec.next_id(),
+                        span: Span::Unknown,
+                    }
+                });
+                eval
+            })
+            .collect();
+
         Result::from(error)?;
         Ok(Output {
             id: self.spec.next_id(),
@@ -555,12 +581,6 @@ impl<'a> RtLolaParser<'a> {
                     true,
                 ),
             );
-        } else if eval_expr.is_none() {
-            eval_expr = Some(Expression {
-                id: self.spec.next_id(),
-                span: span_ext,
-                kind: ExpressionKind::Tuple(Vec::new()),
-            })
         }
 
         Result::from(error)?;
@@ -1483,6 +1503,46 @@ mod tests {
             .unwrap();
         let ast = parser.parse_trigger(pair).unwrap();
         assert_eq!(format!("{}", ast), "trigger eval when in ≠ out with \"some message\"")
+    }
+
+    #[test]
+    fn parse_complex_trigger() {
+        let spec =
+            "trigger (p) spawn when a = 0 with b eval @1Hz when b = 0 with \"msg\".format(a) close @2Hz when true";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), spec)
+    }
+
+    #[test]
+    fn trigger_missing_message() {
+        let spec = "trigger eval when a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
+    }
+
+    #[test]
+    fn trigger_missing_message2() {
+        let spec = "trigger a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_trigger(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
     }
 
     #[test]

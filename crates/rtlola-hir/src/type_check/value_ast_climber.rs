@@ -796,8 +796,13 @@ where
                     self.handle_annotated_type(*gen, t, None)?;
                 }
 
-                fun_decl.parameters.0.iter().chain(fun_decl.parameters.1.as_ref().map(iter::repeat).into_iter().flatten())
-                    .zip(args)//.chain(iter::repeat(fun_decl.parameters.1)))
+                fun_decl
+                    .parameters
+                    .0
+                    .iter()
+                    // first all the explicit parameter, than fill with the repeating one (if any)
+                    .chain(fun_decl.parameters.1.as_ref().map(iter::repeat).into_iter().flatten())
+                    .zip(args)
                     .map(|(param, arg)| {
                         // Replace reference to generic with generic key
                         let p = self.replace_type(param, &generics)?;

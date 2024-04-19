@@ -143,7 +143,7 @@ fn fuzzed_type_checker_no_whitespace() {
     assert!(parse("input a: Int\noutputb := a").is_err());
     assert!(parse("input a: Int\noutput b := a").is_ok());
     assert!(parse("input a: Int\ntriggera > 0").is_err());
-    parse("input a: Int\ntrigger a > 0").unwrap();
+    assert!(parse("input a: Int\ntrigger a > 0").is_ok());
 }
 
 #[test]

@@ -463,7 +463,6 @@ impl Display for Mir {
 #[cfg(test)]
 mod tests {
     use rtlola_parser::ParserConfig;
-    use rtlola_reporting::Handler;
 
     use super::display_expression;
     use crate::parse;
@@ -533,6 +532,6 @@ mod tests {
         let config = ParserConfig::for_string(example.into());
         let mir = parse(&config).expect("should parse");
         let config = ParserConfig::for_string(mir.to_string());
-        parse(&config).unwrap();
+        parse(&config).expect("should also parse");
     }
 }

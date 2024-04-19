@@ -100,6 +100,8 @@ pub enum TransformationErr {
     InstanceAggregationPara(Span),
     /// An instance aggregation is performed over a non parameterized stream.
     InstanceAggregationNonPara(Span),
+    /// An output stream representing a trigger does not have a eval when condition
+    MissingTriggerCondition(Span),
 }
 
 impl TransformationErr {
@@ -208,6 +210,7 @@ impl TransformationErr {
                     true,
                 )
             }
+            TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true)
         }
     }
 }
@@ -345,6 +348,15 @@ impl ExpressionTransformer {
                     name
                 },
             };
+
+            // if output stream represents a trigger, every eval clause needs to have a eval-when condition
+            if new_kind == OutputKind::Trigger {
+                for clause in &eval {
+                    if clause.condition.is_none() {
+                        return Err(TransformationErr::MissingTriggerCondition(clause.span));
+                    }
+                }
+            }
 
             hir_outputs.push(Output {
                 name,
@@ -597,7 +609,7 @@ impl ExpressionTransformer {
                     Declaration::ParamOut(_) => {
                         return Err(TransformationErr::MissingArguments(span));
                     },
-                    Declaration::Func(_) | Declaration::Type(_) => {
+                    Declaration::Func(_) | Declaration::Type => {
                         unreachable!("Identifiers can only refer to streams")
                     },
                 }
@@ -1437,6 +1449,14 @@ mod tests {
     fn test_parameter_spawn_mismatch() {
         let spec = "input a: Int32\n\
         output b (p1, p2) spawn with a := a";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_missing_trigger_condition() {
+        let spec = "input a : Int64\n\
+        trigger eval when a == 0 with \"msg\" eval with \"msg2\"";
         obtain_expressions(spec);
     }
 

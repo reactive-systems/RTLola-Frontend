@@ -40,8 +40,8 @@ impl NamingAnalysis {
     pub fn new() -> Self {
         let mut scoped_decls = ScopedDecl::new();
 
-        for (name, ty) in AnnotatedType::primitive_types() {
-            scoped_decls.add_decl_for(name, Declaration::Type(Rc::new(ty.clone())));
+        for (name, _) in AnnotatedType::primitive_types() {
+            scoped_decls.add_decl_for(name, Declaration::Type);
         }
 
         // add a new scope to distinguish between extern/builtin declarations
@@ -543,7 +543,7 @@ pub(crate) enum Declaration {
     Out(Rc<Output>),
     /// A paramertric output, internally represented as a function application
     ParamOut(Rc<Output>),
-    Type(Rc<AnnotatedType>),
+    Type,
     Param(Rc<Parameter>),
     Func(Rc<FuncDecl>),
 }
@@ -561,7 +561,7 @@ impl Declaration {
             Declaration::In(input) => Some(input.name.span),
             Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.span),
             Declaration::Param(p) => Some(p.name.span),
-            Declaration::Type(_) | Declaration::Func(_) => None,
+            Declaration::Type | Declaration::Func(_) => None,
         }
     }
 
@@ -571,13 +571,13 @@ impl Declaration {
             Declaration::In(input) => Some(&input.name.name),
             Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.name.as_str()),
             Declaration::Param(p) => Some(&p.name.name),
-            Declaration::Type(_) | Declaration::Func(_) => None,
+            Declaration::Type | Declaration::Func(_) => None,
         }
     }
 
     fn is_type(&self) -> bool {
         match self {
-            Declaration::Type(_) => true,
+            Declaration::Type => true,
             Declaration::Const(_)
             | Declaration::In(_)
             | Declaration::Out(_)

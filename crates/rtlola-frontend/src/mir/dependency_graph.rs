@@ -73,8 +73,8 @@ impl<'a> DependencyGraph<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Node {
     Stream(StreamReference),
-    Window(WindowReference),
     Trigger(TriggerReference),
+    Window(WindowReference),
 }
 
 impl From<StreamReference> for Node {
@@ -94,10 +94,10 @@ impl Display for Node {
         match self {
             Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
             Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
-            Node::Trigger(inner) => inner.fmt(f),
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
+            Node::Trigger(i) => write!(f, "T_{i}"),
         }
     }
 }
@@ -202,8 +202,8 @@ enum NodeInformation<'a> {
 fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
     match node {
         Node::Stream(sref) => stream_infos(mir, sref),
-        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference),
         Node::Window(wref) => window_infos(mir, wref),
+        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference),
     }
 }
 
