@@ -92,23 +92,17 @@ impl<'a> RtLolaParser<'a> {
                     let inputs = self.parse_inputs(pair);
                     self.spec.inputs.extend(inputs.into_iter().map(Rc::new));
                 },
-                Rule::MirrorStream => {
-                    match self.parse_mirror(pair) {
-                        Ok(mirror) => self.spec.mirrors.push(Rc::new(mirror)),
-                        Err(e) => error.join(e),
-                    }
+                Rule::MirrorStream => match self.parse_mirror(pair) {
+                    Ok(mirror) => self.spec.mirrors.push(Rc::new(mirror)),
+                    Err(e) => error.join(e),
                 },
-                Rule::OutputStream => {
-                    match self.parse_output(pair) {
-                        Ok(output) => self.spec.outputs.push(Rc::new(output)),
-                        Err(e) => error.join(e),
-                    }
+                Rule::OutputStream => match self.parse_output(pair) {
+                    Ok(output) => self.spec.outputs.push(Rc::new(output)),
+                    Err(e) => error.join(e),
                 },
-                Rule::Trigger => {
-                    match self.parse_trigger(pair) {
-                        Ok(trigger) => self.spec.trigger.push(Rc::new(trigger)),
-                        Err(e) => error.join(e),
-                    }
+                Rule::SimpleTrigger => match self.parse_trigger(pair) {
+                    Ok(trigger) => self.spec.outputs.push(Rc::new(trigger)),
+                    Err(e) => error.join(e),
                 },
                 Rule::TypeDecl => {
                     let type_decl = self.parse_type_declaration(pair);
@@ -236,7 +230,15 @@ impl<'a> RtLolaParser<'a> {
 
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner().peekable();
-        let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
+
+        let pair = pairs.next().unwrap();
+        let kind = match pair.as_rule() {
+            Rule::TriggerDecl => OutputKind::Trigger,
+            Rule::NamedOutputDecl => OutputKind::NamedOutput(
+                self.parse_ident(&pair.into_inner().next().expect("mismatch between grammar and AST")),
+            ),
+            _ => panic!("mismatch between grammar and AST"),
+        };
 
         let mut error = RtLolaError::new();
         let mut eval = Vec::new();
@@ -263,67 +265,65 @@ impl<'a> RtLolaParser<'a> {
             None
         };
 
-        pairs.for_each(|pair| {
-            match pair.as_rule() {
-                Rule::SpawnDecl => {
-                    if let Some(old_spawn) = &spawn {
-                        let err = Diagnostic::error("Multiple Spawn clauses found")
-                            .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
-                            .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
-                        error.add(err);
-                    }
-                    let spawn_spec = self.parse_spawn_spec(pair);
-                    spawn = spawn_spec.map_or_else(
-                        |e| {
-                            error.join(e);
-                            None
-                        },
-                        Some,
-                    )
-                },
-                Rule::CloseDecl => {
-                    if let Some(old_close) = &close {
-                        let err = Diagnostic::error("Multiple Close clauses found")
-                            .add_span_with_label(old_close.span, Some("first Close here"), true)
-                            .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
-                        error.add(err);
-                    }
-                    let close_spec = self.parse_close_spec(pair);
-                    close = close_spec.map_or_else(
-                        |e| {
-                            error.join(e);
-                            None
-                        },
-                        Some,
-                    );
-                },
-                Rule::EvalDecl => {
-                    let eval_spec = self.parse_eval_spec(pair);
-                    match eval_spec {
-                        Ok(eval_spec) => eval.push(eval_spec),
-                        Err(e) => error.join(e),
-                    }
-                },
-                Rule::SimpleEvalDecl => {
-                    let eval_spec = self.parse_eval_spec_simple(pair.clone());
-                    match eval_spec {
-                        Ok(eval_spec) => {
-                            debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
-                            eval.push(eval_spec)
-                        },
-                        Err(e) => error.join(e),
-                    }
-                },
-                _ => {
-                    unreachable!("mismatch between grammar and AST")
-                },
-            }
+        pairs.for_each(|pair| match pair.as_rule() {
+            Rule::SpawnDecl => {
+                if let Some(old_spawn) = &spawn {
+                    let err = Diagnostic::error("Multiple Spawn clauses found")
+                        .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
+                        .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
+                    error.add(err);
+                }
+                let spawn_spec = self.parse_spawn_spec(pair);
+                spawn = spawn_spec.map_or_else(
+                    |e| {
+                        error.join(e);
+                        None
+                    },
+                    Some,
+                )
+            },
+            Rule::CloseDecl => {
+                if let Some(old_close) = &close {
+                    let err = Diagnostic::error("Multiple Close clauses found")
+                        .add_span_with_label(old_close.span, Some("first Close here"), true)
+                        .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
+                    error.add(err);
+                }
+                let close_spec = self.parse_close_spec(pair);
+                close = close_spec.map_or_else(
+                    |e| {
+                        error.join(e);
+                        None
+                    },
+                    Some,
+                );
+            },
+            Rule::EvalDecl => {
+                let eval_spec = self.parse_eval_spec(pair);
+                match eval_spec {
+                    Ok(eval_spec) => eval.push(eval_spec),
+                    Err(e) => error.join(e),
+                }
+            },
+            Rule::SimpleEvalDecl => {
+                let eval_spec = self.parse_eval_spec_simple(pair.clone());
+                match eval_spec {
+                    Ok(eval_spec) => {
+                        debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
+                        eval.push(eval_spec)
+                    },
+                    Err(e) => error.join(e),
+                }
+            },
+            _ => {
+                unreachable!("mismatch between grammar and AST")
+            },
         });
 
         Result::from(error)?;
         Ok(Output {
             id: self.spec.next_id(),
-            name,
+            kind,
             annotated_type,
             params: params.into_iter().map(Rc::new).collect(),
             spawn,
@@ -604,8 +604,8 @@ impl<'a> RtLolaParser<'a> {
      * - `Rule::Expr`
      * - (`Rule::StringLiteral`)?
      */
-    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Trigger, RtLolaError> {
-        assert_eq!(pair.as_rule(), Rule::Trigger);
+    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Output, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::SimpleTrigger);
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner();
 
@@ -622,26 +622,34 @@ impl<'a> RtLolaParser<'a> {
 
         let expression = self.build_expression_ast(pair.into_inner())?;
 
-        let message = pairs.next().map(|pair| {
-            assert_eq!(pair.as_rule(), Rule::String);
-            pair.as_str().to_string()
-        });
-
-        // Parse list of info streams
-        let info_streams = pairs
+        let (msg, msg_span) = pairs
             .next()
             .map(|pair| {
-                assert_eq!(pair.as_rule(), Rule::IdentList);
-                pair.into_inner().map(|p| self.parse_ident(&p)).collect()
+                assert_eq!(pair.as_rule(), Rule::String);
+                (pair.as_str().to_owned(), pair.as_span().into())
             })
-            .unwrap_or_default();
+            .unwrap_or(("".into(), Span::Unknown));
 
-        Ok(Trigger {
+        let msg_expr = Expression {
+            kind: ExpressionKind::Lit(Literal::new_str(self.spec.next_id(), &msg, span)),
             id: self.spec.next_id(),
-            expression,
-            annotated_pacing_type,
-            message,
-            info_streams,
+            span: msg_span,
+        };
+
+        Ok(Output {
+            kind: OutputKind::Trigger,
+            annotated_type: None,
+            params: Vec::new(),
+            spawn: None,
+            eval: vec![EvalSpec {
+                annotated_pacing: annotated_pacing_type,
+                condition: Some(expression),
+                eval_expression: Some(msg_expr),
+                id: self.spec.next_id(),
+                span,
+            }],
+            close: None,
+            id: self.spec.next_id(),
             span,
         })
     }
@@ -1050,20 +1058,16 @@ impl<'a> RtLolaParser<'a> {
         let span = pair.as_span();
         match pair.as_rule() {
             // Map function from `Pair` to AST data structure `Expression`
-            Rule::Literal => {
-                Ok(Expression::new(
-                    self.spec.next_id(),
-                    ExpressionKind::Lit(self.parse_literal(pair)),
-                    span.into(),
-                ))
-            },
-            Rule::Ident => {
-                Ok(Expression::new(
-                    self.spec.next_id(),
-                    ExpressionKind::Ident(self.parse_ident(&pair)),
-                    span.into(),
-                ))
-            },
+            Rule::Literal => Ok(Expression::new(
+                self.spec.next_id(),
+                ExpressionKind::Lit(self.parse_literal(pair)),
+                span.into(),
+            )),
+            Rule::Ident => Ok(Expression::new(
+                self.spec.next_id(),
+                ExpressionKind::Ident(self.parse_ident(&pair)),
+                span.into(),
+            )),
             Rule::ParenthesizedExpression => {
                 let mut inner = pair.into_inner();
                 let opp = inner.next().expect(
@@ -1229,29 +1233,27 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
         ErrorVariant::ParsingError {
             positives: pos,
             negatives: neg,
-        } => {
-            match (neg.is_empty(), pos.is_empty()) {
-                (false, false) => {
-                    format!(
-                        "unexpected {}; expected {}",
-                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", "),
-                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                    )
-                },
-                (false, true) => {
-                    format!(
-                        "unexpected {}",
-                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                    )
-                },
-                (true, false) => {
-                    format!(
-                        "expected {}",
-                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                    )
-                },
-                (true, true) => "unknown parsing error".to_owned(),
-            }
+        } => match (neg.is_empty(), pos.is_empty()) {
+            (false, false) => {
+                format!(
+                    "unexpected {}; expected {}",
+                    neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", "),
+                    pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                )
+            },
+            (false, true) => {
+                format!(
+                    "unexpected {}",
+                    neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                )
+            },
+            (true, false) => {
+                format!(
+                    "expected {}",
+                    pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                )
+            },
+            (true, true) => "unknown parsing error".to_owned(),
         },
         ErrorVariant::CustomError { message: msg } => msg,
     };
@@ -1402,7 +1404,7 @@ mod tests {
             rule:   Rule::OutputStream,
             tokens: [
                 OutputStream(0, 25, [
-                    Ident(7, 10, []),
+                    NamedOutputDecl(0, 10, [Ident(7, 10)]),
                     Type(12, 15, [
                         Ident(12, 15, []),
                     ]),
@@ -1440,9 +1442,9 @@ mod tests {
         parses_to! {
             parser: LolaParser,
             input:  "trigger in != out \"some message\"",
-            rule:   Rule::Trigger,
+            rule:   Rule::SimpleTrigger,
             tokens: [
-                Trigger(0, 32, [
+                SimpleTrigger(0, 32, [
                     Expr(8, 17, [
                         Ident(8, 10, []),
                         NotEqual(11, 13, []),
@@ -1459,12 +1461,12 @@ mod tests {
         let spec = "trigger in ≠ out \"some message\"";
         let config = ParserConfig::for_string(spec.into());
         let parser = RtLolaParser::new(&config);
-        let pair = LolaParser::parse(Rule::Trigger, spec)
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
         let ast = parser.parse_trigger(pair).unwrap();
-        assert_eq!(format!("{}", ast), "trigger in ≠ out \"some message\"")
+        assert_eq!(format!("{}", ast), "trigger eval when in ≠ out with \"some message\"")
     }
 
     #[test]
@@ -1508,7 +1510,7 @@ mod tests {
 
     #[test]
     fn build_simple_ast() {
-        let spec = "input in: Int\noutput out: Int eval with in\ntrigger in ≠ out\n";
+        let spec = "input in: Int\noutput out: Int eval with in\ntrigger eval when in ≠ out with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1578,43 +1580,35 @@ mod tests {
 
     #[test]
     fn build_trigger() {
-        let spec = "input in: Int\ntrigger in > 5\n";
+        let spec = "input in: Int\ntrigger eval when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_extend() {
-        let spec = "trigger @1Hz in > 5\n";
+        let spec = "trigger eval @1Hz when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_message() {
-        let spec = "trigger in > 5 \"test trigger\"\n";
+        let spec = "trigger eval when in > 5 with \"test trigger\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].message, Some("test trigger".to_string()));
+        let eval = &ast.outputs[0].eval[0];
+        assert!(
+            matches!(&eval.eval_expression, Some(Expression {kind: ExpressionKind::Lit(Literal {kind:LitKind::Str(s),..}),..}) if s == "test trigger")
+        );
     }
 
     #[test]
-    fn build_trigger_message_with_info_streams() {
-        let spec = "trigger in > 5 \"test trigger\" (i, o, x)\n";
+    fn build_simple_trigger() {
+        let spec = "trigger x > 10 \"msg\"";
+        let reference = "trigger eval when x > 10 with \"msg\"\n";
         let ast = parse(spec);
-        cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].info_streams.len(), 3);
-        assert_eq!(ast.trigger[0].info_streams[0].name, "i".to_string());
-        assert_eq!(ast.trigger[0].info_streams[1].name, "o".to_string());
-        assert_eq!(ast.trigger[0].info_streams[2].name, "x".to_string());
-    }
-
-    #[test]
-    fn build_trigger_message_with_info_streams_faulty() {
-        let spec = "trigger in > 5 (i, o, x)\n";
-        let config = ParserConfig::for_string(spec.into());
-        let parser = RtLolaParser::new(&config);
-        assert!(matches!(parser.parse_spec(), Err(_)));
+        cmp_ast_spec(&ast, reference);
     }
 
     #[test]

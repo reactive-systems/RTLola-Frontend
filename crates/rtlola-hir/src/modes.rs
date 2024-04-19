@@ -53,7 +53,6 @@ impl HirStage for Hir<BaseMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -167,7 +166,6 @@ impl HirStage for Hir<TypedMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -293,7 +291,6 @@ impl HirStage for Hir<DepAnaMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -359,7 +356,6 @@ impl HirStage for Hir<OrderedMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -440,7 +436,6 @@ impl HirStage for Hir<MemBoundMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,

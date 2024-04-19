@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io::BufWriter;
-use std::ops::Not;
 
 use dot::{LabelText, Style};
 use itertools::Itertools;
@@ -23,15 +22,19 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let trigger: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
-
         let stream_nodes = mir
-            .all_streams()
-            .filter_map(|sref| trigger.contains(&sref).not().then_some(Node::Stream(sref)));
-
-        let trigger_nodes = mir.triggers.iter().map(|t| Node::Trigger(t.trigger_reference));
+            .inputs
+            .iter()
+            .map(|i| i.reference)
+            .chain(mir.outputs.iter().filter(|o| !o.is_trigger()).map(|o| o.reference))
+            .map(|s| Node::Stream(s));
 
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
+
+        let trigger_nodes = mir
+            .triggers
+            .iter()
+            .map(|trigger| Node::Trigger(trigger.trigger_reference));
 
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
 
@@ -70,8 +73,8 @@ impl<'a> DependencyGraph<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Node {
     Stream(StreamReference),
-    Trigger(TriggerReference),
     Window(WindowReference),
+    Trigger(TriggerReference),
 }
 
 impl From<StreamReference> for Node {
@@ -91,10 +94,10 @@ impl Display for Node {
         match self {
             Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
             Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
+            Node::Trigger(inner) => inner.fmt(f),
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
-            Node::Trigger(i) => write!(f, "T_{i}"),
         }
     }
 }
@@ -187,17 +190,6 @@ enum NodeInformation<'a> {
         value_ty: String,
     },
 
-    Trigger {
-        reference: StreamReference,
-        idx: usize,
-        eval_layer: usize,
-        memory_bound: u32,
-        pacing_ty: String,
-        spawn_ty: String,
-        value_ty: String,
-        message: &'a str,
-    },
-
     Window {
         reference: WindowReference,
         operation: String,
@@ -210,8 +202,8 @@ enum NodeInformation<'a> {
 fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
     match node {
         Node::Stream(sref) => stream_infos(mir, sref),
+        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference),
         Node::Window(wref) => window_infos(mir, wref),
-        Node::Trigger(tref) => trigger_infos(mir, tref),
     }
 }
 
@@ -225,13 +217,11 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
     let value_str = value_ty.to_string();
 
     match sref {
-        StreamReference::In(_) => {
-            NodeInformation::Input {
-                reference: sref,
-                stream_name,
-                memory_bound,
-                value_ty: value_str,
-            }
+        StreamReference::In(_) => NodeInformation::Input {
+            reference: sref,
+            stream_name,
+            memory_bound,
+            value_ty: value_str,
         },
         StreamReference::Out(_) => {
             let output = mir.output(sref);
@@ -299,33 +289,6 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
     }
 }
 
-fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
-    let trigger = &mir.triggers[tref];
-    if let NodeInformation::Output {
-        reference: _,
-        stream_name: _,
-        eval_layer,
-        memory_bound: _,
-        pacing_ty,
-        spawn_ty,
-        value_ty,
-    } = stream_infos(mir, trigger.reference)
-    {
-        NodeInformation::Trigger {
-            reference: trigger.reference,
-            idx: tref,
-            eval_layer,
-            memory_bound: 0,
-            pacing_ty,
-            spawn_ty,
-            value_ty,
-            message: &trigger.message,
-        }
-    } else {
-        unreachable!("is NodeInformation::Stream");
-    }
-}
-
 fn edges(mir: &Mir) -> Vec<Edge> {
     let input_accesses = mir.inputs.iter().map(|input| (input.reference, &input.accessed_by));
     let output_accesses = mir.outputs.iter().map(|output| (output.reference, &output.accessed_by));
@@ -333,7 +296,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     let out_to_trig: &HashMap<_, _> = &(mir
         .triggers
         .iter()
-        .map(|t| (t.reference, t.trigger_reference))
+        .map(|t| (t.output_reference, t.trigger_reference))
         .collect());
 
     let access_edges = all_accesses.flat_map(|(source_ref, accesses)| {
@@ -346,37 +309,35 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                 .get(target_ref)
                 .map(|t| Node::Trigger(*t))
                 .unwrap_or_else(|| Node::Stream(*target_ref));
-            access_kinds.iter().flat_map(move |&(origin, kind)| {
-                match kind {
-                    StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
-                        let window = mir.window(w);
-                        let with = EdgeType::Access { origin, kind };
-                        vec![
-                            Edge {
-                                from: Node::Stream(window.caller()),
-                                with: with.clone(),
-                                to: Node::Window(w),
-                            },
-                            Edge {
-                                from: Node::Window(w),
-                                with,
-                                to: Node::Stream(window.target()),
-                            },
-                        ]
-                    },
-                    StreamAccessKind::Fresh
-                    | StreamAccessKind::Get
-                    | StreamAccessKind::Hold
-                    | StreamAccessKind::Offset(_)
-                    | StreamAccessKind::InstanceAggregation(_)
-                    | StreamAccessKind::Sync => {
-                        vec![Edge {
-                            from: target,
-                            with: EdgeType::Access { origin, kind },
-                            to: source,
-                        }]
-                    },
-                }
+            access_kinds.iter().flat_map(move |&(origin, kind)| match kind {
+                StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
+                    let window = mir.window(w);
+                    let with = EdgeType::Access { origin, kind };
+                    vec![
+                        Edge {
+                            from: Node::Stream(window.caller()),
+                            with: with.clone(),
+                            to: Node::Window(w),
+                        },
+                        Edge {
+                            from: Node::Window(w),
+                            with,
+                            to: Node::Stream(window.target()),
+                        },
+                    ]
+                },
+                StreamAccessKind::Fresh
+                | StreamAccessKind::Get
+                | StreamAccessKind::Hold
+                | StreamAccessKind::Offset(_)
+                | StreamAccessKind::InstanceAggregation(_)
+                | StreamAccessKind::Sync => {
+                    vec![Edge {
+                        from: target,
+                        with: EdgeType::Access { origin, kind },
+                        to: source,
+                    }]
+                },
             })
         })
     });
@@ -387,18 +348,14 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             .map(|t| Node::Trigger(*t))
             .unwrap_or_else(|| Node::Stream(output.reference));
         match &output.spawn.pacing {
-            PacingType::Event(ac) => {
-                flatten_ac(ac)
-                    .into_iter()
-                    .map(|input| {
-                        Edge {
-                            from: source,
-                            with: EdgeType::Spawn,
-                            to: Node::Stream(input),
-                        }
-                    })
-                    .collect()
-            },
+            PacingType::Event(ac) => flatten_ac(ac)
+                .into_iter()
+                .map(|input| Edge {
+                    from: source,
+                    with: EdgeType::Spawn,
+                    to: Node::Stream(input),
+                })
+                .collect(),
             PacingType::Periodic(_) | PacingType::Constant => vec![],
         }
     });
@@ -409,18 +366,14 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             .map(|t| Node::Trigger(*t))
             .unwrap_or_else(|| Node::Stream(output.reference));
         match &output.eval.eval_pacing {
-            PacingType::Event(ac) => {
-                flatten_ac(ac)
-                    .into_iter()
-                    .map(|input| {
-                        Edge {
-                            from: source,
-                            with: EdgeType::Eval,
-                            to: Node::Stream(input),
-                        }
-                    })
-                    .collect()
-            },
+            PacingType::Event(ac) => flatten_ac(ac)
+                .into_iter()
+                .map(|input| Edge {
+                    from: source,
+                    with: EdgeType::Eval,
+                    to: Node::Stream(input),
+                })
+                .collect(),
             PacingType::Periodic(_) | PacingType::Constant => vec![],
         }
     });
@@ -491,24 +444,6 @@ Layer {eval_layer}"
                 pacing_ty: _,
                 memory_bound: _,
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
-            NodeInformation::Trigger {
-                idx,
-                eval_layer,
-                pacing_ty,
-                value_ty,
-                spawn_ty,
-                message,
-                reference: _,
-                memory_bound: _,
-            } => {
-                format!(
-                    "Trigger {idx}: {value_ty}<br/>\
-Pacing: {pacing_ty}<br/>\
-Spawn: {spawn_ty}<br/>\
-Layer: {eval_layer}<br/><br/>\
-{message}"
-                )
-            },
         };
 
         dot::LabelText::HtmlStr(label_text.into())
@@ -520,15 +455,13 @@ Layer: {eval_layer}<br/><br/>\
 
     fn edge_style(&self, edge: &Edge) -> Style {
         match &edge.with {
-            EdgeType::Access { kind, origin: _ } => {
-                match kind {
-                    StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
-                    StreamAccessKind::Sync
-                    | StreamAccessKind::InstanceAggregation(_)
-                    | StreamAccessKind::Offset(_)
-                    | StreamAccessKind::DiscreteWindow(_)
-                    | StreamAccessKind::SlidingWindow(_) => Style::None,
-                }
+            EdgeType::Access { kind, origin: _ } => match kind {
+                StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
+                StreamAccessKind::Sync
+                | StreamAccessKind::InstanceAggregation(_)
+                | StreamAccessKind::Offset(_)
+                | StreamAccessKind::DiscreteWindow(_)
+                | StreamAccessKind::SlidingWindow(_) => Style::None,
             },
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
         }
@@ -674,6 +607,7 @@ mod tests {
                 let config = ParserConfig::for_string($spec.into());
                 let mir = parse(&config).expect("should parse");
                 let dep_graph = mir.dependency_graph();
+                println!("{dep_graph:#?}");
                 let edges = &dep_graph.edges;
                 $(
                     let from_node = build_node!($edge_from_ty($edge_from_i));
@@ -702,7 +636,7 @@ mod tests {
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
-        T(0):Eval(0) => In(0) : Sync,
+        T(0):Filter(0) => In(0) : Sync,
         T(0) => In(0) : Eval,
     );
 
@@ -716,7 +650,7 @@ mod tests {
         Out(0):Eval(0) => In(1) : Hold,
         Out(1):Eval(0) => SW(0) : SW(0),
         SW(0):Eval(0) => In(0) : SW(0),
-        T(0):Eval(0) => Out(1) : Sync,
+        T(0):Filter(0) => Out(1) : Sync,
         Out(0) => In(0) : Eval,
     );
 

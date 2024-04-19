@@ -28,7 +28,8 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemorizationBound, Origin, OutputReference, StreamLayers, StreamReference, WindowReference,
+    InputReference, Layer, MemorizationBound, Origin, OutputKind, OutputReference, StreamLayers, StreamReference,
+    WindowReference,
 };
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
@@ -99,7 +100,7 @@ pub struct RtLolaMir {
     pub sliding_windows: Vec<SlidingWindow>,
     /// A collection of all instance aggregations.
     pub instance_aggregations: Vec<InstanceAggregation>,
-    /// References and message information of all triggers.
+    /// The references of all outputs that represent triggers
     pub triggers: Vec<Trigger>,
 }
 
@@ -225,6 +226,8 @@ pub struct InputStream {
 pub struct OutputStream {
     /// The name of the stream.
     pub name: String,
+    /// The kind of the output (regular output or trigger)
+    pub kind: OutputKind,
     /// The value type of the stream.
     pub ty: Type,
     /// Information on the spawn behavior of the stream
@@ -249,21 +252,23 @@ pub struct OutputStream {
     pub params: Vec<Parameter>,
 }
 
-/// A type alias for references to triggers.
-pub type TriggerReference = usize;
-
-/// Wrapper for output streams that are in-fact triggers.  Provides additional information specific to triggers.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+/// A trigger (represented by the output stream `output_reference`)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 pub struct Trigger {
-    /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
-    pub message: String,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
-    pub info_streams: Vec<StreamReference>,
-    /// A reference to the output stream representing this trigger.
-    pub reference: StreamReference,
-    /// The reference referring to this stream
+    /// The reference of the output stream representing this trigger
+    pub output_reference: StreamReference,
+    /// The reference of this trigger
     pub trigger_reference: TriggerReference,
 }
+
+impl OutputStream {
+    fn is_trigger(&self) -> bool {
+        matches!(self.kind, OutputKind::Trigger)
+    }
+}
+
+/// A type alias for references to triggers.
+pub type TriggerReference = usize;
 
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -928,7 +933,7 @@ impl RtLolaMir {
 
     /// Provides a collection of all output streams representing a trigger.
     pub fn all_triggers(&self) -> Vec<&OutputStream> {
-        self.triggers.iter().map(|t| self.output(t.reference)).collect()
+        self.triggers.iter().map(|t| self.output(t.output_reference)).collect()
     }
 
     /// Provides a collection of all event-driven output streams.

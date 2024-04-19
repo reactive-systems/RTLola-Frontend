@@ -5,12 +5,13 @@ use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
     DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, MemBoundTrait, Offset,
-    OrderedTrait, Origin, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
+    OrderedTrait, Origin, OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind,
+    Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 
-use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn, Trigger};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -26,13 +27,6 @@ impl Mir {
                     .enumerate()
                     .map(|(new_ref, o)| (o.sr(), StreamReference::Out(new_ref))),
             )
-            .chain({
-                let num_outputs = hir.num_outputs();
-                hir.triggers()
-                    .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-                    .enumerate()
-                    .map(move |(idx, t)| (t.sr(), StreamReference::Out(num_outputs + idx)))
-            })
             .collect();
 
         let inputs = hir
@@ -64,6 +58,7 @@ impl Mir {
             let sr = o.sr();
             mir::OutputStream {
                 name: o.name.clone(),
+                kind: o.kind,
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                 spawn: Self::lower_spawn(&hir, &sr_map, sr),
                 eval: Self::lower_eval(&hir, &sr_map, sr),
@@ -81,41 +76,8 @@ impl Mir {
                 params: Self::lower_parameters(&hir, sr),
             }
         });
-        let (trigger_streams, triggers): (Vec<mir::OutputStream>, Vec<mir::Trigger>) = hir
-            .triggers()
-            .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-            .enumerate()
-            .map(|(index, t)| {
-                let sr = t.sr();
-                let mir_trigger = mir::Trigger {
-                    message: t.message.clone(),
-                    info_streams: t.info_streams.iter().map(|i| sr_map[i]).collect(),
-                    reference: sr_map[&sr],
-                    trigger_reference: index,
-                };
-                let mir_output_stream = mir::OutputStream {
-                    name: format!("trigger_{index}"), //TODO better name
-                    ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    spawn: Spawn::default(),
-                    eval: Self::lower_eval(&hir, &sr_map, sr),
-                    close: Close::default(),
-                    accesses: Self::lower_accessed_streams(&sr_map, hir.direct_accesses_with(sr)),
-                    accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
-                    aggregated_by: hir
-                        .aggregated_by(sr)
-                        .into_iter()
-                        .map(|(sr, wr)| (sr_map[&sr], wr))
-                        .collect(),
-                    memory_bound: hir.memory_bound(sr),
-                    layer: hir.stream_layers(sr),
-                    reference: sr_map[&sr],
-                    params: Default::default(), // no parameters for a trigger
-                };
-                (mir_output_stream, mir_trigger)
-            })
-            .unzip();
+
         let outputs = outputs
-            .chain(trigger_streams)
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
@@ -177,6 +139,16 @@ impl Mir {
                 .all(|(idx, w)| idx == w.reference.idx()),
             "WRefs need to enumerate from 0 to the number of discrete windows"
         );
+
+        let triggers = outputs
+            .iter()
+            .filter_map(|output| matches!(&output.kind, OutputKind::Trigger).then_some(output.reference))
+            .enumerate()
+            .map(|(trigger_reference, output_reference)| Trigger {
+                trigger_reference,
+                output_reference,
+            })
+            .collect();
 
         Mir {
             inputs,
@@ -436,12 +408,10 @@ impl Mir {
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::ArithLog(op, args)
             },
-            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => {
-                mir::ExpressionKind::StreamAccess {
-                    target: sr_map[sr],
-                    access_kind: Self::lower_stream_access_kind(*kind),
-                    parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
-                }
+            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => mir::ExpressionKind::StreamAccess {
+                target: sr_map[sr],
+                access_kind: Self::lower_stream_access_kind(*kind),
+                parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
             },
             rtlola_hir::hir::ExpressionKind::ParameterAccess(sr, para) => {
                 mir::ExpressionKind::ParameterAccess(sr_map[sr], *para)
@@ -513,12 +483,10 @@ impl Mir {
         match constant {
             rtlola_hir::hir::Literal::Str(s) => mir::Constant::Str(s.clone()),
             rtlola_hir::hir::Literal::Bool(b) => mir::Constant::Bool(*b),
-            rtlola_hir::hir::Literal::Integer(i) => {
-                match ty {
-                    mir::Type::Int(_) => mir::Constant::Int(*i),
-                    mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
-                    _ => unreachable!(),
-                }
+            rtlola_hir::hir::Literal::Integer(i) => match ty {
+                mir::Type::Int(_) => mir::Constant::Int(*i),
+                mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                _ => unreachable!(),
             },
             rtlola_hir::hir::Literal::SInt(i) => {
                 //TODO rewrite to 128 bytes
@@ -646,12 +614,10 @@ impl Mir {
     fn lower_parameters(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
         let params = hir.output(sr).expect("is output stream").params();
         params
-            .map(|parameter| {
-                mir::Parameter {
-                    name: parameter.name.clone(),
-                    ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
-                    idx: parameter.index(),
-                }
+            .map(|parameter| mir::Parameter {
+                name: parameter.name.clone(),
+                ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
+                idx: parameter.index(),
             })
             .collect()
     }
@@ -809,25 +775,6 @@ mod tests {
                 ty: _,
             })
         ));
-    }
-
-    #[test]
-    fn test_trigger_with_info() {
-        let spec = "input a: Bool\n\
-        trigger a \"test message\" (a)";
-        let (_, mir) = lower_spec(spec);
-
-        assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
-        assert_eq!(mir.event_driven.len(), 1);
-        assert_eq!(mir.time_driven.len(), 0);
-        assert_eq!(mir.discrete_windows.len(), 0);
-        assert_eq!(mir.sliding_windows.len(), 0);
-        assert_eq!(mir.triggers.len(), 1);
-        let trigger = mir.triggers[0].clone();
-        assert_eq!(trigger.info_streams[0], StreamReference::In(0));
-
-        assert_eq!(trigger.message, "test message");
     }
 
     #[test]

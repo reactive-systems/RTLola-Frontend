@@ -122,13 +122,11 @@ impl NamingAnalysis {
                     );
                 }
             },
-            TypeKind::Tuple(elements) => {
-                elements.iter().for_each(|ty| {
-                    if let Err(e) = self.check_type(ty) {
-                        error.join(e);
-                    }
-                })
-            },
+            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
+                if let Err(e) = self.check_type(ty) {
+                    error.join(e);
+                }
+            }),
             TypeKind::Optional(ty) => {
                 if let Err(e) = self.check_type(ty) {
                     error.join(e);
@@ -242,12 +240,14 @@ impl NamingAnalysis {
         }
 
         for output in &spec.outputs {
-            if output.params.is_empty() {
-                if let Err(e) = self.add_decl_for(Declaration::Out(output.clone())) {
+            if output.kind != OutputKind::Trigger {
+                if output.params.is_empty() {
+                    if let Err(e) = self.add_decl_for(Declaration::Out(output.clone())) {
+                        error.join(e);
+                    }
+                } else if let Err(e) = self.add_decl_for(Declaration::ParamOut(output.clone())) {
                     error.join(e);
                 }
-            } else if let Err(e) = self.add_decl_for(Declaration::ParamOut(output.clone())) {
-                error.join(e);
             }
             // Check annotated type if existing
             if let Some(output_ty) = output.annotated_type.as_ref() {
@@ -260,49 +260,9 @@ impl NamingAnalysis {
         if let Err(e) = self.check_outputs(spec) {
             error.join(e);
         }
-        if let Err(e) = self.check_triggers(spec) {
-            error.join(e);
-        }
 
         Result::from(error)?;
         Ok(self.result.clone())
-    }
-
-    /// Checks that if the trigger has a name, it is unique
-    fn check_triggers(&mut self, spec: &RtLolaAst) -> Result<(), RtLolaError> {
-        let mut error = RtLolaError::new();
-        for trigger in &spec.trigger {
-            //Check that each supplied info stream exists
-            for info_stream in &trigger.info_streams {
-                if let Some(decl) = self
-                    .declarations
-                    .get_decl_for(&DeclName::Ident(info_stream.name.clone()))
-                {
-                    if !matches!(decl, Declaration::Out(_) | Declaration::In(_)) {
-                        error.add(
-                            Diagnostic::error("Only input and output names are supported in trigger messages.")
-                                .add_span_with_label(info_stream.span, Some("Found other name here"), true),
-                        );
-                    }
-                } else {
-                    error.add(
-                        Diagnostic::error(&format!("name `{}` does not exist in current scope", &info_stream.name))
-                            .add_span_with_label(info_stream.span, Some("does not exist"), true),
-                    );
-                }
-            }
-            if let Some(pt) = trigger.annotated_pacing_type.as_ref() {
-                if let Err(e) = self.check_expression(pt) {
-                    error.join(e);
-                }
-            }
-            self.declarations.push();
-            if let Err(e) = self.check_expression(&trigger.expression) {
-                error.join(e);
-            }
-            self.declarations.pop();
-        }
-        Result::from(error)
     }
 
     fn check_outputs(&mut self, spec: &RtLolaAst) -> Result<(), RtLolaError> {
@@ -358,11 +318,13 @@ impl NamingAnalysis {
                 }
             }
 
-            self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
-            for eval in &output.eval {
-                if let Some(eval_expr) = &eval.eval_expression {
-                    if let Err(e) = self.check_expression(eval_expr) {
-                        error.join(e);
+            if output.kind != OutputKind::Trigger {
+                self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
+                for eval in &output.eval {
+                    if let Some(eval_expr) = &eval.eval_expression {
+                        if let Err(e) = self.check_expression(eval_expr) {
+                            error.join(e);
+                        }
                     }
                 }
             }
@@ -436,14 +398,12 @@ impl NamingAnalysis {
                     .into()
             },
             ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => self.check_expression(expr),
-            Tuple(exprs) => {
-                exprs
-                    .iter()
-                    .flat_map(|expr| self.check_expression(expr).err())
-                    .flatten()
-                    .collect::<RtLolaError>()
-                    .into()
-            },
+            Tuple(exprs) => exprs
+                .iter()
+                .flat_map(|expr| self.check_expression(expr).err())
+                .flatten()
+                .collect::<RtLolaError>()
+                .into(),
             Function(name, types, exprs) => {
                 let func_err: RtLolaError = self.check_function(expression, name).map_err(RtLolaError::from).into();
                 let type_errs: RtLolaError = types
@@ -463,13 +423,11 @@ impl NamingAnalysis {
                     .collect::<RtLolaError>()
                     .into()
             },
-            Default(accessed, default) => {
-                RtLolaError::combine(
-                    self.check_expression(accessed),
-                    self.check_expression(default),
-                    |_, _| {},
-                )
-            },
+            Default(accessed, default) => RtLolaError::combine(
+                self.check_expression(accessed),
+                self.check_expression(default),
+                |_, _| {},
+            ),
             Method(expr, name, types, args) => {
                 // Method is equal to function with `expr` as first argument
                 let func_name = FunctionName {
@@ -594,8 +552,7 @@ impl Declaration {
         match &self {
             Declaration::Const(constant) => Some(constant.name.span),
             Declaration::In(input) => Some(input.name.span),
-            Declaration::Out(output) => Some(output.name.span),
-            Declaration::ParamOut(output) => Some(output.name.span),
+            Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.span),
             Declaration::Param(p) => Some(p.name.span),
             Declaration::Type(_) | Declaration::Func(_) => None,
         }
@@ -605,8 +562,7 @@ impl Declaration {
         match self {
             Declaration::Const(constant) => Some(&constant.name.name),
             Declaration::In(input) => Some(&input.name.name),
-            Declaration::Out(output) => Some(&output.name.name),
-            Declaration::ParamOut(output) => Some(&output.name.name),
+            Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.name.as_str()),
             Declaration::Param(p) => Some(&p.name.name),
             Declaration::Type(_) | Declaration::Func(_) => None,
         }
@@ -778,23 +734,5 @@ mod tests {
     fn test_param_use() {
         let spec = "output a(x,y,z) := if y then y else z";
         assert_eq!(0, number_of_naming_errors(spec));
-    }
-
-    #[test]
-    fn test_trigger_infos() {
-        let spec = "input a: Int8\ntrigger a \"test msg\" (a)";
-        assert_eq!(0, number_of_naming_errors(spec));
-    }
-
-    #[test]
-    fn test_trigger_infos_fail() {
-        let spec = "input a: Int8\ntrigger a \"test msg\" (a, b)";
-        assert_eq!(1, number_of_naming_errors(spec));
-    }
-
-    #[test]
-    fn test_trigger_infos_fail2() {
-        let spec = "input a: Int8\noutput b (x:Int8) := 42\ntrigger a \"test msg\" (a, b)";
-        assert_eq!(1, number_of_naming_errors(spec));
     }
 }

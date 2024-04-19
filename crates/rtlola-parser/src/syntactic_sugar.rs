@@ -18,7 +18,6 @@ use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
-    Trigger,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -82,14 +81,6 @@ trait SynSugar {
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    /// Desugars a single trigger.  Provided [RtLolaAst] and [Trigger] are for reference, not modification.
-    ///
-    /// # Requirements
-    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
-    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
 }
@@ -235,27 +226,12 @@ impl Desugarizer {
                 };
                 ast.outputs[ix] = Rc::new(new_out);
             }
-            for ix in 0..ast.trigger.len() {
-                let trigger = &ast.trigger[ix];
-                let (new_out_expr, cs) = Self::desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
-                change_set += cs;
-                let trigger_clone: Trigger = Trigger::clone(trigger);
-                let new_trigger = Trigger {
-                    expression: new_out_expr,
-                    ..trigger_clone
-                };
-                ast.trigger[ix] = Rc::new(new_trigger);
-            }
             for input in ast.inputs.iter() {
                 change_set += self.desugarize_input(input, &ast, current_sugar);
             }
 
             for output in ast.outputs.iter() {
                 change_set += self.desugarize_output(output, &ast, current_sugar);
-            }
-
-            for trigger in ast.trigger.iter() {
-                change_set += self.desugarize_trigger(trigger, &ast, current_sugar);
             }
 
             change_flag |= change_set._local_applied_flag || !change_set.global_instructions.is_empty();
@@ -265,118 +241,102 @@ impl Desugarizer {
     }
 
     fn apply_global_changes(&self, c_s: ChangeSet, mut ast: RtLolaAst) -> RtLolaAst {
-        c_s.global_iter().for_each(|ci| {
-            match ci {
-                ChangeInstruction::AddOutput(o) => {
-                    ast.outputs.push(Rc::new(*o));
-                },
-                ChangeInstruction::RemoveStream(id) => {
-                    if let Some(idx) = ast.outputs.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
-                        ast.outputs.remove(idx);
-                    } else if let Some(idx) = ast.inputs.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.inputs[idx]), 1);
-                        ast.inputs.remove(idx);
-                    } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
-                        ast.mirrors.remove(idx);
-                    } else if let Some(idx) = ast.trigger.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.trigger[idx]), 1);
-                        ast.trigger.remove(idx);
+        c_s.global_iter().for_each(|ci| match ci {
+            ChangeInstruction::AddOutput(o) => {
+                ast.outputs.push(Rc::new(*o));
+            },
+            ChangeInstruction::RemoveStream(id) => {
+                if let Some(idx) = ast.outputs.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
+                    ast.outputs.remove(idx);
+                } else if let Some(idx) = ast.inputs.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.inputs[idx]), 1);
+                    ast.inputs.remove(idx);
+                } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
+                    ast.mirrors.remove(idx);
+                } else {
+                    debug_assert!(false, "id in changeset does not belong to any stream");
+                }
+            },
+            ChangeInstruction::ReplaceExpr(_, expr) => {
+                for ix in 0..ast.outputs.len() {
+                    let out = &ast.outputs[ix];
+                    let out_clone: Output = Output::clone(out);
+                    let Output { spawn, eval, close, .. } = out_clone;
+                    let new_spawn_spec = if let Some(spawn_spec) = spawn {
+                        let SpawnSpec {
+                            expression,
+                            condition,
+                            annotated_pacing,
+                            id,
+                            span,
+                        } = spawn_spec;
+                        let expression =
+                            expression.map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression));
+                        let condition = condition
+                            .map(|cond_expression| Self::apply_expr_global_change(id, &expr, &cond_expression));
+                        Some(SpawnSpec {
+                            expression,
+                            condition,
+                            annotated_pacing,
+                            id,
+                            span,
+                        })
                     } else {
-                        debug_assert!(false, "id in changeset does not belong to any stream");
-                    }
-                },
-                ChangeInstruction::ReplaceExpr(id, expr) => {
-                    for ix in 0..ast.outputs.len() {
-                        let out = &ast.outputs[ix];
-                        let out_clone: Output = Output::clone(out);
-                        let Output { spawn, eval, close, .. } = out_clone;
-                        let new_spawn_spec = if let Some(spawn_spec) = spawn {
-                            let SpawnSpec {
-                                expression,
+                        None
+                    };
+
+                    let new_eval_spec = eval
+                        .into_iter()
+                        .flat_map(|eval_spec| {
+                            let EvalSpec {
+                                eval_expression,
                                 condition,
                                 annotated_pacing,
                                 id,
                                 span,
-                            } = spawn_spec;
-                            let expression = expression
-                                .map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression));
-                            let condition = condition
-                                .map(|cond_expression| Self::apply_expr_global_change(id, &expr, &cond_expression));
-                            Some(SpawnSpec {
-                                expression,
+                            } = eval_spec;
+                            let eval_expression =
+                                eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e));
+                            let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e));
+                            Some(EvalSpec {
+                                annotated_pacing,
                                 condition,
-                                annotated_pacing,
+                                eval_expression,
                                 id,
                                 span,
                             })
-                        } else {
-                            None
-                        };
+                        })
+                        .collect();
 
-                        let new_eval_spec = eval
-                            .into_iter()
-                            .flat_map(|eval_spec| {
-                                let EvalSpec {
-                                    eval_expression,
-                                    condition,
-                                    annotated_pacing,
-                                    id,
-                                    span,
-                                } = eval_spec;
-                                let eval_expression =
-                                    eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e));
-                                let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e));
-                                Some(EvalSpec {
-                                    annotated_pacing,
-                                    condition,
-                                    eval_expression,
-                                    id,
-                                    span,
-                                })
-                            })
-                            .collect();
+                    let new_close_spec = if let Some(close_spec) = close {
+                        let CloseSpec {
+                            condition,
+                            id,
+                            span,
+                            annotated_pacing,
+                        } = close_spec;
+                        let new_condition = Self::apply_expr_global_change(id, &expr, &condition);
+                        Some(CloseSpec {
+                            condition: new_condition,
+                            id,
+                            span,
+                            annotated_pacing,
+                        })
+                    } else {
+                        None
+                    };
 
-                        let new_close_spec = if let Some(close_spec) = close {
-                            let CloseSpec {
-                                condition,
-                                id,
-                                span,
-                                annotated_pacing,
-                            } = close_spec;
-                            let new_condition = Self::apply_expr_global_change(id, &expr, &condition);
-                            Some(CloseSpec {
-                                condition: new_condition,
-                                id,
-                                span,
-                                annotated_pacing,
-                            })
-                        } else {
-                            None
-                        };
-
-                        let new_out = Output {
-                            spawn: new_spawn_spec,
-                            eval: new_eval_spec,
-                            close: new_close_spec,
-                            ..out_clone
-                        };
-                        ast.outputs[ix] = Rc::new(new_out);
-                    }
-
-                    for ix in 0..ast.trigger.len() {
-                        let trigger: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression);
-                        let trigger_clone: Trigger = Trigger::clone(trigger);
-                        let new_trigger = Trigger {
-                            expression: new_trigger_expr,
-                            ..trigger_clone
-                        };
-                        ast.trigger[ix] = Rc::new(new_trigger);
-                    }
-                },
-            }
+                    let new_out = Output {
+                        spawn: new_spawn_spec,
+                        eval: new_eval_spec,
+                        close: new_close_spec,
+                        ..out_clone
+                    };
+                    ast.outputs[ix] = Rc::new(new_out);
+                }
+            },
         });
 
         ast
@@ -391,77 +351,63 @@ impl Desugarizer {
         use ExpressionKind::*;
         match &ast_expr.kind {
             Lit(_) | Ident(_) | MissingExpression => ast_expr.clone(),
-            Unary(op, inner) => {
-                Expression {
-                    kind: Unary(
-                        *op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Unary(op, inner) => Expression {
+                kind: Unary(
+                    *op,
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                ),
+                span,
+                ..*ast_expr
             },
-            Field(inner, ident) => {
-                Expression {
-                    kind: Field(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        ident.clone(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Field(inner, ident) => Expression {
+                kind: Field(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    ident.clone(),
+                ),
+                span,
+                ..*ast_expr
             },
-            StreamAccess(inner, acc_kind) => {
-                Expression {
-                    kind: StreamAccess(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        *acc_kind,
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            StreamAccess(inner, acc_kind) => Expression {
+                kind: StreamAccess(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    *acc_kind,
+                ),
+                span,
+                ..*ast_expr
             },
-            Offset(inner, offset) => {
-                Expression {
-                    kind: Offset(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        *offset,
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Offset(inner, offset) => Expression {
+                kind: Offset(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    *offset,
+                ),
+                span,
+                ..*ast_expr
             },
-            ParenthesizedExpression(lp, inner, rp) => {
-                Expression {
-                    kind: ParenthesizedExpression(
-                        lp.clone(),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        rp.clone(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            ParenthesizedExpression(lp, inner, rp) => Expression {
+                kind: ParenthesizedExpression(
+                    lp.clone(),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    rp.clone(),
+                ),
+                span,
+                ..*ast_expr
             },
-            Binary(bin_op, left, right) => {
-                Expression {
-                    kind: Binary(
-                        *bin_op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Binary(bin_op, left, right) => Expression {
+                kind: Binary(
+                    *bin_op,
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                ),
+                span,
+                ..*ast_expr
             },
-            Default(left, right) => {
-                Expression {
-                    kind: Default(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Default(left, right) => Expression {
+                kind: Default(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                ),
+                span,
+                ..*ast_expr
             },
             DiscreteWindowAggregation {
                 expr: left,
@@ -469,101 +415,87 @@ impl Desugarizer {
                 wait,
                 aggregation,
                 ..
-            } => {
-                Expression {
-                    kind: DiscreteWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                        wait: *wait,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: DiscreteWindowAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                    wait: *wait,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
             SlidingWindowAggregation {
                 expr: left,
                 duration: right,
                 wait,
                 aggregation,
-            } => {
-                Expression {
-                    kind: SlidingWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                        wait: *wait,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: SlidingWindowAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                    wait: *wait,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
             InstanceAggregation {
                 expr,
                 selection,
                 aggregation,
-            } => {
-                Expression {
-                    kind: InstanceAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
-                        selection: *selection,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: InstanceAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                    selection: *selection,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
-            Ite(condition, normal, alternative) => {
-                Expression {
-                    kind: Ite(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, condition)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, normal)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Ite(condition, normal, alternative) => Expression {
+                kind: Ite(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, condition)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, normal)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative)),
+                ),
+                span,
+                ..*ast_expr
             },
-            Tuple(entries) => {
-                Expression {
-                    kind: Tuple(
-                        entries
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Tuple(entries) => Expression {
+                kind: Tuple(
+                    entries
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
-            Function(name, types, entries) => {
-                Expression {
-                    kind: Function(
-                        name.clone(),
-                        types.clone(),
-                        entries
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Function(name, types, entries) => Expression {
+                kind: Function(
+                    name.clone(),
+                    types.clone(),
+                    entries
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
-            Method(base, name, types, arguments) => {
-                Expression {
-                    kind: Method(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, base)),
-                        name.clone(),
-                        types.clone(),
-                        arguments
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Method(base, name, types, arguments) => Expression {
+                kind: Method(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, base)),
+                    name.clone(),
+                    types.clone(),
+                    arguments
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
         }
     }
@@ -788,11 +720,6 @@ impl Desugarizer {
     #[allow(clippy::borrowed_box)]
     fn desugarize_output(&self, output: &Output, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
         current_sugar.desugarize_stream_out(output, ast)
-    }
-
-    #[allow(clippy::borrowed_box)]
-    fn desugarize_trigger(&self, trigger: &Trigger, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
-        current_sugar.desugarize_stream_trigger(trigger, ast)
     }
 }
 
@@ -1114,8 +1041,8 @@ mod tests {
         assert!(ast.mirrors.is_empty());
         let new = &ast.outputs[1];
         let target = &ast.outputs[0];
-        assert_eq!(target.name.name, "x");
-        assert_eq!(new.name.name, "y");
+        assert_eq!(target.name().unwrap().name, "x");
+        assert_eq!(new.name().unwrap().name, "y");
         assert_eq!(new.annotated_type, target.annotated_type);
         assert_eq!(
             new.eval[0].clone().annotated_pacing,

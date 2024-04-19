@@ -7,7 +7,7 @@ use rusttyc::{Constructable, PreliminaryTypeTable, TcKey, TypeChecker, TypeTable
 
 use crate::hir::{
     self, AnnotatedPacingType, CloseDef, EvalDef, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind,
-    Hir, Input, Offset, Output, SRef, SpawnDef, StreamAccessKind, StreamReference, Trigger,
+    Hir, Input, Offset, Output, SRef, SpawnDef, StreamAccessKind, StreamReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
@@ -238,29 +238,6 @@ where
         let ac = AbstractPacingType::Event(ActivationCondition::with_stream(input.sr));
         let keys = self.node_key[&NodeId::SRef(input.sr)];
         self.pacing_tyc.impose(keys.eval_pacing.concretizes_explicit(ac))?;
-        Ok(())
-    }
-
-    fn trigger_infer(&mut self, trigger: &Trigger) -> Result<(), TypeError<PacingErrorKind>> {
-        let stream_keys = self.node_key[&NodeId::SRef(trigger.sr)];
-        let eval = self.hir.eval_unchecked(trigger.sr);
-        assert_eq!(eval.len(), 1, "trigger can only have one eval clause");
-        let exp_key = self.expression_infer(eval[0].expression)?;
-
-        // Check if there is a type is annotated
-        if let Some(ac) = &trigger.annotated_pacing_type {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
-            self.pacing_key_span.insert(stream_keys.eval_pacing, span);
-
-            self.pacing_tyc
-                .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_ty))?;
-
-            self.pacing_type_implies(stream_keys.eval_pacing, exp_key.eval_pacing, false);
-        } else {
-            // Trigger type is equal to inferred type
-            self.pacing_tyc
-                .impose(stream_keys.eval_pacing.concretizes(exp_key.eval_pacing))?;
-        }
         Ok(())
     }
 
@@ -580,21 +557,19 @@ where
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
             },
-            ExpressionKind::ArithLog(_, args) => {
-                match args.len() {
-                    2 => {
-                        let left_key = self.expression_infer(&args[0])?;
-                        let right_key = self.expression_infer(&args[1])?;
+            ExpressionKind::ArithLog(_, args) => match args.len() {
+                2 => {
+                    let left_key = self.expression_infer(&args[0])?;
+                    let right_key = self.expression_infer(&args[1])?;
 
-                        self.impose_more_concrete(term_keys, left_key)?;
-                        self.impose_more_concrete(term_keys, right_key)?;
-                    },
-                    1 => {
-                        let ex_key = self.expression_infer(&args[0])?;
-                        self.impose_more_concrete(term_keys, ex_key)?;
-                    },
-                    _ => unreachable!(),
-                }
+                    self.impose_more_concrete(term_keys, left_key)?;
+                    self.impose_more_concrete(term_keys, right_key)?;
+                },
+                1 => {
+                    let ex_key = self.expression_infer(&args[0])?;
+                    self.impose_more_concrete(term_keys, ex_key)?;
+                },
+                _ => unreachable!(),
             },
             ExpressionKind::Ite {
                 condition,
@@ -783,11 +758,7 @@ where
         let mut errors = vec![];
 
         // Check that every periodic stream has a frequency
-        let streams: Vec<(SRef, Span)> = hir
-            .outputs()
-            .map(|o| (o.sr, o.span))
-            .chain(hir.triggers().map(|t| (t.sr, t.span)))
-            .collect();
+        let streams: Vec<(SRef, Span)> = hir.outputs().map(|o| (o.sr, o.span)).collect();
         for (sref, span) in streams {
             let ct = &pacing_tt[&nid_key[&NodeId::SRef(sref)].eval_pacing];
             match ct {
@@ -798,14 +769,6 @@ where
                     errors.push(PacingErrorKind::NeverEval(span).into());
                 },
                 _ => {},
-            }
-        }
-
-        //Check that trigger expression does not access parameterized stream
-        for trigger in hir.triggers() {
-            let keys = nid_key[&NodeId::Expr(trigger.expr_id)];
-            if Self::is_parameterized(keys, pacing_tt, exp_tt) {
-                errors.push(PacingErrorKind::ParameterizationNotAllowed(hir.expression(trigger.expr_id).span).into());
             }
         }
 
@@ -857,11 +820,9 @@ where
                     let span = spawn
                         .pacing
                         .as_ref()
-                        .map(|pt| {
-                            match pt {
-                                AnnotatedPacingType::Frequency { span, .. } => *span,
-                                AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
-                            }
+                        .map(|pt| match pt {
+                            AnnotatedPacingType::Frequency { span, .. } => *span,
+                            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -977,17 +938,16 @@ where
                 && spawn_pacing != ConcretePacingType::Constant
             {
                 let exprs = match node {
-                    NodeId::SRef(sr) => {
-                        hir.eval_unchecked(sr)
-                            .iter()
-                            .map(|eval| {
-                                (
-                                    eval.expression,
-                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
-                                )
-                            })
-                            .collect()
-                    },
+                    NodeId::SRef(sr) => hir
+                        .eval_unchecked(sr)
+                        .iter()
+                        .map(|eval| {
+                            (
+                                eval.expression,
+                                &hir.output(sr).expect("StreamReference created above is invalid").span,
+                            )
+                        })
+                        .collect(),
                     NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
                     NodeId::Param(_, _) => unreachable!(),
                     NodeId::Eval(_, _) => unreachable!(),
@@ -1076,11 +1036,6 @@ where
 
         for output in self.hir.outputs() {
             self.output_infer(output)
-                .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
-        }
-
-        for trigger in self.hir.triggers() {
-            self.trigger_infer(trigger)
                 .map_err(|e| e.into_diagnostic(&[&self.pacing_key_span, &self.expression_key_span], self.names))?;
         }
 
@@ -1203,8 +1158,9 @@ mod tests {
         // use rtlola_reporting::Handler;
         // let handler = Handler::from(ParserConfig::for_string(spec.to_string()));
         let (spec, _) = setup_ast(spec);
+        println!("{spec:#?}");
         let mut ltc = LolaTypeChecker::new(&spec);
-        match ltc.pacing_type_infer() {
+        match dbg!(ltc.pacing_type_infer()) {
             Ok(_) => 0,
             Err(e) => {
                 // handler.emit_error(&e);
@@ -2312,7 +2268,7 @@ mod tests {
         let mut ltc = LolaTypeChecker::new(&hir);
         let tt = ltc.pacing_type_infer().unwrap();
 
-        let trigger = tt[&NodeId::SRef(hir.triggers[0].sr)].clone();
+        let trigger = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
         assert_eq!(
             trigger.eval_pacing,
             ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
@@ -2338,6 +2294,15 @@ mod tests {
 
     #[test]
     fn test_trigger_annotation_needed() {
+        let spec = "
+            input x:Bool\n\
+            trigger x.hold(or: false)
+        ";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_trigger_annotation_needed2() {
         let spec = "
             input x:Bool\n\
             trigger x.hold(or: false)

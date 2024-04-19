@@ -1,9 +1,10 @@
 use std::fmt::{Display, Formatter, Result};
 
 use itertools::Itertools;
+use rtlola_hir::hir::OutputKind;
 
 use super::{
-    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, Window,
+    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
     WindowOperation,
 };
 use crate::mir::{
@@ -17,7 +18,7 @@ impl Display for Constant {
             Constant::UInt(u) => write!(f, "{u}"),
             Constant::Int(i) => write!(f, "{i}"),
             Constant::Float(fl) => write!(f, "{fl:?}"),
-            Constant::Str(s) => write!(f, "{s}"),
+            Constant::Str(s) => write!(f, "\"{s}\""),
         }
     }
 }
@@ -382,6 +383,7 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             eval,
             close,
             params,
+            kind,
             ..
         } = self.inner;
 
@@ -395,7 +397,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             "".into()
         };
 
-        write!(f, "output {name}{display_parameters} : {ty}")?;
+        match kind {
+            OutputKind::NamedOutput => write!(f, "output {name}{display_parameters} : {ty}")?,
+            OutputKind::Trigger => write!(f, "trigger{display_parameters}")?,
+        }
 
         if spawn.expression.is_some() || spawn.condition.is_some() {
             write!(f, "\n  spawn")?;
@@ -431,11 +436,8 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
 
 impl<'a> Display for RtLolaMirPrinter<'a, Trigger> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let output = self.mir.output(self.inner.reference);
-        let output_name = output.name();
-        let message = &self.inner.message;
-
-        write!(f, "trigger {output_name} \"{message}\"")
+        let output = self.mir.output(self.inner.output_reference);
+        RtLolaMirPrinter::new(self.mir, output).fmt(f)
     }
 }
 
@@ -461,6 +463,7 @@ impl Display for Mir {
 #[cfg(test)]
 mod tests {
     use rtlola_parser::ParserConfig;
+    use rtlola_reporting::Handler;
 
     use super::display_expression;
     use crate::parse;
@@ -529,7 +532,8 @@ mod tests {
 
         let config = ParserConfig::for_string(example.into());
         let mir = parse(&config).expect("should parse");
+        println!("{mir}");
         let config = ParserConfig::for_string(mir.to_string());
-        parse(&config).expect("should also parse");
+        parse(&config).unwrap();
     }
 }

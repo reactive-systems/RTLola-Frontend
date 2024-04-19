@@ -126,10 +126,6 @@ where
                 eval_clauses.insert((*sref, *idx), eval_pacing);
             };
         });
-        for trigger in &self.hir.triggers {
-            let eval_pacing = pacing_tt[&NodeId::SRef(trigger.sr)].eval_pacing.clone();
-            eval_clauses.insert((trigger.sr, 0), eval_pacing);
-        }
         Ok(Typed::new(stream_map, expression_map, parameters, eval_clauses))
     }
 
