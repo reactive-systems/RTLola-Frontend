@@ -275,7 +275,6 @@ impl DepAna {
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
                     .iter()
@@ -291,7 +290,6 @@ impl DepAna {
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.spawn(sr).map(
                     |SpawnDef {
@@ -309,7 +307,6 @@ impl DepAna {
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
                     .iter()
@@ -322,7 +319,6 @@ impl DepAna {
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.close(sr)
                     .and_then(|cd| cd.condition)
@@ -336,7 +332,7 @@ impl DepAna {
             .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
 
-        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
+        let num_nodes = spec.num_inputs() + spec.num_outputs();
         let num_edges = edges.len();
         let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 
