@@ -167,11 +167,13 @@ impl Display for Expression {
         match &self.kind {
             ExpressionKind::Lit(l) => write!(f, "{l}"),
             ExpressionKind::Ident(ident) => write!(f, "{ident}"),
-            ExpressionKind::StreamAccess(expr, access) => match access {
-                StreamAccessKind::Sync => write!(f, "{expr}"),
-                StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
-                StreamAccessKind::Get => write!(f, "{expr}.get()"),
-                StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
+            ExpressionKind::StreamAccess(expr, access) => {
+                match access {
+                    StreamAccessKind::Sync => write!(f, "{expr}"),
+                    StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
+                    StreamAccessKind::Get => write!(f, "{expr}.get()"),
+                    StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
+                }
             },
             ExpressionKind::Default(expr, val) => write!(f, "{expr}.defaults(to: {val})"),
             ExpressionKind::Offset(expr, val) => write!(f, "{expr}.offset(by: {val})"),
@@ -180,27 +182,31 @@ impl Display for Expression {
                 duration,
                 wait,
                 aggregation,
-            } => match wait {
-                true => {
-                    write!(
-                        f,
-                        "{expr}.aggregate(over_exactly_discrete: {duration}, using: {aggregation})"
-                    )
-                },
-                false => {
-                    write!(f, "{expr}.aggregate(over_discrete: {duration}, using: {aggregation})")
-                },
+            } => {
+                match wait {
+                    true => {
+                        write!(
+                            f,
+                            "{expr}.aggregate(over_exactly_discrete: {duration}, using: {aggregation})"
+                        )
+                    },
+                    false => {
+                        write!(f, "{expr}.aggregate(over_discrete: {duration}, using: {aggregation})")
+                    },
+                }
             },
             ExpressionKind::SlidingWindowAggregation {
                 expr,
                 duration,
                 wait,
                 aggregation,
-            } => match wait {
-                true => {
-                    write!(f, "{expr}.aggregate(over_exactly: {duration}, using: {aggregation})")
-                },
-                false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
+            } => {
+                match wait {
+                    true => {
+                        write!(f, "{expr}.aggregate(over_exactly: {duration}, using: {aggregation})")
+                    },
+                    false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
+                }
             },
             ExpressionKind::InstanceAggregation {
                 expr,
@@ -231,9 +237,11 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| match arg_name {
-                        None => format!("{arg}"),
-                        Some(arg_name) => format!("{arg_name}: {arg}"),
+                    .map(|(arg, arg_name)| {
+                        match arg_name {
+                            None => format!("{arg}"),
+                            Some(arg_name) => format!("{arg_name}: {arg}"),
+                        }
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
@@ -247,9 +255,11 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| match arg_name {
-                        None => format!("{arg}"),
-                        Some(arg_name) => format!("{arg_name}: {arg}"),
+                    .map(|(arg, arg_name)| {
+                        match arg_name {
+                            None => format!("{arg}"),
+                            Some(arg_name) => format!("{arg_name}: {arg}"),
+                        }
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
@@ -264,9 +274,11 @@ impl Display for FunctionName {
         let args: Vec<String> = self
             .arg_names
             .iter()
-            .map(|arg_name| match arg_name {
-                None => String::from("_:"),
-                Some(arg_name) => format!("{arg_name}:"),
+            .map(|arg_name| {
+                match arg_name {
+                    None => String::from("_:"),
+                    Some(arg_name) => format!("{arg_name}:"),
+                }
             })
             .collect();
         write_delim_list(f, &args, "(", ")", "")

@@ -228,17 +228,20 @@ impl ConcreteValueType {
             AnnotatedType::UInt(w) if *w <= 32 => Ok(ConcreteValueType::UInteger32),
             AnnotatedType::UInt(w) if *w <= 64 => Ok(ConcreteValueType::UInteger64),
             AnnotatedType::UInt(_) => Err(AnnotationTooWide(at.clone())),
-            AnnotatedType::Tuple(children) => children
-                .iter()
-                .map(ConcreteValueType::from_annotated_type)
-                .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
-                .map(ConcreteValueType::Tuple),
+            AnnotatedType::Tuple(children) => {
+                children
+                    .iter()
+                    .map(ConcreteValueType::from_annotated_type)
+                    .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
+                    .map(ConcreteValueType::Tuple)
+            },
             AnnotatedType::Option(child) => {
                 ConcreteValueType::from_annotated_type(child).map(|child| ConcreteValueType::Option(Box::new(child)))
             },
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Signed => Err(AnnotationInvalid(at.clone())),
+            AnnotatedType::Any => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
         }
     }
@@ -317,40 +320,52 @@ impl Display for ConcreteValueType {
 impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
     fn from(err: TcErr<AbstractValueType>) -> Self {
         match err {
-            TcErr::KeyEquation(key1, key2, err) => TypeError {
-                kind: err,
-                key1: Some(key1),
-                key2: Some(key2),
+            TcErr::KeyEquation(key1, key2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key1),
+                    key2: Some(key2),
+                }
             },
-            TcErr::Bound(key1, key2, err) => TypeError {
-                kind: err,
-                key1: Some(key1),
-                key2,
+            TcErr::Bound(key1, key2, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key1),
+                    key2,
+                }
             },
-            TcErr::ChildAccessOutOfBound(key, value_ty, index) => TypeError {
-                kind: ValueErrorKind::AccessOutOfBound(value_ty, index),
-                key1: Some(key),
-                key2: None,
+            TcErr::ChildAccessOutOfBound(key, value_ty, index) => {
+                TypeError {
+                    kind: ValueErrorKind::AccessOutOfBound(value_ty, index),
+                    key1: Some(key),
+                    key2: None,
+                }
             },
             TcErr::ArityMismatch {
                 key,
                 variant,
                 inferred_arity,
                 reported_arity,
-            } => TypeError {
-                kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
-                key1: Some(key),
-                key2: None,
+            } => {
+                TypeError {
+                    kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
+                    key1: Some(key),
+                    key2: None,
+                }
             },
-            TcErr::Construction(key, _, err) => TypeError {
-                kind: err,
-                key1: Some(key),
-                key2: None,
+            TcErr::Construction(key, _, err) => {
+                TypeError {
+                    kind: err,
+                    key1: Some(key),
+                    key2: None,
+                }
             },
-            TcErr::ChildConstruction(key, idx, parent, err) => TypeError {
-                kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
-                key1: Some(key),
-                key2: None,
+            TcErr::ChildConstruction(key, idx, parent, err) => {
+                TypeError {
+                    kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
+                    key1: Some(key),
+                    key2: None,
+                }
             },
             TcErr::CyclicGraph => {
                 panic!("Cyclic value type constraint system");

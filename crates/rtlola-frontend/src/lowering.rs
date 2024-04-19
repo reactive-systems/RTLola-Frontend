@@ -144,9 +144,11 @@ impl Mir {
             .iter()
             .filter_map(|output| matches!(&output.kind, OutputKind::Trigger).then_some(output.reference))
             .enumerate()
-            .map(|(trigger_reference, output_reference)| Trigger {
-                trigger_reference,
-                output_reference,
+            .map(|(trigger_reference, output_reference)| {
+                Trigger {
+                    trigger_reference,
+                    output_reference,
+                }
             })
             .collect();
 
@@ -408,10 +410,12 @@ impl Mir {
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::ArithLog(op, args)
             },
-            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => mir::ExpressionKind::StreamAccess {
-                target: sr_map[sr],
-                access_kind: Self::lower_stream_access_kind(*kind),
-                parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
+            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => {
+                mir::ExpressionKind::StreamAccess {
+                    target: sr_map[sr],
+                    access_kind: Self::lower_stream_access_kind(*kind),
+                    parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
+                }
             },
             rtlola_hir::hir::ExpressionKind::ParameterAccess(sr, para) => {
                 mir::ExpressionKind::ParameterAccess(sr_map[sr], *para)
@@ -483,10 +487,12 @@ impl Mir {
         match constant {
             rtlola_hir::hir::Literal::Str(s) => mir::Constant::Str(s.clone()),
             rtlola_hir::hir::Literal::Bool(b) => mir::Constant::Bool(*b),
-            rtlola_hir::hir::Literal::Integer(i) => match ty {
-                mir::Type::Int(_) => mir::Constant::Int(*i),
-                mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
-                _ => unreachable!(),
+            rtlola_hir::hir::Literal::Integer(i) => {
+                match ty {
+                    mir::Type::Int(_) => mir::Constant::Int(*i),
+                    mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                    _ => unreachable!(),
+                }
             },
             rtlola_hir::hir::Literal::SInt(i) => {
                 //TODO rewrite to 128 bytes
@@ -614,10 +620,12 @@ impl Mir {
     fn lower_parameters(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
         let params = hir.output(sr).expect("is output stream").params();
         params
-            .map(|parameter| mir::Parameter {
-                name: parameter.name.clone(),
-                ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
-                idx: parameter.index(),
+            .map(|parameter| {
+                mir::Parameter {
+                    name: parameter.name.clone(),
+                    ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
+                    idx: parameter.index(),
+                }
             })
             .collect()
     }

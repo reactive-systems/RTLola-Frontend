@@ -557,19 +557,21 @@ where
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
             },
-            ExpressionKind::ArithLog(_, args) => match args.len() {
-                2 => {
-                    let left_key = self.expression_infer(&args[0])?;
-                    let right_key = self.expression_infer(&args[1])?;
+            ExpressionKind::ArithLog(_, args) => {
+                match args.len() {
+                    2 => {
+                        let left_key = self.expression_infer(&args[0])?;
+                        let right_key = self.expression_infer(&args[1])?;
 
-                    self.impose_more_concrete(term_keys, left_key)?;
-                    self.impose_more_concrete(term_keys, right_key)?;
-                },
-                1 => {
-                    let ex_key = self.expression_infer(&args[0])?;
-                    self.impose_more_concrete(term_keys, ex_key)?;
-                },
-                _ => unreachable!(),
+                        self.impose_more_concrete(term_keys, left_key)?;
+                        self.impose_more_concrete(term_keys, right_key)?;
+                    },
+                    1 => {
+                        let ex_key = self.expression_infer(&args[0])?;
+                        self.impose_more_concrete(term_keys, ex_key)?;
+                    },
+                    _ => unreachable!(),
+                }
             },
             ExpressionKind::Ite {
                 condition,
@@ -820,9 +822,11 @@ where
                     let span = spawn
                         .pacing
                         .as_ref()
-                        .map(|pt| match pt {
-                            AnnotatedPacingType::Frequency { span, .. } => *span,
-                            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+                        .map(|pt| {
+                            match pt {
+                                AnnotatedPacingType::Frequency { span, .. } => *span,
+                                AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+                            }
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -938,16 +942,17 @@ where
                 && spawn_pacing != ConcretePacingType::Constant
             {
                 let exprs = match node {
-                    NodeId::SRef(sr) => hir
-                        .eval_unchecked(sr)
-                        .iter()
-                        .map(|eval| {
-                            (
-                                eval.expression,
-                                &hir.output(sr).expect("StreamReference created above is invalid").span,
-                            )
-                        })
-                        .collect(),
+                    NodeId::SRef(sr) => {
+                        hir.eval_unchecked(sr)
+                            .iter()
+                            .map(|eval| {
+                                (
+                                    eval.expression,
+                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
+                                )
+                            })
+                            .collect()
+                    },
                     NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
                     NodeId::Param(_, _) => unreachable!(),
                     NodeId::Eval(_, _) => unreachable!(),

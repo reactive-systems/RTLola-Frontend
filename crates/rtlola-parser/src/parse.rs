@@ -92,17 +92,23 @@ impl<'a> RtLolaParser<'a> {
                     let inputs = self.parse_inputs(pair);
                     self.spec.inputs.extend(inputs.into_iter().map(Rc::new));
                 },
-                Rule::MirrorStream => match self.parse_mirror(pair) {
-                    Ok(mirror) => self.spec.mirrors.push(Rc::new(mirror)),
-                    Err(e) => error.join(e),
+                Rule::MirrorStream => {
+                    match self.parse_mirror(pair) {
+                        Ok(mirror) => self.spec.mirrors.push(Rc::new(mirror)),
+                        Err(e) => error.join(e),
+                    }
                 },
-                Rule::OutputStream => match self.parse_output(pair) {
-                    Ok(output) => self.spec.outputs.push(Rc::new(output)),
-                    Err(e) => error.join(e),
+                Rule::OutputStream => {
+                    match self.parse_output(pair) {
+                        Ok(output) => self.spec.outputs.push(Rc::new(output)),
+                        Err(e) => error.join(e),
+                    }
                 },
-                Rule::SimpleTrigger => match self.parse_trigger(pair) {
-                    Ok(trigger) => self.spec.outputs.push(Rc::new(trigger)),
-                    Err(e) => error.join(e),
+                Rule::SimpleTrigger => {
+                    match self.parse_trigger(pair) {
+                        Ok(trigger) => self.spec.outputs.push(Rc::new(trigger)),
+                        Err(e) => error.join(e),
+                    }
                 },
                 Rule::TypeDecl => {
                     let type_decl = self.parse_type_declaration(pair);
@@ -234,9 +240,11 @@ impl<'a> RtLolaParser<'a> {
         let pair = pairs.next().unwrap();
         let kind = match pair.as_rule() {
             Rule::TriggerDecl => OutputKind::Trigger,
-            Rule::NamedOutputDecl => OutputKind::NamedOutput(
-                self.parse_ident(&pair.into_inner().next().expect("mismatch between grammar and AST")),
-            ),
+            Rule::NamedOutputDecl => {
+                OutputKind::NamedOutput(
+                    self.parse_ident(&pair.into_inner().next().expect("mismatch between grammar and AST")),
+                )
+            },
             _ => panic!("mismatch between grammar and AST"),
         };
 
@@ -265,59 +273,61 @@ impl<'a> RtLolaParser<'a> {
             None
         };
 
-        pairs.for_each(|pair| match pair.as_rule() {
-            Rule::SpawnDecl => {
-                if let Some(old_spawn) = &spawn {
-                    let err = Diagnostic::error("Multiple Spawn clauses found")
-                        .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
-                        .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
-                    error.add(err);
-                }
-                let spawn_spec = self.parse_spawn_spec(pair);
-                spawn = spawn_spec.map_or_else(
-                    |e| {
-                        error.join(e);
-                        None
-                    },
-                    Some,
-                )
-            },
-            Rule::CloseDecl => {
-                if let Some(old_close) = &close {
-                    let err = Diagnostic::error("Multiple Close clauses found")
-                        .add_span_with_label(old_close.span, Some("first Close here"), true)
-                        .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
-                    error.add(err);
-                }
-                let close_spec = self.parse_close_spec(pair);
-                close = close_spec.map_or_else(
-                    |e| {
-                        error.join(e);
-                        None
-                    },
-                    Some,
-                );
-            },
-            Rule::EvalDecl => {
-                let eval_spec = self.parse_eval_spec(pair);
-                match eval_spec {
-                    Ok(eval_spec) => eval.push(eval_spec),
-                    Err(e) => error.join(e),
-                }
-            },
-            Rule::SimpleEvalDecl => {
-                let eval_spec = self.parse_eval_spec_simple(pair.clone());
-                match eval_spec {
-                    Ok(eval_spec) => {
-                        debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
-                        eval.push(eval_spec)
-                    },
-                    Err(e) => error.join(e),
-                }
-            },
-            _ => {
-                unreachable!("mismatch between grammar and AST")
-            },
+        pairs.for_each(|pair| {
+            match pair.as_rule() {
+                Rule::SpawnDecl => {
+                    if let Some(old_spawn) = &spawn {
+                        let err = Diagnostic::error("Multiple Spawn clauses found")
+                            .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
+                        error.add(err);
+                    }
+                    let spawn_spec = self.parse_spawn_spec(pair);
+                    spawn = spawn_spec.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    )
+                },
+                Rule::CloseDecl => {
+                    if let Some(old_close) = &close {
+                        let err = Diagnostic::error("Multiple Close clauses found")
+                            .add_span_with_label(old_close.span, Some("first Close here"), true)
+                            .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
+                        error.add(err);
+                    }
+                    let close_spec = self.parse_close_spec(pair);
+                    close = close_spec.map_or_else(
+                        |e| {
+                            error.join(e);
+                            None
+                        },
+                        Some,
+                    );
+                },
+                Rule::EvalDecl => {
+                    let eval_spec = self.parse_eval_spec(pair);
+                    match eval_spec {
+                        Ok(eval_spec) => eval.push(eval_spec),
+                        Err(e) => error.join(e),
+                    }
+                },
+                Rule::SimpleEvalDecl => {
+                    let eval_spec = self.parse_eval_spec_simple(pair.clone());
+                    match eval_spec {
+                        Ok(eval_spec) => {
+                            debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
+                            eval.push(eval_spec)
+                        },
+                        Err(e) => error.join(e),
+                    }
+                },
+                _ => {
+                    unreachable!("mismatch between grammar and AST")
+                },
+            }
         });
 
         Result::from(error)?;
@@ -1058,16 +1068,20 @@ impl<'a> RtLolaParser<'a> {
         let span = pair.as_span();
         match pair.as_rule() {
             // Map function from `Pair` to AST data structure `Expression`
-            Rule::Literal => Ok(Expression::new(
-                self.spec.next_id(),
-                ExpressionKind::Lit(self.parse_literal(pair)),
-                span.into(),
-            )),
-            Rule::Ident => Ok(Expression::new(
-                self.spec.next_id(),
-                ExpressionKind::Ident(self.parse_ident(&pair)),
-                span.into(),
-            )),
+            Rule::Literal => {
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::Lit(self.parse_literal(pair)),
+                    span.into(),
+                ))
+            },
+            Rule::Ident => {
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::Ident(self.parse_ident(&pair)),
+                    span.into(),
+                ))
+            },
             Rule::ParenthesizedExpression => {
                 let mut inner = pair.into_inner();
                 let opp = inner.next().expect(
@@ -1233,27 +1247,29 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
         ErrorVariant::ParsingError {
             positives: pos,
             negatives: neg,
-        } => match (neg.is_empty(), pos.is_empty()) {
-            (false, false) => {
-                format!(
-                    "unexpected {}; expected {}",
-                    neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", "),
-                    pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                )
-            },
-            (false, true) => {
-                format!(
-                    "unexpected {}",
-                    neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                )
-            },
-            (true, false) => {
-                format!(
-                    "expected {}",
-                    pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
-                )
-            },
-            (true, true) => "unknown parsing error".to_owned(),
+        } => {
+            match (neg.is_empty(), pos.is_empty()) {
+                (false, false) => {
+                    format!(
+                        "unexpected {}; expected {}",
+                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", "),
+                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                    )
+                },
+                (false, true) => {
+                    format!(
+                        "unexpected {}",
+                        neg.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                    )
+                },
+                (true, false) => {
+                    format!(
+                        "expected {}",
+                        pos.iter().map(|r| format!("{r:?}")).collect::<Vec<String>>().join(", ")
+                    )
+                },
+                (true, true) => "unknown parsing error".to_owned(),
+            }
         },
         ErrorVariant::CustomError { message: msg } => msg,
     };

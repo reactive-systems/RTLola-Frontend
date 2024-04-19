@@ -212,6 +212,7 @@ impl Display for AnnotatedType {
             Signed => write!(f, "Signed"),
             Sequence => write!(f, "Sequence"),
             Param(idx, name) => write!(f, "FunctionParam({idx}, {name})"),
+            Any => write!(f, "Any"),
         }
     }
 }

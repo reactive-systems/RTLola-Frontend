@@ -136,12 +136,14 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Float64
             | ConcreteValueType::TString
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
-            ConcreteValueType::Tuple(children) => children
-                .iter()
-                .flat_map(|ty| self.exclude_value_type(span, ty).map_err(|e| e.into_iter()).err())
-                .flatten()
-                .collect::<RtLolaError>()
-                .into(),
+            ConcreteValueType::Tuple(children) => {
+                children
+                    .iter()
+                    .flat_map(|ty| self.exclude_value_type(span, ty).map_err(|e| e.into_iter()).err())
+                    .flatten()
+                    .collect::<RtLolaError>()
+                    .into()
+            },
             ConcreteValueType::Option(ty) => self.exclude_value_type(span, ty.as_ref()),
         };
         let mut res = RtLolaError::new();
@@ -294,9 +296,11 @@ impl FeatureSelector {
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
                         .or_else(|| {
-                            spawn.pacing.as_ref().map(|apt| match &apt {
-                                AnnotatedPacingType::Frequency { span, .. } => *span,
-                                AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
+                            spawn.pacing.as_ref().map(|apt| {
+                                match &apt {
+                                    AnnotatedPacingType::Frequency { span, .. } => *span,
+                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
+                                }
                             })
                         })
                 })
@@ -383,9 +387,11 @@ impl FeatureSelector {
                     condition,
                     consequence,
                     alternative,
-                } => find_access_expr(condition.as_ref(), window)
-                    .or_else(|| find_access_expr(consequence.as_ref(), window))
-                    .or_else(|| find_access_expr(alternative.as_ref(), window)),
+                } => {
+                    find_access_expr(condition.as_ref(), window)
+                        .or_else(|| find_access_expr(consequence.as_ref(), window))
+                        .or_else(|| find_access_expr(alternative.as_ref(), window))
+                },
                 ExpressionKind::Widen(WidenExprKind { expr: target, ty: _ })
                 | ExpressionKind::TupleAccess(target, _) => find_access_expr(target.as_ref(), window),
                 ExpressionKind::Default { expr, default } => {
@@ -469,11 +475,13 @@ impl FeatureSelector {
             })
             | ExpressionKind::Tuple(sub_exps)
             | ExpressionKind::StreamAccess(_, _, sub_exps)
-            | ExpressionKind::ArithLog(_, sub_exps) => sub_exps.iter().for_each(|exp| {
-                if let Err(e) = self.exclude_expression(exp) {
-                    res.join(e)
-                }
-            }),
+            | ExpressionKind::ArithLog(_, sub_exps) => {
+                sub_exps.iter().for_each(|exp| {
+                    if let Err(e) = self.exclude_expression(exp) {
+                        res.join(e)
+                    }
+                })
+            },
             ExpressionKind::Ite {
                 condition,
                 consequence,

@@ -38,10 +38,16 @@ impl Mirror {
                 } = e;
 
                 let new_filter = match t_filter {
-                    Some(old_f) => Expression {
-                        id: ast.next_id(),
-                        span: filter_span.to_indirect(),
-                        kind: crate::ast::ExpressionKind::Binary(BinOp::And, Box::new(old_f), Box::new(filter.clone())),
+                    Some(old_f) => {
+                        Expression {
+                            id: ast.next_id(),
+                            span: filter_span.to_indirect(),
+                            kind: crate::ast::ExpressionKind::Binary(
+                                BinOp::And,
+                                Box::new(old_f),
+                                Box::new(filter.clone()),
+                            ),
+                        }
                     },
                     None => filter.clone(),
                 };
