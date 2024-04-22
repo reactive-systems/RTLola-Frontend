@@ -540,10 +540,10 @@ impl Resolvable for PacingErrorKind {
                 let bound_span = key1.map(|k| pacing_spans[&k]);
                 let inferred_span = key2.and_then(|k| pacing_spans.get(&k)).copied();
                 Diagnostic::error(
-                    format!("In pacing type analysis:\nInferred pacing type: {inferred_str} but expected: {bound_str}")
+                    format!("In pacing type analysis:\nInferred pacing type \"{inferred_str}\" but explicitly annotated \"{bound_str}\"")
                         .as_str(),
                 )
-                    .maybe_add_span_with_label(bound_span, Some(format!("Expected {bound_str} here").as_str()), true)
+                    .maybe_add_span_with_label(bound_span, Some(format!("Annotated {bound_str} here").as_str()), true)
                     .maybe_add_span_with_label(
                         inferred_span,
                         Some(format!("Inferred {inferred_str} here").as_str()),
