@@ -27,7 +27,7 @@ impl<'a> DependencyGraph<'a> {
             .iter()
             .map(|i| i.reference)
             .chain(mir.outputs.iter().filter(|o| !o.is_trigger()).map(|o| o.reference))
-            .map(|s| Node::Stream(s));
+            .map(Node::Stream);
 
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
 

@@ -36,7 +36,7 @@ impl Hir<BaseMode> {
             .filter(|decl| matches!(decl, Declaration::Func(_)))
             .map(|decl| {
                 if let Declaration::Func(fun_decl) = decl {
-                    (fun_decl.name.name.clone(), (**fun_decl).clone())
+                    (fun_decl.name.name().to_owned(), (**fun_decl).clone())
                 } else {
                     unreachable!("assured by filter")
                 }

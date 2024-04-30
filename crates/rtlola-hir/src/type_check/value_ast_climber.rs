@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::iter;
 use std::time::Duration;
 
 use itertools::Itertools;
@@ -798,10 +797,7 @@ where
 
                 fun_decl
                     .parameters
-                    .0
                     .iter()
-                    // first all the explicit parameter, than fill with the repeating one (if any)
-                    .chain(fun_decl.parameters.1.as_ref().map(iter::repeat).into_iter().flatten())
                     .zip(args)
                     .map(|(param, arg)| {
                         // Replace reference to generic with generic key

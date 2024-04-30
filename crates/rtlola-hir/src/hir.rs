@@ -455,41 +455,69 @@ impl ExpressionMaps {
 
 /// Represents the name of a function including its arguments.
 #[derive(Debug, Clone)]
-pub struct FunctionName {
-    /// Name of the function
-    pub name: String,
-    /// The names of the arguments.  Each name might be empty.
-    pub arg_names: Vec<Option<String>>,
-    /// Whether there can be an arbitary amount of arguments
-    pub repeating: bool,
+pub enum FunctionName {
+    /// the function has a fixed number of (possibly named) arguments
+    FixedParameters {
+        /// The name of the function
+        name: String,
+        /// For each argument its name (or None if it does not have a name)
+        arg_names: Vec<Option<String>>,
+    },
+    /// The function has an arbitrary amount of (unnamed) arguments
+    ArbitraryParameters {
+        /// The name of the function
+        name: String,
+    },
 }
 
 impl FunctionName {
-    /// Creates a new FunctionName.
+    /// Creates a new FunctionName with a predefined number of arguments.
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
-        Self {
+        Self::FixedParameters {
             name,
             arg_names: Vec::from(arg_names),
-            repeating: false,
+        }
+    }
+
+    pub(crate) fn new_repeating(name: String) -> Self {
+        Self::ArbitraryParameters { name }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            FunctionName::FixedParameters { name, .. } => name,
+            FunctionName::ArbitraryParameters { name } => name,
         }
     }
 }
 
 impl PartialEq for FunctionName {
     fn eq(&self, other: &Self) -> bool {
-        let (self_args, other_args) = if self.repeating || other.repeating {
-            let min_args = self.arg_names.len().min(other.arg_names.len());
-            (&self.arg_names[..min_args], &other.arg_names[..min_args])
-        } else {
-            (&self.arg_names[..], &other.arg_names[..])
-        };
-        self.name == other.name && self_args == other_args
+        match (self, other) {
+            (Self::ArbitraryParameters { name }, other) | (other, Self::ArbitraryParameters { name }) => {
+                name == other.name()
+            },
+            (
+                Self::FixedParameters {
+                    name: s_name,
+                    arg_names: s_arg_names,
+                },
+                Self::FixedParameters {
+                    name: o_name,
+                    arg_names: o_arg_names,
+                },
+            ) => s_name == o_name && s_arg_names == o_arg_names,
+        }
     }
 }
 
 impl std::hash::Hash for FunctionName {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
+        match self {
+            FunctionName::FixedParameters { name, arg_names: _ } => name,
+            FunctionName::ArbitraryParameters { name } => name,
+        }
+        .hash(state)
     }
 }
 

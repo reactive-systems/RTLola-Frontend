@@ -171,7 +171,7 @@ impl Output {
     /// Returns the name of the output stream if it has any
     pub fn name(&self) -> Option<&Ident> {
         match &self.kind {
-            OutputKind::NamedOutput(n) => Some(&n),
+            OutputKind::NamedOutput(n) => Some(n),
             OutputKind::Trigger => None,
         }
     }

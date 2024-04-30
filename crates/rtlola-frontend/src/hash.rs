@@ -3,6 +3,8 @@
 //! frontend version or specification did not change or whether the specification
 //! has to be parsed again.
 
+use std::fmt::Write;
+
 use rtlola_parser::ParserConfig;
 use rtlola_reporting::Diagnostic;
 use serde::{Deserialize, Serialize};
@@ -38,14 +40,14 @@ impl From<HashError> for Diagnostic {
                 imported_hash,
                 current_hash,
             } => {
-                let imported_hash = imported_hash
-                    .iter()
-                    .map(|byte| format!("{:02X}", byte))
-                    .collect::<String>();
-                let current_hash = current_hash
-                    .iter()
-                    .map(|byte| format!("{:02X}", byte))
-                    .collect::<String>();
+                let imported_hash = imported_hash.iter().fold(String::new(), |mut s, byte| {
+                    write!(&mut s, "{:02X}", byte).expect("write to string can never fail");
+                    s
+                });
+                let current_hash = current_hash.iter().fold(String::new(), |mut s, byte| {
+                    write!(&mut s, "{:02X}", byte).expect("write to string can never fail");
+                    s
+                });
                 Diagnostic::error(&format!("The imported file was exported from a specification with hash {imported_hash}, but the current specification has hash {current_hash}."))
             },
         }
