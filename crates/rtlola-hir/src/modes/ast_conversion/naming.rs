@@ -285,11 +285,14 @@ impl NamingAnalysis {
                         error.join(e);
                     }
                 }
-                if let Some(pacing) = &spawn.annotated_pacing {
-                    if let Err(e) = self.check_expression(pacing) {
-                        error.join(e);
-                    }
-                }
+                if let Err(e) = match spawn.annotated_pacing {
+                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::Global(e)
+                    | AnnotatedPacingType::Local(e)
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                } {
+                    error.join(e);
+                };
                 if let Some(cond) = &spawn.condition {
                     if let Err(e) = self.check_expression(cond) {
                         error.join(e);
@@ -300,19 +303,25 @@ impl NamingAnalysis {
                 if let Err(e) = self.check_expression(&close.condition) {
                     error.join(e);
                 }
-                if let Some(pacing) = &close.annotated_pacing {
-                    if let Err(e) = self.check_expression(pacing) {
-                        error.join(e);
-                    }
-                }
+                if let Err(e) = match close.annotated_pacing {
+                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::Global(e)
+                    | AnnotatedPacingType::Local(e)
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                } {
+                    error.join(e);
+                };
             }
 
             for eval in &output.eval {
-                if let Some(pt) = eval.annotated_pacing.as_ref() {
-                    if let Err(e) = self.check_expression(pt) {
-                        error.join(e);
-                    }
-                }
+                if let Err(e) = match eval.annotated_pacing {
+                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::Global(e)
+                    | AnnotatedPacingType::Local(e)
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                } {
+                    error.join(e);
+                };
                 if let Some(eval_cond) = &eval.condition {
                     if let Err(e) = self.check_expression(eval_cond) {
                         error.join(e);

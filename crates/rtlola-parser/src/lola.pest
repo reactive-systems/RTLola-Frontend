@@ -20,7 +20,9 @@ SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
 SpawnWith = { "with " ~Expr }
 SpawnWhen = { "when " ~Expr }
 
-ActivationCondition = { "@" ~ Expr }
+ActivationCondition = { "@" ~ ( GlobalActivationCondition | LocalActivationCondition | Expr)}
+GlobalActivationCondition = { "Global" ~ "(" ~ Expr ~ ")"}
+LocalActivationCondition = {"Local" ~ "(" ~ Expr ~ ")"}
 
 CloseDecl = { "close" ~ ActivationCondition? ~ "when" ~Expr }
 

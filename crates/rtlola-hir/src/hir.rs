@@ -19,6 +19,7 @@ mod print;
 pub mod selector;
 
 use std::collections::HashMap;
+use std::default;
 use std::time::Duration;
 
 pub use feature_selector::{Feature, FeatureSelector};
@@ -636,7 +637,7 @@ impl Output {
     /// If all parts of [Close] are required, see [close](fn@Hir))
     #[allow(dead_code)]
     pub(crate) fn close_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
+        self.close.as_ref().map(|ct| &ct.pacing)
     }
 
     /// Returns the [Eval] template of the stream
@@ -675,26 +676,40 @@ impl Parameter {
     }
 }
 
-/// Pacing information for stream; contains either a frequency or a condition on input streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Frequency of an annotated pacing information for stream
+pub struct AnnotatedFrequency {
+    /// A span to the part of the specification containing the frequency
+    pub span: Span,
+    /// The actual frequency
+    pub value: UOM_Frequency,
+}
+
+/// Pacing information for stream; contains either a frequency or a condition on input streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnnotatedPacingType {
-    /// The evaluation frequency
-    Frequency {
-        /// A span to the part of the specification containing the frequency
-        span: Span,
-        /// The actual frequency
-        value: UOM_Frequency,
-    },
+    /// The global evaluation frequency
+    GlobalFrequency(AnnotatedFrequency),
+    /// The local evaluation frequency
+    LocalFrequency(AnnotatedFrequency),
+    /// The either lobal or gloabl evaluation frequency
+    UnspecifiedFrequency(AnnotatedFrequency),
     /// The expression which constitutes the condition under which the stream should be evaluated.
     Expr(ExprId),
+    /// The stream is not annotated with a pacing
+    #[default]
+    NotAnnotated,
 }
 
 impl AnnotatedPacingType {
     /// Returns the span of the annotated type.
     pub fn span<M: HirMode>(&self, hir: &Hir<M>) -> Span {
         match self {
-            AnnotatedPacingType::Frequency { span, .. } => *span,
+            AnnotatedPacingType::GlobalFrequency(freq)
+            | AnnotatedPacingType::LocalFrequency(freq)
+            | AnnotatedPacingType::UnspecifiedFrequency(freq) => freq.span,
             AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+            AnnotatedPacingType::NotAnnotated => Span::Unknown,
         }
     }
 }
@@ -705,7 +720,7 @@ pub(crate) struct Spawn {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub(crate) expression: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
     /// The range in the specification corresponding to the spawn clause.
@@ -740,7 +755,7 @@ impl Spawn {
 #[derive(Debug, Clone)]
 pub(crate) struct Eval {
     /// The activation condition, which defines when a new value of a stream is computed.
-    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
+    pub(crate) annotated_pacing_type: AnnotatedPacingType,
     /// The expression defining when an instance is evaluated
     pub(crate) condition: Option<ExprId>,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
@@ -755,7 +770,7 @@ pub(crate) struct Close {
     /// The expression defining if an instance is closed
     pub(crate) condition: ExprId,
     /// The activation condition describing when an instance is closed
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
     /// The range in the specification corresponding to the close clause.
     pub(crate) span: Span,
 }

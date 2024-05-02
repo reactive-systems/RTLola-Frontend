@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId, Expression,
-    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset, Output,
-    OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
+    AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId,
+    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset,
+    Output, OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -102,6 +102,8 @@ pub enum TransformationErr {
     InstanceAggregationNonPara(Span),
     /// An output stream representing a trigger does not have a eval when condition
     MissingTriggerCondition(Span),
+    /// Expected Frequency in local or global annotated pacing,
+    ExpectedFrequency(Span),
 }
 
 impl TransformationErr {
@@ -210,7 +212,8 @@ impl TransformationErr {
                     true,
                 )
             }
-            TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true)
+            TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true),
+            TransformationErr::ExpectedFrequency(span) => Diagnostic::error("Local and Global annotated pacings must be frequencies").add_span_with_label(span, Some("Found Expression here"), true)
         }
     }
 }
@@ -542,27 +545,52 @@ impl ExpressionTransformer {
         })
     }
 
+    fn try_transform_freq(
+        &mut self,
+        exprid_to_expr: &mut HashMap<ExprId, Expression>,
+        freq: ast::Expression,
+        current: SRef,
+    ) -> Result<Option<AnnotatedFrequency>, TransformationErr> {
+        if let ast::ExpressionKind::Lit(l) = &freq.kind {
+            if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
+                let val = freq
+                    .parse_freqspec()
+                    .map_err(|reason| TransformationErr::InvalidAc(freq.span, reason))?;
+                return Ok(Some(AnnotatedFrequency {
+                    span: freq.span,
+                    value: val,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
     fn transform_pt(
         &mut self,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
-        pt_expr: ast::Expression,
+        pt: ast::AnnotatedPacingType,
         current: SRef,
     ) -> Result<AnnotatedPacingType, TransformationErr> {
-        if let ast::ExpressionKind::Lit(l) = &pt_expr.kind {
-            if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                let val = pt_expr
-                    .parse_freqspec()
-                    .map_err(|reason| TransformationErr::InvalidAc(pt_expr.span, reason))?;
-                return Ok(AnnotatedPacingType::Frequency {
-                    span: pt_expr.span,
-                    value: val,
-                });
-            }
+        match pt {
+            ast::AnnotatedPacingType::NotAnnotated => Ok(AnnotatedPacingType::NotAnnotated),
+            ast::AnnotatedPacingType::Global(freq) => {
+                let freq = self.try_transform_freq(exprid_to_expr, freq, current)?.ok_or(todo!())?;
+                Ok(AnnotatedPacingType::GlobalFrequency(freq))
+            },
+            ast::AnnotatedPacingType::Local(freq) => {
+                let freq = self.try_transform_freq(exprid_to_expr, freq, current)?.ok_or(todo!())?;
+                Ok(AnnotatedPacingType::LocalFrequency(freq))
+            },
+            ast::AnnotatedPacingType::Unspecified(pt_expr) => {
+                if let Some(freq) = self.try_transform_freq(exprid_to_expr, pt_expr, current)? {
+                    return Ok(AnnotatedPacingType::UnspecifiedFrequency(freq));
+                }
+                Ok(AnnotatedPacingType::Expr(Self::insert_return(
+                    exprid_to_expr,
+                    self.transform_expression(pt_expr, current)?,
+                )))
+            },
         }
-        Ok(AnnotatedPacingType::Expr(Self::insert_return(
-            exprid_to_expr,
-            self.transform_expression(pt_expr, current)?,
-        )))
     }
 
     fn transform_expression(
@@ -943,9 +971,7 @@ impl ExpressionTransformer {
                 let exp = self.transform_expression(expr, current_output)?;
                 Ok(Some(Self::insert_return(exprid_to_expr, exp)))
             })?;
-            let pacing = annotated_pacing.map_or(Ok(None), |pt| {
-                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-            })?;
+            let pacing = self.transform_pt(exprid_to_expr, annotated_pacing, current_output)?;
 
             let condition = condition.map_or(Ok(None), |cond_expr| {
                 let e = self.transform_expression(cond_expr, current_output)?;
@@ -977,15 +1003,12 @@ impl ExpressionTransformer {
             let cond_expr = self.transform_expression(cond, current_output)?;
             Ok(Some(Self::insert_return(exprid_to_expr, cond_expr)))
         })?;
-
-        let pacing = eval_spec.annotated_pacing.map_or(Ok(None), |pt| {
-            Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-        })?;
+        let annotated_pacing_type = self.transform_pt(exprid_to_expr, eval_spec.annotated_pacing, current_output)?;
 
         Ok(Eval {
             expr: eval_expr_id,
             condition,
-            annotated_pacing_type: pacing,
+            annotated_pacing_type,
             span: eval_spec.span,
         })
     }
@@ -997,9 +1020,7 @@ impl ExpressionTransformer {
         current_output: SRef,
     ) -> Result<Option<Close>, TransformationErr> {
         close_spec.map_or(Ok(None), |close_spec| {
-            let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
-                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-            })?;
+            let pacing = self.transform_pt(exprid_to_expr, close_spec.annotated_pacing, current_output)?;
             let condition = Self::insert_return(
                 exprid_to_expr,
                 self.transform_expression(close_spec.condition, current_output)?,
@@ -1519,5 +1540,13 @@ mod tests {
             eid: aggr.eid.clone(),
         };
         assert_eq!(aggr, &expected);
+    }
+
+    #[test]
+    fn global_and_local_frequencies() {
+        let spec = "input a: Int32\n\
+        output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
+        let hir = obtain_expressions(spec);
     }
 }
