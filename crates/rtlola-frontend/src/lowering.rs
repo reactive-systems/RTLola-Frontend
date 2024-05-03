@@ -219,7 +219,7 @@ impl Mir {
                 mir::TimeDrivenStream {
                     reference: sr_map[&sr],
                     frequency: *f,
-                    locality: PacingLocality::Local,
+                    locality: PacingLocality::Global,
                 }
             },
             ConcretePacingType::FixedLocalPeriodic(f) => {
