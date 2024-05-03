@@ -352,12 +352,16 @@ pub struct TimeDrivenStream {
     pub reference: StreamReference,
     /// The evaluation frequency of the stream.
     pub frequency: UOM_Frequency,
+    /// Whether the given frequency is relative to a dynamic spawn
     pub locality: PacingLocality,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+/// Describes if the pacing is interpreted relatively to a dynamic spawn
 pub enum PacingLocality {
+    /// The pacing is relative to a global clock
     Global,
+    /// The pacing is relative to the spawn
     Local,
 }
 

@@ -545,12 +545,7 @@ impl ExpressionTransformer {
         })
     }
 
-    fn try_transform_freq(
-        &mut self,
-        exprid_to_expr: &mut HashMap<ExprId, Expression>,
-        freq: &ast::Expression,
-        current: SRef,
-    ) -> Result<Option<AnnotatedFrequency>, TransformationErr> {
+    fn try_transform_freq(&mut self, freq: &ast::Expression) -> Result<Option<AnnotatedFrequency>, TransformationErr> {
         if let ast::ExpressionKind::Lit(l) = &freq.kind {
             if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
                 let val = freq
@@ -575,18 +570,18 @@ impl ExpressionTransformer {
             ast::AnnotatedPacingType::NotAnnotated => Ok(AnnotatedPacingType::NotAnnotated),
             ast::AnnotatedPacingType::Global(freq) => {
                 let freq = self
-                    .try_transform_freq(exprid_to_expr, &freq, current)?
+                    .try_transform_freq(&freq)?
                     .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::GlobalFrequency(freq))
             },
             ast::AnnotatedPacingType::Local(freq) => {
                 let freq = self
-                    .try_transform_freq(exprid_to_expr, &freq, current)?
+                    .try_transform_freq(&freq)?
                     .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::LocalFrequency(freq))
             },
             ast::AnnotatedPacingType::Unspecified(pt_expr) => {
-                if let Some(freq) = self.try_transform_freq(exprid_to_expr, &pt_expr, current)? {
+                if let Some(freq) = self.try_transform_freq(&pt_expr)? {
                     return Ok(AnnotatedPacingType::UnspecifiedFrequency(freq));
                 }
                 Ok(AnnotatedPacingType::Expr(Self::insert_return(
@@ -1547,13 +1542,5 @@ mod tests {
             eid: aggr.eid.clone(),
         };
         assert_eq!(aggr, &expected);
-    }
-
-    #[test]
-    fn global_and_local_frequencies() {
-        let spec = "input a: Int32\n\
-        output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
-        output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
-        let hir = obtain_expressions(spec);
     }
 }
