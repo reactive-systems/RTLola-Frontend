@@ -238,7 +238,11 @@ impl Feature for Periodics {
 
     fn exclude_pacing_type(&self, span: &Span, ty: &ConcretePacingType) -> Result<(), RtLolaError> {
         match ty {
-            ConcretePacingType::FixedPeriodic(_) | ConcretePacingType::Periodic => {
+            ConcretePacingType::FixedLocalPeriodic(_)
+            | ConcretePacingType::FixedGlobalPeriodic(_)
+            | ConcretePacingType::GlobalPeriodic
+            | ConcretePacingType::LocalPeriodic
+            | ConcretePacingType::AnyPeriodic => {
                 let str_ty = ty.to_pretty_string(&HashMap::new());
                 Err(
                     Diagnostic::error("Unsupported Feature: Periodic evaluation is not supported by the backend.")

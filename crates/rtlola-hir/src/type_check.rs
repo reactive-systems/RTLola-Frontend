@@ -32,14 +32,12 @@ pub enum ConcretePacingType {
     FixedGlobalPeriodic(UOM_Frequency),
     /// The stream / expression can be evaluated with a fixed local frequency.
     FixedLocalPeriodic(UOM_Frequency),
-    /// The stream / expression can be evaluated with any fixed frequency.
-    FixedAnyPeriodic(UOM_Frequency),
-    /// The stream / expression can be evaluated with any global frequency.
-    GlobalPeriodic,
-    /// The stream / expression can be evaluated with any local frequency.
-    LocalPeriodic,
     /// The stream / expression can be evaluated with any frequency.
     AnyPeriodic,
+    /// The stream / expression can be evaluated with any local frequency.
+    LocalPeriodic,
+    /// The stream / expression can be evaluated with any global frequency.
+    GlobalPeriodic,
     /// The stream / expression can always be evaluated.
     Constant,
 }
@@ -49,7 +47,7 @@ impl ConcretePacingType {
     pub fn is_periodic(&self) -> bool {
         matches!(
             self,
-            ConcretePacingType::FixedGlobalPeriodic(_) | ConcretePacingType::FixedLocalPeriodic(_)
+            ConcretePacingType::FixedLocalPeriodic(_) | ConcretePacingType::FixedGlobalPeriodic(_)
         )
     }
 

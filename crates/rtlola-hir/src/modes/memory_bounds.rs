@@ -170,7 +170,7 @@ impl MemBound {
         };
 
         let caller_frequency = match caller_pacing {
-            ConcretePacingType::FixedPeriodic(p) => p,
+            ConcretePacingType::FixedGlobalPeriodic(p) | ConcretePacingType::FixedLocalPeriodic(p) => p,
             _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
         };
         let caller_period =

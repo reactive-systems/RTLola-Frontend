@@ -538,7 +538,7 @@ impl ExpressionTransformer {
     fn try_transform_freq(
         &mut self,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
-        freq: ast::Expression,
+        freq: &ast::Expression,
         current: SRef,
     ) -> Result<Option<AnnotatedFrequency>, TransformationErr> {
         if let ast::ExpressionKind::Lit(l) = &freq.kind {
@@ -565,18 +565,18 @@ impl ExpressionTransformer {
             ast::AnnotatedPacingType::NotAnnotated => Ok(AnnotatedPacingType::NotAnnotated),
             ast::AnnotatedPacingType::Global(freq) => {
                 let freq = self
-                    .try_transform_freq(exprid_to_expr, freq, current)?
+                    .try_transform_freq(exprid_to_expr, &freq, current)?
                     .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::GlobalFrequency(freq))
             },
             ast::AnnotatedPacingType::Local(freq) => {
                 let freq = self
-                    .try_transform_freq(exprid_to_expr, freq, current)?
+                    .try_transform_freq(exprid_to_expr, &freq, current)?
                     .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::LocalFrequency(freq))
             },
             ast::AnnotatedPacingType::Unspecified(pt_expr) => {
-                if let Some(freq) = self.try_transform_freq(exprid_to_expr, pt_expr, current)? {
+                if let Some(freq) = self.try_transform_freq(exprid_to_expr, &pt_expr, current)? {
                     return Ok(AnnotatedPacingType::UnspecifiedFrequency(freq));
                 }
                 Ok(AnnotatedPacingType::Expr(Self::insert_return(

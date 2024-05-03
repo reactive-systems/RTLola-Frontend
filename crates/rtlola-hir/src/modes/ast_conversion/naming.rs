@@ -122,13 +122,11 @@ impl NamingAnalysis {
                     );
                 }
             },
-            TypeKind::Tuple(elements) => {
-                elements.iter().for_each(|ty| {
-                    if let Err(e) = self.check_type(ty) {
-                        error.join(e);
-                    }
-                })
-            },
+            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
+                if let Err(e) = self.check_type(ty) {
+                    error.join(e);
+                }
+            }),
             TypeKind::Optional(ty) => {
                 if let Err(e) = self.check_type(ty) {
                     error.join(e);
@@ -285,7 +283,7 @@ impl NamingAnalysis {
                         error.join(e);
                     }
                 }
-                if let Err(e) = match spawn.annotated_pacing {
+                if let Err(e) = match &spawn.annotated_pacing {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
@@ -303,7 +301,7 @@ impl NamingAnalysis {
                 if let Err(e) = self.check_expression(&close.condition) {
                     error.join(e);
                 }
-                if let Err(e) = match close.annotated_pacing {
+                if let Err(e) = match &close.annotated_pacing {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
@@ -314,7 +312,7 @@ impl NamingAnalysis {
             }
 
             for eval in &output.eval {
-                if let Err(e) = match eval.annotated_pacing {
+                if let Err(e) = match &eval.annotated_pacing {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
@@ -410,14 +408,12 @@ impl NamingAnalysis {
                     .into()
             },
             ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => self.check_expression(expr),
-            Tuple(exprs) => {
-                exprs
-                    .iter()
-                    .flat_map(|expr| self.check_expression(expr).err())
-                    .flatten()
-                    .collect::<RtLolaError>()
-                    .into()
-            },
+            Tuple(exprs) => exprs
+                .iter()
+                .flat_map(|expr| self.check_expression(expr).err())
+                .flatten()
+                .collect::<RtLolaError>()
+                .into(),
             Function(name, types, exprs) => {
                 let func_err: RtLolaError = self.check_function(expression, name).map_err(RtLolaError::from).into();
                 let type_errs: RtLolaError = types
@@ -437,13 +433,11 @@ impl NamingAnalysis {
                     .collect::<RtLolaError>()
                     .into()
             },
-            Default(accessed, default) => {
-                RtLolaError::combine(
-                    self.check_expression(accessed),
-                    self.check_expression(default),
-                    |_, _| {},
-                )
-            },
+            Default(accessed, default) => RtLolaError::combine(
+                self.check_expression(accessed),
+                self.check_expression(default),
+                |_, _| {},
+            ),
             Method(expr, name, types, args) => {
                 // Method is equal to function with `expr` as first argument
                 let func_name = FunctionName {

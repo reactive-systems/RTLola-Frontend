@@ -156,12 +156,10 @@ where
         bound: &AnnotatedType,
         conflict_key: Option<TcKey>,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        let concrete_type = ConcreteValueType::from_annotated_type(bound).map_err(|reason| {
-            TypeError {
-                kind: reason,
-                key1: Some(target),
-                key2: None,
-            }
+        let concrete_type = ConcreteValueType::from_annotated_type(bound).map_err(|reason| TypeError {
+            kind: reason,
+            key1: Some(target),
+            key2: None,
         })?;
         self.annotated_checks.insert(target, (concrete_type, conflict_key));
         Ok(())
@@ -173,12 +171,10 @@ where
         inner_expr_key: TcKey,
         ty: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        let concrete_type = ConcreteValueType::from_annotated_type(ty).map_err(|reason| {
-            TypeError {
-                kind: reason,
-                key1: Some(term_key),
-                key2: None,
-            }
+        let concrete_type = ConcreteValueType::from_annotated_type(ty).map_err(|reason| TypeError {
+            kind: reason,
+            key1: Some(term_key),
+            key2: None,
         })?;
         self.widen_checks.insert(inner_expr_key, (concrete_type, term_key));
         Ok(())
@@ -190,31 +186,25 @@ where
         annotated_type: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
         match annotated_type {
-            AnnotatedType::String => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::String))?
-            },
-            AnnotatedType::Int(0) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SInteger))?
-            },
-            AnnotatedType::Int(x) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedSInteger(*x)))?
-            },
+            AnnotatedType::String => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::String))?,
+            AnnotatedType::Int(0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SInteger))?,
+            AnnotatedType::Int(x) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedSInteger(*x)))?,
             AnnotatedType::Float(0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Float))?,
-            AnnotatedType::Float(f) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedFloat(*f)))?
-            },
-            AnnotatedType::UInt(0) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::UInteger))?
-            },
-            AnnotatedType::UInt(u) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?
-            },
+            AnnotatedType::Float(f) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedFloat(*f)))?,
+            AnnotatedType::UInt(0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::UInteger))?,
+            AnnotatedType::UInt(u) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?,
             AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
             AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
             AnnotatedType::Option(op) => {
@@ -231,18 +221,15 @@ where
                     self.concretizes_annotated_type(child_key, child)?;
                 }
             },
-            AnnotatedType::Numeric => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
-            },
-            AnnotatedType::Signed => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
-            },
-            AnnotatedType::Sequence => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
-            },
+            AnnotatedType::Numeric => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
+            AnnotatedType::Signed => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?,
+            AnnotatedType::Sequence => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Sequence))?,
             AnnotatedType::Any => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Any))?,
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
@@ -357,45 +344,46 @@ where
         term_key: TcKey,
         target_key: TcKey,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        use num::rational::Rational64 as Rational;
-        use uom::si::frequency::hertz;
-        use uom::si::rational64::Frequency as UOM_Frequency;
+        todo!()
+        // use num::rational::Rational64 as Rational;
+        // use uom::si::frequency::hertz;
+        // use uom::si::rational64::Frequency as UOM_Frequency;
 
-        use crate::type_check::pacing_types::AbstractPacingType::*;
-        let mut duration_as_f = d.as_secs_f64();
-        let mut c = 0;
-        while duration_as_f % 1.0f64 > 0f64 {
-            c += 1;
-            duration_as_f *= 10f64;
-        }
+        // use crate::type_check::pacing_types::AbstractPacingType::*;
+        // let mut duration_as_f = d.as_secs_f64();
+        // let mut c = 0;
+        // while duration_as_f % 1.0f64 > 0f64 {
+        //     c += 1;
+        //     duration_as_f *= 10f64;
+        // }
 
-        let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
-        let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].eval_pacing.to_abstract_freq();
-        //special case: period of current output > offset
-        // && offset is multiple of target stream (no optional needed)
-        if let Ok(Periodic(target_freq)) = target_ratio {
-            //if the frequencies match the access is possible
-            //dbg!(&freq, &target_freq);
-            if let Ok(true) = target_freq.is_multiple_of(&freq) {
-                //dbg!("frequencies compatible");
-                self.tyc
-                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                self.tyc.impose(target_key.equate_with(inner_key))?;
-            } else {
-                //dbg!("frequencies NOT compatible");
-                //if the ey dont match return error
-                return Err(TypeError {
-                    kind: ValueErrorKind::IncompatibleRealTimeOffset(target_freq, duration_as_f as i64),
-                    key1: Some(term_key),
-                    key2: Some(target_key),
-                });
-            }
-        } else {
-            unreachable!("Ensured by pacing type checker!")
-        }
-        Ok(())
+        // let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
+        // let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
+        // let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].eval_pacing.to_abstract_freq();
+        // //special case: period of current output > offset
+        // // && offset is multiple of target stream (no optional needed)
+        // if let Ok(Periodic(target_freq)) = target_ratio {
+        //     //if the frequencies match the access is possible
+        //     //dbg!(&freq, &target_freq);
+        //     if let Ok(true) = target_freq.is_multiple_of(&freq) {
+        //         //dbg!("frequencies compatible");
+        //         self.tyc
+        //             .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+        //         let inner_key = self.tyc.get_child_key(term_key, 0)?;
+        //         self.tyc.impose(target_key.equate_with(inner_key))?;
+        //     } else {
+        //         //dbg!("frequencies NOT compatible");
+        //         //if the ey dont match return error
+        //         return Err(TypeError {
+        //             kind: ValueErrorKind::IncompatibleRealTimeOffset(target_freq, duration_as_f as i64),
+        //             key1: Some(term_key),
+        //             key2: Some(target_key),
+        //         });
+        //     }
+        // } else {
+        //     unreachable!("Ensured by pacing type checker!")
+        // }
+        // Ok(())
     }
 
     fn expression_infer(
@@ -589,24 +577,22 @@ where
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(target_key.equate_with(inner_key))?;
                     },
-                    StreamAccessKind::Offset(off) => {
-                        match off {
-                            Offset::PastDiscrete(_) => {
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                                self.tyc.impose(target_key.equate_with(inner_key))?;
-                            },
-                            Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
-                                panic!("future offsets are not supported")
-                            },
+                    StreamAccessKind::Offset(off) => match off {
+                        Offset::PastDiscrete(_) => {
+                            self.tyc
+                                .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            self.tyc.impose(target_key.equate_with(inner_key))?;
+                        },
+                        Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
+                            panic!("future offsets are not supported")
+                        },
 
-                            Offset::PastRealTime(d) => {
-                                debug_assert!(false, "real-time offsets are not supported yet");
-                                let tk = *target_key;
-                                self.handle_realtime_offset(*sr, d, term_key, tk)?;
-                            },
-                        }
+                        Offset::PastRealTime(d) => {
+                            debug_assert!(false, "real-time offsets are not supported yet");
+                            let tk = *target_key;
+                            self.handle_realtime_offset(*sr, d, term_key, tk)?;
+                        },
                     },
                     StreamAccessKind::Fresh => {
                         self.tyc
@@ -910,13 +896,11 @@ where
             .filter_map(|(inner_key, (bound, parent))| {
                 let resolved = tt[&inner_key].clone();
                 match (bound.width(), resolved.width()) {
-                    (Some(bound_width), Some(inner_width)) if inner_width > bound_width => {
-                        Some(TypeError {
-                            kind: ValueErrorKind::InvalidWiden(bound, resolved),
-                            key1: Some(parent),
-                            key2: Some(inner_key),
-                        })
-                    },
+                    (Some(bound_width), Some(inner_width)) if inner_width > bound_width => Some(TypeError {
+                        kind: ValueErrorKind::InvalidWiden(bound, resolved),
+                        key1: Some(parent),
+                        key2: Some(inner_key),
+                    }),
                     _ => None,
                 }
             })
@@ -960,13 +944,11 @@ where
                             }
                         }
                     },
-                    ConcreteValueType::Option(_) => {
-                        errors.push(TypeError {
-                            kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
-                            key1: Some(key),
-                            key2: None,
-                        })
-                    },
+                    ConcreteValueType::Option(_) => errors.push(TypeError {
+                        kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                        key1: Some(key),
+                        key2: None,
+                    }),
                     _ => {},
                 }
                 if matches!(ty, ConcreteValueType::Option(_)) {}

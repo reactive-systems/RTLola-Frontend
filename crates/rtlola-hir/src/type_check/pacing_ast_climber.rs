@@ -296,8 +296,7 @@ where
         self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
         self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
 
-        if eval.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
-            let (annotated_ty, _) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)?;
+        if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)? {
             let annotation_key = self.new_stream_key();
             self.add_span_to_stream_key(annotation_key, eval.annotated_pacing.span(self.hir));
             self.pacing_tyc
@@ -353,8 +352,7 @@ where
         self.impose_more_concrete(spawn_keys, spawn_condition_keys)?;
 
         // spawn pacing
-        if spawn.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)?;
+        if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)? {
             self.pacing_key_span.insert(stream_keys.spawn_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.spawn_pacing.concretizes_explicit(annotated_ty))?;
@@ -398,8 +396,7 @@ where
         }
 
         // close pacing
-        if close.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(close.annotated_pacing, self.hir)?;
+        if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(close.annotated_pacing, self.hir)? {
             self.pacing_key_span.insert(stream_keys.close_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.close_pacing.concretizes_explicit(annotated_ty))?;
@@ -816,13 +813,20 @@ where
             let keys = nid_key[&NodeId::SRef(output.sr)];
             let spawn_pacing = pacing_tt[&keys.spawn_pacing].clone();
             if let Some(spawn) = output.spawn() {
-                if spawn_pacing == ConcretePacingType::Constant || spawn_pacing == ConcretePacingType::Periodic {
-                    let span = spawn
-                        .pacing
-                        .as_ref()
-                        .map(|pt| match pt {
-                            AnnotatedPacingType::Frequency { span, .. } => *span,
-                            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+                if matches!(
+                    spawn_pacing,
+                    ConcretePacingType::Constant
+                        | ConcretePacingType::AnyPeriodic
+                        | ConcretePacingType::LocalPeriodic
+                        | ConcretePacingType::GlobalPeriodic
+                ) {
+                    let span = Some(spawn.pacing)
+                        .and_then(|pt| match pt {
+                            AnnotatedPacingType::GlobalFrequency(f)
+                            | AnnotatedPacingType::LocalFrequency(f)
+                            | AnnotatedPacingType::UnspecifiedFrequency(f) => Some(f.span),
+                            AnnotatedPacingType::Expr(id) => Some(hir.expression(id).span),
+                            AnnotatedPacingType::NotAnnotated => None,
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -840,7 +844,12 @@ where
             if let Some(cond) = output.close_cond() {
                 let close_pacing = pacing_tt[&keys.close_pacing].clone();
                 let span = hir.expression(cond).span;
-                if close_pacing == ConcretePacingType::Periodic {
+                if matches!(
+                    close_pacing,
+                    ConcretePacingType::AnyPeriodic
+                        | ConcretePacingType::LocalPeriodic
+                        | ConcretePacingType::GlobalPeriodic
+                ) {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
                 } else if close_pacing == ConcretePacingType::Constant {
                     errors.push(PacingErrorKind::NeverEval(span).into())
@@ -894,7 +903,7 @@ where
                 if let Some(target_id) = spawn.expression {
                     let target_type = pacing_tt[&nid_key[&NodeId::Expr(target_id)].eval_pacing].clone();
                     let spawn_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].spawn_pacing].clone();
-                    if spawn.pacing.is_none() && target_type != spawn_pacing {
+                    if spawn.pacing != AnnotatedPacingType::NotAnnotated && target_type != spawn_pacing {
                         errors.push(
                             PacingErrorKind::UnintuitivePacingWarning(hir.expression(target_id).span, spawn_pacing)
                                 .into(),
@@ -911,7 +920,7 @@ where
         {
             let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(eval.expr)].eval_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].eval_pacing].clone();
-            if eval.annotated_pacing_type.is_none() && exp_pacing != stream_pacing {
+            if eval.annotated_pacing_type != AnnotatedPacingType::NotAnnotated && exp_pacing != stream_pacing {
                 errors.push(PacingErrorKind::UnintuitivePacingWarning(output.span, stream_pacing).into());
             }
         }
@@ -934,8 +943,10 @@ where
             let exp_pacing = pacing_tt[&stream_keys.eval_pacing].clone();
             let spawn_pacing = pacing_tt[&stream_keys.spawn_pacing].clone();
             let spawn_cond = &exp_tt[&stream_keys.spawn_condition].variant;
-            if matches!(exp_pacing, ConcretePacingType::FixedPeriodic(_))
-                && spawn_pacing != ConcretePacingType::Constant
+            if matches!(
+                exp_pacing,
+                ConcretePacingType::FixedLocalPeriodic(_) | ConcretePacingType::FixedGlobalPeriodic(_)
+            ) && spawn_pacing != ConcretePacingType::Constant
             {
                 let exprs = match node {
                     NodeId::SRef(sr) => hir
@@ -1255,7 +1266,7 @@ mod tests {
         assert_eq!(num_errors(spec), 0);
         assert_eq!(
             tt[&get_node_for_name(&hir, "a")].eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(10).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(10).unwrap()))
         );
     }
 
@@ -1269,7 +1280,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "x")].eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
         );
     }
 
@@ -1379,7 +1390,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "c")].eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
     }
 
@@ -1393,7 +1404,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "c")].eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_f32(0.1).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_f32(0.1).unwrap()))
         );
     }
 
@@ -1465,7 +1476,7 @@ mod tests {
 
         assert_eq!(
             tt[&get_node_for_name(&hir, "out")].eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(5).unwrap()))
         );
     }
 
@@ -2270,7 +2281,7 @@ mod tests {
         let trigger = tt[&NodeId::SRef(hir.outputs[0].sr)].clone();
         assert_eq!(
             trigger.eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
     }
 
@@ -2705,7 +2716,7 @@ mod tests {
         let c = tt[&NodeId::SRef(hir.outputs[1].sr)].clone();
         assert_eq!(
             c.eval_pacing,
-            ConcretePacingType::FixedPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            ConcretePacingType::FixedGlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
     }
 

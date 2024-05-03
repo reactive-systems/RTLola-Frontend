@@ -136,14 +136,12 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Float64
             | ConcreteValueType::TString
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
-            ConcreteValueType::Tuple(children) => {
-                children
-                    .iter()
-                    .flat_map(|ty| self.exclude_value_type(span, ty).map_err(|e| e.into_iter()).err())
-                    .flatten()
-                    .collect::<RtLolaError>()
-                    .into()
-            },
+            ConcreteValueType::Tuple(children) => children
+                .iter()
+                .flat_map(|ty| self.exclude_value_type(span, ty).map_err(|e| e.into_iter()).err())
+                .flatten()
+                .collect::<RtLolaError>()
+                .into(),
             ConcreteValueType::Option(ty) => self.exclude_value_type(span, ty.as_ref()),
         };
         let mut res = RtLolaError::new();
@@ -287,21 +285,20 @@ impl FeatureSelector {
 
         self.hir.outputs.iter().for_each(|o| {
             let ty = self.hir.stream_type(o.sr);
-            let spawn_span = &o
+            let spawn_span: Span = o
                 .spawn
                 .as_ref()
-                .and_then(|spawn| {
+                .map(|spawn| {
                     spawn
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .or_else(|| {
-                            spawn.pacing.as_ref().map(|apt| {
-                                match &apt {
-                                    AnnotatedPacingType::Frequency { span, .. } => *span,
-                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
-                                }
-                            })
+                        .unwrap_or_else(|| match spawn.pacing {
+                            AnnotatedPacingType::GlobalFrequency(f) => f.span,
+                            AnnotatedPacingType::LocalFrequency(f) => f.span,
+                            AnnotatedPacingType::UnspecifiedFrequency(f) => f.span,
+                            AnnotatedPacingType::Expr(eid) => self.hir.expression(eid).span,
+                            AnnotatedPacingType::NotAnnotated => Span::Unknown,
                         })
                 })
                 .unwrap_or(Span::Unknown);
@@ -315,7 +312,7 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_pacing_type(&o.span, &ty.eval_pacing) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn_pacing) {
+            if let Err(e) = self.exclude_pacing_type(&spawn_span, &ty.spawn_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_expr(o.sr)) {
@@ -387,11 +384,9 @@ impl FeatureSelector {
                     condition,
                     consequence,
                     alternative,
-                } => {
-                    find_access_expr(condition.as_ref(), window)
-                        .or_else(|| find_access_expr(consequence.as_ref(), window))
-                        .or_else(|| find_access_expr(alternative.as_ref(), window))
-                },
+                } => find_access_expr(condition.as_ref(), window)
+                    .or_else(|| find_access_expr(consequence.as_ref(), window))
+                    .or_else(|| find_access_expr(alternative.as_ref(), window)),
                 ExpressionKind::Widen(WidenExprKind { expr: target, ty: _ })
                 | ExpressionKind::TupleAccess(target, _) => find_access_expr(target.as_ref(), window),
                 ExpressionKind::Default { expr, default } => {
@@ -475,13 +470,11 @@ impl FeatureSelector {
             })
             | ExpressionKind::Tuple(sub_exps)
             | ExpressionKind::StreamAccess(_, _, sub_exps)
-            | ExpressionKind::ArithLog(_, sub_exps) => {
-                sub_exps.iter().for_each(|exp| {
-                    if let Err(e) = self.exclude_expression(exp) {
-                        res.join(e)
-                    }
-                })
-            },
+            | ExpressionKind::ArithLog(_, sub_exps) => sub_exps.iter().for_each(|exp| {
+                if let Err(e) = self.exclude_expression(exp) {
+                    res.join(e)
+                }
+            }),
             ExpressionKind::Ite {
                 condition,
                 consequence,
