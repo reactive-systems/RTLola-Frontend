@@ -109,7 +109,10 @@ pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
 
 #[test]
 fn test() {
-    let spec = "input in: Int16\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
+    let spec = "input a : UInt64\n\
+        output b eval @1Hz with 1
+        output c spawn when a == 0 eval @Global(1Hz) with b
+        ";
     let config = ParserConfig::for_string(spec.into());
     match parse(&config) {
         Ok(mir) => println!("{mir}"),

@@ -171,10 +171,12 @@ impl MemBound {
 
         let caller_frequency = match caller_pacing {
             ConcretePacingType::FixedGlobalPeriodic(p) | ConcretePacingType::FixedLocalPeriodic(p) => p,
-            p => panic!(
-                "windows can only aggregate periodic streams with fixed frequency: {:?}",
-                p
-            ),
+            p => {
+                panic!(
+                    "windows can only aggregate periodic streams with fixed frequency: {:?}",
+                    p
+                )
+            },
         };
         let caller_period =
             UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())

@@ -180,12 +180,16 @@ impl Schedule {
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns = ir.outputs.iter().filter_map(|o| match &o.spawn.pacing {
-            PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) => Some((
-                o.reference.out_ix(),
-                UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-            )),
-            _ => None,
+        let periodic_spawns = ir.outputs.iter().filter_map(|o| {
+            match &o.spawn.pacing {
+                PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) => {
+                    Some((
+                        o.reference.out_ix(),
+                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+                    ))
+                },
+                _ => None,
+            }
         });
         for (out_ix, period) in periodic_spawns {
             let ix = period.get::<second>() / gcd.get::<second>();
@@ -251,10 +255,12 @@ impl Schedule {
 
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
-            deadline.due.sort_by_key(|s| match s {
-                Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
-                Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
-                Task::Close(_) => usize::MAX,
+            deadline.due.sort_by_key(|s| {
+                match s {
+                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
+                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                    Task::Close(_) => usize::MAX,
+                }
             });
         }
     }

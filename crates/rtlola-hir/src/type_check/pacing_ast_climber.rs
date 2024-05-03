@@ -302,6 +302,9 @@ where
             let annotated_ty = match (annotated_ty, is_spawned) {
                 (AbstractPacingType::AnyPeriodic(f), true) => AbstractPacingType::LocalPeriodic(f),
                 (AbstractPacingType::AnyPeriodic(f), false) => AbstractPacingType::GlobalPeriodic(f),
+                (AbstractPacingType::LocalPeriodic(_), false) => {
+                    return Err(PacingErrorKind::LocalPeriodicUnspawned(eval.annotated_pacing.span(self.hir)).into())
+                },
                 (o, _) => o,
             };
             let annotation_key = self.new_stream_key();
@@ -360,12 +363,11 @@ where
 
         // spawn pacing
         if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)? {
-            if let AbstractPacingType::LocalPeriodic(_) = annotated_ty {
-                panic!("Local pacing not supported in spawn");
-            }
             let annotated_ty = match annotated_ty {
                 AbstractPacingType::AnyPeriodic(f) => AbstractPacingType::GlobalPeriodic(f),
-                AbstractPacingType::LocalPeriodic(_) => panic!("local periodic not supported in spawn"),
+                AbstractPacingType::LocalPeriodic(_) => {
+                    return Err(PacingErrorKind::LocalPeriodicInSpawn(spawn.annotated_pacing.span(self.hir)).into())
+                },
                 o => o,
             };
 
@@ -576,19 +578,21 @@ where
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
             },
-            ExpressionKind::ArithLog(_, args) => match args.len() {
-                2 => {
-                    let left_key = self.expression_infer(&args[0])?;
-                    let right_key = self.expression_infer(&args[1])?;
+            ExpressionKind::ArithLog(_, args) => {
+                match args.len() {
+                    2 => {
+                        let left_key = self.expression_infer(&args[0])?;
+                        let right_key = self.expression_infer(&args[1])?;
 
-                    self.impose_more_concrete(term_keys, left_key)?;
-                    self.impose_more_concrete(term_keys, right_key)?;
-                },
-                1 => {
-                    let ex_key = self.expression_infer(&args[0])?;
-                    self.impose_more_concrete(term_keys, ex_key)?;
-                },
-                _ => unreachable!(),
+                        self.impose_more_concrete(term_keys, left_key)?;
+                        self.impose_more_concrete(term_keys, right_key)?;
+                    },
+                    1 => {
+                        let ex_key = self.expression_infer(&args[0])?;
+                        self.impose_more_concrete(term_keys, ex_key)?;
+                    },
+                    _ => unreachable!(),
+                }
             },
             ExpressionKind::Ite {
                 condition,
@@ -845,12 +849,14 @@ where
                         | ConcretePacingType::GlobalPeriodic
                 ) {
                     let span = Some(spawn.pacing)
-                        .and_then(|pt| match pt {
-                            AnnotatedPacingType::GlobalFrequency(f)
-                            | AnnotatedPacingType::LocalFrequency(f)
-                            | AnnotatedPacingType::UnspecifiedFrequency(f) => Some(f.span),
-                            AnnotatedPacingType::Expr(id) => Some(hir.expression(id).span),
-                            AnnotatedPacingType::NotAnnotated => None,
+                        .and_then(|pt| {
+                            match pt {
+                                AnnotatedPacingType::GlobalFrequency(f)
+                                | AnnotatedPacingType::LocalFrequency(f)
+                                | AnnotatedPacingType::UnspecifiedFrequency(f) => Some(f.span),
+                                AnnotatedPacingType::Expr(id) => Some(hir.expression(id).span),
+                                AnnotatedPacingType::NotAnnotated => None,
+                            }
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -973,16 +979,17 @@ where
             ) && spawn_pacing != ConcretePacingType::Constant
             {
                 let exprs = match node {
-                    NodeId::SRef(sr) => hir
-                        .eval_unchecked(sr)
-                        .iter()
-                        .map(|eval| {
-                            (
-                                eval.expression,
-                                &hir.output(sr).expect("StreamReference created above is invalid").span,
-                            )
-                        })
-                        .collect(),
+                    NodeId::SRef(sr) => {
+                        hir.eval_unchecked(sr)
+                            .iter()
+                            .map(|eval| {
+                                (
+                                    eval.expression,
+                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
+                                )
+                            })
+                            .collect()
+                    },
                     NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
                     NodeId::Param(_, _) => unreachable!(),
                     NodeId::Eval(_, _) => unreachable!(),
@@ -993,7 +1000,12 @@ where
                         let target_keys = nid_key[&NodeId::SRef(target)];
                         let target_spawn_pacing = pacing_tt[&target_keys.spawn_pacing].clone();
                         let target_spawn_condition = &exp_tt[&target_keys.spawn_condition].variant;
-                        if spawn_pacing != target_spawn_pacing || spawn_cond != target_spawn_condition {
+                        if (matches!(exp_pacing, ConcretePacingType::FixedLocalPeriodic(_))
+                            && (spawn_pacing != target_spawn_pacing || spawn_cond != target_spawn_condition))
+                            || (matches!(exp_pacing, ConcretePacingType::FixedGlobalPeriodic(_))
+                                && (!spawn_pacing.implies(&target_spawn_pacing)
+                                    || !spawn_cond.implies(target_spawn_condition)))
+                        {
                             let target_span = hir
                                 .outputs()
                                 .find(|o| o.sr == target)
@@ -3051,6 +3063,74 @@ mod tests {
     fn test_multiple_eval_clauses_mixed_different_periods() {
         let spec = "input a: Int8\ninput b: Int8
         output c eval @2Hz with 1 eval @1Hz with 2";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_local_on_unspawned_stream() {
+        let spec = "input a : UInt64\n\
+        output b eval @Local(1Hz) with a.hold(or: 0)
+        ";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_local_accessing_global() {
+        let spec = "input a : UInt64\n\
+        output b spawn when a == 0 eval @Local(1Hz) with c.offset(by: -1, or: 0)
+        output c spawn when a == 0 eval @Global(1Hz) with b
+        ";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_local_accessing_local() {
+        let spec = "input a : UInt64\n\
+        output b spawn when a == 0 eval @Local(1Hz) with c.offset(by: -1, or: 0)
+        output c spawn when a == 0 eval @Local(1Hz) with b
+        ";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_global_accessing_global() {
+        let spec = "input a : UInt64\n\
+        output b eval @1Hz with 1
+        output c spawn when a == 0 eval @Global(1Hz) with b
+        ";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_global_accessing_global2() {
+        let spec = "input a : UInt64\n\
+        output b eval @2Hz with 1
+        output c spawn when a == 0 eval @Global(1Hz) with b
+        ";
+
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_global_accessing_global3() {
+        let spec = "input a : UInt64\n\
+        output b spawn when a == 0 eval @Global(1Hz) with 1
+        output c eval @Global(1Hz) with b
+        ";
+
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn test_local_spawn_pacing() {
+        let spec = "input a : UInt64\n\
+        output b spawn @Local(1Hz) eval @a with a
+        ";
 
         assert_eq!(1, num_errors(spec));
     }
