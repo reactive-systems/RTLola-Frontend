@@ -296,10 +296,10 @@ where
         self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
         self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
 
-        if let Some(annotated_pacing) = eval.annotated_pacing {
-            let (annotated_ty, _) = AbstractPacingType::from_pt(annotated_pacing, self.hir)?;
+        if eval.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
+            let (annotated_ty, _) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)?;
             let annotation_key = self.new_stream_key();
-            self.add_span_to_stream_key(annotation_key, annotated_pacing.span(self.hir));
+            self.add_span_to_stream_key(annotation_key, eval.annotated_pacing.span(self.hir));
             self.pacing_tyc
                 .impose(annotation_key.eval_pacing.concretizes_explicit(annotated_ty))?;
             self.impose_more_concrete(eval_keys, annotation_key)?;
@@ -353,8 +353,8 @@ where
         self.impose_more_concrete(spawn_keys, spawn_condition_keys)?;
 
         // spawn pacing
-        if let Some(ac) = spawn.annotated_pacing {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
+        if spawn.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
+            let (annotated_ty, span) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)?;
             self.pacing_key_span.insert(stream_keys.spawn_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.spawn_pacing.concretizes_explicit(annotated_ty))?;
@@ -398,8 +398,8 @@ where
         }
 
         // close pacing
-        if let Some(ac) = close.annotated_pacing {
-            let (annotated_ty, span) = AbstractPacingType::from_pt(ac, self.hir)?;
+        if close.annotated_pacing != &AnnotatedPacingType::NotAnnotated {
+            let (annotated_ty, span) = AbstractPacingType::from_pt(close.annotated_pacing, self.hir)?;
             self.pacing_key_span.insert(stream_keys.close_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.close_pacing.concretizes_explicit(annotated_ty))?;
@@ -442,7 +442,7 @@ where
                     self.pacing_tyc.impose(
                         term_keys
                             .eval_pacing
-                            .concretizes_explicit(AbstractPacingType::Periodic(Freq::Any)),
+                            .concretizes_explicit(AbstractPacingType::AnyPeriodic(Freq::Any)),
                     )?;
                 },
                 Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {},
@@ -524,7 +524,7 @@ where
                     StreamAccessKind::Hold | StreamAccessKind::Get | StreamAccessKind::Fresh => {},
                     StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
-                            .impose(term_keys.eval_pacing.concretizes_explicit(Periodic(Freq::Any)))?;
+                            .impose(term_keys.eval_pacing.concretizes_explicit(AnyPeriodic(Freq::Any)))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
                     },
                     StreamAccessKind::InstanceAggregation(w) => {
@@ -557,21 +557,19 @@ where
                 self.impose_more_concrete(term_keys, ex_key)?;
                 self.impose_more_concrete(term_keys, def_key)?;
             },
-            ExpressionKind::ArithLog(_, args) => {
-                match args.len() {
-                    2 => {
-                        let left_key = self.expression_infer(&args[0])?;
-                        let right_key = self.expression_infer(&args[1])?;
+            ExpressionKind::ArithLog(_, args) => match args.len() {
+                2 => {
+                    let left_key = self.expression_infer(&args[0])?;
+                    let right_key = self.expression_infer(&args[1])?;
 
-                        self.impose_more_concrete(term_keys, left_key)?;
-                        self.impose_more_concrete(term_keys, right_key)?;
-                    },
-                    1 => {
-                        let ex_key = self.expression_infer(&args[0])?;
-                        self.impose_more_concrete(term_keys, ex_key)?;
-                    },
-                    _ => unreachable!(),
-                }
+                    self.impose_more_concrete(term_keys, left_key)?;
+                    self.impose_more_concrete(term_keys, right_key)?;
+                },
+                1 => {
+                    let ex_key = self.expression_infer(&args[0])?;
+                    self.impose_more_concrete(term_keys, ex_key)?;
+                },
+                _ => unreachable!(),
             },
             ExpressionKind::Ite {
                 condition,
@@ -764,7 +762,7 @@ where
         for (sref, span) in streams {
             let ct = &pacing_tt[&nid_key[&NodeId::SRef(sref)].eval_pacing];
             match ct {
-                ConcretePacingType::Periodic => {
+                ConcretePacingType::GlobalPeriodic | ConcretePacingType::LocalPeriodic => {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into());
                 },
                 ConcretePacingType::Constant => {
@@ -822,11 +820,9 @@ where
                     let span = spawn
                         .pacing
                         .as_ref()
-                        .map(|pt| {
-                            match pt {
-                                AnnotatedPacingType::Frequency { span, .. } => *span,
-                                AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
-                            }
+                        .map(|pt| match pt {
+                            AnnotatedPacingType::Frequency { span, .. } => *span,
+                            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -942,17 +938,16 @@ where
                 && spawn_pacing != ConcretePacingType::Constant
             {
                 let exprs = match node {
-                    NodeId::SRef(sr) => {
-                        hir.eval_unchecked(sr)
-                            .iter()
-                            .map(|eval| {
-                                (
-                                    eval.expression,
-                                    &hir.output(sr).expect("StreamReference created above is invalid").span,
-                                )
-                            })
-                            .collect()
-                    },
+                    NodeId::SRef(sr) => hir
+                        .eval_unchecked(sr)
+                        .iter()
+                        .map(|eval| {
+                            (
+                                eval.expression,
+                                &hir.output(sr).expect("StreamReference created above is invalid").span,
+                            )
+                        })
+                        .collect(),
                     NodeId::Expr(eid) => vec![(hir.expression(eid), &hir.expression(eid).span)],
                     NodeId::Param(_, _) => unreachable!(),
                     NodeId::Eval(_, _) => unreachable!(),

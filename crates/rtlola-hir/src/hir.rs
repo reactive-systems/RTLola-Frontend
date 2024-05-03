@@ -19,7 +19,6 @@ mod print;
 pub mod selector;
 
 use std::collections::HashMap;
-use std::default;
 use std::time::Duration;
 
 pub use feature_selector::{Feature, FeatureSelector};
@@ -233,7 +232,7 @@ impl<M: HirMode> Hir<M> {
                     SpawnDef::new(
                         st.expression.map(|e| self.expression(e)),
                         st.condition.map(|e| self.expression(e)),
-                        st.pacing.as_ref(),
+                        &st.pacing,
                         st.span,
                     )
                 })
@@ -246,13 +245,12 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.spawn_cond())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.spawn_cond())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -261,13 +259,12 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_expr(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.spawn_expr())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.spawn_expr())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -301,7 +298,7 @@ impl<M: HirMode> Hir<M> {
                             EvalDef::new(
                                 eval.condition.map(|id| self.expression(id)),
                                 self.expression(eval.expr),
-                                eval.annotated_pacing_type.as_ref(),
+                                &eval.annotated_pacing_type,
                                 eval.span,
                             )
                         })
@@ -339,12 +336,11 @@ impl<M: HirMode> Hir<M> {
     pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect())
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect()),
         }
     }
 
@@ -355,13 +351,7 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let output = self.outputs.iter().find(|o| o.sr == sr)?;
-                Some(
-                    output
-                        .eval
-                        .iter()
-                        .filter_map(|eval| eval.annotated_pacing_type.as_ref())
-                        .collect(),
-                )
+                Some(output.eval.iter().map(|eval| &eval.annotated_pacing_type).collect())
             },
         }
     }
@@ -379,7 +369,7 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let ct = self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close());
-                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), ct.pacing.as_ref(), ct.span))
+                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), &ct.pacing, ct.span))
             },
         }
     }
@@ -389,13 +379,12 @@ impl<M: HirMode> Hir<M> {
     pub fn close_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.close_cond())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.close_cond())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -619,7 +608,7 @@ impl Output {
     /// If all parts of [Spawn] are required, see [spawn](fn@Hir)
     #[allow(dead_code)]
     pub(crate) fn spawn_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+        self.spawn.as_ref().map(|st| &st.pacing)
     }
 
     /// Returns the [Close] template of the stream
@@ -736,11 +725,9 @@ impl Spawn {
     /// Returns a vector of `Expression` references representing the expressions with which the parameters of the stream are initialized
     pub(crate) fn spawn_args<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Vec<&'a Expression> {
         self.spawn_expr(hir)
-            .map(|se| {
-                match &se.kind {
-                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
-                    _ => vec![se],
-                }
+            .map(|se| match &se.kind {
+                ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                _ => vec![se],
             })
             .unwrap_or_default()
     }
@@ -784,7 +771,7 @@ pub struct SpawnDef<'a> {
     /// The conditional expression of the spawn, e.g. when x > 5
     pub condition: Option<&'a Expression>,
     /// The pacing type  of the spawn, e.g. @1Hz or @input_i
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the spawn clause.
     pub span: Span,
 }
@@ -794,7 +781,7 @@ impl<'a> SpawnDef<'a> {
     pub fn new(
         expression: Option<&'a Expression>,
         condition: Option<&'a Expression>,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
         span: Span,
     ) -> Self {
         Self {
@@ -815,7 +802,7 @@ pub struct EvalDef<'a> {
     /// The stream expression defines the computed value of the stream.
     pub expression: &'a Expression,
     /// The annotated pacing of the stream evaluation, describing when the condition and expression should be evaluated in a temporal manner.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the eval clause.
     pub span: Span,
 }
@@ -825,7 +812,7 @@ impl<'a> EvalDef<'a> {
     pub fn new(
         condition: Option<&'a Expression>,
         expr: &'a Expression,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
         span: Span,
     ) -> Self {
         Self {
@@ -843,18 +830,14 @@ pub struct CloseDef<'a> {
     /// The close condition, defining when a stream instance is closed and no longer evaluated.
     pub condition: Option<&'a Expression>,
     /// The annotated pacing, indicating when the condition should be evaluated.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the close clause.
     pub span: Span,
 }
 
 impl<'a> CloseDef<'a> {
     /// Constructs a new [CloseDef]
-    pub fn new(
-        condition: Option<&'a Expression>,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
-        span: Span,
-    ) -> Self {
+    pub fn new(condition: Option<&'a Expression>, annotated_pacing: &'a AnnotatedPacingType, span: Span) -> Self {
         Self {
             condition,
             annotated_pacing,

@@ -53,8 +53,11 @@ pub(crate) enum Freq {
 pub(crate) enum AbstractPacingType {
     /// An event stream is extended when its activation condition is satisfied.
     Event(ActivationCondition),
-    /// A real-time stream is extended periodically.
-    Periodic(Freq),
+    /// A global real-time stream is extended periodically.
+    GlobalPeriodic(Freq),
+    /// A local real-time stream is extended periodically.
+    LocalPeriodic(Freq),
+    AnyPeriodic(Freq),
     /// An undetermined type that can be unified into either of the other options.
     Any,
 }
@@ -212,6 +215,7 @@ pub(crate) enum PacingErrorKind {
     NeverEval(Span),
     MalformedAc(Span, String),
     MixedEventPeriodic(AbstractPacingType, AbstractPacingType),
+    MixedLocalGlobalPeriodic(AbstractPacingType, AbstractPacingType),
     IncompatibleExpressions(AbstractSemanticType, AbstractSemanticType),
     SemanticTypeMismatch(AbstractSemanticType, AbstractSemanticType),
     ParameterizationNeeded {
@@ -254,13 +258,11 @@ impl std::ops::BitAnd for ActivationCondition {
 
     fn bitand(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (ActivationCondition::Models(left), ActivationCondition::Models(right)) => {
-                ActivationCondition::Models(
-                    left.iter()
-                        .flat_map(|conj1| right.iter().map(move |conj2| conj1.union(conj2).copied().collect()))
-                        .collect(),
-                )
-            },
+            (ActivationCondition::Models(left), ActivationCondition::Models(right)) => ActivationCondition::Models(
+                left.iter()
+                    .flat_map(|conj1| right.iter().map(move |conj2| conj1.union(conj2).copied().collect()))
+                    .collect(),
+            ),
             (ActivationCondition::True, other) | (other, ActivationCondition::True) => other,
         }
     }
@@ -279,16 +281,14 @@ impl std::ops::BitOr for ActivationCondition {
             BTreeSet::new()
         };
         match (self, rhs) {
-            (ActivationCondition::Models(left), ActivationCondition::Models(right)) => {
-                ActivationCondition::Models(
-                    left.union(&right)
-                        .cloned()
-                        .collect::<BTreeSet<_>>()
-                        .union(&conjunction)
-                        .cloned()
-                        .collect(),
-                )
-            },
+            (ActivationCondition::Models(left), ActivationCondition::Models(right)) => ActivationCondition::Models(
+                left.union(&right)
+                    .cloned()
+                    .collect::<BTreeSet<_>>()
+                    .union(&conjunction)
+                    .cloned()
+                    .collect(),
+            ),
             (ActivationCondition::True, _) | (_, ActivationCondition::True) => ActivationCondition::True,
         }
     }
@@ -298,29 +298,23 @@ impl ActivationCondition {
     fn parse(ast_expr: &Expression) -> Result<Self, PacingErrorKind> {
         use ExpressionKind::*;
         match &ast_expr.kind {
-            LoadConstant(c) => {
-                match c {
-                    Constant::Basic(lit) | Constant::Inlined(Inlined { lit, .. }) => {
-                        match lit {
-                            Literal::Bool(b) => {
-                                if *b {
-                                    Ok(ActivationCondition::True)
-                                } else {
-                                    Err(PacingErrorKind::MalformedAc(
-                                        ast_expr.span,
-                                        "Only 'True' is supported as literals in activation conditions.".into(),
-                                    ))
-                                }
-                            },
-                            _ => {
-                                Err(PacingErrorKind::MalformedAc(
-                                    ast_expr.span,
-                                    "Only 'True' is supported as literals in activation conditions.".into(),
-                                ))
-                            },
+            LoadConstant(c) => match c {
+                Constant::Basic(lit) | Constant::Inlined(Inlined { lit, .. }) => match lit {
+                    Literal::Bool(b) => {
+                        if *b {
+                            Ok(ActivationCondition::True)
+                        } else {
+                            Err(PacingErrorKind::MalformedAc(
+                                ast_expr.span,
+                                "Only 'True' is supported as literals in activation conditions.".into(),
+                            ))
                         }
                     },
-                }
+                    _ => Err(PacingErrorKind::MalformedAc(
+                        ast_expr.span,
+                        "Only 'True' is supported as literals in activation conditions.".into(),
+                    )),
+                },
             },
             StreamAccess(sref, kind, args) => {
                 if !args.is_empty() {
@@ -358,20 +352,16 @@ impl ActivationCondition {
                 match op {
                     ArithLogOp::And | ArithLogOp::BitAnd => Ok(ac_l & ac_r),
                     ArithLogOp::Or | ArithLogOp::BitOr => Ok(ac_l | ac_r),
-                    _ => {
-                        Err(PacingErrorKind::MalformedAc(
-                            ast_expr.span,
-                            "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
-                        ))
-                    },
+                    _ => Err(PacingErrorKind::MalformedAc(
+                        ast_expr.span,
+                        "Only '&' (and) or '|' (or) are allowed in activation conditions.".into(),
+                    )),
                 }
             },
-            _ => {
-                Err(PacingErrorKind::MalformedAc(
-                    ast_expr.span,
-                    "An activation condition can only contain literals and binary operators.".into(),
-                ))
-            },
+            _ => Err(PacingErrorKind::MalformedAc(
+                ast_expr.span,
+                "An activation condition can only contain literals and binary operators.".into(),
+            )),
         }
     }
 
@@ -380,19 +370,17 @@ impl ActivationCondition {
         use ActivationCondition::*;
         match self {
             True => "⊤".into(),
-            Models(disjuncs) => {
-                disjuncs
-                    .iter()
-                    .map(|conjuncts| {
-                        let str = conjuncts.iter().map(|sr| stream_names[sr].to_string()).join(" ∧ ");
-                        if conjuncts.len() == 1 {
-                            str
-                        } else {
-                            format!("({str})")
-                        }
-                    })
-                    .join(" ∨ ")
-            },
+            Models(disjuncs) => disjuncs
+                .iter()
+                .map(|conjuncts| {
+                    let str = conjuncts.iter().map(|sr| stream_names[sr].to_string()).join(" ∧ ");
+                    if conjuncts.len() == 1 {
+                        str
+                    } else {
+                        format!("({str})")
+                    }
+                })
+                .join(" ∨ "),
         }
     }
 }
@@ -443,6 +431,23 @@ impl Resolvable for PacingErrorKind {
                         false,
                     )
             }
+            MixedLocalGlobalPeriodic(absty1, absty2) => {
+                let span1 = key1.and_then(|k| pacing_spans.get(&k).cloned());
+                let span2 = key2.and_then(|k| pacing_spans.get(&k).cloned());
+                let ty1 = absty1.to_pretty_string(names);
+                let ty2 = absty2.to_pretty_string(names);
+                Diagnostic::error(
+                    format!(
+                        "In pacing type analysis:\nMixed an local periodic and global periodic type: {ty1} and {ty2}",
+                    )
+                        .as_str(),
+                )
+                    .maybe_add_span_with_label(span1, Some(format!("Found {ty1} here").as_str()), true)
+                    .maybe_add_span_with_label(
+                        span2,
+                        Some(format!("and found {ty2} here").as_str()),
+                        false,
+                    )},
             IncompatibleExpressions(e1, e2) => {
                 let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
@@ -643,19 +648,15 @@ pub(crate) trait PrintableVariant: Debug {
 impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
     fn from(err: TcErr<V>) -> TypeError<PacingErrorKind> {
         match err {
-            TcErr::KeyEquation(k1, k2, err) => {
-                TypeError {
-                    kind: err,
-                    key1: Some(k1),
-                    key2: Some(k2),
-                }
+            TcErr::KeyEquation(k1, k2, err) => TypeError {
+                kind: err,
+                key1: Some(k1),
+                key2: Some(k2),
             },
-            TcErr::Bound(k1, k2, err) => {
-                TypeError {
-                    kind: err,
-                    key1: Some(k1),
-                    key2: k2,
-                }
+            TcErr::Bound(k1, k2, err) => TypeError {
+                kind: err,
+                key1: Some(k1),
+                key2: k2,
             },
             TcErr::ChildAccessOutOfBound(key, ty, _idx) => {
                 let msg = "Child type out of bounds for type: ";
@@ -678,19 +679,15 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
                     key2: None,
                 }
             },
-            TcErr::Construction(key, _preliminary, kind) => {
-                TypeError {
-                    kind,
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::Construction(key, _preliminary, kind) => TypeError {
+                kind,
+                key1: Some(key),
+                key2: None,
             },
-            TcErr::ChildConstruction(key, idx, preliminary, kind) => {
-                TypeError {
-                    kind,
-                    key1: Some(key),
-                    key2: preliminary.children[idx],
-                }
+            TcErr::ChildConstruction(key, idx, preliminary, kind) => TypeError {
+                kind,
+                key1: Some(key),
+                key2: preliminary.children[idx],
             },
             TcErr::CyclicGraph => {
                 panic!("Cyclic pacing type constraint system");
@@ -733,13 +730,11 @@ impl Freq {
         }
         match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
             Some(q) => Ok(q.is_integer()),
-            None => {
-                Err(PacingErrorKind::Other(
-                    Span::Unknown,
-                    format!("division of frequencies `{:?}`/`{:?}` failed", lhs, rhs),
-                    vec![],
-                ))
-            },
+            None => Err(PacingErrorKind::Other(
+                Span::Unknown,
+                format!("division of frequencies `{:?}`/`{:?}` failed", lhs, rhs),
+                vec![],
+            )),
         }
     }
 
@@ -772,21 +767,26 @@ impl Variant for AbstractPacingType {
         use AbstractPacingType::*;
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
+
+        fn meet_freq(lhs: Freq, rhs: Freq) -> Freq {
+            if let Freq::Any = lhs {
+                rhs
+            } else if let Freq::Any = rhs {
+                lhs
+            } else {
+                lhs.conjunction(&rhs)
+            }
+        }
+
         // Todo: Avoid clone
         let new_var = match (lhs.variant.clone(), rhs.variant.clone()) {
             (Any, x) | (x, Any) => Ok(x),
-            (Periodic(_), Event(_)) | (Event(_), Periodic(_)) => {
-                Err(PacingErrorKind::MixedEventPeriodic(lhs.variant, rhs.variant))
-            },
             (Event(ac1), Event(ac2)) => Ok(Event(ac1 & ac2)),
-            (Periodic(f1), Periodic(f2)) => {
-                if let Freq::Any = f1 {
-                    Ok(Periodic(f2))
-                } else if let Freq::Any = f2 {
-                    Ok(Periodic(f1))
-                } else {
-                    Ok(Periodic(f1.conjunction(&f2)))
-                }
+            (LocalPeriodic(f1), LocalPeriodic(f2)) => Ok(LocalPeriodic(meet_freq(f1, f2))),
+            (GlobalPeriodic(f1), GlobalPeriodic(f2)) => Ok(GlobalPeriodic(meet_freq(f1, f2))),
+            (lhs @ Event(_), rhs) | (lhs, rhs @ Event(_)) => Err(PacingErrorKind::MixedEventPeriodic(lhs, rhs)),
+            (lhs @ LocalPeriodic(_), rhs @ GlobalPeriodic(_)) | (lhs @ GlobalPeriodic(_), rhs @ LocalPeriodic(_)) => {
+                Err(PacingErrorKind::MixedLocalGlobalPeriodic(lhs, rhs))
             },
         }?;
         Ok(Partial {
@@ -808,11 +808,9 @@ impl Constructable for AbstractPacingType {
         match self {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
-            AbstractPacingType::Periodic(freq) => {
-                match freq {
-                    Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(*f)),
-                    Freq::Any => Ok(ConcretePacingType::Periodic),
-                }
+            AbstractPacingType::Periodic(freq) => match freq {
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedPeriodic(*f)),
+                Freq::Any => Ok(ConcretePacingType::Periodic),
             },
         }
     }
@@ -935,11 +933,9 @@ impl Variant for AbstractSemanticType {
                     (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
                         Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(a)))
                     },
-                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => {
-                        Ok(AbstractSemanticType::Positive(SemanticTypeKind::Conjunction(
-                            vec![a, b].into_iter().collect(),
-                        )))
-                    },
+                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => Ok(AbstractSemanticType::Positive(
+                        SemanticTypeKind::Conjunction(vec![a, b].into_iter().collect()),
+                    )),
                     (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
                         if a == b {
                             Ok(AbstractSemanticType::Positive(SemanticTypeKind::Mixed(a)))
@@ -970,16 +966,12 @@ impl Variant for AbstractSemanticType {
                         let intersection: HashSet<HashableExpression> = left.intersection(&right).cloned().collect();
                         match intersection.len() {
                             0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
-                            1 => {
-                                Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(
-                                    intersection.into_iter().next().unwrap(),
-                                )))
-                            },
-                            _ => {
-                                Ok(AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(
-                                    intersection,
-                                )))
-                            },
+                            1 => Ok(AbstractSemanticType::Positive(SemanticTypeKind::Literal(
+                                intersection.into_iter().next().unwrap(),
+                            ))),
+                            _ => Ok(AbstractSemanticType::Positive(SemanticTypeKind::Disjunction(
+                                intersection,
+                            ))),
                         }
                     },
                     (SemanticTypeKind::Conjunction(_), _)
@@ -992,65 +984,57 @@ impl Variant for AbstractSemanticType {
             },
 
             // Lattice for negative Types
-            (Self::Negative(l_kind), Self::Negative(r_kind)) => {
-                match (l_kind, r_kind) {
-                    (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(AbstractSemanticType::Negative(x)),
-                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
-                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(a)))
-                    },
-                    (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => {
-                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
-                            vec![a, b].into_iter().collect(),
-                        )))
-                    },
-                    (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
-                        if a == b {
-                            Ok(AbstractSemanticType::Negative(SemanticTypeKind::Mixed(a)))
-                        } else {
-                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
-                        }
-                    },
-                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(conjs))
-                    | (SemanticTypeKind::Conjunction(conjs), SemanticTypeKind::Literal(he)) => {
-                        if conjs.contains(&he) {
-                            Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(he)))
-                        } else {
-                            Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
-                        }
-                    },
-                    (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(mut disjs))
-                    | (SemanticTypeKind::Disjunction(mut disjs), SemanticTypeKind::Literal(he)) => {
-                        disjs.insert(he);
-                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(disjs)))
-                    },
-                    (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
-                        let intersection: HashSet<HashableExpression> = left.intersection(&right).cloned().collect();
-                        match intersection.len() {
-                            0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
-                            1 => {
-                                Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(
-                                    intersection.into_iter().next().unwrap(),
-                                )))
-                            },
-                            _ => {
-                                Ok(AbstractSemanticType::Negative(SemanticTypeKind::Conjunction(
-                                    intersection,
-                                )))
-                            },
-                        }
-                    },
-                    (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
-                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
-                            left.union(&right).cloned().collect(),
-                        )))
-                    },
-                    (SemanticTypeKind::Conjunction(_), _)
-                    | (_, SemanticTypeKind::Conjunction(_))
-                    | (SemanticTypeKind::Mixed(_), _)
-                    | (_, SemanticTypeKind::Mixed(_)) => {
+            (Self::Negative(l_kind), Self::Negative(r_kind)) => match (l_kind, r_kind) {
+                (SemanticTypeKind::Any, x) | (x, SemanticTypeKind::Any) => Ok(AbstractSemanticType::Negative(x)),
+                (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) if a == b => {
+                    Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(a)))
+                },
+                (SemanticTypeKind::Literal(a), SemanticTypeKind::Literal(b)) => Ok(AbstractSemanticType::Negative(
+                    SemanticTypeKind::Disjunction(vec![a, b].into_iter().collect()),
+                )),
+                (SemanticTypeKind::Mixed(a), SemanticTypeKind::Mixed(b)) => {
+                    if a == b {
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Mixed(a)))
+                    } else {
                         Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
-                    },
-                }
+                    }
+                },
+                (SemanticTypeKind::Literal(he), SemanticTypeKind::Conjunction(conjs))
+                | (SemanticTypeKind::Conjunction(conjs), SemanticTypeKind::Literal(he)) => {
+                    if conjs.contains(&he) {
+                        Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(he)))
+                    } else {
+                        Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                    }
+                },
+                (SemanticTypeKind::Literal(he), SemanticTypeKind::Disjunction(mut disjs))
+                | (SemanticTypeKind::Disjunction(mut disjs), SemanticTypeKind::Literal(he)) => {
+                    disjs.insert(he);
+                    Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(disjs)))
+                },
+                (SemanticTypeKind::Conjunction(left), SemanticTypeKind::Conjunction(right)) => {
+                    let intersection: HashSet<HashableExpression> = left.intersection(&right).cloned().collect();
+                    match intersection.len() {
+                        0 => Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant)),
+                        1 => Ok(AbstractSemanticType::Negative(SemanticTypeKind::Literal(
+                            intersection.into_iter().next().unwrap(),
+                        ))),
+                        _ => Ok(AbstractSemanticType::Negative(SemanticTypeKind::Conjunction(
+                            intersection,
+                        ))),
+                    }
+                },
+                (SemanticTypeKind::Disjunction(left), SemanticTypeKind::Disjunction(right)) => {
+                    Ok(AbstractSemanticType::Negative(SemanticTypeKind::Disjunction(
+                        left.union(&right).cloned().collect(),
+                    )))
+                },
+                (SemanticTypeKind::Conjunction(_), _)
+                | (_, SemanticTypeKind::Conjunction(_))
+                | (SemanticTypeKind::Mixed(_), _)
+                | (_, SemanticTypeKind::Mixed(_)) => {
+                    Err(PacingErrorKind::IncompatibleExpressions(lhs.variant, rhs.variant))
+                },
             },
         }?;
 
@@ -1084,20 +1068,16 @@ impl Constructable for AbstractSemanticType {
         };
 
         match (is_negative, kind) {
-            (false, SemanticTypeKind::Any) => {
-                Ok(Expression {
-                    kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
-                    eid: ExprId(u32::MAX),
-                    span: Span::Unknown,
-                })
-            },
-            (true, SemanticTypeKind::Any) => {
-                Ok(Expression {
-                    kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
-                    eid: ExprId(u32::MAX),
-                    span: Span::Unknown,
-                })
-            },
+            (false, SemanticTypeKind::Any) => Ok(Expression {
+                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(true))),
+                eid: ExprId(u32::MAX),
+                span: Span::Unknown,
+            }),
+            (true, SemanticTypeKind::Any) => Ok(Expression {
+                kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Bool(false))),
+                eid: ExprId(u32::MAX),
+                span: Span::Unknown,
+            }),
             (_, SemanticTypeKind::Conjunction(conjs)) => {
                 assert!(conjs.len() >= 2);
                 let mut conjs = conjs.iter();
@@ -1201,30 +1181,28 @@ impl SemanticTypeKind {
 impl AbstractSemanticType {
     fn contains_and_or(exp: &Expression) -> bool {
         match &exp.kind {
-            ExpressionKind::ArithLog(op, args) => {
-                match op {
-                    ArithLogOp::Not => Self::contains_and_or(&args[0]),
-                    ArithLogOp::And | ArithLogOp::Or => true,
-                    ArithLogOp::Sub
-                    | ArithLogOp::Mul
-                    | ArithLogOp::Div
-                    | ArithLogOp::Rem
-                    | ArithLogOp::Pow
-                    | ArithLogOp::Add
-                    | ArithLogOp::Neg
-                    | ArithLogOp::BitXor
-                    | ArithLogOp::BitAnd
-                    | ArithLogOp::BitOr
-                    | ArithLogOp::BitNot
-                    | ArithLogOp::Shl
-                    | ArithLogOp::Shr
-                    | ArithLogOp::Eq
-                    | ArithLogOp::Lt
-                    | ArithLogOp::Le
-                    | ArithLogOp::Ne
-                    | ArithLogOp::Ge
-                    | ArithLogOp::Gt => false,
-                }
+            ExpressionKind::ArithLog(op, args) => match op {
+                ArithLogOp::Not => Self::contains_and_or(&args[0]),
+                ArithLogOp::And | ArithLogOp::Or => true,
+                ArithLogOp::Sub
+                | ArithLogOp::Mul
+                | ArithLogOp::Div
+                | ArithLogOp::Rem
+                | ArithLogOp::Pow
+                | ArithLogOp::Add
+                | ArithLogOp::Neg
+                | ArithLogOp::BitXor
+                | ArithLogOp::BitAnd
+                | ArithLogOp::BitOr
+                | ArithLogOp::BitNot
+                | ArithLogOp::Shl
+                | ArithLogOp::Shr
+                | ArithLogOp::Eq
+                | ArithLogOp::Lt
+                | ArithLogOp::Le
+                | ArithLogOp::Ne
+                | ArithLogOp::Ge
+                | ArithLogOp::Gt => false,
             },
             ExpressionKind::LoadConstant(_)
             | ExpressionKind::StreamAccess(_, _, _)
@@ -1250,54 +1228,50 @@ impl AbstractSemanticType {
         context: Rc<ExpressionContext>,
     ) -> Result<SemanticTypeKind, ()> {
         match &exp.kind {
-            ExpressionKind::ArithLog(op, args) => {
-                match (op, target) {
-                    (ArithLogOp::And, None) | (ArithLogOp::And, Some(true)) => {
-                        let left = Self::parse_pure(&args[0], Some(true), context.clone())?;
-                        let right = Self::parse_pure(&args[1], Some(true), context)?;
-                        Ok(left.join(right, SemanticTypeKind::Conjunction))
-                    },
-                    (ArithLogOp::Or, None) | (ArithLogOp::Or, Some(false)) => {
-                        let left = Self::parse_pure(&args[0], Some(false), context.clone())?;
-                        let right = Self::parse_pure(&args[1], Some(false), context)?;
-                        Ok(left.join(right, SemanticTypeKind::Disjunction))
-                    },
-                    (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Err(()),
-                    (ArithLogOp::Not, _) => {
-                        if Self::contains_and_or(exp) {
-                            Err(())
-                        } else {
-                            Ok(SemanticTypeKind::Literal(HashableExpression {
-                                context,
-                                expression: exp.clone(),
-                            }))
-                        }
-                    },
-                    (ArithLogOp::Neg, _)
-                    | (ArithLogOp::Add, _)
-                    | (ArithLogOp::Sub, _)
-                    | (ArithLogOp::Mul, _)
-                    | (ArithLogOp::Div, _)
-                    | (ArithLogOp::Rem, _)
-                    | (ArithLogOp::Pow, _)
-                    | (ArithLogOp::BitXor, _)
-                    | (ArithLogOp::BitAnd, _)
-                    | (ArithLogOp::BitOr, _)
-                    | (ArithLogOp::BitNot, _)
-                    | (ArithLogOp::Shl, _)
-                    | (ArithLogOp::Shr, _)
-                    | (ArithLogOp::Eq, _)
-                    | (ArithLogOp::Lt, _)
-                    | (ArithLogOp::Le, _)
-                    | (ArithLogOp::Ne, _)
-                    | (ArithLogOp::Ge, _)
-                    | (ArithLogOp::Gt, _) => {
+            ExpressionKind::ArithLog(op, args) => match (op, target) {
+                (ArithLogOp::And, None) | (ArithLogOp::And, Some(true)) => {
+                    let left = Self::parse_pure(&args[0], Some(true), context.clone())?;
+                    let right = Self::parse_pure(&args[1], Some(true), context)?;
+                    Ok(left.join(right, SemanticTypeKind::Conjunction))
+                },
+                (ArithLogOp::Or, None) | (ArithLogOp::Or, Some(false)) => {
+                    let left = Self::parse_pure(&args[0], Some(false), context.clone())?;
+                    let right = Self::parse_pure(&args[1], Some(false), context)?;
+                    Ok(left.join(right, SemanticTypeKind::Disjunction))
+                },
+                (ArithLogOp::And, Some(false)) | (ArithLogOp::Or, Some(true)) => Err(()),
+                (ArithLogOp::Not, _) => {
+                    if Self::contains_and_or(exp) {
+                        Err(())
+                    } else {
                         Ok(SemanticTypeKind::Literal(HashableExpression {
                             context,
                             expression: exp.clone(),
                         }))
-                    },
-                }
+                    }
+                },
+                (ArithLogOp::Neg, _)
+                | (ArithLogOp::Add, _)
+                | (ArithLogOp::Sub, _)
+                | (ArithLogOp::Mul, _)
+                | (ArithLogOp::Div, _)
+                | (ArithLogOp::Rem, _)
+                | (ArithLogOp::Pow, _)
+                | (ArithLogOp::BitXor, _)
+                | (ArithLogOp::BitAnd, _)
+                | (ArithLogOp::BitOr, _)
+                | (ArithLogOp::BitNot, _)
+                | (ArithLogOp::Shl, _)
+                | (ArithLogOp::Shr, _)
+                | (ArithLogOp::Eq, _)
+                | (ArithLogOp::Lt, _)
+                | (ArithLogOp::Le, _)
+                | (ArithLogOp::Ne, _)
+                | (ArithLogOp::Ge, _)
+                | (ArithLogOp::Gt, _) => Ok(SemanticTypeKind::Literal(HashableExpression {
+                    context,
+                    expression: exp.clone(),
+                })),
             },
             ExpressionKind::LoadConstant(_)
             | ExpressionKind::Default { .. }
@@ -1307,12 +1281,10 @@ impl AbstractSemanticType {
             | ExpressionKind::Tuple(_)
             | ExpressionKind::Ite { .. }
             | ExpressionKind::StreamAccess(_, _, _)
-            | ExpressionKind::ParameterAccess(_, _) => {
-                Ok(SemanticTypeKind::Literal(HashableExpression {
-                    context,
-                    expression: exp.clone(),
-                }))
-            },
+            | ExpressionKind::ParameterAccess(_, _) => Ok(SemanticTypeKind::Literal(HashableExpression {
+                context,
+                expression: exp.clone(),
+            })),
         }
     }
 
@@ -1345,12 +1317,10 @@ impl AbstractSemanticType {
             .copied()
             .flatten()
             .cloned()
-            .reduce(|acc, exp| {
-                Expression {
-                    kind: ExpressionKind::ArithLog(ArithLogOp::Or, vec![acc, exp]),
-                    eid: ExprId(u32::MAX),
-                    span: Span::Unknown,
-                }
+            .reduce(|acc, exp| Expression {
+                kind: ExpressionKind::ArithLog(ArithLogOp::Or, vec![acc, exp]),
+                eid: ExprId(u32::MAX),
+                span: Span::Unknown,
             })
             .expect("not none because check above");
         Self::for_filter(&disj, context)
@@ -1386,12 +1356,10 @@ impl AbstractSemanticType {
             // (Self::Negative(l_kind), Self::Negative(r_kind)) |
             (Self::Positive(l_kind), Self::Positive(r_kind)) => kind_implies(l_kind, r_kind),
             // Lattice for negative Types
-            (Self::Negative(l_kind), Self::Negative(r_kind)) => {
-                match (l_kind, r_kind) {
-                    (SemanticTypeKind::Any, _) => true,
-                    (_, SemanticTypeKind::Any) => false,
-                    _ => kind_implies(l_kind, r_kind),
-                }
+            (Self::Negative(l_kind), Self::Negative(r_kind)) => match (l_kind, r_kind) {
+                (SemanticTypeKind::Any, _) => true,
+                (_, SemanticTypeKind::Any) => false,
+                _ => kind_implies(l_kind, r_kind),
             },
         }
     }
@@ -1402,11 +1370,9 @@ impl ConcretePacingType {
     pub fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
-            ConcretePacingType::FixedPeriodic(freq) => {
-                (*freq)
-                    .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
-                    .to_string()
-            },
+            ConcretePacingType::FixedPeriodic(freq) => (*freq)
+                .into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
+                .to_string(),
             ConcretePacingType::Periodic => "Periodic".to_string(),
             ConcretePacingType::Constant => "Constant".to_string(),
         }
@@ -1426,16 +1392,12 @@ impl ConcretePacingType {
     pub fn implies(&self, other: &Self) -> bool {
         match (self, other) {
             (_, ConcretePacingType::Constant) => true,
-            (ConcretePacingType::Event(ac_l), ConcretePacingType::Event(ac_r)) => {
-                match (ac_l, ac_r) {
-                    (_, ActivationCondition::True) => true,
-                    (ActivationCondition::True, _) => false,
-                    (ActivationCondition::Models(disjuncts_l), ActivationCondition::Models(disjuncts_r)) => {
-                        disjuncts_l
-                            .iter()
-                            .all(|disjunct_l| disjuncts_r.iter().any(|disjunct_r| disjunct_r.is_subset(disjunct_l)))
-                    },
-                }
+            (ConcretePacingType::Event(ac_l), ConcretePacingType::Event(ac_r)) => match (ac_l, ac_r) {
+                (_, ActivationCondition::True) => true,
+                (ActivationCondition::True, _) => false,
+                (ActivationCondition::Models(disjuncts_l), ActivationCondition::Models(disjuncts_r)) => disjuncts_l
+                    .iter()
+                    .all(|disjunct_l| disjuncts_r.iter().any(|disjunct_r| disjunct_r.is_subset(disjunct_l))),
             },
             (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
             (ConcretePacingType::FixedPeriodic(freq_l), ConcretePacingType::FixedPeriodic(freq_r)) => {

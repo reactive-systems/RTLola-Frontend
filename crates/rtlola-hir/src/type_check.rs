@@ -28,10 +28,14 @@ where
 pub enum ConcretePacingType {
     /// The stream / expression can be evaluated whenever the activation condition is satisfied.
     Event(ActivationCondition),
-    /// The stream / expression can be evaluated with a fixed frequency.
-    FixedPeriodic(UOM_Frequency),
-    /// The stream / expression can be evaluated with any frequency.
-    Periodic,
+    /// The stream / expression can be evaluated with a fixed global frequency.
+    FixedGlobalPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with a fixed local frequency.
+    FixedLocalPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with any global frequency.
+    GlobalPeriodic,
+    /// The stream / expression can be evaluated with any local frequency.
+    LocalPeriodic,
     /// The stream / expression can always be evaluated.
     Constant,
 }
@@ -39,7 +43,10 @@ pub enum ConcretePacingType {
 impl ConcretePacingType {
     /// Returns true if the type is fixed-periodic
     pub fn is_periodic(&self) -> bool {
-        matches!(self, ConcretePacingType::FixedPeriodic(_))
+        matches!(
+            self,
+            ConcretePacingType::FixedGlobalPeriodic(_) | ConcretePacingType::FixedLocalPeriodic(_)
+        )
     }
 
     /// Returns true if the type is event-based
