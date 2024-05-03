@@ -240,6 +240,7 @@ impl Feature for Periodics {
         match ty {
             ConcretePacingType::FixedLocalPeriodic(_)
             | ConcretePacingType::FixedGlobalPeriodic(_)
+            | ConcretePacingType::FixedAnyPeriodic(_)
             | ConcretePacingType::GlobalPeriodic
             | ConcretePacingType::LocalPeriodic
             | ConcretePacingType::AnyPeriodic => {

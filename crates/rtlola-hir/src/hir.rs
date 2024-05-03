@@ -245,12 +245,13 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self
-                .outputs
-                .iter()
-                .find(|o| o.sr == sr)
-                .and_then(|o| o.spawn_cond())
-                .map(|eid| self.expression(eid)),
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.spawn_cond())
+                    .map(|eid| self.expression(eid))
+            },
         }
     }
 
@@ -259,12 +260,13 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_expr(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self
-                .outputs
-                .iter()
-                .find(|o| o.sr == sr)
-                .and_then(|o| o.spawn_expr())
-                .map(|eid| self.expression(eid)),
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.spawn_expr())
+                    .map(|eid| self.expression(eid))
+            },
         }
     }
 
@@ -336,11 +338,12 @@ impl<M: HirMode> Hir<M> {
     pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self
-                .outputs
-                .iter()
-                .find(|o| o.sr == sr)
-                .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect()),
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect())
+            },
         }
     }
 
@@ -379,12 +382,13 @@ impl<M: HirMode> Hir<M> {
     pub fn close_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self
-                .outputs
-                .iter()
-                .find(|o| o.sr == sr)
-                .and_then(|o| o.close_cond())
-                .map(|eid| self.expression(eid)),
+            SRef::Out(_) => {
+                self.outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.close_cond())
+                    .map(|eid| self.expression(eid))
+            },
         }
     }
 
@@ -725,9 +729,11 @@ impl Spawn {
     /// Returns a vector of `Expression` references representing the expressions with which the parameters of the stream are initialized
     pub(crate) fn spawn_args<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Vec<&'a Expression> {
         self.spawn_expr(hir)
-            .map(|se| match &se.kind {
-                ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
-                _ => vec![se],
+            .map(|se| {
+                match &se.kind {
+                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                    _ => vec![se],
+                }
             })
             .unwrap_or_default()
     }

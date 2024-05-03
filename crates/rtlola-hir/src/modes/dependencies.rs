@@ -464,9 +464,11 @@ impl DepAna {
     {
         use petgraph::visit::{depth_first_search, DfsEvent};
 
-        depth_first_search(g, g.node_identifiers(), |event| match event {
-            DfsEvent::BackEdge(start, end) => Err((start, end)),
-            _ => Ok(()),
+        depth_first_search(g, g.node_identifiers(), |event| {
+            match event {
+                DfsEvent::BackEdge(start, end) => Err((start, end)),
+                _ => Ok(()),
+            }
         })
     }
 
@@ -503,10 +505,11 @@ impl DepAna {
             },
             ExpressionKind::ParameterAccess(_, _) => Vec::new(),
             ExpressionKind::LoadConstant(_) => Vec::new(),
-            ExpressionKind::ArithLog(_op, args) => args
-                .iter()
-                .flat_map(|a| Self::collect_edges(src, a).into_iter())
-                .collect(),
+            ExpressionKind::ArithLog(_op, args) => {
+                args.iter()
+                    .flat_map(|a| Self::collect_edges(src, a).into_iter())
+                    .collect()
+            },
             ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
             ExpressionKind::Function(FnExprKind { args, .. }) => {
                 args.iter().flat_map(|a| Self::collect_edges(src, a)).collect()
@@ -515,17 +518,21 @@ impl DepAna {
                 condition,
                 consequence,
                 alternative,
-            } => Self::collect_edges(src, condition)
-                .into_iter()
-                .chain(Self::collect_edges(src, consequence))
-                .chain(Self::collect_edges(src, alternative))
-                .collect(),
+            } => {
+                Self::collect_edges(src, condition)
+                    .into_iter()
+                    .chain(Self::collect_edges(src, consequence))
+                    .chain(Self::collect_edges(src, alternative))
+                    .collect()
+            },
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
             ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => Self::collect_edges(src, inner),
-            ExpressionKind::Default { expr, default } => Self::collect_edges(src, expr)
-                .into_iter()
-                .chain(Self::collect_edges(src, default))
-                .collect(),
+            ExpressionKind::Default { expr, default } => {
+                Self::collect_edges(src, expr)
+                    .into_iter()
+                    .chain(Self::collect_edges(src, default))
+                    .collect()
+            },
         }
     }
 }

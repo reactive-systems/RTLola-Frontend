@@ -217,13 +217,11 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
     let value_str = value_ty.to_string();
 
     match sref {
-        StreamReference::In(_) => {
-            NodeInformation::Input {
-                reference: sref,
-                stream_name,
-                memory_bound,
-                value_ty: value_str,
-            }
+        StreamReference::In(_) => NodeInformation::Input {
+            reference: sref,
+            stream_name,
+            memory_bound,
+            value_ty: value_str,
         },
         StreamReference::Out(_) => {
             let output = mir.output(sref);
@@ -311,37 +309,35 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                 .get(target_ref)
                 .map(|t| Node::Trigger(*t))
                 .unwrap_or_else(|| Node::Stream(*target_ref));
-            access_kinds.iter().flat_map(move |&(origin, kind)| {
-                match kind {
-                    StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
-                        let window = mir.window(w);
-                        let with = EdgeType::Access { origin, kind };
-                        vec![
-                            Edge {
-                                from: Node::Stream(window.caller()),
-                                with: with.clone(),
-                                to: Node::Window(w),
-                            },
-                            Edge {
-                                from: Node::Window(w),
-                                with,
-                                to: Node::Stream(window.target()),
-                            },
-                        ]
-                    },
-                    StreamAccessKind::Fresh
-                    | StreamAccessKind::Get
-                    | StreamAccessKind::Hold
-                    | StreamAccessKind::Offset(_)
-                    | StreamAccessKind::InstanceAggregation(_)
-                    | StreamAccessKind::Sync => {
-                        vec![Edge {
-                            from: target,
-                            with: EdgeType::Access { origin, kind },
-                            to: source,
-                        }]
-                    },
-                }
+            access_kinds.iter().flat_map(move |&(origin, kind)| match kind {
+                StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
+                    let window = mir.window(w);
+                    let with = EdgeType::Access { origin, kind };
+                    vec![
+                        Edge {
+                            from: Node::Stream(window.caller()),
+                            with: with.clone(),
+                            to: Node::Window(w),
+                        },
+                        Edge {
+                            from: Node::Window(w),
+                            with,
+                            to: Node::Stream(window.target()),
+                        },
+                    ]
+                },
+                StreamAccessKind::Fresh
+                | StreamAccessKind::Get
+                | StreamAccessKind::Hold
+                | StreamAccessKind::Offset(_)
+                | StreamAccessKind::InstanceAggregation(_)
+                | StreamAccessKind::Sync => {
+                    vec![Edge {
+                        from: target,
+                        with: EdgeType::Access { origin, kind },
+                        to: source,
+                    }]
+                },
             })
         })
     });
@@ -352,19 +348,15 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             .map(|t| Node::Trigger(*t))
             .unwrap_or_else(|| Node::Stream(output.reference));
         match &output.spawn.pacing {
-            PacingType::Event(ac) => {
-                flatten_ac(ac)
-                    .into_iter()
-                    .map(|input| {
-                        Edge {
-                            from: source,
-                            with: EdgeType::Spawn,
-                            to: Node::Stream(input),
-                        }
-                    })
-                    .collect()
-            },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::Event(ac) => flatten_ac(ac)
+                .into_iter()
+                .map(|input| Edge {
+                    from: source,
+                    with: EdgeType::Spawn,
+                    to: Node::Stream(input),
+                })
+                .collect(),
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 
@@ -374,19 +366,15 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             .map(|t| Node::Trigger(*t))
             .unwrap_or_else(|| Node::Stream(output.reference));
         match &output.eval.eval_pacing {
-            PacingType::Event(ac) => {
-                flatten_ac(ac)
-                    .into_iter()
-                    .map(|input| {
-                        Edge {
-                            from: source,
-                            with: EdgeType::Eval,
-                            to: Node::Stream(input),
-                        }
-                    })
-                    .collect()
-            },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::Event(ac) => flatten_ac(ac)
+                .into_iter()
+                .map(|input| Edge {
+                    from: source,
+                    with: EdgeType::Eval,
+                    to: Node::Stream(input),
+                })
+                .collect(),
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 
@@ -467,15 +455,13 @@ Layer {eval_layer}"
 
     fn edge_style(&self, edge: &Edge) -> Style {
         match &edge.with {
-            EdgeType::Access { kind, origin: _ } => {
-                match kind {
-                    StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
-                    StreamAccessKind::Sync
-                    | StreamAccessKind::InstanceAggregation(_)
-                    | StreamAccessKind::Offset(_)
-                    | StreamAccessKind::DiscreteWindow(_)
-                    | StreamAccessKind::SlidingWindow(_) => Style::None,
-                }
+            EdgeType::Access { kind, origin: _ } => match kind {
+                StreamAccessKind::Get | StreamAccessKind::Fresh | StreamAccessKind::Hold => Style::Dashed,
+                StreamAccessKind::Sync
+                | StreamAccessKind::InstanceAggregation(_)
+                | StreamAccessKind::Offset(_)
+                | StreamAccessKind::DiscreteWindow(_)
+                | StreamAccessKind::SlidingWindow(_) => Style::None,
             },
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
         }

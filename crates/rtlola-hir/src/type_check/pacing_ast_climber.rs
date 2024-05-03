@@ -251,12 +251,13 @@ where
             self.pacing_tyc
                 .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_pacing))?;
         }
+        let is_spawned = self.hir.spawn(output.sr).is_some();
 
         let eval_keys = self.new_stream_key();
         // Type filter
         for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
             let current_eval_keys = self.node_key[&NodeId::Eval(i, output.sr)];
-            self.eval_infer(eval, stream_keys, current_eval_keys, infer_pacing)?;
+            self.eval_infer(eval, stream_keys, current_eval_keys, infer_pacing, is_spawned)?;
             self.impose_more_concrete(eval_keys, current_eval_keys)?;
         }
 
@@ -273,7 +274,7 @@ where
 
         //Type close
         if let Some(close) = self.hir.close(output.sr) {
-            self.close_infer(&close, stream_keys, eval_keys)?;
+            self.close_infer(&close, stream_keys, eval_keys, is_spawned)?;
         }
         Ok(())
     }
@@ -284,6 +285,7 @@ where
         stream_keys: StreamTypeKeys,
         eval_keys: StreamTypeKeys,
         infer_pacing: bool,
+        is_spawned: bool,
     ) -> Result<(), TypeError<PacingErrorKind>> {
         let expr_keys = self.expression_infer(eval.expression)?;
         let filter_keys = eval
@@ -296,7 +298,12 @@ where
         self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
         self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
 
-        if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)? {
+        if let Some((annotated_ty, _)) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)? {
+            let annotated_ty = match (annotated_ty, is_spawned) {
+                (AbstractPacingType::AnyPeriodic(f), true) => AbstractPacingType::LocalPeriodic(f),
+                (AbstractPacingType::AnyPeriodic(f), false) => AbstractPacingType::GlobalPeriodic(f),
+                (o, _) => o,
+            };
             let annotation_key = self.new_stream_key();
             self.add_span_to_stream_key(annotation_key, eval.annotated_pacing.span(self.hir));
             self.pacing_tyc
@@ -353,6 +360,10 @@ where
 
         // spawn pacing
         if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)? {
+            if let AbstractPacingType::LocalPeriodic(_) = annotated_ty {
+                panic!("Local pacing not supported in spawn");
+            }
+
             self.pacing_key_span.insert(stream_keys.spawn_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.spawn_pacing.concretizes_explicit(annotated_ty))?;
@@ -386,6 +397,7 @@ where
         close: &CloseDef,
         stream_keys: StreamTypeKeys,
         eval_keys: StreamTypeKeys,
+        is_spawned: bool,
     ) -> Result<(), TypeError<PacingErrorKind>> {
         let close_cond = close
             .condition
@@ -397,6 +409,11 @@ where
 
         // close pacing
         if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(close.annotated_pacing, self.hir)? {
+            let annotated_ty = match (annotated_ty, is_spawned) {
+                (AbstractPacingType::AnyPeriodic(f), true) => AbstractPacingType::LocalPeriodic(f),
+                (AbstractPacingType::AnyPeriodic(f), false) => AbstractPacingType::GlobalPeriodic(f),
+                (o, _) => o,
+            };
             self.pacing_key_span.insert(stream_keys.close_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.close_pacing.concretizes_explicit(annotated_ty))?;

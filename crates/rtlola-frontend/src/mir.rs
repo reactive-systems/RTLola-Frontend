@@ -135,8 +135,10 @@ pub enum Type {
 /// Represents an RTLola pacing type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PacingType {
-    /// Represents a periodic pacing with a fixed frequency
-    Periodic(UOM_Frequency),
+    /// Represents a periodic pacing with a fixed global frequency
+    GlobalPeriodic(UOM_Frequency),
+    /// Represents a periodic pacing with a fixed local frequency
+    LocalPeriodic(UOM_Frequency),
     /// Represents an event based pacing defined by an [ActivationCondition]
     Event(ActivationCondition),
     /// The pacing is constant, meaning that the value is always present.
@@ -350,6 +352,13 @@ pub struct TimeDrivenStream {
     pub reference: StreamReference,
     /// The evaluation frequency of the stream.
     pub frequency: UOM_Frequency,
+    pub locality: PacingLocality,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub enum PacingLocality {
+    Global,
+    Local,
 }
 
 impl TimeDrivenStream {
@@ -945,10 +954,12 @@ impl RtLolaMir {
     /// This includes time-driven streams and time-driven spawn conditions.
     pub fn has_time_driven_features(&self) -> bool {
         !self.time_driven.is_empty()
-            || self
-                .outputs
-                .iter()
-                .any(|o| matches!(o.spawn.pacing, PacingType::Periodic(_)))
+            || self.outputs.iter().any(|o| {
+                matches!(
+                    o.spawn.pacing,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_)
+                )
+            })
     }
 
     /// Provides a collection of all time-driven output streams.

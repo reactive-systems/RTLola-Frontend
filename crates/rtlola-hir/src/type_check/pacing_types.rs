@@ -816,7 +816,10 @@ impl Constructable for AbstractPacingType {
         match self {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
-            AbstractPacingType::AnyPeriodic(freq) => todo!(),
+            AbstractPacingType::AnyPeriodic(freq) => match freq {
+                Freq::Any => Ok(ConcretePacingType::AnyPeriodic),
+                Freq::Fixed(f) => Ok(ConcretePacingType::FixedAnyPeriodic(*f)),
+            },
             AbstractPacingType::GlobalPeriodic(freq) => match freq {
                 Freq::Fixed(f) => Ok(ConcretePacingType::FixedGlobalPeriodic(*f)),
                 Freq::Any => Ok(ConcretePacingType::GlobalPeriodic),

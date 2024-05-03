@@ -74,14 +74,14 @@ impl Schedule {
             .filter(|tds| !ir.output(tds.reference).is_spawned())
             .map(|tds| tds.period());
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.spawn.pacing {
+            if let PacingType::GlobalPeriodic(freq) = &o.spawn.pacing {
                 Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
             } else {
                 None
             }
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.close.pacing {
+            if let PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) = &o.close.pacing {
                 o.close
                     .has_self_reference
                     .not()
@@ -180,16 +180,12 @@ impl Schedule {
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns = ir.outputs.iter().filter_map(|o| {
-            match &o.spawn.pacing {
-                PacingType::Periodic(freq) => {
-                    Some((
-                        o.reference.out_ix(),
-                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-                    ))
-                },
-                _ => None,
-            }
+        let periodic_spawns = ir.outputs.iter().filter_map(|o| match &o.spawn.pacing {
+            PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) => Some((
+                o.reference.out_ix(),
+                UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+            )),
+            _ => None,
         });
         for (out_ix, period) in periodic_spawns {
             let ix = period.get::<second>() / gcd.get::<second>();
@@ -201,7 +197,7 @@ impl Schedule {
         }
 
         let periodic_close = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::Periodic(freq) = &o.close.pacing {
+            if let PacingType::LocalPeriodic(freq) | PacingType::GlobalPeriodic(freq) = &o.close.pacing {
                 o.close.has_self_reference.not().then(|| {
                     (
                         o.reference.out_ix(),
@@ -255,12 +251,10 @@ impl Schedule {
 
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
-            deadline.due.sort_by_key(|s| {
-                match s {
-                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
-                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
-                    Task::Close(_) => usize::MAX,
-                }
+            deadline.due.sort_by_key(|s| match s {
+                Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
+                Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                Task::Close(_) => usize::MAX,
             });
         }
     }
