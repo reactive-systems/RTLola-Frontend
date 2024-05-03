@@ -106,3 +106,13 @@ pub fn parse_to_base_hir(cfg: &ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLo
 pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
+
+#[test]
+fn test() {
+    let spec = "input in: Int16\n output out: Int16 := in.aggregate(over: 3s, using: Σ)";
+    let config = ParserConfig::for_string(spec.into());
+    match parse(&config) {
+        Ok(mir) => println!("{mir}"),
+        Err(e) => Handler::from(&config).emit_error(&e),
+    }
+}

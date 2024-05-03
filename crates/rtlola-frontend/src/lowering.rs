@@ -767,7 +767,7 @@ mod tests {
         ));
         assert_eq!(
             mir_d.spawn.pacing,
-            mir::PacingType::LocalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            mir::PacingType::GlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
             mir_d.eval.clauses[0].condition,

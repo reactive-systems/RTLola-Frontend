@@ -794,7 +794,7 @@ impl Variant for AbstractPacingType {
                 Ok(LocalPeriodic(meet_freq(f1, f2)))
             },
             (AnyPeriodic(f1), GlobalPeriodic(f2)) | (GlobalPeriodic(f2), AnyPeriodic(f1)) => {
-                Ok(LocalPeriodic(meet_freq(f1, f2)))
+                Ok(GlobalPeriodic(meet_freq(f1, f2)))
             },
         }?;
         Ok(Partial {

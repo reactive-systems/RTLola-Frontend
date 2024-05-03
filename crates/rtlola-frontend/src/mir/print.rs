@@ -408,8 +408,9 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
         }
 
-        if spawn.expression.is_some() || spawn.condition.is_some() {
-            write!(f, "\n  spawn")?;
+        if spawn.expression.is_some() || spawn.condition.is_some() || spawn.pacing != PacingType::Constant {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
+            write!(f, "\n  spawn @{display_pacing}")?;
             if let Some(spawn_expr) = &spawn.expression {
                 let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
                 write!(f, " with {display_spawn_expr}")?;
@@ -432,8 +433,9 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
         }
 
         if let Some(close_condition) = &close.condition {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &close.pacing).to_string();
             let display_close_condition = display_expression(self.mir, close_condition, 0);
-            write!(f, "\n  close when {display_close_condition}")?;
+            write!(f, "\n  close @{display_pacing} when {display_close_condition}")?;
         }
 
         Ok(())

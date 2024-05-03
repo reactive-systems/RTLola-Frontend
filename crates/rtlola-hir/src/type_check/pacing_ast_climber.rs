@@ -363,6 +363,11 @@ where
             if let AbstractPacingType::LocalPeriodic(_) = annotated_ty {
                 panic!("Local pacing not supported in spawn");
             }
+            let annotated_ty = match annotated_ty {
+                AbstractPacingType::AnyPeriodic(f) => AbstractPacingType::GlobalPeriodic(f),
+                AbstractPacingType::LocalPeriodic(_) => panic!("local periodic not supported in spawn"),
+                o => o,
+            };
 
             self.pacing_key_span.insert(stream_keys.spawn_pacing, span);
             self.pacing_tyc
@@ -776,7 +781,9 @@ where
         for (sref, span) in streams {
             let ct = &pacing_tt[&nid_key[&NodeId::SRef(sref)].eval_pacing];
             match ct {
-                ConcretePacingType::GlobalPeriodic | ConcretePacingType::LocalPeriodic => {
+                ConcretePacingType::GlobalPeriodic
+                | ConcretePacingType::LocalPeriodic
+                | ConcretePacingType::AnyPeriodic => {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into());
                 },
                 ConcretePacingType::Constant => {
