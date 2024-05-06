@@ -145,7 +145,7 @@ impl ExtendedDepGraph for DependencyGraph {
                 (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_)) => true,
                 (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
                 (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_))
-                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => false,
+                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
                 _ => unreachable!(),
             }
         });
