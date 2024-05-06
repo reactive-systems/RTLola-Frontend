@@ -81,11 +81,8 @@ impl Schedule {
             }
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) = &o.close.pacing {
-                o.close
-                    .has_self_reference
-                    .not()
-                    .then(|| UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+            if let PacingType::GlobalPeriodic(freq) = &o.close.pacing {
+                Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
             } else {
                 None
             }
