@@ -452,11 +452,7 @@ impl Display for Mir {
             RtLolaMirPrinter::new(self, output).fmt(f)?;
             write!(f, "\n\n")
         })?;
-
-        self.triggers.iter().try_for_each(|trigger| {
-            RtLolaMirPrinter::new(self, trigger).fmt(f)?;
-            write!(f, "\n\n")
-        })
+        Ok(())
     }
 }
 
