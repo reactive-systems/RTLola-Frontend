@@ -179,7 +179,7 @@ impl Schedule {
         }
         let periodic_spawns = ir.outputs.iter().filter_map(|o| {
             match &o.spawn.pacing {
-                PacingType::GlobalPeriodic(freq) | PacingType::LocalPeriodic(freq) => {
+                PacingType::GlobalPeriodic(freq) => {
                     Some((
                         o.reference.out_ix(),
                         UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
@@ -198,7 +198,7 @@ impl Schedule {
         }
 
         let periodic_close = ir.outputs.iter().filter_map(|o| {
-            if let PacingType::LocalPeriodic(freq) | PacingType::GlobalPeriodic(freq) = &o.close.pacing {
+            if let PacingType::GlobalPeriodic(freq) = &o.close.pacing {
                 o.close.has_self_reference.not().then(|| {
                     (
                         o.reference.out_ix(),
