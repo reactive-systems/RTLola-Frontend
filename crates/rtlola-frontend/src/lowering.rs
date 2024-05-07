@@ -315,7 +315,7 @@ impl Mir {
         let (close, close_pacing, close_self_ref) = hir
             .close_cond(sr)
             .map(|expr| {
-                let cpt = hir.expr_type(expr.id()).eval_pacing;
+                let cpt = hir.stream_type(sr).close_pacing;
                 let close_self_ref = matches!(
                     hir.expr_type(expr.id()).spawn_pacing,
                     ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
