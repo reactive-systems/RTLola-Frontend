@@ -7,11 +7,11 @@ use rusttyc::{Constructable, PreliminaryTypeTable, TcKey, TypeChecker, TypeTable
 
 use crate::hir::{
     self, AnnotatedPacingType, CloseDef, EvalDef, ExprId, Expression, ExpressionContext, ExpressionKind, FnExprKind,
-    Hir, Input, Offset, Output, SRef, SpawnDef, StreamAccessKind, StreamReference,
+    Hir, Input, Output, SRef, SpawnDef, StreamAccessKind, StreamReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
-    AbstractPacingType, AbstractSemanticType, ActivationCondition, Freq, InferredTemplates, PacingErrorKind,
+    AbstractPacingType, AbstractSemanticType, ActivationCondition, InferredTemplates, PacingErrorKind,
     SemanticTypeKind, StreamTypeKeys,
 };
 use crate::type_check::rtltc::{NodeId, TypeError};
@@ -251,13 +251,11 @@ where
             self.pacing_tyc
                 .impose(stream_keys.eval_pacing.concretizes_explicit(annotated_pacing))?;
         }
-        let is_spawned = self.hir.spawn(output.sr).is_some();
-
         let eval_keys = self.new_stream_key();
         // Type filter
         for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
             let current_eval_keys = self.node_key[&NodeId::Eval(i, output.sr)];
-            self.eval_infer(eval, stream_keys, current_eval_keys, infer_pacing, is_spawned)?;
+            self.eval_infer(eval, stream_keys, current_eval_keys, infer_pacing)?;
             self.impose_more_concrete(eval_keys, current_eval_keys)?;
         }
 
@@ -274,7 +272,7 @@ where
 
         //Type close
         if let Some(close) = self.hir.close(output.sr) {
-            self.close_infer(&close, stream_keys, eval_keys, is_spawned)?;
+            self.close_infer(&close, stream_keys, eval_keys)?;
         }
         Ok(())
     }
@@ -285,7 +283,6 @@ where
         stream_keys: StreamTypeKeys,
         eval_keys: StreamTypeKeys,
         infer_pacing: bool,
-        is_spawned: bool,
     ) -> Result<(), TypeError<PacingErrorKind>> {
         let expr_keys = self.expression_infer(eval.expression)?;
         let filter_keys = eval
@@ -299,14 +296,6 @@ where
         self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
 
         if let Some((annotated_ty, _)) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)? {
-            let annotated_ty = match (annotated_ty, is_spawned) {
-                (AbstractPacingType::AnyPeriodic(f), true) => AbstractPacingType::LocalPeriodic(f),
-                (AbstractPacingType::AnyPeriodic(f), false) => AbstractPacingType::GlobalPeriodic(f),
-                (AbstractPacingType::LocalPeriodic(_), false) => {
-                    return Err(PacingErrorKind::LocalPeriodicUnspawned(eval.annotated_pacing.span(self.hir)).into())
-                },
-                (o, _) => o,
-            };
             let annotation_key = self.new_stream_key();
             self.add_span_to_stream_key(annotation_key, eval.annotated_pacing.span(self.hir));
             self.pacing_tyc
@@ -363,14 +352,6 @@ where
 
         // spawn pacing
         if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(spawn.annotated_pacing, self.hir)? {
-            let annotated_ty = match annotated_ty {
-                AbstractPacingType::AnyPeriodic(f) => AbstractPacingType::GlobalPeriodic(f),
-                AbstractPacingType::LocalPeriodic(_) => {
-                    return Err(PacingErrorKind::LocalPeriodicInSpawn(spawn.annotated_pacing.span(self.hir)).into())
-                },
-                o => o,
-            };
-
             self.pacing_key_span.insert(stream_keys.spawn_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.spawn_pacing.concretizes_explicit(annotated_ty))?;
@@ -404,7 +385,6 @@ where
         close: &CloseDef,
         stream_keys: StreamTypeKeys,
         eval_keys: StreamTypeKeys,
-        is_spawned: bool,
     ) -> Result<(), TypeError<PacingErrorKind>> {
         let close_cond = close
             .condition
@@ -416,11 +396,6 @@ where
 
         // close pacing
         if let Some((annotated_ty, span)) = AbstractPacingType::from_pt(close.annotated_pacing, self.hir)? {
-            let annotated_ty = match (annotated_ty, is_spawned) {
-                (AbstractPacingType::AnyPeriodic(f), true) => AbstractPacingType::LocalPeriodic(f),
-                (AbstractPacingType::AnyPeriodic(f), false) => AbstractPacingType::GlobalPeriodic(f),
-                (o, _) => o,
-            };
             self.pacing_key_span.insert(stream_keys.close_pacing, span);
             self.pacing_tyc
                 .impose(stream_keys.close_pacing.concretizes_explicit(annotated_ty))?;
@@ -450,28 +425,6 @@ where
         Ok(())
     }
 
-    fn handle_offset(
-        &mut self,
-        kind: &StreamAccessKind,
-        term_keys: StreamTypeKeys,
-    ) -> Result<(), TypeError<PacingErrorKind>> {
-        if let StreamAccessKind::Offset(off) = kind {
-            match off {
-                Offset::PastRealTime(_) | Offset::FutureRealTime(_) => {
-                    // Real time offset are only allowed on timed streams.
-                    debug_assert!(false, "Real-Time offsets not supported");
-                    self.pacing_tyc.impose(
-                        term_keys
-                            .eval_pacing
-                            .concretizes_explicit(AbstractPacingType::AnyPeriodic(Freq::Any)),
-                    )?;
-                },
-                Offset::PastDiscrete(_) | Offset::FutureDiscrete(_) => {},
-            }
-        }
-        Ok(())
-    }
-
     fn expression_infer(&mut self, exp: &Expression) -> Result<StreamTypeKeys, TypeError<PacingErrorKind>> {
         let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
@@ -484,7 +437,6 @@ where
 
                 match kind {
                     StreamAccessKind::DiscreteWindow(_) | StreamAccessKind::Sync | StreamAccessKind::Offset(_) => {
-                        self.handle_offset(kind, term_keys)?;
                         self.impose_more_concrete(term_keys, stream_key)?;
 
                         //Check that arguments are equal to spawn target if parameterized or the parameters for self
@@ -545,7 +497,7 @@ where
                     StreamAccessKind::Hold | StreamAccessKind::Get | StreamAccessKind::Fresh => {},
                     StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
-                            .impose(term_keys.eval_pacing.concretizes_explicit(AnyPeriodic(Freq::Any)))?;
+                            .impose(term_keys.eval_pacing.concretizes_explicit(AnyPeriodic))?;
                         // Not needed as the pacing of a sliding window is only bound to the frequency of the stream it is contained in.
                     },
                     StreamAccessKind::InstanceAggregation(w) => {
@@ -785,9 +737,7 @@ where
         for (sref, span) in streams {
             let ct = &pacing_tt[&nid_key[&NodeId::SRef(sref)].eval_pacing];
             match ct {
-                ConcretePacingType::GlobalPeriodic
-                | ConcretePacingType::LocalPeriodic
-                | ConcretePacingType::AnyPeriodic => {
+                ConcretePacingType::AnyPeriodic => {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into());
                 },
                 ConcretePacingType::Constant => {
@@ -843,17 +793,14 @@ where
             if let Some(spawn) = output.spawn() {
                 if matches!(
                     spawn_pacing,
-                    ConcretePacingType::Constant
-                        | ConcretePacingType::AnyPeriodic
-                        | ConcretePacingType::LocalPeriodic
-                        | ConcretePacingType::GlobalPeriodic
+                    ConcretePacingType::Constant | ConcretePacingType::AnyPeriodic
                 ) {
                     let span = Some(spawn.pacing)
                         .and_then(|pt| {
                             match pt {
-                                AnnotatedPacingType::GlobalFrequency(f)
-                                | AnnotatedPacingType::LocalFrequency(f)
-                                | AnnotatedPacingType::UnspecifiedFrequency(f) => Some(f.span),
+                                AnnotatedPacingType::GlobalFrequency(f) | AnnotatedPacingType::LocalFrequency(f) => {
+                                    Some(f.span)
+                                },
                                 AnnotatedPacingType::Event(id) => Some(hir.expression(id).span),
                                 AnnotatedPacingType::NotAnnotated => None,
                             }
@@ -874,12 +821,7 @@ where
             if let Some(cond) = output.close_cond() {
                 let close_pacing = pacing_tt[&keys.close_pacing].clone();
                 let span = hir.expression(cond).span;
-                if matches!(
-                    close_pacing,
-                    ConcretePacingType::AnyPeriodic
-                        | ConcretePacingType::LocalPeriodic
-                        | ConcretePacingType::GlobalPeriodic
-                ) {
+                if matches!(close_pacing, ConcretePacingType::AnyPeriodic) {
                     errors.push(PacingErrorKind::FreqAnnotationNeeded(span).into())
                 } else if close_pacing == ConcretePacingType::Constant {
                     errors.push(PacingErrorKind::NeverEval(span).into())
@@ -3068,15 +3010,6 @@ mod tests {
     }
 
     #[test]
-    fn test_local_on_unspawned_stream() {
-        let spec = "input a : UInt64\n\
-        output b eval @Local(1Hz) with a.hold(or: 0)
-        ";
-
-        assert_eq!(1, num_errors(spec));
-    }
-
-    #[test]
     fn test_local_accessing_global() {
         let spec = "input a : UInt64\n\
         output b spawn when a == 0 eval @Local(1Hz) with c.offset(by: -1, or: 0)
@@ -3121,15 +3054,6 @@ mod tests {
         let spec = "input a : UInt64\n\
         output b spawn when a == 0 eval @Global(1Hz) with 1
         output c eval @Global(1Hz) with b
-        ";
-
-        assert_eq!(1, num_errors(spec));
-    }
-
-    #[test]
-    fn test_local_spawn_pacing() {
-        let spec = "input a : UInt64\n\
-        output b spawn @Local(1Hz) eval @a with a
         ";
 
         assert_eq!(1, num_errors(spec));

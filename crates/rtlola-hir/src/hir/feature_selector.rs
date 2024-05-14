@@ -299,7 +299,6 @@ impl FeatureSelector {
                             match spawn.pacing {
                                 AnnotatedPacingType::GlobalFrequency(f) => f.span,
                                 AnnotatedPacingType::LocalFrequency(f) => f.span,
-                                AnnotatedPacingType::UnspecifiedFrequency(f) => f.span,
                                 AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
                                 AnnotatedPacingType::NotAnnotated => Span::Unknown,
                             }

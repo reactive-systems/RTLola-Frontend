@@ -685,8 +685,6 @@ pub enum AnnotatedPacingType {
     GlobalFrequency(AnnotatedFrequency),
     /// The local evaluation frequency
     LocalFrequency(AnnotatedFrequency),
-    /// The either lobal or gloabl evaluation frequency
-    UnspecifiedFrequency(AnnotatedFrequency),
     /// The expression which constitutes the condition under which the stream should be evaluated.
     Event(ExprId),
     /// The stream is not annotated with a pacing
@@ -698,9 +696,7 @@ impl AnnotatedPacingType {
     /// Returns the span of the annotated type.
     pub fn span<M: HirMode>(&self, hir: &Hir<M>) -> Span {
         match self {
-            AnnotatedPacingType::GlobalFrequency(freq)
-            | AnnotatedPacingType::LocalFrequency(freq)
-            | AnnotatedPacingType::UnspecifiedFrequency(freq) => freq.span,
+            AnnotatedPacingType::GlobalFrequency(freq) | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
             AnnotatedPacingType::Event(id) => hir.expression(*id).span,
             AnnotatedPacingType::NotAnnotated => Span::Unknown,
         }

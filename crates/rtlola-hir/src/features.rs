@@ -240,9 +240,6 @@ impl Feature for Periodics {
         match ty {
             ConcretePacingType::FixedLocalPeriodic(_)
             | ConcretePacingType::FixedGlobalPeriodic(_)
-            | ConcretePacingType::FixedAnyPeriodic(_)
-            | ConcretePacingType::GlobalPeriodic
-            | ConcretePacingType::LocalPeriodic
             | ConcretePacingType::AnyPeriodic => {
                 let str_ty = ty.to_pretty_string(&HashMap::new());
                 Err(

@@ -43,10 +43,7 @@ impl ActivationCondition {
 
 /// Represents the frequency of a periodic stream
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub(crate) enum Freq {
-    Any,
-    Fixed(UOM_Frequency),
-}
+pub(crate) struct Freq(UOM_Frequency);
 
 /// The internal representation of a pacing type
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,7 +55,7 @@ pub(crate) enum AbstractPacingType {
     /// A local real-time stream is extended periodically.
     LocalPeriodic(Freq),
     /// A real-time stream, either local or global, is extended periodically.
-    AnyPeriodic(Freq),
+    AnyPeriodic,
     /// An undetermined type that can be unified into either of the other options.
     Any,
 }
@@ -252,8 +249,6 @@ pub(crate) enum PacingErrorKind {
     },
     MultipleEvalsWithoutAnnotation(Span),
     MultipleEvalsDifferentPeriods(AbstractPacingType, AbstractPacingType, Span),
-    LocalPeriodicUnspawned(Span),
-    LocalPeriodicInSpawn(Span),
 }
 
 impl std::ops::BitAnd for ActivationCondition {
@@ -656,8 +651,6 @@ impl Resolvable for PacingErrorKind {
                 let ty2 = absty2.to_pretty_string(names);
                 Diagnostic::error(&format!("In pacing type analysis:\neval clauses of output stream have different frequencies {ty1} and {ty2}.")).add_span_with_label(span, None, false)
             }
-            LocalPeriodicUnspawned(span) => Diagnostic::error(&format!("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.")).add_span_with_label(span, None, false),
-            LocalPeriodicInSpawn(span) => Diagnostic::error(&format!("In pacing type analysis:\nspawn condition can not be local periodic.")).add_span_with_label(span, Some("Found local periodic pacing here."), true),
         }
     }
 }
@@ -729,40 +722,26 @@ impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<
 
 impl std::fmt::Display for Freq {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self {
-            Freq::Any => write!(f, "Periodic"),
-            Freq::Fixed(freq) => {
-                write!(
-                    f,
-                    "{}",
-                    (*freq).into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
-                )
-            },
-        }
+        write!(
+            f,
+            "{}",
+            (self.0).into_format_args(hertz, uom::fmt::DisplayStyle::Abbreviation)
+        )
     }
 }
 
 impl Freq {
     /// Checks if there exists an k ∈ ℕ s.t. self =  k * other.
     pub(crate) fn is_multiple_of(&self, other: &Freq) -> Result<bool, PacingErrorKind> {
-        let lhs = match self {
-            Freq::Fixed(f) => f,
-            Freq::Any => return Ok(false),
-        };
-        let rhs = match other {
-            Freq::Fixed(f) => f,
-            Freq::Any => return Ok(false),
-        };
-
-        if lhs.get::<hertz>() < rhs.get::<hertz>() {
+        if self.0.get::<hertz>() < other.0.get::<hertz>() {
             return Ok(false);
         }
-        match lhs.get::<hertz>().checked_div(&rhs.get::<hertz>()) {
+        match self.0.get::<hertz>().checked_div(&other.0.get::<hertz>()) {
             Some(q) => Ok(q.is_integer()),
             None => {
                 Err(PacingErrorKind::Other(
                     Span::Unknown,
-                    format!("division of frequencies `{:?}`/`{:?}` failed", lhs, rhs),
+                    format!("division of frequencies `{:?}`/`{:?}` failed", self.0, other.0),
                     vec![],
                 ))
             },
@@ -770,20 +749,14 @@ impl Freq {
     }
 
     fn conjunction(&self, other: &Freq) -> Freq {
-        let (numer_left, denom_left) = match self {
-            Freq::Any => return *other,
-            Freq::Fixed(f) => (*f.get::<hertz>().numer(), *f.get::<hertz>().denom()),
-        };
-        let (numer_right, denom_right) = match other {
-            Freq::Any => return *self,
-            Freq::Fixed(f) => (*f.get::<hertz>().numer(), *f.get::<hertz>().denom()),
-        };
+        let (numer_left, denom_left) = (*self.0.get::<hertz>().numer(), *self.0.get::<hertz>().denom());
+        let (numer_right, denom_right) = (*other.0.get::<hertz>().numer(), *other.0.get::<hertz>().denom());
         // gcd(self, other) = gcd(numer_left, numer_right) / lcm(denom_left, denom_right)
         // only works if rational numbers are reduced, which ist the default for `Rational`
         let r1: i64 = numer_left.gcd(&numer_right);
         let r2: i64 = denom_left.lcm(&denom_right);
         let r: Ratio<i64> = Ratio::new(r1, r2);
-        Freq::Fixed(UOM_Frequency::new::<hertz>(r))
+        Self(UOM_Frequency::new::<hertz>(r))
     }
 }
 
@@ -799,33 +772,19 @@ impl Variant for AbstractPacingType {
         assert_eq!(lhs.least_arity, 0, "suspicious child");
         assert_eq!(rhs.least_arity, 0, "suspicious child");
 
-        fn meet_freq(lhs: Freq, rhs: Freq) -> Freq {
-            if let Freq::Any = lhs {
-                rhs
-            } else if let Freq::Any = rhs {
-                lhs
-            } else {
-                lhs.conjunction(&rhs)
-            }
-        }
-
         // Todo: Avoid clone
         let new_var = match (lhs.variant.clone(), rhs.variant.clone()) {
             (Any, x) | (x, Any) => Ok(x),
             (Event(ac1), Event(ac2)) => Ok(Event(ac1 & ac2)),
-            (LocalPeriodic(f1), LocalPeriodic(f2)) => Ok(LocalPeriodic(meet_freq(f1, f2))),
-            (GlobalPeriodic(f1), GlobalPeriodic(f2)) => Ok(GlobalPeriodic(meet_freq(f1, f2))),
-            (AnyPeriodic(f1), AnyPeriodic(f2)) => Ok(AnyPeriodic(meet_freq(f1, f2))),
+            (LocalPeriodic(f1), LocalPeriodic(f2)) => Ok(LocalPeriodic(f1.conjunction(&f2))),
+            (GlobalPeriodic(f1), GlobalPeriodic(f2)) => Ok(GlobalPeriodic(f1.conjunction(&f2))),
+            (AnyPeriodic, AnyPeriodic) => Ok(AnyPeriodic),
             (lhs @ Event(_), rhs) | (lhs, rhs @ Event(_)) => Err(PacingErrorKind::MixedEventPeriodic(lhs, rhs)),
             (lhs @ LocalPeriodic(_), rhs @ GlobalPeriodic(_)) | (lhs @ GlobalPeriodic(_), rhs @ LocalPeriodic(_)) => {
                 Err(PacingErrorKind::MixedLocalGlobalPeriodic(lhs, rhs))
             },
-            (AnyPeriodic(f1), LocalPeriodic(f2)) | (LocalPeriodic(f2), AnyPeriodic(f1)) => {
-                Ok(LocalPeriodic(meet_freq(f1, f2)))
-            },
-            (AnyPeriodic(f1), GlobalPeriodic(f2)) | (GlobalPeriodic(f2), AnyPeriodic(f1)) => {
-                Ok(GlobalPeriodic(meet_freq(f1, f2)))
-            },
+            (AnyPeriodic, LocalPeriodic(f)) | (LocalPeriodic(f), AnyPeriodic) => Ok(LocalPeriodic(f)),
+            (AnyPeriodic, GlobalPeriodic(f)) | (GlobalPeriodic(f), AnyPeriodic) => Ok(GlobalPeriodic(f)),
         }?;
         Ok(Partial {
             variant: new_var,
@@ -846,24 +805,9 @@ impl Constructable for AbstractPacingType {
         match self {
             AbstractPacingType::Any => Ok(ConcretePacingType::Constant),
             AbstractPacingType::Event(ac) => Ok(ConcretePacingType::Event(ac.clone())),
-            AbstractPacingType::AnyPeriodic(freq) => {
-                match freq {
-                    Freq::Any => Ok(ConcretePacingType::AnyPeriodic),
-                    Freq::Fixed(f) => Ok(ConcretePacingType::FixedAnyPeriodic(*f)),
-                }
-            },
-            AbstractPacingType::GlobalPeriodic(freq) => {
-                match freq {
-                    Freq::Fixed(f) => Ok(ConcretePacingType::FixedGlobalPeriodic(*f)),
-                    Freq::Any => Ok(ConcretePacingType::GlobalPeriodic),
-                }
-            },
-            AbstractPacingType::LocalPeriodic(freq) => {
-                match freq {
-                    Freq::Fixed(f) => Ok(ConcretePacingType::FixedLocalPeriodic(*f)),
-                    Freq::Any => Ok(ConcretePacingType::LocalPeriodic),
-                }
-            },
+            AbstractPacingType::AnyPeriodic => Ok(ConcretePacingType::AnyPeriodic),
+            AbstractPacingType::GlobalPeriodic(freq) => Ok(ConcretePacingType::FixedGlobalPeriodic(freq.0)),
+            AbstractPacingType::LocalPeriodic(freq) => Ok(ConcretePacingType::FixedLocalPeriodic(freq.0)),
         }
     }
 }
@@ -875,7 +819,7 @@ impl PrintableVariant for AbstractPacingType {
             AbstractPacingType::Any => "Any".to_string(),
             AbstractPacingType::GlobalPeriodic(f) => format!("Global({f})"),
             AbstractPacingType::LocalPeriodic(f) => format!("Local({f})"),
-            AbstractPacingType::AnyPeriodic(f) => format!("Any({f})"),
+            AbstractPacingType::AnyPeriodic => format!("AnyPeriodic"),
         }
     }
 }
@@ -914,14 +858,9 @@ impl AbstractPacingType {
                 Some((AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span))
             },
             AnnotatedPacingType::GlobalFrequency(f) => {
-                Some((AbstractPacingType::GlobalPeriodic(Freq::Fixed(f.value)), f.span))
+                Some((AbstractPacingType::GlobalPeriodic(Freq(f.value)), f.span))
             },
-            AnnotatedPacingType::LocalFrequency(f) => {
-                Some((AbstractPacingType::LocalPeriodic(Freq::Fixed(f.value)), f.span))
-            },
-            AnnotatedPacingType::UnspecifiedFrequency(f) => {
-                Some((AbstractPacingType::AnyPeriodic(Freq::Fixed(f.value)), f.span))
-            },
+            AnnotatedPacingType::LocalFrequency(f) => Some((AbstractPacingType::LocalPeriodic(Freq(f.value)), f.span)),
             AnnotatedPacingType::NotAnnotated => None,
         })
     }
@@ -1489,23 +1428,11 @@ impl ConcretePacingType {
             (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
             (ConcretePacingType::FixedGlobalPeriodic(freq_l), ConcretePacingType::FixedGlobalPeriodic(freq_r))
             | (ConcretePacingType::FixedLocalPeriodic(freq_l), ConcretePacingType::FixedLocalPeriodic(freq_r)) => {
-                Freq::Fixed(*freq_r)
-                    .is_multiple_of(&Freq::Fixed(*freq_l))
-                    .unwrap_or(false)
+                Freq(*freq_r).is_multiple_of(&Freq(*freq_l)).unwrap_or(false)
             },
-            (
-                ConcretePacingType::FixedGlobalPeriodic(_),
-                ConcretePacingType::GlobalPeriodic | ConcretePacingType::AnyPeriodic,
-            )
-            | (
-                ConcretePacingType::FixedLocalPeriodic(_),
-                ConcretePacingType::LocalPeriodic | ConcretePacingType::AnyPeriodic,
-            ) => true,
-            (ConcretePacingType::AnyPeriodic, ConcretePacingType::AnyPeriodic) => {
-                Freq::Any.is_multiple_of(&Freq::Any).unwrap_or(false)
-            },
-            (ConcretePacingType::GlobalPeriodic, ConcretePacingType::GlobalPeriodic)
-            | (ConcretePacingType::LocalPeriodic, ConcretePacingType::LocalPeriodic) => true,
+            (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::AnyPeriodic)
+            | (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::AnyPeriodic) => true,
+            (ConcretePacingType::AnyPeriodic, ConcretePacingType::AnyPeriodic) => false,
             _ => false,
         }
     }
