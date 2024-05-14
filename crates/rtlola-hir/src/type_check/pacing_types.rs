@@ -909,7 +909,7 @@ impl AbstractPacingType {
             // AnnotatedPacingType::Frequency { span, value } => {
             //     (AbstractPacingType::Periodic(Freq::Fixed(*value)), *span)
             // },
-            AnnotatedPacingType::Expr(eid) => {
+            AnnotatedPacingType::Event(eid) => {
                 let expr = hir.expression(*eid);
                 Some((AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span))
             },
@@ -1467,17 +1467,6 @@ impl ConcretePacingType {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
             other => format!("{other:?}"),
-        }
-    }
-
-    /// Tries to convert a concrete pacing into a frequency.
-    pub(crate) fn to_abstract_freq(&self) -> Result<AbstractPacingType, String> {
-        match self {
-            ConcretePacingType::FixedGlobalPeriodic(f) => Ok(AbstractPacingType::GlobalPeriodic(Freq::Fixed(*f))),
-            ConcretePacingType::FixedLocalPeriodic(f) => Ok(AbstractPacingType::LocalPeriodic(Freq::Fixed(*f))),
-            ConcretePacingType::GlobalPeriodic => Ok(AbstractPacingType::GlobalPeriodic(Freq::Any)),
-            ConcretePacingType::LocalPeriodic => Ok(AbstractPacingType::LocalPeriodic(Freq::Any)),
-            _ => Err("Supplied invalid concrete pacing type.".to_string()),
         }
     }
 

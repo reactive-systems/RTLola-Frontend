@@ -688,7 +688,7 @@ pub enum AnnotatedPacingType {
     /// The either lobal or gloabl evaluation frequency
     UnspecifiedFrequency(AnnotatedFrequency),
     /// The expression which constitutes the condition under which the stream should be evaluated.
-    Expr(ExprId),
+    Event(ExprId),
     /// The stream is not annotated with a pacing
     #[default]
     NotAnnotated,
@@ -701,7 +701,7 @@ impl AnnotatedPacingType {
             AnnotatedPacingType::GlobalFrequency(freq)
             | AnnotatedPacingType::LocalFrequency(freq)
             | AnnotatedPacingType::UnspecifiedFrequency(freq) => freq.span,
-            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+            AnnotatedPacingType::Event(id) => hir.expression(*id).span,
             AnnotatedPacingType::NotAnnotated => Span::Unknown,
         }
     }

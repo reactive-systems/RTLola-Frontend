@@ -86,8 +86,7 @@ where
     /// Detailed error information is emitted by the [Handler].
     pub(crate) fn check(&mut self) -> Result<Typed, RtLolaError> {
         let pacing_tt = self.pacing_type_infer()?;
-
-        let value_tt = self.value_type_infer(&pacing_tt)?;
+        let value_tt = self.value_type_infer()?;
 
         let mut expression_map = HashMap::new();
         let mut stream_map = HashMap::new();
@@ -136,11 +135,8 @@ where
     }
 
     /// starts the value type infer part with the [ValueTypeChecker].
-    pub(crate) fn value_type_infer(
-        &self,
-        pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
-        let ctx = ValueTypeChecker::new(self.hir, &self.names, pacing_tt);
+    pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
+        let ctx = ValueTypeChecker::new(self.hir, &self.names);
         ctx.type_check()
     }
 }

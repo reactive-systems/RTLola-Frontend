@@ -300,7 +300,7 @@ impl FeatureSelector {
                                 AnnotatedPacingType::GlobalFrequency(f) => f.span,
                                 AnnotatedPacingType::LocalFrequency(f) => f.span,
                                 AnnotatedPacingType::UnspecifiedFrequency(f) => f.span,
-                                AnnotatedPacingType::Expr(eid) => self.hir.expression(eid).span,
+                                AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
                                 AnnotatedPacingType::NotAnnotated => Span::Unknown,
                             }
                         })

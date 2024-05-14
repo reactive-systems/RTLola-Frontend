@@ -584,7 +584,7 @@ impl ExpressionTransformer {
                 if let Some(freq) = self.try_transform_freq(&pt_expr)? {
                     return Ok(AnnotatedPacingType::UnspecifiedFrequency(freq));
                 }
-                Ok(AnnotatedPacingType::Expr(Self::insert_return(
+                Ok(AnnotatedPacingType::Event(Self::insert_return(
                     exprid_to_expr,
                     self.transform_expression(pt_expr, current)?,
                 )))
@@ -1383,7 +1383,7 @@ mod tests {
         let b: &Output = &ir.outputs[1];
         assert!(matches!(
             b.eval()[0].annotated_pacing_type,
-            AnnotatedPacingType::Expr(_)
+            AnnotatedPacingType::Event(_)
         ));
     }
 

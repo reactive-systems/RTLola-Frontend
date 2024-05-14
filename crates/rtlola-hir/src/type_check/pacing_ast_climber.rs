@@ -854,7 +854,7 @@ where
                                 AnnotatedPacingType::GlobalFrequency(f)
                                 | AnnotatedPacingType::LocalFrequency(f)
                                 | AnnotatedPacingType::UnspecifiedFrequency(f) => Some(f.span),
-                                AnnotatedPacingType::Expr(id) => Some(hir.expression(id).span),
+                                AnnotatedPacingType::Event(id) => Some(hir.expression(id).span),
                                 AnnotatedPacingType::NotAnnotated => None,
                             }
                         })
