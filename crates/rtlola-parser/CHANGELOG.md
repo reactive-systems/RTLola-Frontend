@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - add `->` syntactic sugar
 - add instance aggregation
 
+### Changed
+- Trigger are now parsed as output streams and not handled separately.
+
 ## [0.3.1] - 02.02.2023
 
 ### Changed
