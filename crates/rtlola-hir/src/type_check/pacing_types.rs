@@ -850,9 +850,6 @@ impl AbstractPacingType {
         hir: &Hir<M>,
     ) -> Result<Option<(Self, Span)>, PacingErrorKind> {
         Ok(match pt {
-            // AnnotatedPacingType::Frequency { span, value } => {
-            //     (AbstractPacingType::Periodic(Freq::Fixed(*value)), *span)
-            // },
             AnnotatedPacingType::Event(eid) => {
                 let expr = hir.expression(*eid);
                 Some((AbstractPacingType::Event(ActivationCondition::parse(expr)?), expr.span))
@@ -1405,7 +1402,10 @@ impl ConcretePacingType {
     pub fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
-            other => format!("{other:?}"),
+            ConcretePacingType::FixedGlobalPeriodic(f) => format!("Global({}", Freq(*f)),
+            ConcretePacingType::FixedLocalPeriodic(f) => format!("Local({})", Freq(*f)),
+            ConcretePacingType::AnyPeriodic => "AnyPeriodic".into(),
+            ConcretePacingType::Constant => "Constant".into(),
         }
     }
 

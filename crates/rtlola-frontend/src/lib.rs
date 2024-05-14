@@ -106,16 +106,3 @@ pub fn parse_to_base_hir(cfg: &ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLo
 pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
-
-#[test]
-fn test() {
-    let spec = "input a : UInt64\n\
-        output b eval @1Hz with 1
-        output c spawn when a == 0 eval @Global(1Hz) with b
-        ";
-    let config = ParserConfig::for_string(spec.into());
-    match parse(&config) {
-        Ok(mir) => println!("{mir}"),
-        Err(e) => Handler::from(&config).emit_error(&e),
-    }
-}

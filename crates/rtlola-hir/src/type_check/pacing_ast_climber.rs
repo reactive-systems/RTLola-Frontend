@@ -944,9 +944,6 @@ where
                         let target_spawn_condition = &exp_tt[&target_keys.spawn_condition].variant;
                         if (matches!(exp_pacing, ConcretePacingType::FixedLocalPeriodic(_))
                             && (spawn_pacing != target_spawn_pacing || spawn_cond != target_spawn_condition))
-                            || (matches!(exp_pacing, ConcretePacingType::FixedGlobalPeriodic(_))
-                                && (!spawn_pacing.implies(&target_spawn_pacing)
-                                    || !spawn_cond.implies(target_spawn_condition)))
                         {
                             let target_span = hir
                                 .outputs()
