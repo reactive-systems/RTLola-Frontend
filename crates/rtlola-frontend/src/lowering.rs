@@ -57,8 +57,8 @@ impl Mir {
         let outputs = hir.outputs().map(|o| {
             let sr = o.sr();
             mir::OutputStream {
-                name: o.name.clone(),
-                kind: o.kind,
+                name: o.name(),
+                kind: o.kind.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                 spawn: Self::lower_spawn(&hir, &sr_map, sr),
                 eval: Self::lower_eval(&hir, &sr_map, sr),
@@ -142,7 +142,7 @@ impl Mir {
 
         let triggers = outputs
             .iter()
-            .filter_map(|output| matches!(&output.kind, OutputKind::Trigger).then_some(output.reference))
+            .filter_map(|output| matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference))
             .enumerate()
             .map(|(trigger_reference, output_reference)| {
                 Trigger {
@@ -666,7 +666,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
@@ -686,7 +686,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
@@ -707,7 +707,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
         assert_eq!(

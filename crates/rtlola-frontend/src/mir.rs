@@ -263,7 +263,7 @@ pub struct Trigger {
 
 impl OutputStream {
     fn is_trigger(&self) -> bool {
-        matches!(self.kind, OutputKind::Trigger)
+        matches!(self.kind, OutputKind::Trigger(_))
     }
 }
 

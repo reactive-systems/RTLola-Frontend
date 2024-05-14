@@ -378,7 +378,7 @@ impl Resolvable for ValueErrorKind {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        _names: &HashMap<StreamReference, &str>,
+        _names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic {

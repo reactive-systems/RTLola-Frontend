@@ -376,7 +376,7 @@ impl ActivationCondition {
     }
 
     /// Print function for [ActivationCondition]. Used for error reporting prints.
-    pub fn to_string(&self, stream_names: &HashMap<StreamReference, &str>) -> String {
+    pub fn to_string(&self, stream_names: &HashMap<StreamReference, String>) -> String {
         use ActivationCondition::*;
         match self {
             True => "⊤".into(),
@@ -401,7 +401,7 @@ impl Resolvable for PacingErrorKind {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic {
@@ -637,7 +637,7 @@ impl Resolvable for PacingErrorKind {
 }
 
 pub(crate) trait PrintableVariant: Debug {
-    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String;
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String;
 }
 
 impl<V: 'static + Variant<Err = PacingErrorKind> + PrintableVariant> From<TcErr<V>> for TypeError<PacingErrorKind> {
@@ -819,7 +819,7 @@ impl Constructable for AbstractPacingType {
 }
 
 impl PrintableVariant for AbstractPacingType {
-    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         match self {
             AbstractPacingType::Event(ac) => ac.to_string(names),
             AbstractPacingType::Periodic(freq) => freq.to_string(),
@@ -829,7 +829,7 @@ impl PrintableVariant for AbstractPacingType {
 }
 
 impl PrintableVariant for AbstractSemanticType {
-    fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         let kind = match &self {
             AbstractSemanticType::Any => return "Any".into(),
             AbstractSemanticType::Negative(kind) => kind,
@@ -1399,7 +1399,7 @@ impl AbstractSemanticType {
 
 impl ConcretePacingType {
     /// Pretty print function for [ConcretePacingType].
-    pub fn to_pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    pub fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
             ConcretePacingType::FixedPeriodic(freq) => {

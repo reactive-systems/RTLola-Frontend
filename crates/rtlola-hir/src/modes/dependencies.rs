@@ -246,7 +246,7 @@ impl DependencyErr {
                 if cycle.len() == 1 || cycle[0] != *cycle.last().expect("Cycle has at least one element") {
                     cycle.push(cycle[0]);
                 }
-                let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
+                let cycle_string = cycle.iter().map(|sr| &names[sr]).join(" -> ");
                 let mut diag = Diagnostic::error(&format!(
                     "Specification is not well-formed: Found dependency cycle: {cycle_string}",
                 ));

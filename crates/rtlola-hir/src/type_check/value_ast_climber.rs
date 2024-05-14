@@ -25,7 +25,7 @@ impl rusttyc::TcVar for Variable {}
 impl Variable {
     /// Constructs the correct Variable for a Parameter, given the [Output] and the parameter `ìdx`.
     fn for_parameter(output: &Output, idx: usize) -> Self {
-        Variable(output.name.to_owned() + "_" + &output.params[idx].name.clone())
+        Variable(output.name() + "_" + &output.params[idx].name.clone())
     }
 }
 
@@ -49,7 +49,7 @@ where
     /// Stores all widen checks during HIR climbing, resolved and checked during post process.
     pub(crate) widen_checks: HashMap<TcKey, (ConcreteValueType, TcKey)>,
     /// Lookup table for the name of a given stream.
-    pub(crate) names: &'a HashMap<StreamReference, &'a str>,
+    pub(crate) names: &'a HashMap<StreamReference, String>,
 }
 
 impl<'a, M> ValueTypeChecker<'a, M>
@@ -60,7 +60,7 @@ where
     /// `names` maps each stream reference to the name of the stream  referenced
     pub(crate) fn new(
         hir: &'a Hir<M>,
-        names: &'a HashMap<StreamReference, &'a str>,
+        names: &'a HashMap<StreamReference, String>,
         pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
     ) -> Self {
         let mut tyc = TypeChecker::new();
@@ -76,7 +76,7 @@ where
         }
 
         for out in hir.outputs() {
-            let key = tyc.get_var_key(&Variable(out.name.clone()));
+            let key = tyc.get_var_key(&Variable(out.name()));
             node_key.insert(NodeId::SRef(out.sr), key);
             key_span.insert(key, out.span);
         }

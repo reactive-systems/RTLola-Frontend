@@ -9,7 +9,7 @@ use crate::hir::{FnExprKind, Inlined, StreamAccessKind, StreamReference, WidenEx
 
 impl Expression {
     /// Produces a prettified string representation of the expression given the names of the streams
-    pub(crate) fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    pub(crate) fn pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         use crate::hir::expression::ExpressionKind::*;
         match &self.kind {
             StreamAccess(sref, kind, params) => {

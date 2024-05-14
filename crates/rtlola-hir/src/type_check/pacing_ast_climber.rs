@@ -43,7 +43,7 @@ where
     /// Maps a RustTyc key of the expression_tyc to the corresponding span for error reporting.
     pub(crate) expression_key_span: HashMap<TcKey, Span>,
     /// Lookup table for the name of a given stream.
-    pub(crate) names: &'a HashMap<StreamReference, &'a str>,
+    pub(crate) names: &'a HashMap<StreamReference, String>,
     /// Storage to register exact type implications during Hir climbing, resolved and checked during post process.
     /// First tuple element should imply the second tuple element.
     /// Boolean value indicates that the check originates from a close condition.
@@ -62,7 +62,7 @@ where
 {
     /// Creates a new [ValueTypeChecker]. `names`table can be generated from the `Hir`.
     /// Inits all internal hash maps.
-    pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, &'a str>) -> Self {
+    pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, String>) -> Self {
         let node_key = HashMap::new();
 
         let exp_context = Rc::new(ExpressionContext::new(hir));

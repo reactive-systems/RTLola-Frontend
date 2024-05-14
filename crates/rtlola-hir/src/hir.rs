@@ -99,7 +99,7 @@ impl<M: HirMode> Hir<M> {
     /// Provides access to an iterator over all triggers.
     pub fn triggers(&self) -> impl Iterator<Item = &Output> {
         self.outputs()
-            .filter(|output| matches!(output.kind, OutputKind::Trigger))
+            .filter(|output| matches!(output.kind, OutputKind::Trigger(_)))
     }
 
     /// Yields the number of input streams present in the Hir. Not necessarily equal to the number of input streams in the specification.
@@ -132,7 +132,7 @@ impl<M: HirMode> Hir<M> {
 
     /// Retrieves an output stream based on its name.  Fails if no such output stream exists.
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
-        self.outputs.iter().find(|&o| o.name == name)
+        self.outputs.iter().find(|&o| o.name() == name)
     }
 
     /// Retrieves an output stream based on a stream reference.  Fails if no such stream exists or `sref` is a [StreamReference::In].
@@ -416,10 +416,10 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Generates a map from a [StreamReference] to the name of the corresponding stream.
-    pub fn names(&self) -> HashMap<SRef, &str> {
+    pub fn names(&self) -> HashMap<SRef, String> {
         self.inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(self.outputs().map(|o| (o.sr, o.name.as_str())))
+            .map(|i| (i.sr, i.name.clone()))
+            .chain(self.outputs().map(|o| (o.sr, o.name())))
             .collect()
     }
 }
@@ -549,19 +549,17 @@ impl Input {
 }
 
 /// Whether the given output stream is a regular named output or represents a trigger
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub enum OutputKind {
     /// The output is a regular named output stream
-    NamedOutput,
+    NamedOutput(String),
     /// The output represents a trigger
-    Trigger,
+    Trigger(usize),
 }
 
 /// Represents an output stream in an RTLola specification.
 #[derive(Debug, Clone)]
 pub struct Output {
-    /// The name of the stream.
-    pub name: String,
     /// The kind of the stream.
     pub kind: OutputKind,
     /// The user annotated Type
@@ -581,6 +579,14 @@ pub struct Output {
 }
 
 impl Output {
+    /// Returns the name of this stream.
+    pub fn name(&self) -> String {
+        match &self.kind {
+            OutputKind::NamedOutput(s) => s.clone(),
+            OutputKind::Trigger(idx) => format!("trigger_{idx}"),
+        }
+    }
+
     /// Returns an iterator over the parameters of this stream.
     pub fn params(&self) -> impl Iterator<Item = &Parameter> {
         self.params.iter()

@@ -355,7 +355,7 @@ mod tests {
 
     macro_rules! assert_streams {
         ($streams:expr, $expected:expr) => {
-            let names: Vec<&str> = $streams.map(|o| o.name.as_str()).sorted().collect();
+            let names: Vec<String> = $streams.map(|o| o.name()).sorted().collect();
             let expect: Vec<&str> = $expected.into_iter().sorted().collect();
             assert_eq!(names, expect);
         };

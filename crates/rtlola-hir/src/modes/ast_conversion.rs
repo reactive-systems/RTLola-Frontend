@@ -336,21 +336,16 @@ impl ExpressionTransformer {
             }
 
             let new_kind = match kind {
-                ast::OutputKind::NamedOutput(_) => OutputKind::NamedOutput,
-                ast::OutputKind::Trigger => OutputKind::Trigger,
-            };
-
-            let name = match kind {
-                ast::OutputKind::NamedOutput(n) => n.name,
+                ast::OutputKind::NamedOutput(name) => OutputKind::NamedOutput(name.name),
                 ast::OutputKind::Trigger => {
-                    let name = format!("trigger_{trigger_idx}");
+                    let new_kind = OutputKind::Trigger(trigger_idx);
                     trigger_idx += 1;
-                    name
+                    new_kind
                 },
             };
 
             // if output stream represents a trigger, every eval clause needs to have a eval-when condition
-            if new_kind == OutputKind::Trigger {
+            if let OutputKind::Trigger(_) = new_kind {
                 for clause in &eval {
                     if clause.condition.is_none() {
                         return Err(TransformationErr::MissingTriggerCondition(clause.span));
@@ -359,7 +354,6 @@ impl ExpressionTransformer {
             }
 
             hir_outputs.push(Output {
-                name,
                 kind: new_kind,
                 sr,
                 params,

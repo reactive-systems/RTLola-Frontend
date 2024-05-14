@@ -20,7 +20,7 @@ where
     /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
     /// A stream nme lookup table, generated for the input `Hir`.
-    pub(crate) names: HashMap<StreamReference, &'a str>,
+    pub(crate) names: HashMap<StreamReference, String>,
 }
 
 /// Wrapper enum to unify streams, expressions and parameter during inference.
@@ -37,7 +37,7 @@ pub(crate) trait Resolvable: Debug {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic;
@@ -64,7 +64,7 @@ impl<K: Resolvable> TypeError<K> {
     pub(crate) fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
     ) -> Diagnostic {
         self.kind.into_diagnostic(spans, names, self.key1, self.key2)
     }

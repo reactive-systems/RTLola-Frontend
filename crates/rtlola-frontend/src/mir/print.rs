@@ -377,7 +377,7 @@ impl Display for InputStream {
 impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let OutputStream {
-            name,
+            name: _,
             ty,
             spawn,
             eval,
@@ -398,8 +398,8 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
         };
 
         match kind {
-            OutputKind::NamedOutput => write!(f, "output {name}{display_parameters} : {ty}")?,
-            OutputKind::Trigger => write!(f, "trigger{display_parameters}")?,
+            OutputKind::NamedOutput(name) => write!(f, "output {name}{display_parameters} : {ty}")?,
+            OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
         }
 
         if spawn.expression.is_some() || spawn.condition.is_some() {
