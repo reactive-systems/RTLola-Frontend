@@ -364,7 +364,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     })
                     .collect()
             },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 
@@ -386,7 +386,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     })
                     .collect()
             },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 

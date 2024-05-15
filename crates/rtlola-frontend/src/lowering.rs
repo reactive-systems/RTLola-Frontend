@@ -11,7 +11,7 @@ use rtlola_hir::hir::{
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 
-use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn, Trigger};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -214,13 +214,22 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> mir::TimeDrivenStream {
-        if let ConcretePacingType::FixedPeriodic(freq) = &hir.stream_type(sr).eval_pacing {
-            mir::TimeDrivenStream {
-                reference: sr_map[&sr],
-                frequency: *freq,
-            }
-        } else {
-            unreachable!()
+        match &hir.stream_type(sr).eval_pacing {
+            ConcretePacingType::FixedGlobalPeriodic(f) => {
+                mir::TimeDrivenStream {
+                    reference: sr_map[&sr],
+                    frequency: *f,
+                    locality: PacingLocality::Global,
+                }
+            },
+            ConcretePacingType::FixedLocalPeriodic(f) => {
+                mir::TimeDrivenStream {
+                    reference: sr_map[&sr],
+                    frequency: *f,
+                    locality: PacingLocality::Local,
+                }
+            },
+            _ => unreachable!(),
         }
     }
 
@@ -230,10 +239,11 @@ impl Mir {
     ) -> mir::PacingType {
         match cpt {
             ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map)),
-            ConcretePacingType::FixedPeriodic(freq) => mir::PacingType::Periodic(freq),
+            ConcretePacingType::FixedLocalPeriodic(freq) => mir::PacingType::LocalPeriodic(freq),
+            ConcretePacingType::FixedGlobalPeriodic(freq) => mir::PacingType::GlobalPeriodic(freq),
             ConcretePacingType::Constant => mir::PacingType::Constant,
-            ConcretePacingType::Periodic => {
-                unreachable!("Ensured by pacing type checker")
+            other => {
+                unreachable!("Ensured by pacing type checker: {:?}", other)
             },
         }
     }
@@ -292,7 +302,9 @@ impl Mir {
                 let cpt = hir.stream_type(sr).close_pacing;
                 let close_self_ref = matches!(
                     hir.expr_type(expr.id()).spawn_pacing,
-                    ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
+                    ConcretePacingType::Event(_)
+                        | ConcretePacingType::FixedGlobalPeriodic(_)
+                        | ConcretePacingType::FixedLocalPeriodic(_)
                 );
                 (
                     Some(Self::lower_expr(hir, sr_map, expr)),
@@ -767,7 +779,7 @@ mod tests {
         ));
         assert_eq!(
             mir_d.spawn.pacing,
-            mir::PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            mir::PacingType::GlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
             mir_d.eval.clauses[0].condition,

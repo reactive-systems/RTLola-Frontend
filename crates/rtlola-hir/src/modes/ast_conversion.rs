@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId, Expression,
-    ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset, Output,
-    OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
+    AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId,
+    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset,
+    Output, OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -102,6 +102,12 @@ pub enum TransformationErr {
     InstanceAggregationNonPara(Span),
     /// An output stream representing a trigger does not have a eval when condition
     MissingTriggerCondition(Span),
+    /// Expected Frequency in local or global annotated pacing.
+    ExpectedFrequency(Span),
+    /// An output stream is annotated with a local periodic pacing, but is not dynamic.
+    LocalPeriodicUnspawned(Span),
+    /// An spawn clause is annotated with a local periodic pacing.
+    LocalPeriodicInSpawn(Span),
 }
 
 impl TransformationErr {
@@ -210,7 +216,10 @@ impl TransformationErr {
                     true,
                 )
             }
-            TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true)
+            TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true),
+            TransformationErr::ExpectedFrequency(span) => Diagnostic::error("Local and Global annotated pacings must be frequencies").add_span_with_label(span, Some("Found Expression here"), true),
+            TransformationErr::LocalPeriodicUnspawned(span) => Diagnostic::error("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.").add_span_with_label(span, None, false),
+            TransformationErr::LocalPeriodicInSpawn(span) => Diagnostic::error("In pacing type analysis:\nspawn condition can not be local periodic.").add_span_with_label(span, Some("Found local periodic pacing here."), true),
         }
     }
 }
@@ -307,7 +316,7 @@ impl ExpressionTransformer {
             let spawn = self.transform_spawn_clause(spawn, &mut exprid_to_expr, sr)?;
             let eval = eval
                 .into_iter()
-                .map(|eval| self.transform_eval_clause(eval, &mut exprid_to_expr, sr))
+                .map(|eval| self.transform_eval_clause(eval, &mut exprid_to_expr, sr, spawn.is_some()))
                 .collect::<Result<Vec<_>, _>>()?;
             let close = self.transform_close_clause(close, &mut exprid_to_expr, sr)?;
 
@@ -542,27 +551,57 @@ impl ExpressionTransformer {
         })
     }
 
+    fn try_transform_freq(&mut self, freq: &ast::Expression) -> Result<Option<AnnotatedFrequency>, TransformationErr> {
+        if let ast::ExpressionKind::Lit(l) = &freq.kind {
+            if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
+                let val = freq
+                    .parse_freqspec()
+                    .map_err(|reason| TransformationErr::InvalidAc(freq.span, reason))?;
+                return Ok(Some(AnnotatedFrequency {
+                    span: freq.span,
+                    value: val,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
     fn transform_pt(
         &mut self,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
-        pt_expr: ast::Expression,
+        pt: ast::AnnotatedPacingType,
         current: SRef,
+        defaults_to_global: bool,
     ) -> Result<AnnotatedPacingType, TransformationErr> {
-        if let ast::ExpressionKind::Lit(l) = &pt_expr.kind {
-            if let ast::LitKind::Numeric(_, Some(_)) = &l.kind {
-                let val = pt_expr
-                    .parse_freqspec()
-                    .map_err(|reason| TransformationErr::InvalidAc(pt_expr.span, reason))?;
-                return Ok(AnnotatedPacingType::Frequency {
-                    span: pt_expr.span,
-                    value: val,
-                });
-            }
+        match pt {
+            ast::AnnotatedPacingType::NotAnnotated => Ok(AnnotatedPacingType::NotAnnotated),
+            ast::AnnotatedPacingType::Global(freq) => {
+                let freq = self
+                    .try_transform_freq(&freq)?
+                    .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
+                Ok(AnnotatedPacingType::GlobalFrequency(freq))
+            },
+            ast::AnnotatedPacingType::Local(freq) => {
+                let freq = self
+                    .try_transform_freq(&freq)?
+                    .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
+                Ok(AnnotatedPacingType::LocalFrequency(freq))
+            },
+            ast::AnnotatedPacingType::Unspecified(pt_expr) => {
+                if let Some(freq) = self.try_transform_freq(&pt_expr)? {
+                    if defaults_to_global {
+                        Ok(AnnotatedPacingType::GlobalFrequency(freq))
+                    } else {
+                        Ok(AnnotatedPacingType::LocalFrequency(freq))
+                    }
+                } else {
+                    Ok(AnnotatedPacingType::Event(Self::insert_return(
+                        exprid_to_expr,
+                        self.transform_expression(pt_expr, current)?,
+                    )))
+                }
+            },
         }
-        Ok(AnnotatedPacingType::Expr(Self::insert_return(
-            exprid_to_expr,
-            self.transform_expression(pt_expr, current)?,
-        )))
     }
 
     fn transform_expression(
@@ -943,9 +982,10 @@ impl ExpressionTransformer {
                 let exp = self.transform_expression(expr, current_output)?;
                 Ok(Some(Self::insert_return(exprid_to_expr, exp)))
             })?;
-            let pacing = annotated_pacing.map_or(Ok(None), |pt| {
-                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-            })?;
+            let pacing = self.transform_pt(exprid_to_expr, annotated_pacing, current_output, true)?;
+            if let AnnotatedPacingType::LocalFrequency(f) = pacing {
+                return Err(TransformationErr::LocalPeriodicInSpawn(f.span));
+            }
 
             let condition = condition.map_or(Ok(None), |cond_expr| {
                 let e = self.transform_expression(cond_expr, current_output)?;
@@ -965,6 +1005,7 @@ impl ExpressionTransformer {
         eval_spec: ast::EvalSpec,
         exprid_to_expr: &mut HashMap<ExprId, Expression>,
         current_output: SRef,
+        has_spawn: bool,
     ) -> Result<Eval, TransformationErr> {
         let eval_expr = if let Some(eval_expr) = eval_spec.eval_expression {
             self.transform_expression(eval_expr, current_output)?
@@ -977,15 +1018,18 @@ impl ExpressionTransformer {
             let cond_expr = self.transform_expression(cond, current_output)?;
             Ok(Some(Self::insert_return(exprid_to_expr, cond_expr)))
         })?;
-
-        let pacing = eval_spec.annotated_pacing.map_or(Ok(None), |pt| {
-            Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-        })?;
+        let annotated_pacing_type =
+            self.transform_pt(exprid_to_expr, eval_spec.annotated_pacing, current_output, !has_spawn)?;
+        if let AnnotatedPacingType::LocalFrequency(f) = annotated_pacing_type {
+            if !has_spawn {
+                return Err(TransformationErr::LocalPeriodicUnspawned(f.span));
+            }
+        }
 
         Ok(Eval {
             expr: eval_expr_id,
             condition,
-            annotated_pacing_type: pacing,
+            annotated_pacing_type,
             span: eval_spec.span,
         })
     }
@@ -997,9 +1041,7 @@ impl ExpressionTransformer {
         current_output: SRef,
     ) -> Result<Option<Close>, TransformationErr> {
         close_spec.map_or(Ok(None), |close_spec| {
-            let pacing = close_spec.annotated_pacing.map_or(Ok(None), |pt| {
-                Ok(Some(self.transform_pt(exprid_to_expr, pt, current_output)?))
-            })?;
+            let pacing = self.transform_pt(exprid_to_expr, close_spec.annotated_pacing, current_output, true)?;
             let condition = Self::insert_return(
                 exprid_to_expr,
                 self.transform_expression(close_spec.condition, current_output)?,
@@ -1324,7 +1366,7 @@ mod tests {
         assert!(output.annotated_type.is_some());
         assert!(matches!(
             output.eval()[0].annotated_pacing_type,
-            Some(AnnotatedPacingType::Frequency { .. })
+            AnnotatedPacingType::LocalFrequency(_)
         ));
         assert!(output.params.len() == 1);
         let fil: &Expression = ir.eval_unchecked(output.sr)[0].condition.unwrap();
@@ -1358,12 +1400,12 @@ mod tests {
         let a: Output = ir.outputs[0].clone();
         assert!(matches!(
             a.eval()[0].annotated_pacing_type,
-            Some(AnnotatedPacingType::Frequency { .. })
+            AnnotatedPacingType::GlobalFrequency(_)
         ));
         let b: &Output = &ir.outputs[1];
         assert!(matches!(
             b.eval()[0].annotated_pacing_type,
-            Some(AnnotatedPacingType::Expr(_))
+            AnnotatedPacingType::Event(_)
         ));
     }
 
@@ -1383,7 +1425,10 @@ mod tests {
         let ir = obtain_expressions(spec);
         let a: Output = ir.outputs[0].clone();
         assert!(a.spawn().is_some());
-        assert!(matches!(a.spawn_pacing(), Some(AnnotatedPacingType::Frequency { .. })));
+        assert!(matches!(
+            a.spawn_pacing(),
+            Some(AnnotatedPacingType::GlobalFrequency(_))
+        ));
     }
 
     #[test]
@@ -1406,7 +1451,7 @@ mod tests {
         assert_eq!(trigger.eval.len(), 1);
         assert!(matches!(
             trigger.eval[0].annotated_pacing_type,
-            Some(AnnotatedPacingType::Frequency { .. })
+            AnnotatedPacingType::GlobalFrequency(_)
         ))
     }
 
@@ -1451,6 +1496,24 @@ mod tests {
     fn test_missing_trigger_condition() {
         let spec = "input a : Int64\n\
         trigger eval when a == 0 with \"msg\" eval with \"msg2\"";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_local_on_unspawned_stream() {
+        let spec = "input a : UInt64\n\
+        output b eval @Local(1Hz) with a.hold(or: 0)
+        ";
+        obtain_expressions(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_local_spawn_pacing() {
+        let spec = "input a : UInt64\n\
+        output b spawn @Local(1Hz) eval @a with a
+        ";
         obtain_expressions(spec);
     }
 

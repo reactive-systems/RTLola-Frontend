@@ -8,7 +8,6 @@ use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 
 use super::*;
 use crate::hir::{AnnotatedType, StreamReference};
-use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{Resolvable, TypeError};
 
 /// The error kind for all custom errors during the value type check.
@@ -26,8 +25,6 @@ pub(crate) enum ValueErrorKind {
     AnnotationTooWide(AnnotatedType),
     /// type not allowed as annotation
     AnnotationInvalid(AnnotatedType),
-    ///target freq, Offset
-    IncompatibleRealTimeOffset(Freq, i64),
     /// Inferred, Expected
     ExactTypeMismatch(ConcreteValueType, ConcreteValueType),
     /// invalid child access for given type
@@ -430,22 +427,6 @@ impl Resolvable for ValueErrorKind {
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .add_note("Help: Consider an explicit type annotation.")
             },
-            ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => {
-                Diagnostic::error(
-                    "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
-                )
-                .maybe_add_span_with_label(
-                    key1.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Found offset with duration {dur} here")),
-                    true,
-                )
-                .maybe_add_span_with_label(
-                    key2.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Target stream with frequency {freq} is found here")),
-                    false,
-                )
-            },
-
             ValueErrorKind::ExactTypeMismatch(inferred, expected) => {
                 Diagnostic::error(
                     &format!(

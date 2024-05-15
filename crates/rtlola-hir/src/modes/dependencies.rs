@@ -141,13 +141,12 @@ impl ExtendedDepGraph for DependencyGraph {
             let rhs_pt = rhs.eval_pacing;
             match (lhs_pt, rhs_pt) {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
-                (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => true,
-                (ConcretePacingType::Constant, _)
-                | (ConcretePacingType::Periodic, _)
-                | (_, ConcretePacingType::Constant)
-                | (_, ConcretePacingType::Periodic) => unreachable!(),
+                (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
+                (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_))
+                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                _ => unreachable!(),
             }
         });
         self

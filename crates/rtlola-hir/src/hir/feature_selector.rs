@@ -287,21 +287,21 @@ impl FeatureSelector {
 
         self.hir.outputs.iter().for_each(|o| {
             let ty = self.hir.stream_type(o.sr);
-            let spawn_span = &o
+            let spawn_span: Span = o
                 .spawn
                 .as_ref()
-                .and_then(|spawn| {
+                .map(|spawn| {
                     spawn
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .or_else(|| {
-                            spawn.pacing.as_ref().map(|apt| {
-                                match &apt {
-                                    AnnotatedPacingType::Frequency { span, .. } => *span,
-                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
-                                }
-                            })
+                        .unwrap_or_else(|| {
+                            match spawn.pacing {
+                                AnnotatedPacingType::GlobalFrequency(f) => f.span,
+                                AnnotatedPacingType::LocalFrequency(f) => f.span,
+                                AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
+                                AnnotatedPacingType::NotAnnotated => Span::Unknown,
+                            }
                         })
                 })
                 .unwrap_or(Span::Unknown);
@@ -315,7 +315,7 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_pacing_type(&o.span, &ty.eval_pacing) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn_pacing) {
+            if let Err(e) = self.exclude_pacing_type(&spawn_span, &ty.spawn_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_expr(o.sr)) {

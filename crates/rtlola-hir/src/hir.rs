@@ -232,7 +232,7 @@ impl<M: HirMode> Hir<M> {
                     SpawnDef::new(
                         st.expression.map(|e| self.expression(e)),
                         st.condition.map(|e| self.expression(e)),
-                        st.pacing.as_ref(),
+                        &st.pacing,
                         st.span,
                     )
                 })
@@ -300,7 +300,7 @@ impl<M: HirMode> Hir<M> {
                             EvalDef::new(
                                 eval.condition.map(|id| self.expression(id)),
                                 self.expression(eval.expr),
-                                eval.annotated_pacing_type.as_ref(),
+                                &eval.annotated_pacing_type,
                                 eval.span,
                             )
                         })
@@ -354,13 +354,7 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let output = self.outputs.iter().find(|o| o.sr == sr)?;
-                Some(
-                    output
-                        .eval
-                        .iter()
-                        .filter_map(|eval| eval.annotated_pacing_type.as_ref())
-                        .collect(),
-                )
+                Some(output.eval.iter().map(|eval| &eval.annotated_pacing_type).collect())
             },
         }
     }
@@ -378,7 +372,7 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let ct = self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close());
-                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), ct.pacing.as_ref(), ct.span))
+                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), &ct.pacing, ct.span))
             },
         }
     }
@@ -618,7 +612,7 @@ impl Output {
     /// If all parts of [Spawn] are required, see [spawn](fn@Hir)
     #[allow(dead_code)]
     pub(crate) fn spawn_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+        self.spawn.as_ref().map(|st| &st.pacing)
     }
 
     /// Returns the [Close] template of the stream
@@ -636,7 +630,7 @@ impl Output {
     /// If all parts of [Close] are required, see [close](fn@Hir))
     #[allow(dead_code)]
     pub(crate) fn close_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
+        self.close.as_ref().map(|ct| &ct.pacing)
     }
 
     /// Returns the [Eval] template of the stream
@@ -675,26 +669,36 @@ impl Parameter {
     }
 }
 
-/// Pacing information for stream; contains either a frequency or a condition on input streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Frequency of an annotated pacing information for stream
+pub struct AnnotatedFrequency {
+    /// A span to the part of the specification containing the frequency
+    pub span: Span,
+    /// The actual frequency
+    pub value: UOM_Frequency,
+}
+
+/// Pacing information for stream; contains either a frequency or a condition on input streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnnotatedPacingType {
-    /// The evaluation frequency
-    Frequency {
-        /// A span to the part of the specification containing the frequency
-        span: Span,
-        /// The actual frequency
-        value: UOM_Frequency,
-    },
+    /// The global evaluation frequency
+    GlobalFrequency(AnnotatedFrequency),
+    /// The local evaluation frequency
+    LocalFrequency(AnnotatedFrequency),
     /// The expression which constitutes the condition under which the stream should be evaluated.
-    Expr(ExprId),
+    Event(ExprId),
+    /// The stream is not annotated with a pacing
+    #[default]
+    NotAnnotated,
 }
 
 impl AnnotatedPacingType {
     /// Returns the span of the annotated type.
     pub fn span<M: HirMode>(&self, hir: &Hir<M>) -> Span {
         match self {
-            AnnotatedPacingType::Frequency { span, .. } => *span,
-            AnnotatedPacingType::Expr(id) => hir.expression(*id).span,
+            AnnotatedPacingType::GlobalFrequency(freq) | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
+            AnnotatedPacingType::Event(id) => hir.expression(*id).span,
+            AnnotatedPacingType::NotAnnotated => Span::Unknown,
         }
     }
 }
@@ -705,7 +709,7 @@ pub(crate) struct Spawn {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub(crate) expression: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
     /// The range in the specification corresponding to the spawn clause.
@@ -740,7 +744,7 @@ impl Spawn {
 #[derive(Debug, Clone)]
 pub(crate) struct Eval {
     /// The activation condition, which defines when a new value of a stream is computed.
-    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
+    pub(crate) annotated_pacing_type: AnnotatedPacingType,
     /// The expression defining when an instance is evaluated
     pub(crate) condition: Option<ExprId>,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
@@ -755,7 +759,7 @@ pub(crate) struct Close {
     /// The expression defining if an instance is closed
     pub(crate) condition: ExprId,
     /// The activation condition describing when an instance is closed
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
     /// The range in the specification corresponding to the close clause.
     pub(crate) span: Span,
 }
@@ -769,7 +773,7 @@ pub struct SpawnDef<'a> {
     /// The conditional expression of the spawn, e.g. when x > 5
     pub condition: Option<&'a Expression>,
     /// The pacing type  of the spawn, e.g. @1Hz or @input_i
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the spawn clause.
     pub span: Span,
 }
@@ -779,7 +783,7 @@ impl<'a> SpawnDef<'a> {
     pub fn new(
         expression: Option<&'a Expression>,
         condition: Option<&'a Expression>,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
         span: Span,
     ) -> Self {
         Self {
@@ -800,7 +804,7 @@ pub struct EvalDef<'a> {
     /// The stream expression defines the computed value of the stream.
     pub expression: &'a Expression,
     /// The annotated pacing of the stream evaluation, describing when the condition and expression should be evaluated in a temporal manner.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the eval clause.
     pub span: Span,
 }
@@ -810,7 +814,7 @@ impl<'a> EvalDef<'a> {
     pub fn new(
         condition: Option<&'a Expression>,
         expr: &'a Expression,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
         span: Span,
     ) -> Self {
         Self {
@@ -828,18 +832,14 @@ pub struct CloseDef<'a> {
     /// The close condition, defining when a stream instance is closed and no longer evaluated.
     pub condition: Option<&'a Expression>,
     /// The annotated pacing, indicating when the condition should be evaluated.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
     /// The range in the specification corresponding to the close clause.
     pub span: Span,
 }
 
 impl<'a> CloseDef<'a> {
     /// Constructs a new [CloseDef]
-    pub fn new(
-        condition: Option<&'a Expression>,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
-        span: Span,
-    ) -> Self {
+    pub fn new(condition: Option<&'a Expression>, annotated_pacing: &'a AnnotatedPacingType, span: Span) -> Self {
         Self {
             condition,
             annotated_pacing,

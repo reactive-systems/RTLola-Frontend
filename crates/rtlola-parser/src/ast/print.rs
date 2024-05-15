@@ -87,14 +87,23 @@ impl Display for Parameter {
     }
 }
 
+impl Display for AnnotatedPacingType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            AnnotatedPacingType::NotAnnotated => Ok(()),
+            AnnotatedPacingType::Global(freq) => write!(f, " @Global({freq})"),
+            AnnotatedPacingType::Local(freq) => write!(f, " @Local({freq})"),
+            AnnotatedPacingType::Unspecified(expr) => write!(f, " @{expr}"),
+        }
+    }
+}
+
 impl Display for SpawnSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if self.expression.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{pt}")?;
-        }
+        write!(f, "{}", self.annotated_pacing)?;
         if let Some(condition) = &self.condition {
             write!(f, " when {condition}")?;
         }
@@ -107,12 +116,13 @@ impl Display for SpawnSpec {
 
 impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if self.condition.is_some() || self.eval_expression.is_some() || self.annotated_pacing.is_some() {
+        if self.condition.is_some()
+            || self.eval_expression.is_some()
+            || self.annotated_pacing != AnnotatedPacingType::NotAnnotated
+        {
             write!(f, "eval")?;
         }
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{pt}")?;
-        }
+        write!(f, "{}", self.annotated_pacing)?;
         if let Some(when) = &self.condition {
             write!(f, " when {when}")?;
         }
@@ -125,11 +135,9 @@ impl Display for EvalSpec {
 
 impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "close ")?;
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, "@{pt} ")?;
-        }
-        write!(f, "when {}", self.condition)
+        write!(f, "close")?;
+        write!(f, "{}", self.annotated_pacing)?;
+        write!(f, " when {}", self.condition)
     }
 }
 

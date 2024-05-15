@@ -403,8 +403,7 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner());
-                spawn_children.next();
+                let expr = self.parse_activation_condition(spawn_children.next().unwrap());
                 expr.map_or_else(
                     |e| {
                         error.join(e);
@@ -417,7 +416,8 @@ impl<'a> RtLolaParser<'a> {
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut expression: Option<Expression> = None;
@@ -461,7 +461,7 @@ impl<'a> RtLolaParser<'a> {
             }
         }
 
-        if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if expression.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
                     span_inv,
@@ -490,14 +490,14 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let annotated_pacing = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
-                Some(expr)
+                annotated_pacing
             } else {
-                None
+                AnnotatedPacingType::NotAnnotated
             }
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let exp_res = self.build_expression_ast(next_pair.expect("Mismatch between grammar and AST").into_inner())?;
@@ -521,15 +521,15 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner())?;
-                children.next();
+                let expr = self.parse_activation_condition(children.next().unwrap())?;
                 Some(expr)
             } else {
                 None
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut eval_expr: Option<Expression> = None;
@@ -573,7 +573,7 @@ impl<'a> RtLolaParser<'a> {
             }
         }
 
-        if eval_expr.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if eval_expr.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Eval clause needs either expression or condition").add_span_with_label(
                     span_ext,
@@ -603,7 +603,7 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let expr = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
                 Some(expr)
             } else {
@@ -611,7 +611,8 @@ impl<'a> RtLolaParser<'a> {
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let condition_pair = next_pair.expect("mismatch between grammar and ast");
         let condition = match condition_pair.as_rule() {
@@ -643,11 +644,11 @@ impl<'a> RtLolaParser<'a> {
 
         // Parse the `@ [Expr]` part of output declaration
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
-            let expr = self.build_expression_ast(pair.into_inner())?;
+            let expr = self.parse_activation_condition(pair)?;
             pair = pairs.next().expect("mismatch between grammar and AST");
-            Some(expr)
+            expr
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let expression = self.build_expression_ast(pair.into_inner())?;
@@ -682,6 +683,26 @@ impl<'a> RtLolaParser<'a> {
             id: self.spec.next_id(),
             span,
         })
+    }
+
+    fn parse_activation_condition(&self, pair: Pair<'_, Rule>) -> Result<AnnotatedPacingType, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::ActivationCondition);
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::GlobalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Global(expr))
+            },
+            Rule::LocalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Local(expr))
+            },
+            Rule::Expr => {
+                let expr: Expression = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Unspecified(expr))
+            },
+            _ => unreachable!("mismatch between grammar and AST"),
+        }
     }
 
     /**
@@ -2152,5 +2173,15 @@ mod tests {
         output c eval with b.aggregate(over_instances: all, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn global_and_local_frequencies() {
+        let spec = "input a: Int32\n\
+        output not (p) spawn with a eval @1Hz with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&dbg!(ast), spec);
     }
 }

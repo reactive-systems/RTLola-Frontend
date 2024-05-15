@@ -213,7 +213,7 @@ pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub expression: Option<Expression>,
     /// The pacing type describing when a new instance is created.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
     /// The id of the node in the Ast
@@ -226,7 +226,7 @@ pub struct SpawnSpec {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EvalSpec {
     /// The pacing type describing when a new value is computed.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub condition: Option<Expression>,
     /// The evaluated expression, defining the value of the stream.
@@ -243,7 +243,7 @@ pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub condition: Expression,
     /// The pacing type describing when the close condition is evaluated.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
@@ -736,6 +736,19 @@ pub enum InstanceSelection {
     Fresh,
     /// All instances are part of the aggregation
     All,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Enum to indicate which annotated pacing type the stream has
+pub enum AnnotatedPacingType {
+    /// No annotated Pacing
+    NotAnnotated,
+    /// Annotated Pacing refers to the global clock
+    Global(Expression),
+    /// Annotated Pacing refers to the local clock
+    Local(Expression),
+    /// Annotated Pacing is unspecified if it refers the local or global clock
+    Unspecified(Expression),
 }
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
