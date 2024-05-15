@@ -141,13 +141,12 @@ impl ExtendedDepGraph for DependencyGraph {
             let rhs_pt = rhs.eval_pacing;
             match (lhs_pt, rhs_pt) {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
-                (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => true,
-                (ConcretePacingType::Constant, _)
-                | (ConcretePacingType::Periodic, _)
-                | (_, ConcretePacingType::Constant)
-                | (_, ConcretePacingType::Periodic) => unreachable!(),
+                (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
+                (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_))
+                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                _ => unreachable!(),
             }
         });
         self
@@ -246,7 +245,7 @@ impl DependencyErr {
                 if cycle.len() == 1 || cycle[0] != *cycle.last().expect("Cycle has at least one element") {
                     cycle.push(cycle[0]);
                 }
-                let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
+                let cycle_string = cycle.iter().map(|sr| &names[sr]).join(" -> ");
                 let mut diag = Diagnostic::error(&format!(
                     "Specification is not well-formed: Found dependency cycle: {cycle_string}",
                 ));
@@ -275,7 +274,6 @@ impl DepAna {
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
                     .iter()
@@ -291,7 +289,6 @@ impl DepAna {
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.spawn(sr).map(
                     |SpawnDef {
@@ -309,7 +306,6 @@ impl DepAna {
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
                     .iter()
@@ -322,7 +318,6 @@ impl DepAna {
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.close(sr)
                     .and_then(|cd| cd.condition)
@@ -336,7 +331,7 @@ impl DepAna {
             .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
 
-        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
+        let num_nodes = spec.num_inputs() + spec.num_outputs();
         let num_edges = edges.len();
         let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 

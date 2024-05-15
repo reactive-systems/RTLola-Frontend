@@ -1,5 +1,5 @@
 use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, RtLolaAst};
+use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
 
 /// Enables usage of mirror streams
 ///
@@ -17,7 +17,10 @@ impl Mirror {
             span,
             id: mirror_id,
         } = stream.clone();
-        let target = ast.outputs.iter().find(|o| o.name.name == target.name);
+        let target = ast
+            .outputs
+            .iter()
+            .find(|o| o.name().is_some_and(|name| name.name == target.name));
         let target = target.expect("mirror stream refers to a stream that does not exist");
         let target = (**target).clone();
 
@@ -58,7 +61,7 @@ impl Mirror {
             })
             .collect();
         let output = Output {
-            name,
+            kind: OutputKind::NamedOutput(name),
             eval: new_eval_specs,
             id: ast.next_id(),
             span: span.to_indirect(),

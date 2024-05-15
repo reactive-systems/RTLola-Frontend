@@ -20,7 +20,7 @@ where
     /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
     /// A stream nme lookup table, generated for the input `Hir`.
-    pub(crate) names: HashMap<StreamReference, &'a str>,
+    pub(crate) names: HashMap<StreamReference, String>,
 }
 
 /// Wrapper enum to unify streams, expressions and parameter during inference.
@@ -37,7 +37,7 @@ pub(crate) trait Resolvable: Debug {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic;
@@ -64,7 +64,7 @@ impl<K: Resolvable> TypeError<K> {
     pub(crate) fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
     ) -> Diagnostic {
         self.kind.into_diagnostic(spans, names, self.key1, self.key2)
     }
@@ -86,8 +86,7 @@ where
     /// Detailed error information is emitted by the [Handler].
     pub(crate) fn check(&mut self) -> Result<Typed, RtLolaError> {
         let pacing_tt = self.pacing_type_infer()?;
-
-        let value_tt = self.value_type_infer(&pacing_tt)?;
+        let value_tt = self.value_type_infer()?;
 
         let mut expression_map = HashMap::new();
         let mut stream_map = HashMap::new();
@@ -126,10 +125,6 @@ where
                 eval_clauses.insert((*sref, *idx), eval_pacing);
             };
         });
-        for trigger in &self.hir.triggers {
-            let eval_pacing = pacing_tt[&NodeId::SRef(trigger.sr)].eval_pacing.clone();
-            eval_clauses.insert((trigger.sr, 0), eval_pacing);
-        }
         Ok(Typed::new(stream_map, expression_map, parameters, eval_clauses))
     }
 
@@ -140,11 +135,8 @@ where
     }
 
     /// starts the value type infer part with the [ValueTypeChecker].
-    pub(crate) fn value_type_infer(
-        &self,
-        pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
-        let ctx = ValueTypeChecker::new(self.hir, &self.names, pacing_tt);
+    pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
+        let ctx = ValueTypeChecker::new(self.hir, &self.names);
         ctx.type_check()
     }
 }

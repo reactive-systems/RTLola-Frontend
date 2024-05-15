@@ -5,12 +5,13 @@ use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
     DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, MemBoundTrait, Offset,
-    OrderedTrait, Origin, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
+    OrderedTrait, Origin, OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind,
+    Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 
-use crate::mir::{self, Close, Eval, EvalClause, Mir, Spawn};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -26,13 +27,6 @@ impl Mir {
                     .enumerate()
                     .map(|(new_ref, o)| (o.sr(), StreamReference::Out(new_ref))),
             )
-            .chain({
-                let num_outputs = hir.num_outputs();
-                hir.triggers()
-                    .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-                    .enumerate()
-                    .map(move |(idx, t)| (t.sr(), StreamReference::Out(num_outputs + idx)))
-            })
             .collect();
 
         let inputs = hir
@@ -63,7 +57,8 @@ impl Mir {
         let outputs = hir.outputs().map(|o| {
             let sr = o.sr();
             mir::OutputStream {
-                name: o.name.clone(),
+                name: o.name(),
+                kind: o.kind.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
                 spawn: Self::lower_spawn(&hir, &sr_map, sr),
                 eval: Self::lower_eval(&hir, &sr_map, sr),
@@ -81,41 +76,8 @@ impl Mir {
                 params: Self::lower_parameters(&hir, sr),
             }
         });
-        let (trigger_streams, triggers): (Vec<mir::OutputStream>, Vec<mir::Trigger>) = hir
-            .triggers()
-            .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-            .enumerate()
-            .map(|(index, t)| {
-                let sr = t.sr();
-                let mir_trigger = mir::Trigger {
-                    message: t.message.clone(),
-                    info_streams: t.info_streams.iter().map(|i| sr_map[i]).collect(),
-                    reference: sr_map[&sr],
-                    trigger_reference: index,
-                };
-                let mir_output_stream = mir::OutputStream {
-                    name: format!("trigger_{index}"), //TODO better name
-                    ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    spawn: Spawn::default(),
-                    eval: Self::lower_eval(&hir, &sr_map, sr),
-                    close: Close::default(),
-                    accesses: Self::lower_accessed_streams(&sr_map, hir.direct_accesses_with(sr)),
-                    accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
-                    aggregated_by: hir
-                        .aggregated_by(sr)
-                        .into_iter()
-                        .map(|(sr, wr)| (sr_map[&sr], wr))
-                        .collect(),
-                    memory_bound: hir.memory_bound(sr),
-                    layer: hir.stream_layers(sr),
-                    reference: sr_map[&sr],
-                    params: Default::default(), // no parameters for a trigger
-                };
-                (mir_output_stream, mir_trigger)
-            })
-            .unzip();
+
         let outputs = outputs
-            .chain(trigger_streams)
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
@@ -177,6 +139,18 @@ impl Mir {
                 .all(|(idx, w)| idx == w.reference.idx()),
             "WRefs need to enumerate from 0 to the number of discrete windows"
         );
+
+        let triggers = outputs
+            .iter()
+            .filter_map(|output| matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference))
+            .enumerate()
+            .map(|(trigger_reference, output_reference)| {
+                Trigger {
+                    trigger_reference,
+                    output_reference,
+                }
+            })
+            .collect();
 
         Mir {
             inputs,
@@ -240,13 +214,22 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> mir::TimeDrivenStream {
-        if let ConcretePacingType::FixedPeriodic(freq) = &hir.stream_type(sr).eval_pacing {
-            mir::TimeDrivenStream {
-                reference: sr_map[&sr],
-                frequency: *freq,
-            }
-        } else {
-            unreachable!()
+        match &hir.stream_type(sr).eval_pacing {
+            ConcretePacingType::FixedGlobalPeriodic(f) => {
+                mir::TimeDrivenStream {
+                    reference: sr_map[&sr],
+                    frequency: *f,
+                    locality: PacingLocality::Global,
+                }
+            },
+            ConcretePacingType::FixedLocalPeriodic(f) => {
+                mir::TimeDrivenStream {
+                    reference: sr_map[&sr],
+                    frequency: *f,
+                    locality: PacingLocality::Local,
+                }
+            },
+            _ => unreachable!(),
         }
     }
 
@@ -256,10 +239,11 @@ impl Mir {
     ) -> mir::PacingType {
         match cpt {
             ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map)),
-            ConcretePacingType::FixedPeriodic(freq) => mir::PacingType::Periodic(freq),
+            ConcretePacingType::FixedLocalPeriodic(freq) => mir::PacingType::LocalPeriodic(freq),
+            ConcretePacingType::FixedGlobalPeriodic(freq) => mir::PacingType::GlobalPeriodic(freq),
             ConcretePacingType::Constant => mir::PacingType::Constant,
-            ConcretePacingType::Periodic => {
-                unreachable!("Ensured by pacing type checker")
+            other => {
+                unreachable!("Ensured by pacing type checker: {:?}", other)
             },
         }
     }
@@ -318,7 +302,9 @@ impl Mir {
                 let cpt = hir.stream_type(sr).close_pacing;
                 let close_self_ref = matches!(
                     hir.expr_type(expr.id()).spawn_pacing,
-                    ConcretePacingType::Event(_) | ConcretePacingType::FixedPeriodic(_)
+                    ConcretePacingType::Event(_)
+                        | ConcretePacingType::FixedGlobalPeriodic(_)
+                        | ConcretePacingType::FixedLocalPeriodic(_)
                 );
                 (
                     Some(Self::lower_expr(hir, sr_map, expr)),
@@ -692,7 +678,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
@@ -712,7 +698,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
@@ -733,7 +719,7 @@ mod tests {
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name == "d".to_string()).unwrap();
+        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
         assert_eq!(
@@ -793,7 +779,7 @@ mod tests {
         ));
         assert_eq!(
             mir_d.spawn.pacing,
-            mir::PacingType::Periodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            mir::PacingType::GlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
             mir_d.eval.clauses[0].condition,
@@ -809,25 +795,6 @@ mod tests {
                 ty: _,
             })
         ));
-    }
-
-    #[test]
-    fn test_trigger_with_info() {
-        let spec = "input a: Bool\n\
-        trigger a \"test message\" (a)";
-        let (_, mir) = lower_spec(spec);
-
-        assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
-        assert_eq!(mir.event_driven.len(), 1);
-        assert_eq!(mir.time_driven.len(), 0);
-        assert_eq!(mir.discrete_windows.len(), 0);
-        assert_eq!(mir.sliding_windows.len(), 0);
-        assert_eq!(mir.triggers.len(), 1);
-        let trigger = mir.triggers[0].clone();
-        assert_eq!(trigger.info_streams[0], StreamReference::In(0));
-
-        assert_eq!(trigger.message, "test message");
     }
 
     #[test]

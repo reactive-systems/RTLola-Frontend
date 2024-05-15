@@ -11,8 +11,8 @@ use crate::features::{
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
-    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, Trigger, TypedTrait, WRef,
-    WidenExprKind, Window,
+    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, TypedTrait, WRef, WidenExprKind,
+    Window,
 };
 use crate::{CompleteMode, RtLolaHir};
 
@@ -55,12 +55,6 @@ pub trait Feature {
         _span: &Span,
         _aggregation: &InstanceAggregation,
     ) -> Result<(), RtLolaError> {
-        Ok(())
-    }
-
-    /// Specifies whether to exclude a given Trigger
-    /// If the trigger contains constructs part of the feature an Err should be returned describing which construct was used.
-    fn exclude_trigger(&self, _trigger: &Trigger) -> Result<(), RtLolaError> {
         Ok(())
     }
 
@@ -124,10 +118,6 @@ impl Feature for FeatureSelector {
 
     fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_instance_aggregation(span, aggregation))
-    }
-
-    fn exclude_trigger(&self, trigger: &Trigger) -> Result<(), RtLolaError> {
-        self.iter_features(|f| f.exclude_trigger(trigger))
     }
 
     fn exclude_value_type(&self, span: &Span, ty: &ConcreteValueType) -> Result<(), RtLolaError> {
@@ -297,21 +287,21 @@ impl FeatureSelector {
 
         self.hir.outputs.iter().for_each(|o| {
             let ty = self.hir.stream_type(o.sr);
-            let spawn_span = &o
+            let spawn_span: Span = o
                 .spawn
                 .as_ref()
-                .and_then(|spawn| {
+                .map(|spawn| {
                     spawn
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .or_else(|| {
-                            spawn.pacing.as_ref().map(|apt| {
-                                match &apt {
-                                    AnnotatedPacingType::Frequency { span, .. } => *span,
-                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
-                                }
-                            })
+                        .unwrap_or_else(|| {
+                            match spawn.pacing {
+                                AnnotatedPacingType::GlobalFrequency(f) => f.span,
+                                AnnotatedPacingType::LocalFrequency(f) => f.span,
+                                AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
+                                AnnotatedPacingType::NotAnnotated => Span::Unknown,
+                            }
                         })
                 })
                 .unwrap_or(Span::Unknown);
@@ -325,7 +315,7 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_pacing_type(&o.span, &ty.eval_pacing) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn_pacing) {
+            if let Err(e) = self.exclude_pacing_type(&spawn_span, &ty.spawn_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_expr(o.sr)) {
@@ -361,21 +351,6 @@ impl FeatureSelector {
         self.hir.instance_aggregations().iter().for_each(|aggr| {
             let span = self.find_window_span(aggr.reference);
             if let Err(e) = self.exclude_instance_aggregation(&span, aggr) {
-                res.join(e);
-            }
-        });
-        self.hir.triggers.iter().for_each(|t| {
-            let ty = self.hir.stream_type(t.sr);
-            if let Err(e) = self.exclude_value_type(&t.span, &ty.value_ty) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_pacing_type(&t.span, &ty.eval_pacing) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_expression(self.hir.expression(t.expr_id)) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_trigger(t) {
                 res.join(e);
             }
         });

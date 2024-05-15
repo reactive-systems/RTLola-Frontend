@@ -43,8 +43,6 @@ pub struct RtLolaAst {
     pub outputs: Vec<Rc<Output>>,
     /// The mirror stream declarations
     pub mirrors: Vec<Rc<Mirror>>,
-    /// The trigger declarations
-    pub trigger: Vec<Rc<Trigger>>,
     /// The user-defined type declarations
     pub type_declarations: Vec<TypeDeclaration>,
     /// Next highest NodeId
@@ -60,7 +58,6 @@ impl RtLolaAst {
             inputs: Vec::new(),
             outputs: Vec::new(),
             mirrors: Vec::new(),
-            trigger: Vec::new(),
             type_declarations: Vec::new(),
             next_node_id: RefCell::new(NodeId::default()),
         }
@@ -81,7 +78,6 @@ impl RtLolaAst {
             inputs,
             outputs,
             mirrors,
-            trigger,
             type_declarations,
             next_node_id,
         } = self;
@@ -92,7 +88,6 @@ impl RtLolaAst {
             inputs: inputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             outputs: outputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             mirrors: mirrors.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
-            trigger: trigger.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             type_declarations: type_declarations.clone(),
             next_node_id: next_node_id.clone(),
         }
@@ -141,11 +136,21 @@ pub struct Input {
     pub span: Span,
 }
 
+/// The kind of an output stream
+/// Can be either a regular output stream with a name or a trigger
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum OutputKind {
+    /// The output stream represents a regular named output stream
+    NamedOutput(Ident),
+    /// The output stream represents a trigger
+    Trigger,
+}
+
 /// An Ast node representing the declaration of an output stream.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Output {
-    /// The name of the output stream
-    pub name: Ident,
+    /// The kind of the output stream
+    pub kind: OutputKind,
     /// An optional value type annotation of the output stream
     pub annotated_type: Option<Type>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
@@ -160,6 +165,16 @@ pub struct Output {
     pub id: NodeId,
     /// The span in the specification declaring the output stream
     pub span: Span,
+}
+
+impl Output {
+    /// Returns the name of the output stream if it has any
+    pub fn name(&self) -> Option<&Ident> {
+        match &self.kind {
+            OutputKind::NamedOutput(n) => Some(n),
+            OutputKind::Trigger => None,
+        }
+    }
 }
 
 /// Represents an output stream that mirrors another but filters them.
@@ -198,7 +213,7 @@ pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub expression: Option<Expression>,
     /// The pacing type describing when a new instance is created.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
     /// The id of the node in the Ast
@@ -211,7 +226,7 @@ pub struct SpawnSpec {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EvalSpec {
     /// The pacing type describing when a new value is computed.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub condition: Option<Expression>,
     /// The evaluated expression, defining the value of the stream.
@@ -228,24 +243,7 @@ pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub condition: Expression,
     /// The pacing type describing when the close condition is evaluated.
-    pub annotated_pacing: Option<Expression>,
-    /// The id of the node in the Ast
-    pub id: NodeId,
-    /// The span in the specification declaring the extend declaration
-    pub span: Span,
-}
-
-/// An Ast node representing the declaration of a trigger
-#[derive(Debug, Clone)]
-pub struct Trigger {
-    /// The boolean expression of a trigger
-    pub expression: Expression,
-    /// The pacing type, which defines when a new value of a stream is computed.
-    pub annotated_pacing_type: Option<Expression>,
-    /// The optional trigger message, which is printed if the monitor raises the trigger
-    pub message: Option<String>,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is fired.
-    pub info_streams: Vec<Ident>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
@@ -738,6 +736,19 @@ pub enum InstanceSelection {
     Fresh,
     /// All instances are part of the aggregation
     All,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Enum to indicate which annotated pacing type the stream has
+pub enum AnnotatedPacingType {
+    /// No annotated Pacing
+    NotAnnotated,
+    /// Annotated Pacing refers to the global clock
+    Global(Expression),
+    /// Annotated Pacing refers to the local clock
+    Local(Expression),
+    /// Annotated Pacing is unspecified if it refers the local or global clock
+    Unspecified(Expression),
 }
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.

@@ -18,7 +18,6 @@ use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
-    Trigger,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -82,14 +81,6 @@ trait SynSugar {
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    /// Desugars a single trigger.  Provided [RtLolaAst] and [Trigger] are for reference, not modification.
-    ///
-    /// # Requirements
-    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
-    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
 }
@@ -235,27 +226,12 @@ impl Desugarizer {
                 };
                 ast.outputs[ix] = Rc::new(new_out);
             }
-            for ix in 0..ast.trigger.len() {
-                let trigger = &ast.trigger[ix];
-                let (new_out_expr, cs) = Self::desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
-                change_set += cs;
-                let trigger_clone: Trigger = Trigger::clone(trigger);
-                let new_trigger = Trigger {
-                    expression: new_out_expr,
-                    ..trigger_clone
-                };
-                ast.trigger[ix] = Rc::new(new_trigger);
-            }
             for input in ast.inputs.iter() {
                 change_set += self.desugarize_input(input, &ast, current_sugar);
             }
 
             for output in ast.outputs.iter() {
                 change_set += self.desugarize_output(output, &ast, current_sugar);
-            }
-
-            for trigger in ast.trigger.iter() {
-                change_set += self.desugarize_trigger(trigger, &ast, current_sugar);
             }
 
             change_flag |= change_set._local_applied_flag || !change_set.global_instructions.is_empty();
@@ -280,14 +256,11 @@ impl Desugarizer {
                     } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
                         assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
                         ast.mirrors.remove(idx);
-                    } else if let Some(idx) = ast.trigger.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.trigger[idx]), 1);
-                        ast.trigger.remove(idx);
                     } else {
                         debug_assert!(false, "id in changeset does not belong to any stream");
                     }
                 },
-                ChangeInstruction::ReplaceExpr(id, expr) => {
+                ChangeInstruction::ReplaceExpr(_, expr) => {
                     for ix in 0..ast.outputs.len() {
                         let out = &ast.outputs[ix];
                         let out_clone: Output = Output::clone(out);
@@ -363,17 +336,6 @@ impl Desugarizer {
                             ..out_clone
                         };
                         ast.outputs[ix] = Rc::new(new_out);
-                    }
-
-                    for ix in 0..ast.trigger.len() {
-                        let trigger: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression);
-                        let trigger_clone: Trigger = Trigger::clone(trigger);
-                        let new_trigger = Trigger {
-                            expression: new_trigger_expr,
-                            ..trigger_clone
-                        };
-                        ast.trigger[ix] = Rc::new(new_trigger);
                     }
                 },
             }
@@ -789,11 +751,6 @@ impl Desugarizer {
     fn desugarize_output(&self, output: &Output, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
         current_sugar.desugarize_stream_out(output, ast)
     }
-
-    #[allow(clippy::borrowed_box)]
-    fn desugarize_trigger(&self, trigger: &Trigger, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
-        current_sugar.desugarize_stream_trigger(trigger, ast)
-    }
 }
 
 impl Default for Desugarizer {
@@ -1114,8 +1071,8 @@ mod tests {
         assert!(ast.mirrors.is_empty());
         let new = &ast.outputs[1];
         let target = &ast.outputs[0];
-        assert_eq!(target.name.name, "x");
-        assert_eq!(new.name.name, "y");
+        assert_eq!(target.name().unwrap().name, "x");
+        assert_eq!(new.name().unwrap().name, "y");
         assert_eq!(new.annotated_type, target.annotated_type);
         assert_eq!(
             new.eval[0].clone().annotated_pacing,

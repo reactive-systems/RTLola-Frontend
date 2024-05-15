@@ -104,9 +104,9 @@ impl<'a> RtLolaParser<'a> {
                         Err(e) => error.join(e),
                     }
                 },
-                Rule::Trigger => {
+                Rule::SimpleTrigger => {
                     match self.parse_trigger(pair) {
-                        Ok(trigger) => self.spec.trigger.push(Rc::new(trigger)),
+                        Ok(trigger) => self.spec.outputs.push(Rc::new(trigger)),
                         Err(e) => error.join(e),
                     }
                 },
@@ -236,7 +236,17 @@ impl<'a> RtLolaParser<'a> {
 
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner().peekable();
-        let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
+
+        let pair = pairs.next().unwrap();
+        let kind = match pair.as_rule() {
+            Rule::TriggerDecl => OutputKind::Trigger,
+            Rule::NamedOutputDecl => {
+                OutputKind::NamedOutput(
+                    self.parse_ident(&pair.into_inner().next().expect("mismatch between grammar and AST")),
+                )
+            },
+            _ => panic!("mismatch between grammar and AST"),
+        };
 
         let mut error = RtLolaError::new();
         let mut eval = Vec::new();
@@ -320,10 +330,36 @@ impl<'a> RtLolaParser<'a> {
             }
         });
 
+        let eval = eval
+            .into_iter()
+            .map(|mut eval| {
+                // if the output is a trigger, a missing eval-with clause is replaced with an empty trigger message
+                // if the output is a named output, a missing eval-with clause is replaced by an empty tuple
+                eval.eval_expression.get_or_insert_with(|| {
+                    let kind = match kind {
+                        OutputKind::Trigger => {
+                            ExpressionKind::Lit(Literal {
+                                kind: LitKind::Str("".into()),
+                                id: self.spec.next_id(),
+                                span: Span::Unknown,
+                            })
+                        },
+                        OutputKind::NamedOutput(_) => ExpressionKind::Tuple(vec![]),
+                    };
+                    Expression {
+                        kind,
+                        id: self.spec.next_id(),
+                        span: Span::Unknown,
+                    }
+                });
+                eval
+            })
+            .collect();
+
         Result::from(error)?;
         Ok(Output {
             id: self.spec.next_id(),
-            name,
+            kind,
             annotated_type,
             params: params.into_iter().map(Rc::new).collect(),
             spawn,
@@ -367,8 +403,7 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner());
-                spawn_children.next();
+                let expr = self.parse_activation_condition(spawn_children.next().unwrap());
                 expr.map_or_else(
                     |e| {
                         error.join(e);
@@ -381,7 +416,8 @@ impl<'a> RtLolaParser<'a> {
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut expression: Option<Expression> = None;
@@ -425,7 +461,7 @@ impl<'a> RtLolaParser<'a> {
             }
         }
 
-        if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if expression.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
                     span_inv,
@@ -454,14 +490,14 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let annotated_pacing = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
-                Some(expr)
+                annotated_pacing
             } else {
-                None
+                AnnotatedPacingType::NotAnnotated
             }
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let exp_res = self.build_expression_ast(next_pair.expect("Mismatch between grammar and AST").into_inner())?;
@@ -485,15 +521,15 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner())?;
-                children.next();
+                let expr = self.parse_activation_condition(children.next().unwrap())?;
                 Some(expr)
             } else {
                 None
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut eval_expr: Option<Expression> = None;
@@ -537,7 +573,7 @@ impl<'a> RtLolaParser<'a> {
             }
         }
 
-        if eval_expr.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if eval_expr.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Eval clause needs either expression or condition").add_span_with_label(
                     span_ext,
@@ -545,12 +581,6 @@ impl<'a> RtLolaParser<'a> {
                     true,
                 ),
             );
-        } else if eval_expr.is_none() {
-            eval_expr = Some(Expression {
-                id: self.spec.next_id(),
-                span: span_ext,
-                kind: ExpressionKind::Tuple(Vec::new()),
-            })
         }
 
         Result::from(error)?;
@@ -573,7 +603,7 @@ impl<'a> RtLolaParser<'a> {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let expr = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
                 Some(expr)
             } else {
@@ -581,7 +611,8 @@ impl<'a> RtLolaParser<'a> {
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let condition_pair = next_pair.expect("mismatch between grammar and ast");
         let condition = match condition_pair.as_rule() {
@@ -604,8 +635,8 @@ impl<'a> RtLolaParser<'a> {
      * - `Rule::Expr`
      * - (`Rule::StringLiteral`)?
      */
-    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Trigger, RtLolaError> {
-        assert_eq!(pair.as_rule(), Rule::Trigger);
+    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Output, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::SimpleTrigger);
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner();
 
@@ -613,37 +644,65 @@ impl<'a> RtLolaParser<'a> {
 
         // Parse the `@ [Expr]` part of output declaration
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
-            let expr = self.build_expression_ast(pair.into_inner())?;
+            let expr = self.parse_activation_condition(pair)?;
             pair = pairs.next().expect("mismatch between grammar and AST");
-            Some(expr)
+            expr
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let expression = self.build_expression_ast(pair.into_inner())?;
 
-        let message = pairs.next().map(|pair| {
-            assert_eq!(pair.as_rule(), Rule::String);
-            pair.as_str().to_string()
-        });
-
-        // Parse list of info streams
-        let info_streams = pairs
+        let (msg, msg_span) = pairs
             .next()
             .map(|pair| {
-                assert_eq!(pair.as_rule(), Rule::IdentList);
-                pair.into_inner().map(|p| self.parse_ident(&p)).collect()
+                assert_eq!(pair.as_rule(), Rule::String);
+                (pair.as_str().to_owned(), pair.as_span().into())
             })
-            .unwrap_or_default();
+            .unwrap_or(("".into(), Span::Unknown));
 
-        Ok(Trigger {
+        let msg_expr = Expression {
+            kind: ExpressionKind::Lit(Literal::new_str(self.spec.next_id(), &msg, span)),
             id: self.spec.next_id(),
-            expression,
-            annotated_pacing_type,
-            message,
-            info_streams,
+            span: msg_span,
+        };
+
+        Ok(Output {
+            kind: OutputKind::Trigger,
+            annotated_type: None,
+            params: Vec::new(),
+            spawn: None,
+            eval: vec![EvalSpec {
+                annotated_pacing: annotated_pacing_type,
+                condition: Some(expression),
+                eval_expression: Some(msg_expr),
+                id: self.spec.next_id(),
+                span,
+            }],
+            close: None,
+            id: self.spec.next_id(),
             span,
         })
+    }
+
+    fn parse_activation_condition(&self, pair: Pair<'_, Rule>) -> Result<AnnotatedPacingType, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::ActivationCondition);
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::GlobalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Global(expr))
+            },
+            Rule::LocalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Local(expr))
+            },
+            Rule::Expr => {
+                let expr: Expression = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Unspecified(expr))
+            },
+            _ => unreachable!("mismatch between grammar and AST"),
+        }
     }
 
     /**
@@ -1402,7 +1461,7 @@ mod tests {
             rule:   Rule::OutputStream,
             tokens: [
                 OutputStream(0, 25, [
-                    Ident(7, 10, []),
+                    NamedOutputDecl(0, 10, [Ident(7, 10)]),
                     Type(12, 15, [
                         Ident(12, 15, []),
                     ]),
@@ -1440,9 +1499,9 @@ mod tests {
         parses_to! {
             parser: LolaParser,
             input:  "trigger in != out \"some message\"",
-            rule:   Rule::Trigger,
+            rule:   Rule::SimpleTrigger,
             tokens: [
-                Trigger(0, 32, [
+                SimpleTrigger(0, 32, [
                     Expr(8, 17, [
                         Ident(8, 10, []),
                         NotEqual(11, 13, []),
@@ -1459,12 +1518,52 @@ mod tests {
         let spec = "trigger in ≠ out \"some message\"";
         let config = ParserConfig::for_string(spec.into());
         let parser = RtLolaParser::new(&config);
-        let pair = LolaParser::parse(Rule::Trigger, spec)
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
         let ast = parser.parse_trigger(pair).unwrap();
-        assert_eq!(format!("{}", ast), "trigger in ≠ out \"some message\"")
+        assert_eq!(format!("{}", ast), "trigger eval when in ≠ out with \"some message\"")
+    }
+
+    #[test]
+    fn parse_complex_trigger() {
+        let spec =
+            "trigger (p) spawn when a = 0 with b eval @1Hz when b = 0 with \"msg\".format(a) close @2Hz when true";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), spec)
+    }
+
+    #[test]
+    fn trigger_missing_message() {
+        let spec = "trigger eval when a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
+    }
+
+    #[test]
+    fn trigger_missing_message2() {
+        let spec = "trigger a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_trigger(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
     }
 
     #[test]
@@ -1508,7 +1607,7 @@ mod tests {
 
     #[test]
     fn build_simple_ast() {
-        let spec = "input in: Int\noutput out: Int eval with in\ntrigger in ≠ out\n";
+        let spec = "input in: Int\noutput out: Int eval with in\ntrigger eval when in ≠ out with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1578,43 +1677,35 @@ mod tests {
 
     #[test]
     fn build_trigger() {
-        let spec = "input in: Int\ntrigger in > 5\n";
+        let spec = "input in: Int\ntrigger eval when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_extend() {
-        let spec = "trigger @1Hz in > 5\n";
+        let spec = "trigger eval @1Hz when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_message() {
-        let spec = "trigger in > 5 \"test trigger\"\n";
+        let spec = "trigger eval when in > 5 with \"test trigger\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].message, Some("test trigger".to_string()));
+        let eval = &ast.outputs[0].eval[0];
+        assert!(
+            matches!(&eval.eval_expression, Some(Expression {kind: ExpressionKind::Lit(Literal {kind:LitKind::Str(s),..}),..}) if s == "test trigger")
+        );
     }
 
     #[test]
-    fn build_trigger_message_with_info_streams() {
-        let spec = "trigger in > 5 \"test trigger\" (i, o, x)\n";
+    fn build_simple_trigger() {
+        let spec = "trigger x > 10 \"msg\"";
+        let reference = "trigger eval when x > 10 with \"msg\"\n";
         let ast = parse(spec);
-        cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].info_streams.len(), 3);
-        assert_eq!(ast.trigger[0].info_streams[0].name, "i".to_string());
-        assert_eq!(ast.trigger[0].info_streams[1].name, "o".to_string());
-        assert_eq!(ast.trigger[0].info_streams[2].name, "x".to_string());
-    }
-
-    #[test]
-    fn build_trigger_message_with_info_streams_faulty() {
-        let spec = "trigger in > 5 (i, o, x)\n";
-        let config = ParserConfig::for_string(spec.into());
-        let parser = RtLolaParser::new(&config);
-        assert!(matches!(parser.parse_spec(), Err(_)));
+        cmp_ast_spec(&ast, reference);
     }
 
     #[test]
@@ -2082,5 +2173,15 @@ mod tests {
         output c eval with b.aggregate(over_instances: all, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn global_and_local_frequencies() {
+        let spec = "input a: Int32\n\
+        output not (p) spawn with a eval @1Hz with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&dbg!(ast), spec);
     }
 }

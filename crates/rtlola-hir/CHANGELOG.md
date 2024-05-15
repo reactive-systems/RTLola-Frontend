@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discrete windows are now event-based and follow the pacing of the stream they aggregate.
 - Projecting out of optional tuples is now allowed and produces an optional value.
 - Include origin of stream access in `direct_accesses_with` and `direct_accessed_by_with`.
+- Triggers are represented as output streams and not handled separately.
 
 ## [0.4.1] - 02.02.2023
 

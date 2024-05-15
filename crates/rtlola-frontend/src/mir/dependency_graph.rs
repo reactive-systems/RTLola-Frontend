@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io::BufWriter;
-use std::ops::Not;
 
 use dot::{LabelText, Style};
 use itertools::Itertools;
@@ -23,15 +22,19 @@ pub struct DependencyGraph<'a> {
 
 impl<'a> DependencyGraph<'a> {
     pub(super) fn new(mir: &'a Mir) -> Self {
-        let trigger: HashSet<_> = mir.triggers.iter().map(|t| t.reference).collect();
-
         let stream_nodes = mir
-            .all_streams()
-            .filter_map(|sref| trigger.contains(&sref).not().then_some(Node::Stream(sref)));
-
-        let trigger_nodes = mir.triggers.iter().map(|t| Node::Trigger(t.trigger_reference));
+            .inputs
+            .iter()
+            .map(|i| i.reference)
+            .chain(mir.outputs.iter().filter(|o| !o.is_trigger()).map(|o| o.reference))
+            .map(Node::Stream);
 
         let window_nodes = mir.sliding_windows.iter().map(|w| Node::Window(w.reference));
+
+        let trigger_nodes = mir
+            .triggers
+            .iter()
+            .map(|trigger| Node::Trigger(trigger.trigger_reference));
 
         let nodes: Vec<_> = stream_nodes.chain(window_nodes).chain(trigger_nodes).collect();
 
@@ -187,17 +190,6 @@ enum NodeInformation<'a> {
         value_ty: String,
     },
 
-    Trigger {
-        reference: StreamReference,
-        idx: usize,
-        eval_layer: usize,
-        memory_bound: u32,
-        pacing_ty: String,
-        spawn_ty: String,
-        value_ty: String,
-        message: &'a str,
-    },
-
     Window {
         reference: WindowReference,
         operation: String,
@@ -211,7 +203,7 @@ fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
     match node {
         Node::Stream(sref) => stream_infos(mir, sref),
         Node::Window(wref) => window_infos(mir, wref),
-        Node::Trigger(tref) => trigger_infos(mir, tref),
+        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference),
     }
 }
 
@@ -299,33 +291,6 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
     }
 }
 
-fn trigger_infos(mir: &Mir, tref: TriggerReference) -> NodeInformation {
-    let trigger = &mir.triggers[tref];
-    if let NodeInformation::Output {
-        reference: _,
-        stream_name: _,
-        eval_layer,
-        memory_bound: _,
-        pacing_ty,
-        spawn_ty,
-        value_ty,
-    } = stream_infos(mir, trigger.reference)
-    {
-        NodeInformation::Trigger {
-            reference: trigger.reference,
-            idx: tref,
-            eval_layer,
-            memory_bound: 0,
-            pacing_ty,
-            spawn_ty,
-            value_ty,
-            message: &trigger.message,
-        }
-    } else {
-        unreachable!("is NodeInformation::Stream");
-    }
-}
-
 fn edges(mir: &Mir) -> Vec<Edge> {
     let input_accesses = mir.inputs.iter().map(|input| (input.reference, &input.accessed_by));
     let output_accesses = mir.outputs.iter().map(|output| (output.reference, &output.accessed_by));
@@ -333,7 +298,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     let out_to_trig: &HashMap<_, _> = &(mir
         .triggers
         .iter()
-        .map(|t| (t.reference, t.trigger_reference))
+        .map(|t| (t.output_reference, t.trigger_reference))
         .collect());
 
     let access_edges = all_accesses.flat_map(|(source_ref, accesses)| {
@@ -399,7 +364,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     })
                     .collect()
             },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 
@@ -421,7 +386,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                     })
                     .collect()
             },
-            PacingType::Periodic(_) | PacingType::Constant => vec![],
+            PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
 
@@ -491,24 +456,6 @@ Layer {eval_layer}"
                 pacing_ty: _,
                 memory_bound: _,
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
-            NodeInformation::Trigger {
-                idx,
-                eval_layer,
-                pacing_ty,
-                value_ty,
-                spawn_ty,
-                message,
-                reference: _,
-                memory_bound: _,
-            } => {
-                format!(
-                    "Trigger {idx}: {value_ty}<br/>\
-Pacing: {pacing_ty}<br/>\
-Spawn: {spawn_ty}<br/>\
-Layer: {eval_layer}<br/><br/>\
-{message}"
-                )
-            },
         };
 
         dot::LabelText::HtmlStr(label_text.into())
@@ -702,7 +649,7 @@ mod tests {
     test_dependency_graph!(trigger,
         "input a : UInt64
         trigger a > 5",
-        T(0):Eval(0) => In(0) : Sync,
+        T(0):Filter(0) => In(0) : Sync,
         T(0) => In(0) : Eval,
     );
 
@@ -716,7 +663,7 @@ mod tests {
         Out(0):Eval(0) => In(1) : Hold,
         Out(1):Eval(0) => SW(0) : SW(0),
         SW(0):Eval(0) => In(0) : SW(0),
-        T(0):Eval(0) => Out(1) : Sync,
+        T(0):Filter(0) => Out(1) : Sync,
         Out(0) => In(0) : Eval,
     );
 

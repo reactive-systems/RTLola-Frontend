@@ -8,7 +8,7 @@ IncompleteSpec = { SOI ~ ImportStmts ~ Declaration* }
 Spec = { SOI~ (BOM)? ~ ImportStmts ~ Declaration* ~ EOI }
 ImportStmts = _{ ImportStmt* }
 ImportStmt  = { "import " ~ Ident }
-Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | Trigger}
+Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | SimpleTrigger}
 BOM = _{"\u{FEFF}"}
 
 // ///////////////// Statements ///////////////////
@@ -20,7 +20,9 @@ SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
 SpawnWith = { "with " ~Expr }
 SpawnWhen = { "when " ~Expr }
 
-ActivationCondition = { "@" ~ Expr }
+ActivationCondition = { "@" ~ ( GlobalActivationCondition | LocalActivationCondition | Expr)}
+GlobalActivationCondition = { "Global" ~ "(" ~ Expr ~ ")"}
+LocalActivationCondition = {"Local" ~ "(" ~ Expr ~ ")"}
 
 CloseDecl = { "close" ~ ActivationCondition? ~ "when" ~Expr }
 
@@ -38,13 +40,15 @@ ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
 InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
-OutputStream = { "output " ~ Ident ~ ParamList?~ (":" ~ Type)? ~ 
+OutputStream = { (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~ 
  (((SpawnDecl| CloseDecl)* ~ EvalDecl ~ (SpawnDecl | EvalDecl | CloseDecl)*)| SimpleEvalDecl)
 }
+TriggerDecl = { "trigger" }
+NamedOutputDecl = { "output " ~ Ident }
 
 MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
-Trigger = { "trigger " ~ ActivationCondition? ~ Expr ~ (StringLiteral ~ IdentList?)?}
+SimpleTrigger = { "trigger " ~ ActivationCondition? ~ Expr ~ StringLiteral? }
 
 IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
 
