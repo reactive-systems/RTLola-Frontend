@@ -289,7 +289,7 @@ impl NamingAnalysis {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
-                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
                 } {
                     error.join(e);
                 };
@@ -307,7 +307,7 @@ impl NamingAnalysis {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
-                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
                 } {
                     error.join(e);
                 };
@@ -318,7 +318,7 @@ impl NamingAnalysis {
                     AnnotatedPacingType::NotAnnotated => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
-                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(&e),
+                    | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
                 } {
                     error.join(e);
                 };

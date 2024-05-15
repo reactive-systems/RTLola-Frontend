@@ -7,6 +7,7 @@ use uom::num_traits::Inv;
 use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
+use super::PacingLocality;
 use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
 
 /// This enum represents the different tasks that have to be executed periodically.
@@ -14,6 +15,8 @@ use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
 pub enum Task {
     /// Evaluate the stream referred to by the OutputReference
     Evaluate(OutputReference),
+    /// Evaluate all instances refferec to by the OutputReference
+    EvaluateInstances(OutputReference),
     /// Spawn the stream referred to by the OutputReference
     Spawn(OutputReference),
     /// Evaluate the close condition referred to by the OutputReference
@@ -71,7 +74,7 @@ impl Schedule {
         let stream_periods = ir
             .time_driven
             .iter()
-            .filter(|tds| !ir.output(tds.reference).is_spawned())
+            .filter(|tds| tds.locality == PacingLocality::Global)
             .map(|tds| tds.period());
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.spawn.pacing {
@@ -168,14 +171,18 @@ impl Schedule {
         for s in ir
             .time_driven
             .iter()
-            .filter(|tds| !ir.output(tds.reference).is_spawned())
+            .filter(|tds| tds.locality == PacingLocality::Global)
         {
             let ix = s.period().get::<second>() / gcd.get::<second>();
             // Period must be integer multiple of gcd by def of gcd
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
-            extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
+            if ir.output(s.reference).is_parameterized() {
+                extend_steps[ix].push(Task::EvaluateInstances(s.reference.out_ix()));
+            } else {
+                extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
+            }
         }
         let periodic_spawns = ir.outputs.iter().filter_map(|o| {
             match &o.spawn.pacing {
@@ -254,7 +261,7 @@ impl Schedule {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| {
                 match s {
-                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
+                    Task::Evaluate(sref) | Task::EvaluateInstances(sref) => ir.outputs[*sref].eval_layer().inner(),
                     Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
                     Task::Close(_) => usize::MAX,
                 }

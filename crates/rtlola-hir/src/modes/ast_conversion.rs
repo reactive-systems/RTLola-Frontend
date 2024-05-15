@@ -218,8 +218,8 @@ impl TransformationErr {
             }
             TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true),
             TransformationErr::ExpectedFrequency(span) => Diagnostic::error("Local and Global annotated pacings must be frequencies").add_span_with_label(span, Some("Found Expression here"), true),
-            TransformationErr::LocalPeriodicUnspawned(span) => Diagnostic::error(&format!("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.")).add_span_with_label(span, None, false),
-            TransformationErr::LocalPeriodicInSpawn(span) => Diagnostic::error(&format!("In pacing type analysis:\nspawn condition can not be local periodic.")).add_span_with_label(span, Some("Found local periodic pacing here."), true),
+            TransformationErr::LocalPeriodicUnspawned(span) => Diagnostic::error("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.").add_span_with_label(span, None, false),
+            TransformationErr::LocalPeriodicInSpawn(span) => Diagnostic::error("In pacing type analysis:\nspawn condition can not be local periodic.").add_span_with_label(span, Some("Found local periodic pacing here."), true),
         }
     }
 }

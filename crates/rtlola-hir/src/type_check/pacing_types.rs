@@ -819,7 +819,7 @@ impl PrintableVariant for AbstractPacingType {
             AbstractPacingType::Any => "Any".to_string(),
             AbstractPacingType::GlobalPeriodic(f) => format!("Global({f})"),
             AbstractPacingType::LocalPeriodic(f) => format!("Local({f})"),
-            AbstractPacingType::AnyPeriodic => format!("AnyPeriodic"),
+            AbstractPacingType::AnyPeriodic => "AnyPeriodic".to_string(),
         }
     }
 }

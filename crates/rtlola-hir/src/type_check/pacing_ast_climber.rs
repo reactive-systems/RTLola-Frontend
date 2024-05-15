@@ -212,16 +212,6 @@ where
                 self.add_span_to_stream_key(key, parameter.span);
             }
         }
-
-        for trigger in self.hir.triggers() {
-            let key = self.new_stream_key();
-            self.node_key.insert(NodeId::SRef(trigger.sr), key);
-            self.pacing_key_span.insert(key.eval_pacing, trigger.span);
-            self.pacing_key_span.insert(key.spawn_pacing, Span::Unknown);
-            self.expression_key_span.insert(key.spawn_condition, Span::Unknown);
-            self.expression_key_span.insert(key.eval_condition, Span::Unknown);
-            self.expression_key_span.insert(key.close_condition, Span::Unknown);
-        }
     }
 
     /// Binds the key to the given annotated pacing type
