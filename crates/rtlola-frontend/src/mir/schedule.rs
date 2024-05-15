@@ -15,8 +15,6 @@ use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
 pub enum Task {
     /// Evaluate the stream referred to by the OutputReference
     Evaluate(OutputReference),
-    /// Evaluate all instances refferec to by the OutputReference
-    EvaluateInstances(OutputReference),
     /// Spawn the stream referred to by the OutputReference
     Spawn(OutputReference),
     /// Evaluate the close condition referred to by the OutputReference
@@ -178,11 +176,7 @@ impl Schedule {
             assert!(ix.is_integer());
             let ix = ix.to_integer() as usize;
             let ix = ix - 1;
-            if ir.output(s.reference).is_parameterized() {
-                extend_steps[ix].push(Task::EvaluateInstances(s.reference.out_ix()));
-            } else {
-                extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
-            }
+            extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
         let periodic_spawns = ir.outputs.iter().filter_map(|o| {
             match &o.spawn.pacing {
@@ -261,7 +255,7 @@ impl Schedule {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| {
                 match s {
-                    Task::Evaluate(sref) | Task::EvaluateInstances(sref) => ir.outputs[*sref].eval_layer().inner(),
+                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
                     Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
                     Task::Close(_) => usize::MAX,
                 }
