@@ -742,7 +742,7 @@ impl Stream for OutputStream {
     }
 
     fn is_spawned(&self) -> bool {
-        self.spawn.expression.is_some() || self.spawn.condition.is_some()
+        self.spawn.expression.is_some() || self.spawn.condition.is_some() || self.spawn.pacing != PacingType::Constant
     }
 
     fn is_closed(&self) -> bool {

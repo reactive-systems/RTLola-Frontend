@@ -614,11 +614,17 @@ impl<'a> RtLolaParser<'a> {
         }
         .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
-        let condition_pair = next_pair.expect("mismatch between grammar and ast");
-        let condition = match condition_pair.as_rule() {
-            Rule::Expr => self.build_expression_ast(condition_pair.into_inner()),
-            _ => unreachable!(),
-        }?;
+        let condition = if let Some(pair) = next_pair {
+            assert_eq!(pair.as_rule(), Rule::Expr);
+            self.build_expression_ast(pair.into_inner())?
+        } else {
+            Expression {
+                kind: ExpressionKind::Lit(Literal::new_bool(self.spec.next_id(), true, Span::Unknown)),
+                id: self.spec.next_id(),
+                span: Span::Unknown,
+            }
+        };
+
         Ok(CloseSpec {
             condition,
             annotated_pacing,

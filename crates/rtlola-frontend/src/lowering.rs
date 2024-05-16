@@ -653,7 +653,7 @@ mod tests {
 
     use super::*;
     use crate::mir::IntTy::Int8;
-    use crate::mir::PacingType;
+    use crate::mir::{PacingType, Stream};
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         let ast = ParserConfig::for_string(spec.into())
@@ -880,5 +880,16 @@ mod tests {
                 mir::ActivationCondition::Stream(StreamReference::In(2)),
             ]))
         );
+    }
+
+    #[test]
+    fn spawn_close_ac_only() {
+        let spec = "input a : UInt64\noutput b spawn @a eval @true with true";
+        let (_, mir) = lower_spec(spec);
+        assert!(mir.outputs[0].is_spawned());
+
+        let spec = "input a : UInt64\noutput b spawn when a == 0 eval @Global(1Hz) with true close @Local(5s)";
+        let (_, mir) = lower_spec(spec);
+        assert!(mir.outputs[0].is_closed());
     }
 }
