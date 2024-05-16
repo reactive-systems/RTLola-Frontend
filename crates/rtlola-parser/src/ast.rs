@@ -23,9 +23,8 @@ use rtlola_reporting::Span;
 /// * [Import] represents an import statement for a module.
 /// * [Constant] represents a constant stream.
 /// * [Input] represents an input stream.
-/// * [Output] represents an output stream.
+/// * [Output] represents an regular output stream or trigger.
 /// * [Mirror] represents mirror streams, a syntactic sugar for an output stream.
-/// * [Trigger] represents a trigger declaration.
 /// * [TypeDeclaration] captures a user given type declaration.
 ///
 /// # Related Data Structures
