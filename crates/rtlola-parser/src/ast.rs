@@ -763,7 +763,7 @@ pub struct NodeId {
 impl NodeId {
     /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
-        assert!(x < (u32::max_value() as usize));
+        assert!(x < (u32::MAX as usize));
         NodeId {
             id: x as u32,
             prime_counter: 0u32,

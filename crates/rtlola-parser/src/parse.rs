@@ -880,7 +880,7 @@ impl<'a> RtLolaParser<'a> {
             .map_infix(|lhs, op, rhs| {
 
                 // Reduce function combining `Expression`s to `Expression`s with the correct precs
-                let (lhs, rhs) = RtLolaError::combine(lhs, rhs, |a, b| (a,b))?;
+                let (lhs, rhs) = RtLolaError::combine(lhs, rhs, |a, b| (a, b))?;
                 let span = lhs.span.union(&rhs.span);
                 let op = match op.as_rule() {
                     // Arithmetic
@@ -934,7 +934,7 @@ impl<'a> RtLolaParser<'a> {
                                             self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -984,7 +984,7 @@ impl<'a> RtLolaParser<'a> {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Fresh)
                                     }
-                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" | "aggregate(over_instances:using:)"=> {
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" | "aggregate(over:using:)" | "aggregate(over_exactly:using:)" | "aggregate(over_instances:using:)" => {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
                                             ExpressionKind::Ident(i) => match i.name.as_str() {
@@ -1013,9 +1013,8 @@ impl<'a> RtLolaParser<'a> {
                                                     let percentile: usize = n_string.parse::<usize>().map_err(|_|
                                                         RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
                                                     )?;
-                                                    if percentile > 100{
-                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label( i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
-
+                                                    if percentile > 100 {
+                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                     }
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
@@ -1042,8 +1041,7 @@ impl<'a> RtLolaParser<'a> {
                                             };
                                             let aggregation = window_op.try_into().map_err(|reason| Diagnostic::error(&format!("Operation not supported: {reason}")).add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))?;
                                             ExpressionKind::InstanceAggregation { expr: inner, selection: instances, aggregation }
-                                        }
-                                        else if signature.contains("discrete") {
+                                        } else if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
                                                 // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
@@ -1073,7 +1071,7 @@ impl<'a> RtLolaParser<'a> {
                                             self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -1101,7 +1099,7 @@ impl<'a> RtLolaParser<'a> {
                                     self.spec.next_id(),
                                     ExpressionKind::Offset(lhs.into(), offset),
                                     span,
-                                ))
+                                ));
                             }
                         }
                     }
@@ -1265,7 +1263,7 @@ impl<'a> RtLolaParser<'a> {
                 None => {
                     return Err(format!(
                         "parsing rational '{repr}' failed: e exponent {exp} does not fit into i16"
-                    ))
+                    ));
                 },
             };
             let factor = BigInt::from_u8(10).unwrap().pow(exp.unsigned_abs());
@@ -1281,7 +1279,7 @@ impl<'a> RtLolaParser<'a> {
             _ => {
                 return Err(format!(
                     "parsing rational failed: rational {r} does not fit into Rational64"
-                ))
+                ));
             },
         };
         Ok(Rational::from(p))
@@ -1321,8 +1319,8 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
         ErrorVariant::CustomError { message: msg } => msg,
     };
     let span = match err.location {
-        InputLocation::Pos(start) => rtlola_reporting::Span::Direct { start, end: start },
-        InputLocation::Span(s) => rtlola_reporting::Span::Direct { start: s.0, end: s.1 },
+        InputLocation::Pos(start) => Span::Direct { start, end: start },
+        InputLocation::Span(s) => Span::Direct { start: s.0, end: s.1 },
     };
     Diagnostic::error(&msg)
         .add_span_with_label(span, Some("here"), true)
@@ -2172,6 +2170,7 @@ mod tests {
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
+
     #[test]
     fn instance_aggregation_simpl_all() {
         let spec = "input a: Int32\n\

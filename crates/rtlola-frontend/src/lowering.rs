@@ -4,7 +4,7 @@ use std::iter::zip;
 use itertools::Itertools;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
-    DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, MemBoundTrait, Offset,
+    DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, Literal, MemBoundTrait, Offset,
     OrderedTrait, Origin, OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind,
     Window,
 };
@@ -411,10 +411,10 @@ impl Mir {
         ty: &mir::Type,
     ) -> mir::ExpressionKind {
         match expr {
-            rtlola_hir::hir::ExpressionKind::LoadConstant(constant) => {
+            ExpressionKind::LoadConstant(constant) => {
                 mir::ExpressionKind::LoadConstant(Self::lower_constant(constant, ty))
             },
-            rtlola_hir::hir::ExpressionKind::ArithLog(op, args) => {
+            ExpressionKind::ArithLog(op, args) => {
                 let op = Self::lower_arith_log_op(*op);
                 let args = args
                     .iter()
@@ -422,17 +422,15 @@ impl Mir {
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::ArithLog(op, args)
             },
-            rtlola_hir::hir::ExpressionKind::StreamAccess(sr, kind, para) => {
+            ExpressionKind::StreamAccess(sr, kind, para) => {
                 mir::ExpressionKind::StreamAccess {
                     target: sr_map[sr],
                     access_kind: Self::lower_stream_access_kind(*kind),
                     parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
                 }
             },
-            rtlola_hir::hir::ExpressionKind::ParameterAccess(sr, para) => {
-                mir::ExpressionKind::ParameterAccess(sr_map[sr], *para)
-            },
-            rtlola_hir::hir::ExpressionKind::Ite {
+            ExpressionKind::ParameterAccess(sr, para) => mir::ExpressionKind::ParameterAccess(sr_map[sr], *para),
+            ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
@@ -446,19 +444,19 @@ impl Mir {
                     alternative,
                 }
             },
-            rtlola_hir::hir::ExpressionKind::Tuple(elements) => {
+            ExpressionKind::Tuple(elements) => {
                 let elements = elements
                     .iter()
                     .map(|element| Self::lower_expr(hir, sr_map, element))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::Tuple(elements)
             },
-            rtlola_hir::hir::ExpressionKind::TupleAccess(tuple, element_pos) => {
+            ExpressionKind::TupleAccess(tuple, element_pos) => {
                 let tuple = Box::new(Self::lower_expr(hir, sr_map, tuple));
                 let element_pos = *element_pos;
                 mir::ExpressionKind::TupleAccess(tuple, element_pos)
             },
-            rtlola_hir::hir::ExpressionKind::Function(kind) => {
+            ExpressionKind::Function(kind) => {
                 let FnExprKind { name, args, .. } = kind;
                 match name.as_ref() {
                     "cast" => {
@@ -475,12 +473,12 @@ impl Mir {
                     },
                 }
             },
-            rtlola_hir::hir::ExpressionKind::Widen(kind) => {
+            ExpressionKind::Widen(kind) => {
                 let WidenExprKind { expr, .. } = kind;
                 let expr = Box::new(Self::lower_expr(hir, sr_map, expr));
                 mir::ExpressionKind::Convert { expr }
             },
-            rtlola_hir::hir::ExpressionKind::Default { expr, default } => {
+            ExpressionKind::Default { expr, default } => {
                 let expr = Box::new(Self::lower_expr(hir, sr_map, expr));
                 let default = Box::new(Self::lower_expr(hir, sr_map, default));
                 mir::ExpressionKind::Default { expr, default }
@@ -490,23 +488,23 @@ impl Mir {
 
     fn lower_constant(constant: &Constant, ty: &mir::Type) -> mir::Constant {
         match constant {
-            rtlola_hir::hir::Constant::Basic(lit) => Self::lower_constant_literal(lit, ty),
-            rtlola_hir::hir::Constant::Inlined(Inlined { lit, .. }) => Self::lower_constant_literal(lit, ty),
+            Constant::Basic(lit) => Self::lower_constant_literal(lit, ty),
+            Constant::Inlined(Inlined { lit, .. }) => Self::lower_constant_literal(lit, ty),
         }
     }
 
-    fn lower_constant_literal(constant: &rtlola_hir::hir::Literal, ty: &mir::Type) -> mir::Constant {
+    fn lower_constant_literal(constant: &Literal, ty: &mir::Type) -> mir::Constant {
         match constant {
-            rtlola_hir::hir::Literal::Str(s) => mir::Constant::Str(s.clone()),
-            rtlola_hir::hir::Literal::Bool(b) => mir::Constant::Bool(*b),
-            rtlola_hir::hir::Literal::Integer(i) => {
+            Literal::Str(s) => mir::Constant::Str(s.clone()),
+            Literal::Bool(b) => mir::Constant::Bool(*b),
+            Literal::Integer(i) => {
                 match ty {
                     mir::Type::Int(_) => mir::Constant::Int(*i),
                     mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
                     _ => unreachable!(),
                 }
             },
-            rtlola_hir::hir::Literal::SInt(i) => {
+            Literal::SInt(i) => {
                 //TODO rewrite to 128 bytes
                 match ty {
                     mir::Type::Int(_) => mir::Constant::Int(*i as i64),
@@ -514,7 +512,7 @@ impl Mir {
                     _ => unreachable!(),
                 }
             },
-            rtlola_hir::hir::Literal::Float(f) => mir::Constant::Float(*f),
+            Literal::Float(f) => mir::Constant::Float(*f),
         }
     }
 
