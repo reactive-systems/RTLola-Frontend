@@ -104,8 +104,8 @@ impl Display for Node {
 
 impl Serialize for Node {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         serializer.serialize_str(self.to_string().as_str())
     }
@@ -182,6 +182,7 @@ enum NodeInformation<'a> {
 
     Output {
         reference: StreamReference,
+        is_trigger: bool,
         stream_name: &'a str,
         eval_layer: usize,
         memory_bound: u32,
@@ -224,7 +225,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
                 memory_bound,
                 value_ty: value_str,
             }
-        },
+        }
         StreamReference::Out(_) => {
             let output = mir.output(sref);
             let pacing_str = mir.display(&output.eval.eval_pacing).to_string();
@@ -232,6 +233,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
 
             NodeInformation::Output {
                 reference: sref,
+                is_trigger: output.is_trigger(),
                 stream_name,
                 eval_layer,
                 memory_bound,
@@ -239,7 +241,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
                 spawn_ty: spawn_str,
                 value_ty: value_str,
             }
-        },
+        }
     }
 }
 
@@ -250,16 +252,16 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
         WindowReference::Sliding(_) => {
             let duration = mir.sliding_window(wref).duration;
             format!("{}s", duration.as_secs_f64())
-        },
+        }
         WindowReference::Discrete(_) => {
             let duration = mir.discrete_window(wref).duration;
             format!("{duration} values")
-        },
+        }
 
         WindowReference::Instance(_) => {
             let selection = mir.instance_aggregation(wref).selection;
             format!("{selection} instances")
-        },
+        }
     };
     let caller = mir.output(window.caller());
 
@@ -318,17 +320,17 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                         let with = EdgeType::Access { origin, kind };
                         vec![
                             Edge {
-                                from: Node::Stream(window.caller()),
+                                from: target,
                                 with: with.clone(),
                                 to: Node::Window(w),
                             },
                             Edge {
                                 from: Node::Window(w),
                                 with,
-                                to: Node::Stream(window.target()),
+                                to: source,
                             },
                         ]
-                    },
+                    }
                     StreamAccessKind::Fresh
                     | StreamAccessKind::Get
                     | StreamAccessKind::Hold
@@ -340,7 +342,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                             with: EdgeType::Access { origin, kind },
                             to: source,
                         }]
-                    },
+                    }
                 }
             })
         })
@@ -363,7 +365,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                         }
                     })
                     .collect()
-            },
+            }
             PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
@@ -385,7 +387,7 @@ fn edges(mir: &Mir) -> Vec<Edge> {
                         }
                     })
                     .collect()
-            },
+            }
             PacingType::LocalPeriodic(_) | PacingType::GlobalPeriodic(_) | PacingType::Constant => vec![],
         }
     });
@@ -397,7 +399,7 @@ fn inner_flatten_ac(ac: &ActivationCondition) -> Vec<StreamReference> {
     match ac {
         ActivationCondition::Disjunction(xs) | ActivationCondition::Conjunction(xs) => {
             xs.iter().flat_map(flatten_ac).collect()
-        },
+        }
         ActivationCondition::Stream(s) => vec![*s],
         ActivationCondition::True => vec![],
     }
@@ -431,9 +433,10 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
                 reference: _,
             } => {
                 format!("{stream_name}: {value_ty}<br/>Memory Bound: {memory_bound}")
-            },
+            }
             NodeInformation::Output {
                 stream_name,
+                is_trigger: _,
                 eval_layer,
                 memory_bound,
                 pacing_ty,
@@ -448,7 +451,7 @@ Spawn: {spawn_ty}<br/>\
 Memory Bound: {memory_bound}<br/>\
 Layer {eval_layer}"
                 )
-            },
+            }
             NodeInformation::Window {
                 reference,
                 operation,
@@ -476,7 +479,7 @@ Layer {eval_layer}"
                     | StreamAccessKind::DiscreteWindow(_)
                     | StreamAccessKind::SlidingWindow(_) => Style::None,
                 }
-            },
+            }
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,
         }
     }
@@ -544,7 +547,7 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
             // in the dot format, we only want to render eval edges, if the edge it not already covered by sync or offset edges
             .filter(|edge| {
                 match edge.with {
-                    EdgeType::Access{..} | EdgeType::Spawn => true,
+                    EdgeType::Access { .. } | EdgeType::Spawn => true,
                     EdgeType::Eval => !ac_accesses.contains(&(&edge.from, &edge.to)),
                 }
             })
