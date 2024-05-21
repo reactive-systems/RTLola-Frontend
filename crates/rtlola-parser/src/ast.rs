@@ -23,9 +23,8 @@ use rtlola_reporting::Span;
 /// * [Import] represents an import statement for a module.
 /// * [Constant] represents a constant stream.
 /// * [Input] represents an input stream.
-/// * [Output] represents an output stream.
+/// * [Output] represents an regular output stream or trigger.
 /// * [Mirror] represents mirror streams, a syntactic sugar for an output stream.
-/// * [Trigger] represents a trigger declaration.
 /// * [TypeDeclaration] captures a user given type declaration.
 ///
 /// # Related Data Structures
@@ -764,7 +763,7 @@ pub struct NodeId {
 impl NodeId {
     /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
-        assert!(x < (u32::max_value() as usize));
+        assert!(x < (u32::MAX as usize));
         NodeId {
             id: x as u32,
             prime_counter: 0u32,

@@ -182,6 +182,7 @@ enum NodeInformation<'a> {
 
     Output {
         reference: StreamReference,
+        is_trigger: bool,
         stream_name: &'a str,
         eval_layer: usize,
         memory_bound: u32,
@@ -232,6 +233,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
 
             NodeInformation::Output {
                 reference: sref,
+                is_trigger: output.is_trigger(),
                 stream_name,
                 eval_layer,
                 memory_bound,
@@ -314,18 +316,17 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             access_kinds.iter().flat_map(move |&(origin, kind)| {
                 match kind {
                     StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
-                        let window = mir.window(w);
                         let with = EdgeType::Access { origin, kind };
                         vec![
                             Edge {
-                                from: Node::Stream(window.caller()),
+                                from: target,
                                 with: with.clone(),
                                 to: Node::Window(w),
                             },
                             Edge {
                                 from: Node::Window(w),
                                 with,
-                                to: Node::Stream(window.target()),
+                                to: source,
                             },
                         ]
                     },
@@ -434,6 +435,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for DependencyGraph<'a> {
             },
             NodeInformation::Output {
                 stream_name,
+                is_trigger: _,
                 eval_layer,
                 memory_bound,
                 pacing_ty,
@@ -458,11 +460,11 @@ Layer {eval_layer}"
             } => format!("Window {reference}<br/>Window Operation: {operation}<br/>Duration: {duration}"),
         };
 
-        dot::LabelText::HtmlStr(label_text.into())
+        LabelText::HtmlStr(label_text.into())
     }
 
     fn edge_label<'b>(&'b self, edge: &Edge) -> LabelText<'b> {
-        dot::LabelText::LabelStr(edge.with.to_string().into())
+        LabelText::LabelStr(edge.with.to_string().into())
     }
 
     fn edge_style(&self, edge: &Edge) -> Style {
@@ -489,7 +491,7 @@ Layer {eval_layer}"
             Node::Window(_) => "note",
         };
 
-        Some(dot::LabelText::LabelStr(shape_str.into()))
+        Some(LabelText::LabelStr(shape_str.into()))
     }
 
     fn edge_end_arrow(&'a self, _e: &Edge) -> dot::Arrow {
@@ -544,7 +546,7 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for DependencyGraph<'a> {
             // in the dot format, we only want to render eval edges, if the edge it not already covered by sync or offset edges
             .filter(|edge| {
                 match edge.with {
-                    EdgeType::Access{..} | EdgeType::Spawn => true,
+                    EdgeType::Access { .. } | EdgeType::Spawn => true,
                     EdgeType::Eval => !ac_accesses.contains(&(&edge.from, &edge.to)),
                 }
             })

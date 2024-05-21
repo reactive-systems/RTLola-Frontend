@@ -33,7 +33,8 @@
 
 //! This module provides the functionality needed to parse an RTLola specification into a [RtLolaAst].
 
-mod parse; // Shall not be exposed; use parse function instead.
+mod parse;
+// Shall not be exposed; use parse function instead.
 mod syntactic_sugar;
 
 use std::fs::File;
@@ -42,6 +43,7 @@ use std::path::PathBuf;
 
 // Public exports
 pub mod ast;
+
 pub use ast::RtLolaAst;
 use rtlola_reporting::{Handler, RtLolaError};
 
@@ -98,7 +100,7 @@ impl ParserConfig {
 
 /// Invokes the parser with the given configuration.
 pub fn parse(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
-    crate::parse::RtLolaParser::parse(cfg)
+    parse::RtLolaParser::parse(cfg)
 }
 
 impl<'a> From<&'a ParserConfig> for Handler<'a> {

@@ -1402,7 +1402,7 @@ impl ConcretePacingType {
     pub fn to_pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         match self {
             ConcretePacingType::Event(ac) => ac.to_string(names),
-            ConcretePacingType::FixedGlobalPeriodic(f) => format!("Global({}", Freq(*f)),
+            ConcretePacingType::FixedGlobalPeriodic(f) => format!("Global({})", Freq(*f)),
             ConcretePacingType::FixedLocalPeriodic(f) => format!("Local({})", Freq(*f)),
             ConcretePacingType::AnyPeriodic => "AnyPeriodic".into(),
             ConcretePacingType::Constant => "Constant".into(),

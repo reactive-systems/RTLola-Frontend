@@ -24,7 +24,7 @@ ActivationCondition = { "@" ~ ( GlobalActivationCondition | LocalActivationCondi
 GlobalActivationCondition = { "Global" ~ "(" ~ Expr ~ ")"}
 LocalActivationCondition = {"Local" ~ "(" ~ Expr ~ ")"}
 
-CloseDecl = { "close" ~ ActivationCondition? ~ "when" ~Expr }
+CloseDecl = { "close" ~ ActivationCondition? ~ ("when" ~Expr)? }
 
 
 EvalDecl = { "eval" ~ ActivationCondition? ~ (EvalWhen | EvalWith){0,2} }

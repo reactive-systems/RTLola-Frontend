@@ -208,20 +208,20 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
 impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
-            super::PacingType::GlobalPeriodic(freq) => {
+            PacingType::GlobalPeriodic(freq) => {
                 let s = freq
                     .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
                     .to_string();
                 write!(f, "Global({}Hz)", &s[..s.len() - 3])
             },
-            super::PacingType::LocalPeriodic(freq) => {
+            PacingType::LocalPeriodic(freq) => {
                 let s = freq
                     .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
                     .to_string();
                 write!(f, "Local({}Hz)", &s[..s.len() - 3])
             },
-            super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
-            super::PacingType::Constant => write!(f, "true"),
+            PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
+            PacingType::Constant => write!(f, "true"),
         }
     }
 }
