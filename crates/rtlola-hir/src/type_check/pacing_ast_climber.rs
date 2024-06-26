@@ -281,6 +281,7 @@ where
             .unwrap_or_else(|| Ok(self.new_stream_key()))?;
 
         let inferred_eval_keys = self.new_stream_key();
+
         self.impose_more_concrete(inferred_eval_keys, expr_keys)?;
         self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
         self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
@@ -311,9 +312,11 @@ where
 
             // filter implies filter of the expression
             self.exp_type_implies(condition_key.eval_condition, eval_keys.eval_condition, false);
+            self.add_span_to_stream_key(inferred_eval_keys, eval.span);
         } else {
             self.expression_tyc
                 .impose(stream_keys.eval_condition.concretizes(eval_keys.eval_condition))?;
+            self.add_span_to_stream_key(inferred_eval_keys, eval.expression.span);
         }
         Ok(())
     }
