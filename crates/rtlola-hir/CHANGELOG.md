@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `window_num_buckets` method to `MemBoundTrait`.
 - Added `sliding_window_bucket_size` method to `MemBoundTrait`.
 - Added support for multiple eval clauses.
+- Added `round` function
 
 ### Changed
 - Applying the `abs()` function to unsigned values is now rejected by the typechecker.
