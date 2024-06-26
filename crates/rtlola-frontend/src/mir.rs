@@ -64,6 +64,11 @@ pub trait Stream {
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
     fn as_stream_ref(&self) -> StreamReference;
+    /// Returns the collection of streams that access the stream non-transitively.
+    fn accessed_by(&self) -> &Accesses;
+    /// Returns the collection of sliding windows that access the stream non-transitively.
+    /// This includes both sliding and discrete windows.
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
 }
 
 /// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
@@ -202,6 +207,8 @@ impl From<ConcreteValueType> for Type {
     }
 }
 
+type Accesses = Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>;
+
 /// Contains all information inherent to an input stream.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct InputStream {
@@ -210,7 +217,7 @@ pub struct InputStream {
     /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
+    pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
@@ -239,9 +246,9 @@ pub struct OutputStream {
     /// The condition under which the stream is supposed to be closed
     pub close: Close,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
-    pub accesses: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
+    pub accesses: Accesses,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
+    pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -760,6 +767,15 @@ impl Stream for OutputStream {
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
     }
+
+    fn accessed_by(&self) -> &Accesses {
+        &self.accessed_by
+    }
+
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+        &self.aggregated_by
+    }
+    
 }
 
 impl Stream for InputStream {
@@ -806,6 +822,16 @@ impl Stream for InputStream {
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
     }
+
+    fn accessed_by(&self) -> &Accesses {
+        &self.accessed_by
+    }
+
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+        &self.aggregated_by
+    }
+
+    
 }
 
 impl Window for SlidingWindow {
