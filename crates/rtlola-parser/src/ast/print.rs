@@ -55,7 +55,10 @@ impl Display for Mirror {
 
 impl Display for Output {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "output {}", self.name)?;
+        match &self.kind {
+            OutputKind::NamedOutput(name) => write!(f, "output {name}")?,
+            OutputKind::Trigger => write!(f, "trigger")?,
+        };
         if !self.params.is_empty() {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
         }
@@ -84,14 +87,23 @@ impl Display for Parameter {
     }
 }
 
+impl Display for AnnotatedPacingType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            AnnotatedPacingType::NotAnnotated => Ok(()),
+            AnnotatedPacingType::Global(freq) => write!(f, " @Global({freq})"),
+            AnnotatedPacingType::Local(freq) => write!(f, " @Local({freq})"),
+            AnnotatedPacingType::Unspecified(expr) => write!(f, " @{expr}"),
+        }
+    }
+}
+
 impl Display for SpawnSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if self.expression.is_some() || self.condition.is_some() {
             write!(f, "spawn")?;
         }
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{pt}")?;
-        }
+        write!(f, "{}", self.annotated_pacing)?;
         if let Some(condition) = &self.condition {
             write!(f, " when {condition}")?;
         }
@@ -104,12 +116,13 @@ impl Display for SpawnSpec {
 
 impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if self.condition.is_some() || self.eval_expression.is_some() || self.annotated_pacing.is_some() {
+        if self.condition.is_some()
+            || self.eval_expression.is_some()
+            || self.annotated_pacing != AnnotatedPacingType::NotAnnotated
+        {
             write!(f, "eval")?;
         }
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, " @{pt}")?;
-        }
+        write!(f, "{}", self.annotated_pacing)?;
         if let Some(when) = &self.condition {
             write!(f, " when {when}")?;
         }
@@ -122,27 +135,9 @@ impl Display for EvalSpec {
 
 impl Display for CloseSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "close ")?;
-        if let Some(pt) = &self.annotated_pacing {
-            write!(f, "@{pt} ")?;
-        }
-        write!(f, "when {}", self.condition)
-    }
-}
-
-impl Display for Trigger {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(
-            f,
-            "trigger{} {}{}",
-            format_opt(&self.annotated_pacing_type, " @", ""),
-            self.expression,
-            format_opt(&self.message, " \"", "\""),
-        )?;
-        if !self.info_streams.is_empty() {
-            write_delim_list(f, &self.info_streams, " (", ")", ", ")?;
-        }
-        Ok(())
+        write!(f, "close")?;
+        write!(f, "{}", self.annotated_pacing)?;
+        write!(f, " when {}", self.condition)
     }
 }
 
@@ -221,6 +216,11 @@ impl Display for Expression {
                     false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
                 }
             },
+            ExpressionKind::InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => write!(f, "{expr}.aggregate(over_instances: {selection}, using: {aggregation})"),
             ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
             ExpressionKind::Unary(operator, operand) => write!(f, "{operator}{operand}"),
             ExpressionKind::Ite(cond, cons, alt) => {
@@ -382,6 +382,22 @@ impl Display for Ident {
     }
 }
 
+impl Display for InstanceSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            InstanceSelection::Fresh => write!(f, "fresh"),
+            InstanceSelection::All => write!(f, "all"),
+        }
+    }
+}
+
+impl Display for InstanceOperation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let wo: WindowOperation = (*self).into();
+        wo.fmt(f)
+    }
+}
+
 impl Display for BinOp {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         use BinOp::*;
@@ -439,9 +455,6 @@ impl Display for RtLolaAst {
         }
         for mirror in &self.mirrors {
             writeln!(f, "{mirror}")?;
-        }
-        for trigger in &self.trigger {
-            writeln!(f, "{trigger}")?;
         }
         Ok(())
     }

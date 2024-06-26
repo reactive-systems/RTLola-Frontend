@@ -3,16 +3,19 @@
 //! Every node in the abstract syntax tree is assigned a unique id and has a span referencing the node's location in the specification.
 
 use std::cell::RefCell;
+use std::convert::TryFrom;
 use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 
 mod conversion;
 mod print;
+
 use std::rc::Rc;
 
 use num::rational::Rational64 as Rational;
 use rtlola_reporting::Span;
+
 /// The root of a RTLola specification, consisting of stream and trigger declarations.
 /// Each declaration contains the id of the Ast node, a span, and declaration-specific components.
 ///
@@ -20,9 +23,8 @@ use rtlola_reporting::Span;
 /// * [Import] represents an import statement for a module.
 /// * [Constant] represents a constant stream.
 /// * [Input] represents an input stream.
-/// * [Output] represents an output stream.
+/// * [Output] represents an regular output stream or trigger.
 /// * [Mirror] represents mirror streams, a syntactic sugar for an output stream.
-/// * [Trigger] represents a trigger declaration.
 /// * [TypeDeclaration] captures a user given type declaration.
 ///
 /// # Related Data Structures
@@ -40,8 +42,6 @@ pub struct RtLolaAst {
     pub outputs: Vec<Rc<Output>>,
     /// The mirror stream declarations
     pub mirrors: Vec<Rc<Mirror>>,
-    /// The trigger declarations
-    pub trigger: Vec<Rc<Trigger>>,
     /// The user-defined type declarations
     pub type_declarations: Vec<TypeDeclaration>,
     /// Next highest NodeId
@@ -57,7 +57,6 @@ impl RtLolaAst {
             inputs: Vec::new(),
             outputs: Vec::new(),
             mirrors: Vec::new(),
-            trigger: Vec::new(),
             type_declarations: Vec::new(),
             next_node_id: RefCell::new(NodeId::default()),
         }
@@ -78,7 +77,6 @@ impl RtLolaAst {
             inputs,
             outputs,
             mirrors,
-            trigger,
             type_declarations,
             next_node_id,
         } = self;
@@ -89,7 +87,6 @@ impl RtLolaAst {
             inputs: inputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             outputs: outputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             mirrors: mirrors.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
-            trigger: trigger.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             type_declarations: type_declarations.clone(),
             next_node_id: next_node_id.clone(),
         }
@@ -138,11 +135,21 @@ pub struct Input {
     pub span: Span,
 }
 
+/// The kind of an output stream
+/// Can be either a regular output stream with a name or a trigger
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum OutputKind {
+    /// The output stream represents a regular named output stream
+    NamedOutput(Ident),
+    /// The output stream represents a trigger
+    Trigger,
+}
+
 /// An Ast node representing the declaration of an output stream.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Output {
-    /// The name of the output stream
-    pub name: Ident,
+    /// The kind of the output stream
+    pub kind: OutputKind,
     /// An optional value type annotation of the output stream
     pub annotated_type: Option<Type>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
@@ -157,6 +164,16 @@ pub struct Output {
     pub id: NodeId,
     /// The span in the specification declaring the output stream
     pub span: Span,
+}
+
+impl Output {
+    /// Returns the name of the output stream if it has any
+    pub fn name(&self) -> Option<&Ident> {
+        match &self.kind {
+            OutputKind::NamedOutput(n) => Some(n),
+            OutputKind::Trigger => None,
+        }
+    }
 }
 
 /// Represents an output stream that mirrors another but filters them.
@@ -195,7 +212,7 @@ pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub expression: Option<Expression>,
     /// The pacing type describing when a new instance is created.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub condition: Option<Expression>,
     /// The id of the node in the Ast
@@ -208,7 +225,7 @@ pub struct SpawnSpec {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct EvalSpec {
     /// The pacing type describing when a new value is computed.
-    pub annotated_pacing: Option<Expression>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The boolean expression defining the condition, if a stream instance is evaluated.
     pub condition: Option<Expression>,
     /// The evaluated expression, defining the value of the stream.
@@ -225,24 +242,7 @@ pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub condition: Expression,
     /// The pacing type describing when the close condition is evaluated.
-    pub annotated_pacing: Option<Expression>,
-    /// The id of the node in the Ast
-    pub id: NodeId,
-    /// The span in the specification declaring the extend declaration
-    pub span: Span,
-}
-
-/// An Ast node representing the declaration of a trigger
-#[derive(Debug, Clone)]
-pub struct Trigger {
-    /// The boolean expression of a trigger
-    pub expression: Expression,
-    /// The pacing type, which defines when a new value of a stream is computed.
-    pub annotated_pacing_type: Option<Expression>,
-    /// The optional trigger message, which is printed if the monitor raises the trigger
-    pub message: Option<String>,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is fired.
-    pub info_streams: Vec<Ident>,
+    pub annotated_pacing: AnnotatedPacingType,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the extend declaration
@@ -397,6 +397,15 @@ pub enum ExpressionKind {
         /// The aggregation function
         aggregation: WindowOperation,
     },
+    /// A aggregation over stream-instances with instances `instances` and aggregation function `aggregation`
+    InstanceAggregation {
+        /// The accesses stream
+        expr: Box<Expression>,
+        /// Flag to indicate which instances are part of the aggregation
+        selection: InstanceSelection,
+        /// The aggregation function
+        aggregation: InstanceOperation,
+    },
     /// A binary operation (For example: `a + b`, `a * b`)
     Binary(BinOp, Box<Expression>, Box<Expression>),
     /// A unary operation (For example: `!x`, `*x`)
@@ -448,6 +457,78 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// A subset of the window operations that are suitable to be performed over a set of instances.
+pub enum InstanceOperation {
+    /// Aggregation function to count the number of instances of the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
+    Conjunction,
+    /// Aggregation function to return the disjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    Disjunction,
+    /// Aggregation function to return the variance of all values, assumes equal probability.
+    Variance,
+    /// Aggregation function to return the covariance of all values in a tuple stream, assumes equal probability.
+    Covariance,
+    /// Aggregation function to return the standard deviation of all values, assumes equal probability.
+    StandardDeviation,
+    /// Aggregation function to return the Nth-Percentile
+    NthPercentile(u8),
+}
+
+impl TryFrom<WindowOperation> for InstanceOperation {
+    type Error = String;
+
+    fn try_from(value: WindowOperation) -> Result<Self, Self::Error> {
+        match value {
+            WindowOperation::Count => Ok(InstanceOperation::Count),
+            WindowOperation::Min => Ok(InstanceOperation::Min),
+            WindowOperation::Max => Ok(InstanceOperation::Max),
+            WindowOperation::Sum => Ok(InstanceOperation::Sum),
+            WindowOperation::Product => Ok(InstanceOperation::Product),
+            WindowOperation::Average => Ok(InstanceOperation::Average),
+            WindowOperation::Conjunction => Ok(InstanceOperation::Conjunction),
+            WindowOperation::Disjunction => Ok(InstanceOperation::Disjunction),
+            WindowOperation::Variance => Ok(InstanceOperation::Variance),
+            WindowOperation::Covariance => Ok(InstanceOperation::Covariance),
+            WindowOperation::StandardDeviation => Ok(InstanceOperation::StandardDeviation),
+            WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
+            WindowOperation::Integral | WindowOperation::Last => {
+                Err(format!("Operation {value} not supported over instances."))
+            },
+        }
+    }
+}
+
+impl From<InstanceOperation> for WindowOperation {
+    fn from(val: InstanceOperation) -> Self {
+        match val {
+            InstanceOperation::Count => WindowOperation::Count,
+            InstanceOperation::Min => WindowOperation::Min,
+            InstanceOperation::Max => WindowOperation::Max,
+            InstanceOperation::Sum => WindowOperation::Sum,
+            InstanceOperation::Product => WindowOperation::Product,
+            InstanceOperation::Average => WindowOperation::Average,
+            InstanceOperation::Conjunction => WindowOperation::Conjunction,
+            InstanceOperation::Disjunction => WindowOperation::Disjunction,
+            InstanceOperation::Variance => WindowOperation::Variance,
+            InstanceOperation::Covariance => WindowOperation::Covariance,
+            InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
+            InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+        }
+    }
 }
 
 /// Describes the operation used to access a stream
@@ -647,6 +728,28 @@ impl Hash for Ident {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum InstanceSelection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Enum to indicate which annotated pacing type the stream has
+pub enum AnnotatedPacingType {
+    /// No annotated Pacing
+    NotAnnotated,
+    /// Annotated Pacing refers to the global clock
+    Global(Expression),
+    /// Annotated Pacing refers to the local clock
+    Local(Expression),
+    /// Annotated Pacing is unspecified if it refers the local or global clock
+    Unspecified(Expression),
+}
+
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -660,7 +763,7 @@ pub struct NodeId {
 impl NodeId {
     /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
-        assert!(x < (u32::max_value() as usize));
+        assert!(x < (u32::MAX as usize));
         NodeId {
             id: x as u32,
             prime_counter: 0u32,

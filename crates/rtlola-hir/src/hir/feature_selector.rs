@@ -2,15 +2,17 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 
-use rtlola_parser::ast::WindowOperation;
+use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, Parameterized, Periodics, SlidingWindows, Spawned, ValueTypes,
+    Closed, DiscreteWindows, Filtered, InstanceAggregations, MultipleEvals, Parameterized, Periodics, SlidingWindows,
+    Spawned, ValueTypes,
 };
 use crate::hir::{
     AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
-    Input, Output, SlidingAggr, StreamAccessKind, StreamType, Trigger, TypedTrait, WRef, WidenExprKind, Window,
+    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, TypedTrait, WRef, WidenExprKind,
+    Window,
 };
 use crate::{CompleteMode, RtLolaHir};
 
@@ -45,9 +47,14 @@ pub trait Feature {
         Ok(())
     }
 
-    /// Specifies whether to exclude a given Trigger
-    /// If the trigger contains constructs part of the feature an Err should be returned describing which construct was used.
-    fn exclude_trigger(&self, _trigger: &Trigger) -> Result<(), RtLolaError> {
+    /// Specifies whether to exclude a given instance aggregation.
+    /// The given span corresponds to the code range where the instance aggregation was defined.
+    /// If the instance aggregation contains constructs part of the feature an Err should be returned describing which construct was used.
+    fn exclude_instance_aggregation(
+        &self,
+        _span: &Span,
+        _aggregation: &InstanceAggregation,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 
@@ -109,8 +116,8 @@ impl Feature for FeatureSelector {
         self.iter_features(|f| f.exclude_sliding_window(span, window))
     }
 
-    fn exclude_trigger(&self, trigger: &Trigger) -> Result<(), RtLolaError> {
-        self.iter_features(|f| f.exclude_trigger(trigger))
+    fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
+        self.iter_features(|f| f.exclude_instance_aggregation(span, aggregation))
     }
 
     fn exclude_value_type(&self, span: &Span, ty: &ConcreteValueType) -> Result<(), RtLolaError> {
@@ -177,8 +184,10 @@ impl FeatureSelector {
             .no_spawn()
             .no_filter()
             .no_close()
+            .no_multiple_evals()
             .no_discrete_windows()
             .no_sliding_windows()
+            .no_instance_aggregation()
             .non_periodic()
     }
 
@@ -229,6 +238,12 @@ impl FeatureSelector {
         self
     }
 
+    /// Asserts that the specification does not contain instance aggregations
+    pub fn no_instance_aggregation(mut self) -> Self {
+        self.features.push(Box::<InstanceAggregations>::default());
+        self
+    }
+
     /// Restricts the specification to not contain any of the given value types.
     pub fn not_value_type(mut self, types: &[ConcreteValueType]) -> Self {
         self.features
@@ -241,6 +256,19 @@ impl FeatureSelector {
         let set = HashSet::from_iter(ops.to_vec());
         self.features.push(Box::new(SlidingWindows::new(set.clone())));
         self.features.push(Box::new(DiscreteWindows::new(set)));
+        self
+    }
+
+    /// Restricts the specification to not contain output streams with multiple eval clauses.
+    pub fn no_multiple_evals(mut self) -> Self {
+        self.features.push(Box::new(MultipleEvals {}));
+        self
+    }
+
+    /// Restricts the specification to not contain any of the instance operations.
+    pub fn not_instance_op(mut self, ops: &[InstanceOperation]) -> Self {
+        let set = HashSet::from_iter(ops.to_vec());
+        self.features.push(Box::new(InstanceAggregations::new(set)));
         self
     }
 
@@ -259,21 +287,21 @@ impl FeatureSelector {
 
         self.hir.outputs.iter().for_each(|o| {
             let ty = self.hir.stream_type(o.sr);
-            let spawn_span = &o
+            let spawn_span: Span = o
                 .spawn
                 .as_ref()
-                .and_then(|spawn| {
+                .map(|spawn| {
                     spawn
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .or_else(|| {
-                            spawn.pacing.as_ref().map(|apt| {
-                                match &apt {
-                                    AnnotatedPacingType::Frequency { span, .. } => *span,
-                                    AnnotatedPacingType::Expr(eid) => self.hir.expression(*eid).span,
-                                }
-                            })
+                        .unwrap_or_else(|| {
+                            match spawn.pacing {
+                                AnnotatedPacingType::GlobalFrequency(f) => f.span,
+                                AnnotatedPacingType::LocalFrequency(f) => f.span,
+                                AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
+                                AnnotatedPacingType::NotAnnotated => Span::Unknown,
+                            }
                         })
                 })
                 .unwrap_or(Span::Unknown);
@@ -287,7 +315,7 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_pacing_type(&o.span, &ty.eval_pacing) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_pacing_type(spawn_span, &ty.spawn_pacing) {
+            if let Err(e) = self.exclude_pacing_type(&spawn_span, &ty.spawn_pacing) {
                 res.join(e);
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_expr(o.sr)) {
@@ -296,11 +324,13 @@ impl FeatureSelector {
             if let Err(e) = self.exclude_expression_opt(self.hir.spawn_cond(o.sr)) {
                 res.join(e);
             }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_expr(o.sr)) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_expression_opt(self.hir.eval_cond(o.sr)) {
-                res.join(e);
+            for eval in self.hir.eval_unchecked(o.sr) {
+                if let Err(e) = self.exclude_expression(eval.expression) {
+                    res.join(e);
+                }
+                if let Err(e) = self.exclude_expression_opt(eval.condition) {
+                    res.join(e);
+                }
             }
             if let Err(e) = self.exclude_expression_opt(self.hir.close_cond(o.sr)) {
                 res.join(e);
@@ -318,18 +348,9 @@ impl FeatureSelector {
                 res.join(e);
             }
         });
-        self.hir.triggers.iter().for_each(|t| {
-            let ty = self.hir.stream_type(t.sr);
-            if let Err(e) = self.exclude_value_type(&t.span, &ty.value_ty) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_pacing_type(&t.span, &ty.eval_pacing) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_expression(self.hir.expression(t.expr_id)) {
-                res.join(e);
-            }
-            if let Err(e) = self.exclude_trigger(t) {
+        self.hir.instance_aggregations().iter().for_each(|aggr| {
+            let span = self.find_window_span(aggr.reference);
+            if let Err(e) = self.exclude_instance_aggregation(&span, aggr) {
                 res.join(e);
             }
         });
@@ -347,6 +368,9 @@ impl FeatureSelector {
                     Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, StreamAccessKind::DiscreteWindow(w), _) if *w == window => {
+                    Some(expr.span)
+                },
+                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _) if *w == window => {
                     Some(expr.span)
                 },
                 ExpressionKind::StreamAccess(_, _, _)
@@ -379,6 +403,7 @@ impl FeatureSelector {
         let caller_ref = match window {
             WRef::Sliding(_) => self.hir.single_sliding(window).caller,
             WRef::Discrete(_) => self.hir.single_discrete(window).caller,
+            WRef::Instance(_) => self.hir.single_instance_aggregation(window).caller,
         };
         let caller = self
             .hir
@@ -395,12 +420,17 @@ impl FeatureSelector {
                         .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
                 })
         });
-        let eval = find_access_expr(self.hir.expression(caller.eval.expr), window).or_else(|| {
-            caller
-                .eval
-                .condition
-                .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
-        });
+        let eval = caller
+            .eval
+            .iter()
+            .find_map(|eval| find_access_expr(self.hir.expression(eval.expr), window))
+            .or_else(|| {
+                caller
+                    .eval
+                    .iter()
+                    .flat_map(|eval| eval.condition)
+                    .find_map(|expr| find_access_expr(self.hir.expression(expr), window))
+            });
         let close = caller
             .close
             .as_ref()
@@ -494,31 +524,31 @@ impl FeatureSelector {
 #[cfg(test)]
 mod test {
     use rtlola_parser::ast::WindowOperation;
+    use rtlola_parser::ParserConfig;
     use rtlola_reporting::Handler;
 
     use crate::fully_analyzed;
     use crate::hir::{ConcreteValueType, FeatureSelector};
 
-    fn builder(spec: &str) -> (FeatureSelector, Handler) {
-        use rtlola_parser::{parse, ParserConfig};
-        let cfg = ParserConfig::for_string(spec.to_string());
-        let handler = Handler::from(cfg.clone());
-        let ast = parse(cfg).map_err(|e| handler.emit_error(&e)).unwrap();
+    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler) {
+        use rtlola_parser::parse;
+        let handler = Handler::from(cfg);
+        let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();
         let hir = fully_analyzed(ast).map_err(|e| handler.emit_error(&e)).unwrap();
         (FeatureSelector::new(hir), handler)
     }
 
     #[test]
     fn parameterized() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c(p: UInt)
                 spawn with (a)
                 eval with b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(
             builder
                 .non_parameterized()
@@ -531,55 +561,55 @@ mod test {
 
     #[test]
     fn spawned() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 spawn when b
                 eval with b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_spawn().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn filtered() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 eval with a when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_filter().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn closed() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c
                 eval with a
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
         assert_eq!(builder.no_close().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
     }
 
     #[test]
     fn periodics() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := b.hold(or: false)
-            trigger c \"c was true\"\
-        ",
-        );
+            trigger c
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder.non_periodic().build().map_err(|e| e.num_errors()).unwrap_err(),
@@ -589,14 +619,14 @@ mod test {
 
     #[test]
     fn sliding_windows() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
             output d @1Hz := b.aggregate(over: 5s, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -610,14 +640,14 @@ mod test {
 
     #[test]
     fn discrete_window() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c := a.aggregate(over_discrete: 5, using: sum)\n\
             output d := b.aggregate(over_discrete: 5, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -630,15 +660,35 @@ mod test {
     }
 
     #[test]
+    fn instance_aggregation() {
+        let spec = "\
+            input a: Int32\n\
+            output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+            output c eval with b.aggregate(over_instances: fresh, using: Σ)\n
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
+
+        assert_eq!(
+            builder
+                .no_instance_aggregation()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
+        );
+    }
+
+    #[test]
     fn window_op() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: UInt\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: sum)\n\
             output d := b.aggregate(over_discrete: 5, using: count)
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -652,14 +702,14 @@ mod test {
 
     #[test]
     fn value_type() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
             output d @a := 42.0 = 0.0
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(
             builder
@@ -673,8 +723,7 @@ mod test {
 
     #[test]
     fn lola_1() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
@@ -682,16 +731,16 @@ mod test {
                 spawn with b\n\
                 eval with b == p when a == 42.0\n\
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(builder.lola_1().build().map_err(|e| e.num_errors()).unwrap_err(), 6);
     }
 
     #[test]
     fn lola_2() {
-        let (builder, _handler) = builder(
-            "\
+        let spec = "\
             input a: Float\n\
             input b: Bool\n\
             output c @1Hz := a.aggregate(over: 5s, using: avg).defaults(to: 0.0)\n\
@@ -699,8 +748,9 @@ mod test {
                 spawn with b\n\
                 eval with b == p when a == 42.0\n\
                 close when b
-        ",
-        );
+        ";
+        let config = ParserConfig::for_string(spec.into());
+        let (builder, _handler) = builder(&config);
 
         assert_eq!(builder.lola_2().build().map_err(|e| e.num_errors()).unwrap_err(), 2);
     }

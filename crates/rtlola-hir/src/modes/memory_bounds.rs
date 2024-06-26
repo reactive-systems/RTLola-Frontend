@@ -141,6 +141,7 @@ impl MemBound {
                         bucket_count
                     },
                     WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
+                    WindowReference::Instance(_) => unreachable!(),
                 };
                 let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
                 assert!(!memory_bound_per_window.contains_key(&wr));
@@ -164,13 +165,18 @@ impl MemBound {
 
         let caller_pacing = match origin {
             Origin::Spawn => caller_ty.spawn_pacing,
-            Origin::Filter | Origin::Eval => caller_ty.eval_pacing,
+            Origin::Filter(_) | Origin::Eval(_) => caller_ty.eval_pacing,
             Origin::Close => caller_ty.close_pacing,
         };
 
         let caller_frequency = match caller_pacing {
-            ConcretePacingType::FixedPeriodic(p) => p,
-            _ => panic!("windows can only aggregate periodic streams with fixed frequency",),
+            ConcretePacingType::FixedGlobalPeriodic(p) | ConcretePacingType::FixedLocalPeriodic(p) => p,
+            p => {
+                panic!(
+                    "windows can only aggregate periodic streams with fixed frequency: {:?}",
+                    p
+                )
+            },
         };
         let caller_period =
             UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())
@@ -193,7 +199,7 @@ mod dynaminc_memory_bound_tests {
     use super::*;
     use crate::modes::BaseMode;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
             .check_types()
@@ -412,7 +418,7 @@ mod static_memory_bound_tests {
     use crate::modes::BaseMode;
 
     fn calculate_memory_bound(spec: &str) -> MemBound {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
             .check_types()

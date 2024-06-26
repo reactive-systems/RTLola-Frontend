@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::time::Duration;
 
 use itertools::Itertools;
 use rtlola_reporting::{RtLolaError, Span};
@@ -7,13 +6,12 @@ use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
     AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
-    SRef, SpawnDef, StreamAccessKind, StreamReference, Trigger, WidenExprKind, WindowReference,
+    SpawnDef, StreamAccessKind, StreamReference, WidenExprKind, WindowReference,
 };
 use crate::modes::HirMode;
-use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{NodeId, TypeError};
 use crate::type_check::value_types::{AbstractValueType, ValueErrorKind};
-use crate::type_check::{ConcreteStreamPacing, ConcreteValueType};
+use crate::type_check::ConcreteValueType;
 
 /// A [Variable] is linked to a reusable [TcKey] in the RustTyc Type Checker.
 /// e.g. used to reference stream-variables or parameter.
@@ -25,7 +23,7 @@ impl rusttyc::TcVar for Variable {}
 impl Variable {
     /// Constructs the correct Variable for a Parameter, given the [Output] and the parameter `ìdx`.
     fn for_parameter(output: &Output, idx: usize) -> Self {
-        Variable(output.name.clone() + "_" + &output.params[idx].name.clone())
+        Variable(output.name() + "_" + &output.params[idx].name.clone())
     }
 }
 
@@ -42,14 +40,12 @@ where
     pub(crate) key_span: HashMap<TcKey, Span>,
     /// The input Hir.
     pub(crate) hir: &'a Hir<M>,
-    /// The result of the pacing type analysis. Needed to determine the correct type of a realtime offset expression.
-    pub(crate) pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
     /// Storage to register exact type bounds during Hir climbing, resolved and checked during post process.
     pub(crate) annotated_checks: HashMap<TcKey, (ConcreteValueType, Option<TcKey>)>,
     /// Stores all widen checks during HIR climbing, resolved and checked during post process.
     pub(crate) widen_checks: HashMap<TcKey, (ConcreteValueType, TcKey)>,
     /// Lookup table for the name of a given stream.
-    pub(crate) names: &'a HashMap<StreamReference, &'a str>,
+    pub(crate) names: &'a HashMap<StreamReference, String>,
 }
 
 impl<'a, M> ValueTypeChecker<'a, M>
@@ -58,11 +54,7 @@ where
 {
     /// Creates a new [ValueTypeChecker], requires a pacing type table given by [type_check](crate::type_check::PacingTypeChecker::type_check).
     /// `names` maps each stream reference to the name of the stream  referenced
-    pub(crate) fn new(
-        hir: &'a Hir<M>,
-        names: &'a HashMap<StreamReference, &'a str>,
-        pacing_tt: &'a HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Self {
+    pub(crate) fn new(hir: &'a Hir<M>, names: &'a HashMap<StreamReference, String>) -> Self {
         let mut tyc = TypeChecker::new();
         let mut node_key = HashMap::new();
         let mut key_span = HashMap::new();
@@ -76,7 +68,7 @@ where
         }
 
         for out in hir.outputs() {
-            let key = tyc.get_var_key(&Variable(out.name.clone()));
+            let key = tyc.get_var_key(&Variable(out.name()));
             node_key.insert(NodeId::SRef(out.sr), key);
             key_span.insert(key, out.span);
         }
@@ -94,7 +86,6 @@ where
             node_key,
             key_span,
             hir,
-            pacing_tt,
             annotated_checks,
             widen_checks,
             names,
@@ -109,11 +100,6 @@ where
 
         for output in self.hir.outputs() {
             self.output_infer(output)
-                .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
-        }
-
-        for trigger in self.hir.triggers() {
-            self.trigger_infer(trigger)
                 .map_err(|e| e.into_diagnostic(&[&self.key_span], self.names))?;
         }
 
@@ -248,6 +234,7 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
             },
+            AnnotatedType::Any => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Any))?,
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
             },
@@ -336,82 +323,20 @@ where
             self.expression_infer(ccond, Some(AbstractValueType::Bool))?;
         }
 
-        if let Some(cond) = &self.hir.eval_cond(out.sr) {
+        for cond in self.hir.eval_cond(out.sr).unwrap().iter().flatten() {
             self.expression_infer(cond, Some(AbstractValueType::Bool))?;
         }
 
-        let expression_key = self.expression_infer(
-            self.hir.eval_expr(out.sr).expect("Always present for valid streams"),
-            None,
-        )?;
-        if let Some(a_ty) = out.annotated_type.as_ref() {
-            self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
-        }
+        for eval in self.hir.eval_unchecked(out.sr) {
+            let expression_key = self.expression_infer(eval.expression, None)?;
+            if let Some(a_ty) = out.annotated_type.as_ref() {
+                self.handle_annotated_type(out_key, a_ty, Some(expression_key))?;
+            }
 
-        self.tyc.impose(out_key.equate_with(expression_key))?;
+            self.tyc.impose(out_key.equate_with(expression_key))?;
+        }
 
         Ok(out_key)
-    }
-
-    /// Infers the type for a single [Trigger]. The trigger expression has to be of boolean type.
-    pub(crate) fn trigger_infer(&mut self, tr: &Trigger) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let tr_key = *self.node_key.get(&NodeId::SRef(tr.sr)).expect("added in constructor");
-        let expression_key = self.expression_infer(
-            self.hir.eval_expr(tr.sr).expect("always present for valid triggers"),
-            Some(AbstractValueType::Bool),
-        )?;
-        self.tyc.impose(tr_key.concretizes(expression_key))?;
-        Ok(tr_key)
-    }
-
-    /// Helper function for real time offsets.
-    /// Checks if the offset is a multiple of the target stream frequency and try to convert it to a relative discrete offset.
-    fn handle_realtime_offset(
-        &mut self,
-        target_ref: SRef,
-        d: &Duration,
-        term_key: TcKey,
-        target_key: TcKey,
-    ) -> Result<(), TypeError<ValueErrorKind>> {
-        use num::rational::Rational64 as Rational;
-        use uom::si::frequency::hertz;
-        use uom::si::rational64::Frequency as UOM_Frequency;
-
-        use crate::type_check::pacing_types::AbstractPacingType::*;
-        let mut duration_as_f = d.as_secs_f64();
-        let mut c = 0;
-        while duration_as_f % 1.0f64 > 0f64 {
-            c += 1;
-            duration_as_f *= 10f64;
-        }
-
-        let rat = Rational::new(10i64.pow(c), duration_as_f as i64);
-        let freq = Freq::Fixed(UOM_Frequency::new::<hertz>(rat));
-        let target_ratio = self.pacing_tt[&NodeId::SRef(target_ref)].eval_pacing.to_abstract_freq();
-        //special case: period of current output > offset
-        // && offset is multiple of target stream (no optional needed)
-        if let Ok(Periodic(target_freq)) = target_ratio {
-            //if the frequencies match the access is possible
-            //dbg!(&freq, &target_freq);
-            if let Ok(true) = target_freq.is_multiple_of(&freq) {
-                //dbg!("frequencies compatible");
-                self.tyc
-                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                self.tyc.impose(target_key.equate_with(inner_key))?;
-            } else {
-                //dbg!("frequencies NOT compatible");
-                //if the ey dont match return error
-                return Err(TypeError {
-                    kind: ValueErrorKind::IncompatibleRealTimeOffset(target_freq, duration_as_f as i64),
-                    key1: Some(term_key),
-                    key2: Some(target_key),
-                });
-            }
-        } else {
-            unreachable!("Ensured by pacing type checker!")
-        }
-        Ok(())
     }
 
     fn expression_infer(
@@ -473,7 +398,9 @@ where
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
                     },
-                    StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                    StreamAccessKind::DiscreteWindow(wref)
+                    | StreamAccessKind::SlidingWindow(wref)
+                    | StreamAccessKind::InstanceAggregation(wref) => {
                         let (target, op, wait) = match wref {
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
@@ -482,6 +409,10 @@ where
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_discrete(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
+                            },
+                            WindowReference::Instance(_) => {
+                                let win = self.hir.single_instance_aggregation(*wref);
+                                (win.target, win.aggr.into(), false)
                             },
                         };
                         let target_key = *self
@@ -611,10 +542,8 @@ where
                                 panic!("future offsets are not supported")
                             },
 
-                            Offset::PastRealTime(d) => {
-                                debug_assert!(false, "real-time offsets are not supported yet");
-                                let tk = *target_key;
-                                self.handle_realtime_offset(*sr, d, term_key, tk)?;
+                            Offset::PastRealTime(_) => {
+                                panic!("real-time offsets are not supported yet");
                             },
                         }
                     },
@@ -805,10 +734,11 @@ where
                     self.handle_annotated_type(*gen, t, None)?;
                 }
 
-                // function call arguments have type given by generics
-                args.iter()
-                    .zip(fun_decl.parameters.iter())
-                    .map(|(arg, param)| {
+                fun_decl
+                    .parameters
+                    .iter()
+                    .zip(args)
+                    .map(|(param, arg)| {
                         // Replace reference to generic with generic key
                         let p = self.replace_type(param, &generics)?;
                         let arg_key = self.expression_infer(arg, None)?;
@@ -880,7 +810,8 @@ where
             | AnnotatedType::String
             | AnnotatedType::Bytes
             | AnnotatedType::Option(_)
-            | AnnotatedType::Tuple(_) => {
+            | AnnotatedType::Tuple(_)
+            | AnnotatedType::Any => {
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
@@ -980,6 +911,19 @@ where
                 if matches!(ty, ConcreteValueType::Option(_)) {}
             }
         }
+
+        for trigger in hir.triggers() {
+            let key = node_key[&NodeId::SRef(trigger.sr)];
+            let ty = &tt[&key];
+            if *ty != ConcreteValueType::TString {
+                errors.push(TypeError {
+                    kind: ValueErrorKind::WrongTriggerMsg(ty.clone()),
+                    key1: Some(key),
+                    key2: None,
+                });
+            }
+        }
+
         errors
     }
 }
@@ -1011,7 +955,7 @@ mod value_type_tests {
     }
 
     fn setup_hir(spec: &str) -> TestBox {
-        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
+        let ast: RtLolaAst = match parse(&ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };
@@ -1022,18 +966,16 @@ mod value_type_tests {
 
     fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, ConcreteValueType>) {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir);
-        let pacing_tt = ltc.pacing_type_infer().expect("Expected valid pacing type");
-        let tt_result = ltc.value_type_infer(&pacing_tt);
+        let ltc = LolaTypeChecker::new(&test_box.hir);
+        let tt_result = ltc.value_type_infer();
         let tt = tt_result.expect("Expect Valid Input - Value Type check failed");
         (test_box, tt)
     }
 
     fn num_errors(spec: &str) -> usize {
         let test_box = setup_hir(spec);
-        let mut ltc = LolaTypeChecker::new(&test_box.hir);
-        let pt = ltc.pacing_type_infer().expect("expect valid pacing input");
-        match ltc.value_type_infer(&pt) {
+        let ltc = LolaTypeChecker::new(&test_box.hir);
+        match ltc.value_type_infer() {
             Ok(_) => 0,
             Err(e) => e.num_errors(),
         }
@@ -1206,7 +1148,7 @@ mod value_type_tests {
         let spec = "trigger @1Hz false";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
+        assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::TString);
     }
 
     #[test]
@@ -1214,7 +1156,13 @@ mod value_type_tests {
         let spec = "trigger @1Hz false \"alert always\"";
         let (tb, result_map) = check_value_type(spec);
         let tr_id = tb.hir.triggers().nth(0).unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::Bool);
+        assert_eq!(result_map[&NodeId::SRef(tr_id)], ConcreteValueType::TString);
+    }
+
+    #[test]
+    fn trigger_msg_type() {
+        let spec = "trigger eval @1Hz when false with 5";
+        assert_eq!(1, num_errors(spec));
     }
 
     #[test]
@@ -1924,6 +1872,12 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    fn test_format() {
+        let spec = "input a : UInt64\ninput b : Bool\ntrigger eval when a == 0 with \"msg: {}, {}\".format(a, b)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
     fn test_max() {
         let spec = "import math\ninput s: Int16\ninput b: Int16\noutput c := max(s, b)";
         let (tb, result_map) = check_value_type(spec);
@@ -2051,5 +2005,36 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input  a : (UInt, (Float, Bool))\n\
                     output b := a.offset(by: -1).1.0.defaults(to: 5.0)";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + a\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let (tb, result_map) = check_value_type(spec);
+        let in_id = tb.input("a");
+        let b_id = tb.output("b");
+        let c_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(b_id)], ConcreteValueType::Integer32);
+        assert_eq!(result_map[&NodeId::SRef(c_id)], ConcreteValueType::Integer32);
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses() {
+        let spec = "input a : Int8\ninput b : Int8\n\
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
+        assert_eq!(0, num_errors(spec));
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("c");
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+    }
+
+    #[test]
+    fn test_multiple_eval_clauses_type_error() {
+        let spec = "input a : Int8\ninput b : Bool\n\
+                    output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
+        assert_eq!(1, num_errors(spec));
     }
 }

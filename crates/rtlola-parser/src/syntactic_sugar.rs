@@ -18,7 +18,6 @@ use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
     CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
-    Trigger,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -82,14 +81,6 @@ trait SynSugar {
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
     fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
-    }
-    /// Desugars a single trigger.  Provided [RtLolaAst] and [Trigger] are for reference, not modification.
-    ///
-    /// # Requirements
-    /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
-    /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_trigger<'a>(&self, stream: &'a Trigger, ast: &'a RtLolaAst) -> ChangeSet {
         ChangeSet::empty()
     }
 }
@@ -235,27 +226,12 @@ impl Desugarizer {
                 };
                 ast.outputs[ix] = Rc::new(new_out);
             }
-            for ix in 0..ast.trigger.len() {
-                let trigger = &ast.trigger[ix];
-                let (new_out_expr, cs) = Self::desugarize_expression(trigger.expression.clone(), &ast, current_sugar);
-                change_set += cs;
-                let trigger_clone: Trigger = Trigger::clone(trigger);
-                let new_trigger = Trigger {
-                    expression: new_out_expr,
-                    ..trigger_clone
-                };
-                ast.trigger[ix] = Rc::new(new_trigger);
-            }
             for input in ast.inputs.iter() {
                 change_set += self.desugarize_input(input, &ast, current_sugar);
             }
 
             for output in ast.outputs.iter() {
                 change_set += self.desugarize_output(output, &ast, current_sugar);
-            }
-
-            for trigger in ast.trigger.iter() {
-                change_set += self.desugarize_trigger(trigger, &ast, current_sugar);
             }
 
             change_flag |= change_set._local_applied_flag || !change_set.global_instructions.is_empty();
@@ -280,14 +256,11 @@ impl Desugarizer {
                     } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
                         assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
                         ast.mirrors.remove(idx);
-                    } else if let Some(idx) = ast.trigger.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.trigger[idx]), 1);
-                        ast.trigger.remove(idx);
                     } else {
                         debug_assert!(false, "id in changeset does not belong to any stream");
                     }
                 },
-                ChangeInstruction::ReplaceExpr(id, expr) => {
+                ChangeInstruction::ReplaceExpr(_, expr) => {
                     for ix in 0..ast.outputs.len() {
                         let out = &ast.outputs[ix];
                         let out_clone: Output = Output::clone(out);
@@ -363,17 +336,6 @@ impl Desugarizer {
                             ..out_clone
                         };
                         ast.outputs[ix] = Rc::new(new_out);
-                    }
-
-                    for ix in 0..ast.trigger.len() {
-                        let trigger: &Rc<Trigger> = &ast.trigger[ix];
-                        let new_trigger_expr = Self::apply_expr_global_change(id, &expr, &trigger.expression);
-                        let trigger_clone: Trigger = Trigger::clone(trigger);
-                        let new_trigger = Trigger {
-                            expression: new_trigger_expr,
-                            ..trigger_clone
-                        };
-                        ast.trigger[ix] = Rc::new(new_trigger);
                     }
                 },
             }
@@ -492,6 +454,21 @@ impl Desugarizer {
                         expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
                         duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
                         wait: *wait,
+                        aggregation: *aggregation,
+                    },
+                    span,
+                    ..*ast_expr
+                }
+            },
+            InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => {
+                Expression {
+                    kind: InstanceAggregation {
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                        selection: *selection,
                         aggregation: *aggregation,
                     },
                     span,
@@ -677,6 +654,23 @@ impl Desugarizer {
                     id,
                 }
             },
+            InstanceAggregation {
+                expr,
+                selection,
+                aggregation,
+            } => {
+                let (expr, ecs) = Self::desugarize_expression(*expr, ast, current_sugar);
+                return_cs += ecs;
+                Expression {
+                    kind: InstanceAggregation {
+                        expr: Box::new(expr),
+                        selection,
+                        aggregation,
+                    },
+                    span,
+                    id,
+                }
+            },
             Ite(condition, normal, alternative) => {
                 let (condition, ccs) = Self::desugarize_expression(*condition, ast, current_sugar);
                 return_cs += ccs;
@@ -756,11 +750,6 @@ impl Desugarizer {
     #[allow(clippy::borrowed_box)]
     fn desugarize_output(&self, output: &Output, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
         current_sugar.desugarize_stream_out(output, ast)
-    }
-
-    #[allow(clippy::borrowed_box)]
-    fn desugarize_trigger(&self, trigger: &Trigger, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
-        current_sugar.desugarize_stream_trigger(trigger, ast)
     }
 }
 
@@ -883,7 +872,7 @@ mod tests {
     #[test]
     fn test_impl_simpl_replace() {
         let spec = "input a:Bool\ninput b:Bool\noutput c eval with a -> b".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let inner_kind = if let ExpressionKind::Binary(op, lhs, _rhs) = out_kind {
             assert!(matches!(op, BinOp::Or));
@@ -897,7 +886,7 @@ mod tests {
     #[test]
     fn test_impl_nested_replace() {
         let spec = "input a:Bool\ninput b:Bool\ninput c:Bool\noutput d eval with a -> b -> c".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let inner_kind = if let ExpressionKind::Binary(op, lhs, rhs) = out_kind {
             assert!(matches!(op, BinOp::Or));
@@ -931,7 +920,7 @@ mod tests {
     #[test]
     fn test_offsetor_replace() {
         let spec = "output x eval @5Hz with x.offset(by: -4, or: 5.0)".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let inner_kind = if let ExpressionKind::Default(inner, default) = out_kind {
             assert!(matches!(default.kind, ExpressionKind::Lit(_)));
@@ -945,7 +934,7 @@ mod tests {
     #[test]
     fn test_offsetor_replace_nested() {
         let spec = "output x eval @5Hz with -x.offset(by: -4, or: x.offset(by: -1, or: 5))".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
@@ -970,7 +959,7 @@ mod tests {
     #[test]
     fn test_aggr_replace() {
         let spec = "output x eval @5Hz with x.count(6s)".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert!(matches!(
             ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind,
             ExpressionKind::SlidingWindowAggregation {
@@ -983,7 +972,7 @@ mod tests {
     #[test]
     fn test_aggr_replace_nested() {
         let spec = "output x eval @ 5hz with -x.sum(6s)".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
@@ -1003,7 +992,7 @@ mod tests {
     #[test]
     fn test_aggr_replace_multiple() {
         let spec = "output x eval @5hz with x.avg(5s) - x.integral(2.5s)".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
         let (left, right) = if let ExpressionKind::Binary(BinOp::Sub, left, right) = out_kind {
@@ -1030,7 +1019,7 @@ mod tests {
     #[test]
     fn test_last_replace() {
         let spec = "output x eval @5hz with x.last(or: 3)".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
         let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
             (access.kind, dft.kind)
@@ -1062,7 +1051,7 @@ mod tests {
     fn test_delta_replace() {
         let spec = "output y eval with delta(x,dft:0)".to_string();
         let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0)";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
@@ -1070,20 +1059,20 @@ mod tests {
     fn test_delta_replace_float() {
         let spec = "output y eval with delta(x, or: 0.0)".to_string();
         let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0.0)";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
     #[test]
     fn test_mirror_replace() {
         let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(ast.outputs.len(), 2);
         assert!(ast.mirrors.is_empty());
         let new = &ast.outputs[1];
         let target = &ast.outputs[0];
-        assert_eq!(target.name.name, "x");
-        assert_eq!(new.name.name, "y");
+        assert_eq!(target.name().unwrap().name, "x");
+        assert_eq!(new.name().unwrap().name, "y");
         assert_eq!(new.annotated_type, target.annotated_type);
         assert_eq!(
             new.eval[0].clone().annotated_pacing,
@@ -1110,7 +1099,7 @@ mod tests {
     fn test_mirror_replace_str_cmp() {
         let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
         let expected = "output x eval with 3\noutput y eval when x > 5 with 3";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 
@@ -1118,7 +1107,7 @@ mod tests {
     fn test_mirror_replace_multiple_eval() {
         let spec = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y mirrors x when x > 5".to_string();
         let expected = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y eval when a > 0 ∧ x > 5 with 3 eval when a < 0 ∧ x > 5 with -3";
-        let ast = crate::parse(crate::ParserConfig::for_string(spec)).unwrap();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
 }

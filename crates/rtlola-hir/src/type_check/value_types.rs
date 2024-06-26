@@ -8,7 +8,6 @@ use rusttyc::{Arity, Constructable, Partial, TcErr, TcKey, Variant};
 
 use super::*;
 use crate::hir::{AnnotatedType, StreamReference};
-use crate::type_check::pacing_types::Freq;
 use crate::type_check::rtltc::{Resolvable, TypeError};
 
 /// The error kind for all custom errors during the value type check.
@@ -26,8 +25,6 @@ pub(crate) enum ValueErrorKind {
     AnnotationTooWide(AnnotatedType),
     /// type not allowed as annotation
     AnnotationInvalid(AnnotatedType),
-    ///target freq, Offset
-    IncompatibleRealTimeOffset(Freq, i64),
     /// Inferred, Expected
     ExactTypeMismatch(ConcreteValueType, ConcreteValueType),
     /// invalid child access for given type
@@ -42,6 +39,8 @@ pub(crate) enum ValueErrorKind {
     InvalidWiden(ConcreteValueType, ConcreteValueType),
     /// Optional Type is not allowed
     OptionNotAllowed(ConcreteValueType),
+    /// The message of a trigger is not of type string
+    WrongTriggerMsg(ConcreteValueType),
 }
 
 /// The [AbstractValueType] is used during inference and represents a value within the type lattice
@@ -239,6 +238,7 @@ impl ConcreteValueType {
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Signed => Err(AnnotationInvalid(at.clone())),
+            AnnotatedType::Any => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
         }
     }
@@ -375,7 +375,7 @@ impl Resolvable for ValueErrorKind {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        _names: &HashMap<StreamReference, &str>,
+        _names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic {
@@ -427,22 +427,6 @@ impl Resolvable for ValueErrorKind {
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
                 .add_note("Help: Consider an explicit type annotation.")
             },
-            ValueErrorKind::IncompatibleRealTimeOffset(freq, dur) => {
-                Diagnostic::error(
-                    "In value type analysis:\nReal-Time offset is incompatible with the frequency of the target stream",
-                )
-                .maybe_add_span_with_label(
-                    key1.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Found offset with duration {dur} here")),
-                    true,
-                )
-                .maybe_add_span_with_label(
-                    key2.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Target stream with frequency {freq} is found here")),
-                    false,
-                )
-            },
-
             ValueErrorKind::ExactTypeMismatch(inferred, expected) => {
                 Diagnostic::error(
                     &format!(
@@ -508,6 +492,9 @@ impl Resolvable for ValueErrorKind {
                 )
                 .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Optional type: {ty} found here")), true)
                     .add_note("Help: Consider using the default operator to resolve the optional.")
+            }
+            ValueErrorKind::WrongTriggerMsg(ty) => {
+                Diagnostic::error("In value type analysis:\nAn trigger message has to be of type string.").maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Found {ty} here.")), true)
             }
         }
     }

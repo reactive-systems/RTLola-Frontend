@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include memory bound of windows in MIR and dependency graph.
 - Include bucket size for sliding windows.
 - Include `accessed_by` and `aggregated_by` in `Stream` trait.
+- Trigger are now represented as output streams and not handled separately.
 
 ### Added
 - Added `is_eval_filtered` method to stream trait.
 - Added `memory_bound` method to window trait.
+- Added support for multiple eval clauses.
+- Added methods to export and import the MIR to/from a json representation.
 
 ### Fixed
 - Remap stream references during lowering to MIR to keep streams accessible by index.

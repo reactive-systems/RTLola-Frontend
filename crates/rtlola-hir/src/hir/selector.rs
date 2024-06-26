@@ -46,8 +46,8 @@ impl Selectable for FilterSelector {
         let output = hir.output(sref).unwrap();
         match self {
             FilterSelector::Any => true,
-            FilterSelector::Filtered => output.eval_cond().is_some(),
-            FilterSelector::Unfiltered => output.eval_cond().is_none(),
+            FilterSelector::Filtered => output.eval().iter().any(|eval| eval.condition.is_some()),
+            FilterSelector::Unfiltered => output.eval().iter().all(|eval| eval.condition.is_none()),
         }
     }
 }
@@ -355,7 +355,7 @@ mod tests {
 
     macro_rules! assert_streams {
         ($streams:expr, $expected:expr) => {
-            let names: Vec<&str> = $streams.map(|o| o.name.as_str()).sorted().collect();
+            let names: Vec<String> = $streams.map(|o| o.name()).sorted().collect();
             let expect: Vec<&str> = $expected.into_iter().sorted().collect();
             assert_eq!(names, expect);
         };

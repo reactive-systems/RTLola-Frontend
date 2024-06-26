@@ -38,9 +38,9 @@ pub enum Origin {
     /// The access occurs in the spawn declaration.
     Spawn,
     /// The access occurs in the filter expression.
-    Filter,
+    Filter(usize),
     /// The access occurs in the stream expression.
-    Eval,
+    Eval(usize),
     /// The access occurs in the close expression.
     Close,
 }
@@ -51,13 +51,15 @@ impl EdgeWeight {
         EdgeWeight { kind, origin }
     }
 
-    /// Returns the window reference if the [EdgeWeight] contains an Aggregation or None otherwise
+    /// Returns the window reference if the [EdgeWeight] contains a sliding or discrete Aggregation or None otherwise.
+    /// Note: This functions returns None for Instance Aggregations as they are not sliding windows in the traditional sense.
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
             StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
             StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
         }
@@ -70,6 +72,7 @@ impl EdgeWeight {
             | StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
             StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
@@ -101,6 +104,7 @@ pub(crate) trait ExtendedDepGraph {
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::SlidingWindow(_)
+            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Hold => false,
             StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
@@ -131,19 +135,18 @@ impl ExtendedDepGraph for DependencyGraph {
             let rhs = hir.stream_type(*g.node_weight(rhs).unwrap());
             let lhs_pt = match w.origin {
                 Origin::Spawn => lhs.spawn_pacing,
-                Origin::Filter | Origin::Eval => lhs.eval_pacing,
+                Origin::Filter(_) | Origin::Eval(_) => lhs.eval_pacing,
                 Origin::Close => lhs.close_pacing,
             };
             let rhs_pt = rhs.eval_pacing;
             match (lhs_pt, rhs_pt) {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
-                (ConcretePacingType::Event(_), ConcretePacingType::FixedPeriodic(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::Event(_)) => false,
-                (ConcretePacingType::FixedPeriodic(_), ConcretePacingType::FixedPeriodic(_)) => true,
-                (ConcretePacingType::Constant, _)
-                | (ConcretePacingType::Periodic, _)
-                | (_, ConcretePacingType::Constant)
-                | (_, ConcretePacingType::Periodic) => unreachable!(),
+                (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
+                (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_))
+                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                _ => unreachable!(),
             }
         });
         self
@@ -242,7 +245,7 @@ impl DependencyErr {
                 if cycle.len() == 1 || cycle[0] != *cycle.last().expect("Cycle has at least one element") {
                     cycle.push(cycle[0]);
                 }
-                let cycle_string = cycle.iter().map(|sr| names[sr]).join(" -> ");
+                let cycle_string = cycle.iter().map(|sr| &names[sr]).join(" -> ");
                 let mut diag = Diagnostic::error(&format!(
                     "Specification is not well-formed: Found dependency cycle: {cycle_string}",
                 ));
@@ -271,13 +274,21 @@ impl DepAna {
         let edges_expr = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
-            .flat_map(|sr| Self::collect_edges(sr, spec.eval_unchecked(sr).expression))
-            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Eval), tar));
+            .flat_map(|sr| {
+                spec.eval_unchecked(sr)
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, eval)| {
+                        Self::collect_edges(sr, eval.expression)
+                            .into_iter()
+                            .map(move |a| (i, a))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map(|(i, (src, w, tar))| (src, EdgeWeight::new(w, Origin::Eval(i)), tar));
         let edges_spawn = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.spawn(sr).map(
                     |SpawnDef {
@@ -295,18 +306,18 @@ impl DepAna {
         let edges_filter = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.eval_unchecked(sr)
-                    .condition
-                    .map(|filter| Self::collect_edges(sr, filter))
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(i, eval)| eval.condition.map(|cond| (i, cond)))
+                    .flat_map(|(i, filter)| Self::collect_edges(sr, filter).into_iter().map(move |a| (i, a)))
+                    .collect::<Vec<_>>()
             })
-            .flatten()
-            .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Filter), tar));
+            .map(|(i, (src, w, tar))| (src, EdgeWeight::new(w, Origin::Filter(i)), tar));
         let edges_close = spec
             .outputs()
             .map(|o| o.sr)
-            .chain(spec.triggers().map(|t| t.sr))
             .flat_map(|sr| {
                 spec.close(sr)
                     .and_then(|cd| cd.condition)
@@ -320,7 +331,7 @@ impl DepAna {
             .chain(edges_close)
             .collect::<Vec<(SRef, EdgeWeight, SRef)>>();
 
-        let num_nodes = spec.num_inputs() + spec.num_outputs() + spec.num_triggers();
+        let num_nodes = spec.num_inputs() + spec.num_outputs();
         let num_edges = edges.len();
         let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 
@@ -510,8 +521,8 @@ impl DepAna {
             } => {
                 Self::collect_edges(src, condition)
                     .into_iter()
-                    .chain(Self::collect_edges(src, consequence).into_iter())
-                    .chain(Self::collect_edges(src, alternative).into_iter())
+                    .chain(Self::collect_edges(src, consequence))
+                    .chain(Self::collect_edges(src, alternative))
                     .collect()
             },
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
@@ -519,7 +530,7 @@ impl DepAna {
             ExpressionKind::Default { expr, default } => {
                 Self::collect_edges(src, expr)
                     .into_iter()
-                    .chain(Self::collect_edges(src, default).into_iter())
+                    .chain(Self::collect_edges(src, default))
                     .collect()
             },
         }
@@ -564,7 +575,7 @@ mod tests {
             HashMap<SRef, Vec<(SRef, WRef)>>,
         )>,
     ) {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast).unwrap().check_types().unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
@@ -1274,6 +1285,33 @@ mod tests {
         let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
         let aggregates = checking_map!(sname_to_sref, ["a", (("x", WRef::Sliding(0)))], ["x", ()]);
         let aggregated_by = checking_map!(sname_to_sref, ["a", ()], ["x", (("a", WRef::Sliding(0)))]);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let sname_to_sref = vec![("b", SRef::Out(0)), ("c", SRef::Out(1)), ("a", SRef::In(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b", "a")]);
+        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
             spec,
             Some((

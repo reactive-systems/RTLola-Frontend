@@ -1,8 +1,12 @@
 use std::fmt::{Display, Formatter, Result};
 
 use itertools::Itertools;
+use rtlola_hir::hir::OutputKind;
 
-use super::{FloatTy, InputStream, IntTy, Mir, OutputStream, PacingType, Stream, Trigger, UIntTy, WindowOperation};
+use super::{
+    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
+    WindowOperation,
+};
 use crate::mir::{
     ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
 };
@@ -13,8 +17,8 @@ impl Display for Constant {
             Constant::Bool(b) => write!(f, "{b}"),
             Constant::UInt(u) => write!(f, "{u}"),
             Constant::Int(i) => write!(f, "{i}"),
-            Constant::Float(fl) => write!(f, "{fl}"),
-            Constant::Str(s) => write!(f, "{s}"),
+            Constant::Float(fl) => write!(f, "{fl:?}"),
+            Constant::Str(s) => write!(f, "\"{s}\""),
         }
     }
 }
@@ -92,6 +96,15 @@ impl Display for FloatTy {
         match self {
             FloatTy::Float32 => write!(f, "32"),
             FloatTy::Float64 => write!(f, "64"),
+        }
+    }
+}
+
+impl Display for InstanceSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            InstanceSelection::Fresh => write!(f, "Fresh"),
+            InstanceSelection::All => write!(f, "All"),
         }
     }
 }
@@ -195,14 +208,20 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
 impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
-            super::PacingType::Periodic(freq) => {
+            PacingType::GlobalPeriodic(freq) => {
                 let s = freq
                     .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
                     .to_string();
-                write!(f, "{}Hz", &s[..s.len() - 3])
+                write!(f, "Global({}Hz)", &s[..s.len() - 3])
             },
-            super::PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
-            super::PacingType::Constant => write!(f, "true"),
+            PacingType::LocalPeriodic(freq) => {
+                let s = freq
+                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .to_string();
+                write!(f, "Local({}Hz)", &s[..s.len() - 3])
+            },
+            PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
+            PacingType::Constant => write!(f, "true"),
         }
     }
 }
@@ -277,13 +296,26 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
 
             match access_kind {
                 StreamAccessKind::Sync => target_name,
-                StreamAccessKind::DiscreteWindow(_) => todo!(),
+                StreamAccessKind::DiscreteWindow(w) => {
+                    let window = mir.discrete_window(*w);
+                    let target_name = mir.stream(window.target).name();
+                    let duration = window.duration;
+                    let op = &window.op;
+                    format!("{target_name}.aggregate(over_discrete: {duration}, using: {op})")
+                },
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
                     let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
+                },
+                StreamAccessKind::InstanceAggregation(w) => {
+                    let window = mir.instance_aggregation(*w);
+                    let target_name = mir.stream(window.target).name();
+                    let duration = window.selection.to_string();
+                    let op = &window.op().to_string();
+                    format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
                 },
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
@@ -351,16 +383,16 @@ impl Display for InputStream {
 impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let OutputStream {
-            name,
+            name: _,
             ty,
             spawn,
             eval,
             close,
             params,
+            kind,
             ..
         } = self.inner;
 
-        let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
         let display_parameters = if !params.is_empty() {
             let parameter_list = params
                 .iter()
@@ -371,29 +403,39 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             "".into()
         };
 
-        writeln!(f, "output {name}{display_parameters} : {ty}")?;
+        match kind {
+            OutputKind::NamedOutput(name) => write!(f, "output {name}{display_parameters} : {ty}")?,
+            OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
+        }
 
-        if let Some(spawn_expr) = &spawn.expression {
-            let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
-            write!(f, "  spawn with {display_spawn_expr}")?;
+        if spawn.expression.is_some() || spawn.condition.is_some() || spawn.pacing != PacingType::Constant {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
+            write!(f, "\n  spawn @{display_pacing}")?;
+            if let Some(spawn_expr) = &spawn.expression {
+                let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
+                write!(f, " with {display_spawn_expr}")?;
+            }
             if let Some(spawn_condition) = &spawn.condition {
                 let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
                 write!(f, " when {display_spawn_condition}")?;
             }
-            writeln!(f)?;
         }
 
-        write!(f, "  eval @{display_pacing} ")?;
-        if let Some(eval_condition) = &eval.condition {
-            let display_eval_condition = display_expression(self.mir, eval_condition, 0);
-            write!(f, "when {display_eval_condition} ")?;
+        for clause in &eval.clauses {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
+            write!(f, "\n  eval @{display_pacing} ")?;
+            if let Some(eval_condition) = &clause.condition {
+                let display_eval_condition = display_expression(self.mir, eval_condition, 0);
+                write!(f, "when {display_eval_condition} ")?;
+            }
+            let display_eval_expr = display_expression(self.mir, &clause.expression, 0);
+            write!(f, "with {display_eval_expr}")?;
         }
-        let display_eval_expr = display_expression(self.mir, &eval.expression, 0);
-        write!(f, "with {display_eval_expr}")?;
 
         if let Some(close_condition) = &close.condition {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &close.pacing).to_string();
             let display_close_condition = display_expression(self.mir, close_condition, 0);
-            write!(f, "\n  close when {display_close_condition}")?;
+            write!(f, "\n  close @{display_pacing} when {display_close_condition}")?;
         }
 
         Ok(())
@@ -402,11 +444,8 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
 
 impl<'a> Display for RtLolaMirPrinter<'a, Trigger> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let output = self.mir.output(self.inner.reference);
-        let output_name = output.name();
-        let message = &self.inner.message;
-
-        write!(f, "trigger {output_name} \"{message}\"")
+        let output = self.mir.output(self.inner.output_reference);
+        RtLolaMirPrinter::new(self.mir, output).fmt(f)
     }
 }
 
@@ -421,11 +460,7 @@ impl Display for Mir {
             RtLolaMirPrinter::new(self, output).fmt(f)?;
             write!(f, "\n\n")
         })?;
-
-        self.triggers.iter().try_for_each(|trigger| {
-            RtLolaMirPrinter::new(self, trigger).fmt(f)?;
-            write!(f, "\n\n")
-        })
+        Ok(())
     }
 }
 
@@ -443,8 +478,8 @@ mod tests {
             fn $name() {
                 let spec = format!("input a : UInt64\noutput b@a := {}", $test);
                 let config = ParserConfig::for_string(spec);
-                let mir = parse(config).expect("should parse");
-                let expr = &mir.outputs[0].eval.expression;
+                let mir = parse(&config).expect("should parse");
+                let expr = &mir.outputs[0].eval.clauses.get(0).expect("only one clause").expression;
                 let display_expr = display_expression(&mir, expr, 0);
                 assert_eq!(display_expr, $expected);
             }
@@ -477,24 +512,30 @@ mod tests {
         "a.hold().defaults(to: 0)" => "a.hold().defaults(to: 0)",
         offset_access:
         "a.offset(by:-2).defaults(to: 2+2)" => "a.offset(by:-2).defaults(to: 2 + 2)",
+        floats:
+        "1.0 + 1.5" => "1.0 + 1.5",
     }
 
     #[test]
     fn test() {
         let example = "input a : UInt64
         input b : UInt64
-        output c := a + b.hold().defaults(to:0)
+        output c@(a&&b) := a + b.hold().defaults(to:0)
         output d@10Hz := b.aggregate(over: 2s, using: sum) + c.hold().defaults(to:0)
         output e(x)
             spawn with a when b == 0
             eval when x == a with e(x).offset(by:-1).defaults(to:0) + 1
             close when x == a && e(x) == 0
+        output f
+            eval @a when a == 0 with 0
+            eval @a when a > 5 && a <= 10 with 1
+            eval @a when a > 10 with 2
         trigger c > 5 \"message\"
         ";
 
         let config = ParserConfig::for_string(example.into());
-        let mir = parse(config).expect("should parse");
+        let mir = parse(&config).expect("should parse");
         let config = ParserConfig::for_string(mir.to_string());
-        parse(config).expect("should also parse");
+        parse(&config).expect("should also parse");
     }
 }
