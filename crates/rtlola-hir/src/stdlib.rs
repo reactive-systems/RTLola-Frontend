@@ -157,6 +157,14 @@ lazy_static! {
         parameters: ParameterDecl::ArbitaryAmount{fixed: vec![AnnotatedType::String], repeating: AnnotatedType::Any},
         return_type: AnnotatedType::String
     };
+
+    /// round a float to a given number of decimal points
+    static ref ROUND: FuncDecl = FuncDecl {
+        name: FunctionName::new("round".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Numeric],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::UInt(8)]),
+        return_type: AnnotatedType::Float(64)
+    };
 }
 
 pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
@@ -164,7 +172,9 @@ pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
 }
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
-    vec![&SQRT, &COS, &SIN, &TAN, &ARCSIN, &ARCCOS, &ARCTAN, &ABS, &MIN, &MAX]
+    vec![
+        &SQRT, &COS, &SIN, &TAN, &ARCSIN, &ARCCOS, &ARCTAN, &ABS, &MIN, &MAX, &ROUND,
+    ]
 }
 
 pub(crate) fn regex_module() -> Vec<&'static FuncDecl> {
