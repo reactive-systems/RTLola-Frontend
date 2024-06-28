@@ -775,7 +775,6 @@ impl Stream for OutputStream {
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
         &self.aggregated_by
     }
-    
 }
 
 impl Stream for InputStream {
@@ -830,8 +829,6 @@ impl Stream for InputStream {
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
         &self.aggregated_by
     }
-
-    
 }
 
 impl Window for SlidingWindow {

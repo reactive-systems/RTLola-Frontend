@@ -226,7 +226,24 @@ pub(crate) enum PacingErrorKind {
     ParameterizationNotAllowed(Span),
     UnintuitivePacingWarning(Span, ConcretePacingType),
     Other(Span, String, Vec<Box<dyn PrintableVariant>>),
-    SpawnPeriodicMismatch(Span, Span, (ConcretePacingType, Expression)),
+    SpawnPeriodicMismatch {
+        access_span: Span,
+        target_spawn_span: Option<Span>,
+        source_spawn_span: Option<Span>,
+        target_spawn_pacing: ConcretePacingType,
+        target_spawn_condition: Option<Expression>,
+        source_spawn_pacing: ConcretePacingType,
+        source_spawn_condition: Option<Expression>,
+    },
+    ClosePeriodicMismatch {
+        access_span: Span,
+        target_close_span: Option<Span>,
+        source_close_span: Option<Span>,
+        target_close_pacing: ConcretePacingType,
+        target_close_condition: Option<Expression>,
+        source_close_pacing: ConcretePacingType,
+        source_close_condition: Option<Expression>,
+    },
     InvalidSyncAccessParameter {
         target_span: Span,
         target_spawn_expr: Expression,
@@ -535,19 +552,19 @@ impl Resolvable for PacingErrorKind {
                 let spawn_str = match (spawn_pacing, spawn_cond) {
                     (Some(pacing), Some(cond)) => {
                         format!(
-                            "\nspawn @{} with <...> if {}",
+                            "\nspawn @{} when {} with <...>",
                             pacing.to_pretty_string(names),
                             cond.pretty_string(names)
                         )
                     }
                     (Some(pacing), None) => format!("\nspawn @{} with <...>", pacing.to_pretty_string(names)),
-                    (None, Some(cond)) => format!("\nspawn <...> if {}", cond.pretty_string(names)),
+                    (None, Some(cond)) => format!("\nspawn when {} with <...>", cond.pretty_string(names)),
                     (None, None) => "".to_string(),
                 };
                 let filter_str: String =
-                    filter.map_or("".into(), |filter| format!("\nfilter {}", filter.pretty_string(names)));
+                    filter.map_or("".into(), |filter| format!("\neval when {}", filter.pretty_string(names)));
                 let close_str: String =
-                    close.map_or("".into(), |close| format!("\nclose {}", close.pretty_string(names)));
+                    close.map_or("".into(), |close| format!("\nclose when {}", close.pretty_string(names)));
                 Diagnostic::error("In pacing type analysis:\nParameterization needed")
                     .add_span_with_label(who, Some("here"), true)
                     .add_span_with_label(why, Some("As of synchronous access occurring here"), false)
@@ -585,22 +602,28 @@ impl Resolvable for PacingErrorKind {
                         true,
                     )
             }
-            SpawnPeriodicMismatch(access_span, target_span, (access_pacing, access_condition)) => Diagnostic::error(
-                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a spawn annotation.",
+            SpawnPeriodicMismatch { access_span, target_spawn_span, source_spawn_span, target_spawn_pacing, target_spawn_condition, source_spawn_pacing, source_spawn_condition } =>
+            Diagnostic::error(
+                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
             )
                 .add_span_with_label(
                     access_span,
-                    Some(
-                        format!(
-                            "Found accessing stream here with: spawn @{} <...> if {}",
-                            access_pacing.to_pretty_string(names),
-                            access_condition.pretty_string(names)
-                        )
-                            .as_str(),
-                    ),
+                    Some("Found synchronous stream access here"),
                     true,
                 )
-                .add_span_with_label(target_span, Some("Found target stream here"), false),
+                .maybe_add_span_with_label(target_spawn_span, Some(&format!("Found target spawn condition here: spawn @({}) when {} with <...>", target_spawn_pacing.to_pretty_string(names), target_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
+                .maybe_add_span_with_label(source_spawn_span, Some(&format!("Found source spawn condition here: spawn @({}) when {} with <...>", source_spawn_pacing.to_pretty_string(names), source_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
+            ClosePeriodicMismatch { access_span, target_close_span, source_close_span, target_close_pacing, target_close_condition, source_close_pacing, source_close_condition } =>
+            Diagnostic::error(
+                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
+            )
+                .add_span_with_label(
+                    access_span,
+                    Some("Found synchronous stream access here"),
+                    true,
+                )
+                .maybe_add_span_with_label(target_close_span, Some(&format!("Found target close condition here: close @({}) when {}", target_close_pacing.to_pretty_string(names), target_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
+                .maybe_add_span_with_label(source_close_span, Some(&format!("Found source close condition here: close @({}) when {}", source_close_pacing.to_pretty_string(names), source_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
             InvalidSyncAccessParameter {
                 target_span,
                 target_spawn_expr,
