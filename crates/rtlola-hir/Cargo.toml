@@ -19,14 +19,14 @@ keywords = ["verification", "frontend", "monitoring", "analyzer", "hir"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-uom = { version = "0.31.1", default-features = false, features = [ "autoconvert", "rational64", "si", "std", "use_serde"]}
+uom = { version = "0.31.1", default-features = false, features = ["autoconvert", "rational64", "si", "std", "use_serde"] }
 itertools = "0.10.0"
 lazy_static = "1.3.0" # lazy_static! macro
 petgraph = "0.5"
 num = "0.3.1"     # infinite precision rationals
-rtlola-reporting = "0.2.2"
+rtlola-reporting = "0.3.0"
 rtlola-macros = "0.1.2"
-rtlola-parser = "0.3.1"
+rtlola-parser = "0.3.2"
 rusttyc = "0.5.0"
 serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "0.3.2", features = ["serde"] }
