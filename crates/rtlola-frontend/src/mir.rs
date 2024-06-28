@@ -28,7 +28,8 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemorizationBound, OutputReference, StreamLayers, StreamReference, WindowReference,
+    InputReference, Layer, MemorizationBound, Origin, OutputKind, OutputReference, StreamLayers, StreamReference,
+    WindowReference,
 };
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
@@ -57,10 +58,17 @@ pub trait Stream {
     fn is_spawned(&self) -> bool;
     /// Indicates whether or not the stream is closed.
     fn is_closed(&self) -> bool;
+    /// Indicated whether or not the stream is filtered.
+    fn is_eval_filtered(&self) -> bool;
     /// Indicates how many values of the stream's [Type] need to be memorized.
     fn values_to_memorize(&self) -> MemorizationBound;
     /// Produces a stream references referring to the stream.
     fn as_stream_ref(&self) -> StreamReference;
+    /// Returns the collection of streams that access the stream non-transitively.
+    fn accessed_by(&self) -> &Accesses;
+    /// Returns the collection of sliding windows that access the stream non-transitively.
+    /// This includes both sliding and discrete windows.
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
 }
 
 /// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
@@ -95,7 +103,9 @@ pub struct RtLolaMir {
     pub discrete_windows: Vec<DiscreteWindow>,
     /// A collection of all sliding windows.
     pub sliding_windows: Vec<SlidingWindow>,
-    /// References and message information of all triggers.
+    /// A collection of all instance aggregations.
+    pub instance_aggregations: Vec<InstanceAggregation>,
+    /// The references of all outputs that represent triggers
     pub triggers: Vec<Trigger>,
 }
 
@@ -130,8 +140,10 @@ pub enum Type {
 /// Represents an RTLola pacing type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PacingType {
-    /// Represents a periodic pacing with a fixed frequency
-    Periodic(UOM_Frequency),
+    /// Represents a periodic pacing with a fixed global frequency
+    GlobalPeriodic(UOM_Frequency),
+    /// Represents a periodic pacing with a fixed local frequency
+    LocalPeriodic(UOM_Frequency),
     /// Represents an event based pacing defined by an [ActivationCondition]
     Event(ActivationCondition),
     /// The pacing is constant, meaning that the value is always present.
@@ -150,6 +162,7 @@ pub enum IntTy {
     /// Represents a 64-bit integer.
     Int64,
 }
+
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UIntTy {
@@ -194,6 +207,8 @@ impl From<ConcreteValueType> for Type {
     }
 }
 
+type Accesses = Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>;
+
 /// Contains all information inherent to an input stream.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct InputStream {
@@ -202,7 +217,7 @@ pub struct InputStream {
     /// The value type of the stream.  Note that its pacing is always pre-determined.
     pub ty: Type,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
@@ -220,6 +235,8 @@ pub struct InputStream {
 pub struct OutputStream {
     /// The name of the stream.
     pub name: String,
+    /// The kind of the output (regular output or trigger)
+    pub kind: OutputKind,
     /// The value type of the stream.
     pub ty: Type,
     /// Information on the spawn behavior of the stream
@@ -229,9 +246,9 @@ pub struct OutputStream {
     /// The condition under which the stream is supposed to be closed
     pub close: Close,
     /// The collection of streams this stream accesses non-transitively.  Includes this stream's spawn, evaluation condition, and close expressions.
-    pub accesses: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accesses: Accesses,
     /// The collection of streams that access the current stream non-transitively
-    pub accessed_by: Vec<(StreamReference, Vec<StreamAccessKind>)>,
+    pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
     pub aggregated_by: Vec<(StreamReference, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -244,20 +261,23 @@ pub struct OutputStream {
     pub params: Vec<Parameter>,
 }
 
-/// A type alias for references to triggers.
-pub type TriggerReference = usize;
-/// Wrapper for output streams that are in-fact triggers.  Provides additional information specific to triggers.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+/// A trigger (represented by the output stream `output_reference`)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 pub struct Trigger {
-    /// The trigger message that is supposed to be conveyed to the user if the trigger reports a violation.
-    pub message: String,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
-    pub info_streams: Vec<StreamReference>,
-    /// A reference to the output stream representing this trigger.
-    pub reference: StreamReference,
-    /// The reference referring to this stream
+    /// The reference of the output stream representing this trigger
+    pub output_reference: StreamReference,
+    /// The reference of this trigger
     pub trigger_reference: TriggerReference,
 }
+
+impl OutputStream {
+    fn is_trigger(&self) -> bool {
+        matches!(self.kind, OutputKind::Trigger(_))
+    }
+}
+
+/// A type alias for references to triggers.
+pub type TriggerReference = usize;
 
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -269,6 +289,7 @@ pub struct Spawn {
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
 }
+
 impl Default for Spawn {
     fn default() -> Self {
         Spawn {
@@ -289,6 +310,7 @@ pub struct Close {
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
 }
+
 impl Default for Close {
     fn default() -> Self {
         Close {
@@ -302,12 +324,21 @@ impl Default for Close {
 /// Information on the evaluation behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Eval {
+    /// The eval clauses of the stream.
+    pub clauses: Vec<EvalClause>,
+    /// The eval pacing of the stream, combining the condition and expr pacings of all eval clauses
+    pub eval_pacing: PacingType,
+}
+
+/// Information on an eval clause of a stream
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvalClause {
     /// The expression of this stream needs to be evaluated whenever this condition evaluates to `True`.
     pub condition: Option<Expression>,
     /// The evaluation expression of this stream, defining the returned and accessed value.
     pub expression: Expression,
-    /// The eval pacing of the stream, combining the condition and expr pacing. This is equal to the top level stream pacing.
-    pub eval_pacing: PacingType,
+    /// The eval pacing of the stream, combining the condition and expr pacings of the clause.
+    pub pacing: PacingType,
 }
 
 /// Information of a parameter of a parametrized output stream
@@ -328,6 +359,17 @@ pub struct TimeDrivenStream {
     pub reference: StreamReference,
     /// The evaluation frequency of the stream.
     pub frequency: UOM_Frequency,
+    /// Whether the given frequency is relative to a dynamic spawn
+    pub locality: PacingLocality,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+/// Describes if the pacing is interpreted relatively to a dynamic spawn
+pub enum PacingLocality {
+    /// The pacing is relative to a global clock
+    Global,
+    /// The pacing is relative to the spawn
+    Local,
 }
 
 impl TimeDrivenStream {
@@ -541,6 +583,10 @@ pub struct SlidingWindow {
     pub caller: StreamReference,
     /// The duration over which the window aggregates
     pub duration: Duration,
+    /// The number of buckets that are needed for the window
+    pub num_buckets: MemorizationBound,
+    /// The time per bucket of the window
+    pub bucket_size: Duration,
     /// Indicates whether or not the first aggregated value will be produced immediately or whether the window waits until `duration` has passed at least once
     pub wait: bool,
     /// The aggregation operation
@@ -549,6 +595,61 @@ pub struct SlidingWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+}
+
+/// Represents an instance of an instance aggregation
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct InstanceAggregation {
+    /// The stream whose values will be aggregated
+    pub target: StreamReference,
+    /// The stream calling and evaluating this window
+    pub caller: StreamReference,
+    /// A filter over the instances
+    pub selection: InstanceSelection,
+    /// The operation to be performed over the instances
+    pub aggr: InstanceOperation,
+    /// The reference of this window.
+    pub reference: WindowReference,
+    /// The type of value the window produces
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum InstanceSelection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
+/// A subset of the window operations that are suitable to be performed over a set of instances.
+pub enum InstanceOperation {
+    /// Aggregation function to count the number of instances of the accessed stream
+    Count,
+    /// Aggregation function to return the minimum
+    Min,
+    /// Aggregation function to return the minimum
+    Max,
+    /// Aggregation function to return the addition
+    Sum,
+    /// Aggregation function to return the product
+    Product,
+    /// Aggregation function to return the average
+    Average,
+    /// Aggregation function to return the conjunction, i.e., the instances aggregation returns true iff ALL current values of the instances of the accessed stream are assigned to true
+    Conjunction,
+    /// Aggregation function to return the disjunction, i.e., the instances aggregation returns true iff ANY current values of the instances of the accessed stream are assigned to true
+    Disjunction,
+    /// Aggregation function to return the variance of all values, assumes equal probability.
+    Variance,
+    /// Aggregation function to return the covariance of all values in a tuple stream, assumes equal probability.
+    Covariance,
+    /// Aggregation function to return the standard deviation of all values, assumes equal probability.
+    StandardDeviation,
+    /// Aggregation function to return the Nth-Percentile
+    NthPercentile(u8),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -584,6 +685,25 @@ pub enum WindowOperation {
     NthPercentile(u8),
 }
 
+impl From<InstanceOperation> for WindowOperation {
+    fn from(value: InstanceOperation) -> Self {
+        match value {
+            InstanceOperation::Count => WindowOperation::Count,
+            InstanceOperation::Min => WindowOperation::Min,
+            InstanceOperation::Max => WindowOperation::Max,
+            InstanceOperation::Sum => WindowOperation::Sum,
+            InstanceOperation::Product => WindowOperation::Product,
+            InstanceOperation::Average => WindowOperation::Average,
+            InstanceOperation::Conjunction => WindowOperation::Conjunction,
+            InstanceOperation::Disjunction => WindowOperation::Disjunction,
+            InstanceOperation::Variance => WindowOperation::Variance,
+            InstanceOperation::Covariance => WindowOperation::Covariance,
+            InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
+            InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+        }
+    }
+}
+
 /// A trait for any kind of window
 pub trait Window {
     /// Returns a reference to the stream that will be aggregated by that window.
@@ -597,6 +717,9 @@ pub trait Window {
 
     /// Returns the type of value the window produces.
     fn ty(&self) -> &Type;
+
+    /// Returns the memorization bound of the window.
+    fn memory_bound(&self) -> MemorizationBound;
 }
 
 ////////// Implementations //////////
@@ -626,11 +749,15 @@ impl Stream for OutputStream {
     }
 
     fn is_spawned(&self) -> bool {
-        self.spawn.expression.is_some() || self.spawn.condition.is_some()
+        self.spawn.expression.is_some() || self.spawn.condition.is_some() || self.spawn.pacing != PacingType::Constant
     }
 
     fn is_closed(&self) -> bool {
         self.close.condition.is_some()
+    }
+
+    fn is_eval_filtered(&self) -> bool {
+        self.eval.clauses.iter().any(|eval| eval.condition.is_some())
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
@@ -639,6 +766,14 @@ impl Stream for OutputStream {
 
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
+    }
+
+    fn accessed_by(&self) -> &Accesses {
+        &self.accessed_by
+    }
+
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+        &self.aggregated_by
     }
 }
 
@@ -675,12 +810,24 @@ impl Stream for InputStream {
         false
     }
 
+    fn is_eval_filtered(&self) -> bool {
+        false
+    }
+
     fn values_to_memorize(&self) -> MemorizationBound {
         self.memory_bound
     }
 
     fn as_stream_ref(&self) -> StreamReference {
         self.reference
+    }
+
+    fn accessed_by(&self) -> &Accesses {
+        &self.accessed_by
+    }
+
+    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+        &self.aggregated_by
     }
 }
 
@@ -700,6 +847,10 @@ impl Window for SlidingWindow {
     fn ty(&self) -> &Type {
         &self.ty
     }
+
+    fn memory_bound(&self) -> MemorizationBound {
+        self.num_buckets
+    }
 }
 
 impl Window for DiscreteWindow {
@@ -717,6 +868,32 @@ impl Window for DiscreteWindow {
 
     fn ty(&self) -> &Type {
         &self.ty
+    }
+
+    fn memory_bound(&self) -> MemorizationBound {
+        MemorizationBound::Bounded(self.duration as u32)
+    }
+}
+
+impl Window for InstanceAggregation {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.aggr.into()
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    fn memory_bound(&self) -> MemorizationBound {
+        MemorizationBound::Bounded(1)
     }
 }
 
@@ -792,7 +969,7 @@ impl RtLolaMir {
 
     /// Provides a collection of all output streams representing a trigger.
     pub fn all_triggers(&self) -> Vec<&OutputStream> {
-        self.triggers.iter().map(|t| self.output(t.reference)).collect()
+        self.triggers.iter().map(|t| self.output(t.output_reference)).collect()
     }
 
     /// Provides a collection of all event-driven output streams.
@@ -804,10 +981,12 @@ impl RtLolaMir {
     /// This includes time-driven streams and time-driven spawn conditions.
     pub fn has_time_driven_features(&self) -> bool {
         !self.time_driven.is_empty()
-            || self
-                .outputs
-                .iter()
-                .any(|o| matches!(o.spawn.pacing, PacingType::Periodic(_)))
+            || self.outputs.iter().any(|o| {
+                matches!(
+                    o.spawn.pacing,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_)
+                )
+            })
     }
 
     /// Provides a collection of all time-driven output streams.
@@ -823,22 +1002,39 @@ impl RtLolaMir {
     /// Provides immutable access to a discrete window.
     ///
     /// # Panic
-    /// Panics if `window` is a [WindowReference::Sliding].
+    /// Panics if `window` is not a [WindowReference::Discrete].
     pub fn discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
         match window {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
-            WindowReference::Sliding(_) => panic!("wrong type of window reference passed to getter"),
+            WindowReference::Sliding(_) | WindowReference::Instance(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
+        }
+    }
+
+    /// Provides immutable access to a instance aggregation.
+    ///
+    /// # Panic
+    /// Panics if `window` is not a [WindowReference::Instance].
+    pub fn instance_aggregation(&self, window: WindowReference) -> &InstanceAggregation {
+        match window {
+            WindowReference::Instance(x) => &self.instance_aggregations[x],
+            WindowReference::Sliding(_) | WindowReference::Discrete(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
         }
     }
 
     /// Provides immutable access to a sliding window.
     ///
     /// # Panic
-    /// Panics if `window` is a [WindowReference::Discrete].
+    /// Panics if `window` is not a [WindowReference::Sliding].
     pub fn sliding_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
-            WindowReference::Discrete(_) => panic!("wrong type of window reference passed to getter"),
+            WindowReference::Discrete(_) | WindowReference::Instance(_) => {
+                panic!("wrong type of window reference passed to getter")
+            },
         }
     }
 
@@ -847,6 +1043,7 @@ impl RtLolaMir {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(x) => &self.discrete_windows[x],
+            WindowReference::Instance(x) => &self.instance_aggregations[x],
         }
     }
 
@@ -974,7 +1171,7 @@ impl std::ops::Add for ValSize {
 }
 
 /// Representation of the different stream accesses
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum StreamAccessKind {
     /// Represents the synchronous access
     Sync,
@@ -986,6 +1183,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the reference to the (sliding window)[SlidingWindow] whose value is used in the [Expression].
     SlidingWindow(WindowReference),
+    /// Represents the access to a (instance aggregation)[InstanceAggregation]
+    ///
+    /// The argument contains the reference to the (instance aggregation)[InstanceAggregation] whose value is used in the [Expression].
+    InstanceAggregation(WindowReference),
     /// Representation of sample and hold accesses
     Hold,
     /// Representation of offset accesses
@@ -999,7 +1200,7 @@ pub enum StreamAccessKind {
 }
 
 /// Offset used in the lookup expression
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 pub enum Offset {
     /// A strictly positive discrete offset, e.g., `4`, or `42`
     Future(u32),

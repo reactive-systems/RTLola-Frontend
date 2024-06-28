@@ -14,12 +14,14 @@
 //! * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
 
 mod expression;
+mod feature_selector;
 mod print;
 pub mod selector;
 
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub use feature_selector::{Feature, FeatureSelector};
 use rtlola_reporting::Span;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -71,8 +73,6 @@ pub struct RtLolaHir<M: HirMode> {
     pub(crate) inputs: Vec<Input>,
     /// Collection of output streams
     pub(crate) outputs: Vec<Output>,
-    /// Collection of trigger streams
-    pub(crate) triggers: Vec<Trigger>,
     /// Next free input reference used to create new input streams
     pub(crate) next_input_ref: usize,
     /// Next free output reference used to create new output streams
@@ -97,8 +97,9 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Provides access to an iterator over all triggers.
-    pub fn triggers(&self) -> impl Iterator<Item = &Trigger> {
-        self.triggers.iter()
+    pub fn triggers(&self) -> impl Iterator<Item = &Output> {
+        self.outputs()
+            .filter(|output| matches!(output.kind, OutputKind::Trigger(_)))
     }
 
     /// Yields the number of input streams present in the Hir. Not necessarily equal to the number of input streams in the specification.
@@ -113,7 +114,7 @@ impl<M: HirMode> Hir<M> {
 
     /// Yields the number of triggers present in the Hir.  Not necessarily equal to the number of triggers in the specification.
     pub fn num_triggers(&self) -> usize {
-        self.triggers.len()
+        self.triggers().count()
     }
 
     /// Provides access to an iterator over all streams, i.e., inputs, outputs, and triggers.
@@ -122,7 +123,6 @@ impl<M: HirMode> Hir<M> {
             .iter()
             .map(|i| i.sr)
             .chain(self.outputs.iter().map(|o| o.sr))
-            .chain(self.triggers.iter().map(|t| t.sr))
     }
 
     /// Retrieves an input stream based on its name.  Fails if no such input stream exists.
@@ -132,7 +132,7 @@ impl<M: HirMode> Hir<M> {
 
     /// Retrieves an output stream based on its name.  Fails if no such output stream exists.
     pub fn get_output_with_name(&self, name: &str) -> Option<&Output> {
-        self.outputs.iter().find(|&o| o.name == name)
+        self.outputs.iter().find(|&o| o.name() == name)
     }
 
     /// Retrieves an output stream based on a stream reference.  Fails if no such stream exists or `sref` is a [StreamReference::In].
@@ -163,6 +163,11 @@ impl<M: HirMode> Hir<M> {
     /// Provides access to a collection of references for all discrete windows occurring in the Hir.
     pub fn discrete_windows(&self) -> Vec<&Window<DiscreteAggr>> {
         self.expr_maps.discrete_windows.values().clone().collect()
+    }
+
+    /// Provides access to a collection of references for all discrete windows occurring in the Hir.
+    pub fn instance_aggregations(&self) -> Vec<&InstanceAggregation> {
+        self.expr_maps.instance_aggregations.values().clone().collect()
     }
 
     /// Retrieves an expression for a given expression id.
@@ -205,6 +210,18 @@ impl<M: HirMode> Hir<M> {
             .unwrap()
     }
 
+    /// Retrieves a single instance aggregation for a given reference.
+    ///
+    /// # Panic
+    /// Panics if no such aggregation exists.
+    pub fn single_instance_aggregation(&self, window: WRef) -> InstanceAggregation {
+        *self
+            .instance_aggregations()
+            .into_iter()
+            .find(|w| w.reference == window)
+            .unwrap()
+    }
+
     /// Retrieves the spawn definition of a particular output stream or trigger or `None` for input references.
     pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
         match sr {
@@ -215,7 +232,8 @@ impl<M: HirMode> Hir<M> {
                     SpawnDef::new(
                         st.expression.map(|e| self.expression(e)),
                         st.condition.map(|e| self.expression(e)),
-                        st.pacing.as_ref(),
+                        &st.pacing,
+                        st.span,
                     )
                 })
             },
@@ -269,83 +287,74 @@ impl<M: HirMode> Hir<M> {
         self.spawn(sr).expect("Invalid for input and triggers references")
     }
 
-    /// Retrieves the eval definition of a particular output stream or trigger or `None` for input references.
-    pub fn eval(&self, sr: SRef) -> Option<EvalDef> {
+    /// Retrieves the eval definitions of a particular output stream or trigger or `None` for input references.
+    pub fn eval(&self, sr: SRef) -> Option<Vec<EvalDef>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(idx) => {
-                if idx < self.outputs.len() {
-                    let output = self.outputs.iter().find(|o| o.sr == sr);
-                    output.map(|o| {
-                        let et = o.eval();
-                        EvalDef::new(
-                            et.condition.map(|id| self.expression(id)),
-                            self.expression(et.expr),
-                            et.annotated_pacing_type.as_ref(),
-                        )
+            SRef::Out(_) => {
+                let output = self.outputs.iter().find(|o| o.sr == sr);
+                output.map(|o| {
+                    o.eval()
+                        .iter()
+                        .map(|eval| {
+                            EvalDef::new(
+                                eval.condition.map(|id| self.expression(id)),
+                                self.expression(eval.expr),
+                                &eval.annotated_pacing_type,
+                                eval.span,
+                            )
+                        })
+                        .collect()
+                })
+            },
+        }
+    }
+
+    /// Retrieves all eval conditions of the clauses of a particular output stream or `None` for input and trigger references.
+    /// For each eval clause of the stream, the element in the Vec is `None` if no condition is
+    /// or the coresponding condition otherwise.
+    /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
+    pub fn eval_cond(&self, sr: SRef) -> Option<Vec<Option<&Expression>>> {
+        match sr {
+            SRef::In(_) => None,
+            SRef::Out(o) => {
+                if o < self.outputs.len() {
+                    self.outputs.iter().find(|o| o.sr == sr).map(|output| {
+                        output
+                            .eval
+                            .iter()
+                            .map(|e| e.condition.map(|eid| self.expression(eid)))
+                            .collect()
                     })
                 } else {
-                    // Trigger case
-                    let tr = self.triggers().find(|tr| tr.sr == sr);
-                    tr.map(|trigger| {
-                        EvalDef::new(
-                            None,
-                            self.expression(trigger.expr_id),
-                            trigger.annotated_pacing_type.as_ref(),
-                        )
-                    })
+                    Some(vec![None])
                 }
             },
         }
     }
 
-    /// Retrieves the eval condition of a particular output stream or `None` for input and trigger references.
+    /// Retrieves the eval expressions of all eval clauses of a particular output stream or trigger and `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_cond(&self, sr: SRef) -> Option<&Expression> {
+    pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 self.outputs
                     .iter()
                     .find(|o| o.sr == sr)
-                    .and_then(|o| o.eval_cond())
-                    .map(|eid| self.expression(eid))
+                    .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect())
             },
         }
     }
 
-    /// Retrieves the eval expression of a particular output stream or trigger and `None` for input references.
+    /// Retrieves the annotated eval pacing of each eval clause of a particular output stream or trigger `None` for input references.
     /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_expr(&self, sr: SRef) -> Option<&Expression> {
+    pub fn eval_pacing(&self, sr: SRef) -> Option<Vec<&AnnotatedPacingType>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(o) => {
-                if o < self.outputs.len() {
-                    self.outputs
-                        .iter()
-                        .find(|o| o.sr == sr)
-                        .map(|o| o.eval_expr())
-                        .map(|eid| self.expression(eid))
-                } else {
-                    let tr = self.triggers().find(|tr| tr.sr == sr);
-                    tr.map(|tr| tr.expr_id).map(|eid| self.expression(eid))
-                }
-            },
-        }
-    }
-
-    /// Retrieves the eval pacing of a particular output stream or trigger `None` for input references.
-    /// If all parts of the [EvalDef] are needed, see [RtLolaHir::eval]
-    pub fn eval_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
-        match sr {
-            SRef::In(_) => None,
-            SRef::Out(o) => {
-                if o < self.outputs.len() {
-                    self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.eval_pacing())
-                } else {
-                    let tr = self.triggers().find(|tr| tr.sr == sr);
-                    tr.and_then(|tr| tr.annotated_pacing_type.as_ref())
-                }
+            SRef::Out(_) => {
+                let output = self.outputs.iter().find(|o| o.sr == sr)?;
+                Some(output.eval.iter().map(|eval| &eval.annotated_pacing_type).collect())
             },
         }
     }
@@ -353,7 +362,7 @@ impl<M: HirMode> Hir<M> {
     /// Same behavior as [`eval`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input.
-    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> EvalDef {
+    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> Vec<EvalDef> {
         self.eval(sr).expect("Invalid for input references")
     }
 
@@ -363,7 +372,7 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let ct = self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close());
-                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), ct.pacing.as_ref()))
+                ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), &ct.pacing, ct.span))
             },
         }
     }
@@ -401,10 +410,10 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Generates a map from a [StreamReference] to the name of the corresponding stream.
-    pub fn names(&self) -> HashMap<SRef, &str> {
+    pub fn names(&self) -> HashMap<SRef, String> {
         self.inputs()
-            .map(|i| (i.sr, i.name.as_str()))
-            .chain(self.outputs().map(|o| (o.sr, o.name.as_str())))
+            .map(|i| (i.sr, i.name.clone()))
+            .chain(self.outputs().map(|o| (o.sr, o.name())))
             .collect()
     }
 }
@@ -415,6 +424,7 @@ pub(crate) struct ExpressionMaps {
     exprid_to_expr: HashMap<ExprId, Expression>,
     sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
     discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+    instance_aggregations: HashMap<WRef, InstanceAggregation>,
     func_table: HashMap<String, FuncDecl>,
 }
 
@@ -424,35 +434,88 @@ impl ExpressionMaps {
         exprid_to_expr: HashMap<ExprId, Expression>,
         sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
         discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
+        instance_aggregations: HashMap<WRef, InstanceAggregation>,
         func_table: HashMap<String, FuncDecl>,
     ) -> Self {
         Self {
             exprid_to_expr,
             sliding_windows,
             discrete_windows,
+            instance_aggregations,
             func_table,
         }
     }
 }
 
 /// Represents the name of a function including its arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionName {
-    /// Name of the function
-    pub name: String,
-    /// The names of the arguments.  Each name might be empty.
-    pub arg_names: Vec<Option<String>>,
+#[derive(Debug, Clone)]
+pub enum FunctionName {
+    /// the function has a fixed number of (possibly named) arguments
+    FixedParameters {
+        /// The name of the function
+        name: String,
+        /// For each argument its name (or None if it does not have a name)
+        arg_names: Vec<Option<String>>,
+    },
+    /// The function has an arbitrary amount of (unnamed) arguments
+    ArbitraryParameters {
+        /// The name of the function
+        name: String,
+    },
 }
 
 impl FunctionName {
-    /// Creates a new FunctionName.
+    /// Creates a new FunctionName with a predefined number of arguments.
     pub(crate) fn new(name: String, arg_names: &[Option<String>]) -> Self {
-        Self {
+        Self::FixedParameters {
             name,
             arg_names: Vec::from(arg_names),
         }
     }
+
+    pub(crate) fn new_repeating(name: String) -> Self {
+        Self::ArbitraryParameters { name }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            FunctionName::FixedParameters { name, .. } => name,
+            FunctionName::ArbitraryParameters { name } => name,
+        }
+    }
 }
+
+impl PartialEq for FunctionName {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::ArbitraryParameters { name }, other) | (other, Self::ArbitraryParameters { name }) => {
+                name == other.name()
+            },
+            (
+                Self::FixedParameters {
+                    name: s_name,
+                    arg_names: s_arg_names,
+                },
+                Self::FixedParameters {
+                    name: o_name,
+                    arg_names: o_arg_names,
+                },
+            ) => s_name == o_name && s_arg_names == o_arg_names,
+        }
+    }
+}
+
+impl std::hash::Hash for FunctionName {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            FunctionName::FixedParameters { name, arg_names: _ } => name,
+            FunctionName::ArbitraryParameters { name } => name,
+        }
+        .hash(state)
+    }
+}
+
+impl Eq for FunctionName {}
 
 /// Represents an input stream in an RTLola specification.
 #[derive(Debug, Clone)]
@@ -475,15 +538,24 @@ impl Input {
 
     /// Yields the span referring to a part of the specification from which this stream originated.
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
+}
+
+/// Whether the given output stream is a regular named output or represents a trigger
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
+pub enum OutputKind {
+    /// The output is a regular named output stream
+    NamedOutput(String),
+    /// The output represents a trigger
+    Trigger(usize),
 }
 
 /// Represents an output stream in an RTLola specification.
 #[derive(Debug, Clone)]
 pub struct Output {
-    /// The name of the stream.
-    pub name: String,
+    /// The kind of the stream.
+    pub kind: OutputKind,
     /// The user annotated Type
     pub(crate) annotated_type: Option<AnnotatedType>,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
@@ -491,7 +563,7 @@ pub struct Output {
     /// The optional information on the spawning behavior of the stream
     pub(crate) spawn: Option<Spawn>,
     /// The information regarding evaluation expression and condition of the stream
-    pub(crate) eval: Eval,
+    pub(crate) eval: Vec<Eval>,
     /// The optional closing condition
     pub(crate) close: Option<Close>,
     /// The reference pointing to this stream.
@@ -501,6 +573,14 @@ pub struct Output {
 }
 
 impl Output {
+    /// Returns the name of this stream.
+    pub fn name(&self) -> String {
+        match &self.kind {
+            OutputKind::NamedOutput(s) => s.clone(),
+            OutputKind::Trigger(idx) => format!("trigger_{idx}"),
+        }
+    }
+
     /// Returns an iterator over the parameters of this stream.
     pub fn params(&self) -> impl Iterator<Item = &Parameter> {
         self.params.iter()
@@ -532,7 +612,7 @@ impl Output {
     /// If all parts of [Spawn] are required, see [spawn](fn@Hir)
     #[allow(dead_code)]
     pub(crate) fn spawn_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.spawn.as_ref().and_then(|st| st.pacing.as_ref())
+        self.spawn.as_ref().map(|st| &st.pacing)
     }
 
     /// Returns the [Close] template of the stream
@@ -550,32 +630,17 @@ impl Output {
     /// If all parts of [Close] are required, see [close](fn@Hir))
     #[allow(dead_code)]
     pub(crate) fn close_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.close.as_ref().and_then(|ct| ct.pacing.as_ref())
+        self.close.as_ref().map(|ct| &ct.pacing)
     }
 
     /// Returns the [Eval] template of the stream
-    pub(crate) fn eval(&self) -> &Eval {
+    pub(crate) fn eval(&self) -> &[Eval] {
         &self.eval
-    }
-
-    /// Returns the expression id for the evaluation condition of this stream
-    pub(crate) fn eval_cond(&self) -> Option<ExprId> {
-        self.eval.condition
-    }
-
-    /// Returns the expression id for the eval expression of this stream
-    pub(crate) fn eval_expr(&self) -> ExprId {
-        self.eval.expr
-    }
-
-    /// Returns the annotated pacing for the stream evaluation
-    pub(crate) fn eval_pacing(&self) -> Option<&AnnotatedPacingType> {
-        self.eval.annotated_pacing_type.as_ref()
     }
 
     /// Yields the span referring to a part of the specification from which this stream originated.
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 }
 
@@ -600,22 +665,42 @@ impl Parameter {
 
     /// Yields the span referring to a part of the specification where this parameter occurs.
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Frequency of an annotated pacing information for stream
+pub struct AnnotatedFrequency {
+    /// A span to the part of the specification containing the frequency
+    pub span: Span,
+    /// The actual frequency
+    pub value: UOM_Frequency,
+}
+
 /// Pacing information for stream; contains either a frequency or a condition on input streams.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnnotatedPacingType {
-    /// The evaluation frequency
-    Frequency {
-        /// A span to the part of the specification containing the frequency
-        span: Span,
-        /// The actual frequency
-        value: UOM_Frequency,
-    },
+    /// The global evaluation frequency
+    GlobalFrequency(AnnotatedFrequency),
+    /// The local evaluation frequency
+    LocalFrequency(AnnotatedFrequency),
     /// The expression which constitutes the condition under which the stream should be evaluated.
-    Expr(ExprId),
+    Event(ExprId),
+    /// The stream is not annotated with a pacing
+    #[default]
+    NotAnnotated,
+}
+
+impl AnnotatedPacingType {
+    /// Returns the span of the annotated type.
+    pub fn span<M: HirMode>(&self, hir: &Hir<M>) -> Span {
+        match self {
+            AnnotatedPacingType::GlobalFrequency(freq) | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
+            AnnotatedPacingType::Event(id) => hir.expression(*id).span,
+            AnnotatedPacingType::NotAnnotated => Span::Unknown,
+        }
+    }
 }
 
 /// Information regarding the spawning behavior of a stream
@@ -624,9 +709,11 @@ pub(crate) struct Spawn {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub(crate) expression: Option<ExprId>,
     /// The activation condition describing when a new instance is created.
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
     /// An additional condition for the creation of an instance, i.e., an instance is only created if the condition is true.
     pub(crate) condition: Option<ExprId>,
+    /// The range in the specification corresponding to the spawn clause.
+    pub(crate) span: Span,
 }
 
 impl Spawn {
@@ -657,11 +744,13 @@ impl Spawn {
 #[derive(Debug, Clone)]
 pub(crate) struct Eval {
     /// The activation condition, which defines when a new value of a stream is computed.
-    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
+    pub(crate) annotated_pacing_type: AnnotatedPacingType,
     /// The expression defining when an instance is evaluated
     pub(crate) condition: Option<ExprId>,
     /// The stream expression of a output stream, e.g., a + b.offset(by: -1).defaults(to: 0)
     pub(crate) expr: ExprId,
+    /// The range in the specification corresponding to the eval clause.
+    pub(crate) span: Span,
 }
 
 /// Information regarding the closing behavior of a stream
@@ -670,7 +759,9 @@ pub(crate) struct Close {
     /// The expression defining if an instance is closed
     pub(crate) condition: ExprId,
     /// The activation condition describing when an instance is closed
-    pub(crate) pacing: Option<AnnotatedPacingType>,
+    pub(crate) pacing: AnnotatedPacingType,
+    /// The range in the specification corresponding to the close clause.
+    pub(crate) span: Span,
 }
 
 /// The Hir Spawn definition is composed of two optional expressions and the annotated pacing.
@@ -682,7 +773,9 @@ pub struct SpawnDef<'a> {
     /// The conditional expression of the spawn, e.g. when x > 5
     pub condition: Option<&'a Expression>,
     /// The pacing type  of the spawn, e.g. @1Hz or @input_i
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
+    /// The range in the specification corresponding to the spawn clause.
+    pub span: Span,
 }
 
 impl<'a> SpawnDef<'a> {
@@ -690,12 +783,14 @@ impl<'a> SpawnDef<'a> {
     pub fn new(
         expression: Option<&'a Expression>,
         condition: Option<&'a Expression>,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
+        span: Span,
     ) -> Self {
         Self {
             expression,
             condition,
             annotated_pacing,
+            span,
         }
     }
 }
@@ -709,7 +804,9 @@ pub struct EvalDef<'a> {
     /// The stream expression defines the computed value of the stream.
     pub expression: &'a Expression,
     /// The annotated pacing of the stream evaluation, describing when the condition and expression should be evaluated in a temporal manner.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
+    /// The range in the specification corresponding to the eval clause.
+    pub span: Span,
 }
 
 impl<'a> EvalDef<'a> {
@@ -717,12 +814,14 @@ impl<'a> EvalDef<'a> {
     pub fn new(
         condition: Option<&'a Expression>,
         expr: &'a Expression,
-        annotated_pacing: Option<&'a AnnotatedPacingType>,
+        annotated_pacing: &'a AnnotatedPacingType,
+        span: Span,
     ) -> Self {
         Self {
             condition,
             expression: expr,
             annotated_pacing,
+            span,
         }
     }
 }
@@ -733,69 +832,19 @@ pub struct CloseDef<'a> {
     /// The close condition, defining when a stream instance is closed and no longer evaluated.
     pub condition: Option<&'a Expression>,
     /// The annotated pacing, indicating when the condition should be evaluated.
-    pub annotated_pacing: Option<&'a AnnotatedPacingType>,
+    pub annotated_pacing: &'a AnnotatedPacingType,
+    /// The range in the specification corresponding to the close clause.
+    pub span: Span,
 }
 
 impl<'a> CloseDef<'a> {
     /// Constructs a new [CloseDef]
-    pub fn new(condition: Option<&'a Expression>, annotated_pacing: Option<&'a AnnotatedPacingType>) -> Self {
+    pub fn new(condition: Option<&'a Expression>, annotated_pacing: &'a AnnotatedPacingType, span: Span) -> Self {
         Self {
             condition,
             annotated_pacing,
-        }
-    }
-}
-
-/// Represents a trigger of an RTLola specification.
-#[derive(Debug, Clone)]
-pub struct Trigger {
-    /// The message that will be conveyed when the trigger expression evaluates to true.
-    pub message: String,
-    /// A collection of streams which can be used in the message. Their value is printed when the trigger is activated.
-    pub info_streams: Vec<StreamReference>,
-    /// The activation condition, which defines when the trigger is evaluated.
-    pub(crate) annotated_pacing_type: Option<AnnotatedPacingType>,
-    /// The id of the expression belonging to the trigger
-    pub(crate) expr_id: ExprId,
-    /// A reference to the stream which represents this trigger.
-    pub(crate) sr: SRef,
-    /// The code span the trigger represents
-    pub(crate) span: Span,
-}
-
-impl Trigger {
-    /// Creates a new trigger.
-    pub(crate) fn new(
-        msg: Option<String>,
-        infos: Vec<StreamReference>,
-        pt: Option<AnnotatedPacingType>,
-        expr_id: ExprId,
-        sr: SRef,
-        span: Span,
-    ) -> Self {
-        Self {
-            info_streams: infos,
-            annotated_pacing_type: pt,
-            message: msg.unwrap_or_default(),
-            expr_id,
-            sr,
             span,
         }
-    }
-
-    /// Provides the reference of a stream that represents this trigger.
-    pub fn sr(&self) -> StreamReference {
-        self.sr
-    }
-
-    /// Provides access to the trigger condition
-    pub fn expression(&self) -> ExprId {
-        self.expr_id
-    }
-
-    /// The code span referring to the original location of the trigger in the specification.
-    pub fn span(&self) -> Span {
-        self.span.clone()
     }
 }
 
@@ -813,8 +862,10 @@ pub(crate) enum AnnotatedType {
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
     Numeric,
+    Signed,
     Sequence,
     Param(usize, String),
+    Any,
 }
 
 impl AnnotatedType {
@@ -835,6 +886,8 @@ pub enum WindowReference {
     Sliding(usize),
     /// Refers to a discrete window
     Discrete(usize),
+    /// Refers to a instance aggregation
+    Instance(usize),
 }
 
 pub(crate) type WRef = WindowReference;
@@ -845,6 +898,7 @@ impl WindowReference {
         match self {
             WindowReference::Sliding(u) => u,
             WindowReference::Discrete(u) => u,
+            WindowReference::Instance(u) => u,
         }
     }
 }

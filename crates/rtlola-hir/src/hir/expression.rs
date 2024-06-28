@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
-use rtlola_parser::ast::WindowOperation;
+use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 use rtlola_reporting::Span;
 
 use super::WindowReference;
@@ -36,7 +36,7 @@ impl Expression {
 
     /// Returns the [Span] of the [Expression] identifying its position in the specification.
     pub fn span(&self) -> Span {
-        self.span.clone()
+        self.span
     }
 
     /// Returns all streams that are synchronous accesses
@@ -275,6 +275,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the reference to the (sliding window)[SlidingAggr] whose value is used in the [Expression].
     SlidingWindow(WRef),
+    /// Represents the access to a instance aggregation.
+    ///
+    /// The argument contains the reference to the (instance aggregation)[InstanceAggregation] whose value is used in the [Expression].
+    InstanceAggregation(WRef),
     /// Representation of sample and hold accesses
     Hold,
     /// Representation of offset accesses
@@ -348,6 +352,46 @@ pub trait WindowAggregation: Debug + Copy {
     ///
     /// The function returns the duration of a [sliding window](SlidingAggr) or the number of values used for a [discrete window](DiscreteAggr).
     fn duration(&self) -> Either<Duration, usize>;
+}
+
+/// Represents an instance of an instance aggregation
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct InstanceAggregation {
+    /// The stream whose values will be aggregated
+    pub target: SRef,
+    /// The stream calling and evaluating this window
+    pub caller: SRef,
+    /// A filter over the instances
+    pub selection: InstanceSelection,
+    /// The operation to be performed over the instances
+    pub aggr: InstanceOperation,
+    /// The reference of this window.
+    pub(crate) reference: WRef,
+    /// The Id of the expression in which this window is accessed
+    ///
+    /// This field contains the Id of the expression that uses the produced value. It is NOT the id of the window.
+    pub(crate) eid: ExprId,
+}
+
+/// Combines the functionality of Instance and Window Aggregations
+pub trait Aggregation {
+    /// Returns the reference of the window
+    fn reference(&self) -> WindowReference;
+
+    /// Returns the Id of the expression in which this window is accessed
+    ///
+    /// The return value contains the Id of the expression that uses the produced value. This value is NOT the id of the window.
+    fn id(&self) -> ExprId;
+}
+
+impl Aggregation for InstanceAggregation {
+    fn reference(&self) -> WindowReference {
+        self.reference
+    }
+
+    fn id(&self) -> ExprId {
+        self.eid
+    }
 }
 
 /// Represents a sliding window aggregation
@@ -431,16 +475,16 @@ pub struct Window<Aggr: WindowAggregation> {
     pub(crate) eid: ExprId,
 }
 
-impl<A: WindowAggregation> Window<A> {
+impl<A: WindowAggregation> Aggregation for Window<A> {
     /// Returns the reference of the window
-    pub fn reference(&self) -> WindowReference {
+    fn reference(&self) -> WindowReference {
         self.reference
     }
 
     /// Returns the Id of the expression in which this window is accessed
     ///
     /// The return value contains the Id of the expression that uses the produced value. This value is NOT the id of the window.
-    pub fn id(&self) -> ExprId {
+    fn id(&self) -> ExprId {
         self.eid
     }
 }

@@ -1,5 +1,6 @@
 //! This module contains the parser for the Lola Language.
 
+use std::convert::TryInto;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -23,26 +24,28 @@ use crate::ParserConfig;
 struct LolaParser;
 
 #[derive(Debug, Clone)]
-pub(crate) struct RtLolaParser {
+pub(crate) struct RtLolaParser<'a> {
     spec: RtLolaAst,
-    config: ParserConfig,
+    config: &'a ParserConfig,
 }
 
 lazy_static! {
-    // precedence taken from C/C++: https://en.wikipedia.org/wiki/Operators_in_C_and_C++
-    // Precedence climber can be used to build the AST, see https://pest-parser.github.io/book/ for more details
     static ref PRATT_PARSER: PrattParser<Rule> = {
         use self::Assoc::*;
         use self::Rule::*;
 
         PrattParser::new()
+            .op(Op::infix(Implies, Right))
             .op(Op::infix(Or, Left))
             .op(Op::infix(And, Left))
             .op(Op::infix(BitOr, Left))
             .op(Op::infix(BitXor, Left))
             .op(Op::infix(BitAnd, Left))
             .op(Op::infix(Equal, Left) | Op::infix(NotEqual, Left))
-            .op(Op::infix(LessThan, Left) | Op::infix(LessThanOrEqual, Left) | Op::infix(MoreThan, Left) | Op::infix(MoreThanOrEqual, Left))
+            .op(Op::infix(LessThan, Left)
+                | Op::infix(LessThanOrEqual, Left)
+                | Op::infix(MoreThan, Left)
+                | Op::infix(MoreThanOrEqual, Left))
             .op(Op::infix(ShiftLeft, Left) | Op::infix(ShiftRight, Left))
             .op(Op::infix(Add, Left) | Op::infix(Subtract, Left))
             .op(Op::infix(Multiply, Left) | Op::infix(Divide, Left) | Op::infix(Mod, Left))
@@ -52,8 +55,8 @@ lazy_static! {
     };
 }
 
-impl RtLolaParser {
-    pub(crate) fn new(config: ParserConfig) -> Self {
+impl<'a> RtLolaParser<'a> {
+    pub(crate) fn new(config: &'a ParserConfig) -> Self {
         RtLolaParser {
             spec: RtLolaAst::empty(),
             config,
@@ -62,7 +65,7 @@ impl RtLolaParser {
 
     /// Transforms a textual representation of a Lola specification into
     /// an AST representation.
-    pub(crate) fn parse(config: ParserConfig) -> Result<RtLolaAst, RtLolaError> {
+    pub(crate) fn parse(config: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
         RtLolaParser::new(config)
             .parse_spec()
             .map(|ast| Desugarizer::all().remove_syn_sugar(ast))
@@ -101,9 +104,9 @@ impl RtLolaParser {
                         Err(e) => error.join(e),
                     }
                 },
-                Rule::Trigger => {
+                Rule::SimpleTrigger => {
                     match self.parse_trigger(pair) {
-                        Ok(trigger) => self.spec.trigger.push(Rc::new(trigger)),
+                        Ok(trigger) => self.spec.outputs.push(Rc::new(trigger)),
                         Err(e) => error.join(e),
                     }
                 },
@@ -233,7 +236,17 @@ impl RtLolaParser {
 
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner().peekable();
-        let name = self.parse_ident(&pairs.next().expect("mismatch between grammar and AST"));
+
+        let pair = pairs.next().unwrap();
+        let kind = match pair.as_rule() {
+            Rule::TriggerDecl => OutputKind::Trigger,
+            Rule::NamedOutputDecl => {
+                OutputKind::NamedOutput(
+                    self.parse_ident(&pair.into_inner().next().expect("mismatch between grammar and AST")),
+                )
+            },
+            _ => panic!("mismatch between grammar and AST"),
+        };
 
         let mut error = RtLolaError::new();
         let mut eval = Vec::new();
@@ -265,7 +278,7 @@ impl RtLolaParser {
                 Rule::SpawnDecl => {
                     if let Some(old_spawn) = &spawn {
                         let err = Diagnostic::error("Multiple Spawn clauses found")
-                            .add_span_with_label(old_spawn.span.clone(), Some("first Spawn here"), true)
+                            .add_span_with_label(old_spawn.span, Some("first Spawn here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second Spawn clause found here"), false);
                         error.add(err);
                     }
@@ -281,7 +294,7 @@ impl RtLolaParser {
                 Rule::CloseDecl => {
                     if let Some(old_close) = &close {
                         let err = Diagnostic::error("Multiple Close clauses found")
-                            .add_span_with_label(old_close.span.clone(), Some("first Close here"), true)
+                            .add_span_with_label(old_close.span, Some("first Close here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second Close clause found here"), false);
                         error.add(err);
                     }
@@ -317,10 +330,36 @@ impl RtLolaParser {
             }
         });
 
+        let eval = eval
+            .into_iter()
+            .map(|mut eval| {
+                // if the output is a trigger, a missing eval-with clause is replaced with an empty trigger message
+                // if the output is a named output, a missing eval-with clause is replaced by an empty tuple
+                eval.eval_expression.get_or_insert_with(|| {
+                    let kind = match kind {
+                        OutputKind::Trigger => {
+                            ExpressionKind::Lit(Literal {
+                                kind: LitKind::Str("".into()),
+                                id: self.spec.next_id(),
+                                span: Span::Unknown,
+                            })
+                        },
+                        OutputKind::NamedOutput(_) => ExpressionKind::Tuple(vec![]),
+                    };
+                    Expression {
+                        kind,
+                        id: self.spec.next_id(),
+                        span: Span::Unknown,
+                    }
+                });
+                eval
+            })
+            .collect();
+
         Result::from(error)?;
         Ok(Output {
             id: self.spec.next_id(),
-            name,
+            kind,
             annotated_type,
             params: params.into_iter().map(Rc::new).collect(),
             spawn,
@@ -364,8 +403,7 @@ impl RtLolaParser {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner());
-                spawn_children.next();
+                let expr = self.parse_activation_condition(spawn_children.next().unwrap());
                 expr.map_or_else(
                     |e| {
                         error.join(e);
@@ -378,7 +416,8 @@ impl RtLolaParser {
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut expression: Option<Expression> = None;
@@ -387,7 +426,7 @@ impl RtLolaParser {
                 Rule::SpawnWhen => {
                     if let Some(old_condition) = &condition {
                         let err = Diagnostic::error("Multiple Spawn conditions found")
-                            .add_span_with_label(old_condition.span.clone(), Some("first spawn condition here"), true)
+                            .add_span_with_label(old_condition.span, Some("first spawn condition here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
                         error.add(err);
                     }
@@ -404,7 +443,7 @@ impl RtLolaParser {
                 Rule::SpawnWith => {
                     if let Some(old_expression) = &expression {
                         let err = Diagnostic::error("Multiple Spawn expressions found")
-                            .add_span_with_label(old_expression.span.clone(), Some("first spawn expression here"), true)
+                            .add_span_with_label(old_expression.span, Some("first spawn expression here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
                         error.add(err);
                     }
@@ -422,10 +461,10 @@ impl RtLolaParser {
             }
         }
 
-        if expression.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if expression.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Spawn clause needs a condition, expression or pacing").add_span_with_label(
-                    span_inv.clone(),
+                    span_inv,
                     Some("found spawn here"),
                     true,
                 ),
@@ -451,14 +490,14 @@ impl RtLolaParser {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let annotated_pacing = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
-                Some(expr)
+                annotated_pacing
             } else {
-                None
+                AnnotatedPacingType::NotAnnotated
             }
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let exp_res = self.build_expression_ast(next_pair.expect("Mismatch between grammar and AST").into_inner())?;
@@ -482,15 +521,15 @@ impl RtLolaParser {
 
         let annotated_pacing = if let Some(pair) = next_pair {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.clone().into_inner())?;
-                children.next();
+                let expr = self.parse_activation_condition(children.next().unwrap())?;
                 Some(expr)
             } else {
                 None
             }
         } else {
             None
-        };
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
 
         let mut condition: Option<Expression> = None;
         let mut eval_expr: Option<Expression> = None;
@@ -499,7 +538,7 @@ impl RtLolaParser {
                 Rule::EvalWhen => {
                     if let Some(old_cond) = &condition {
                         let err = Diagnostic::error("Multiple evaluation conditions found")
-                            .add_span_with_label(old_cond.span.clone(), Some("first condition here"), true)
+                            .add_span_with_label(old_cond.span, Some("first condition here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second condition found here"), false);
                         error.add(err);
                     }
@@ -516,7 +555,7 @@ impl RtLolaParser {
                 Rule::EvalWith => {
                     if let Some(old_eval) = &eval_expr {
                         let err = Diagnostic::error("Multiple eval expressions found")
-                            .add_span_with_label(old_eval.span.clone(), Some("first eval expression here"), true)
+                            .add_span_with_label(old_eval.span, Some("first eval expression here"), true)
                             .add_span_with_label(pair.as_span().into(), Some("Second expression found here"), false);
                         error.add(err);
                     }
@@ -534,20 +573,14 @@ impl RtLolaParser {
             }
         }
 
-        if eval_expr.is_none() && condition.is_none() && annotated_pacing.is_none() {
+        if eval_expr.is_none() && condition.is_none() && annotated_pacing == AnnotatedPacingType::NotAnnotated {
             error.add(
                 Diagnostic::error("Eval clause needs either expression or condition").add_span_with_label(
-                    span_ext.clone(),
+                    span_ext,
                     Some("found eval clause here"),
                     true,
                 ),
             );
-        } else if eval_expr.is_none() {
-            eval_expr = Some(Expression {
-                id: self.spec.next_id(),
-                span: span_ext.clone(),
-                kind: ExpressionKind::Tuple(Vec::new()),
-            })
         }
 
         Result::from(error)?;
@@ -570,7 +603,7 @@ impl RtLolaParser {
 
         let annotated_pacing = if let Some(pair) = next_pair.clone() {
             if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.build_expression_ast(pair.into_inner())?;
+                let expr = self.parse_activation_condition(pair)?;
                 next_pair = children.next();
                 Some(expr)
             } else {
@@ -578,13 +611,20 @@ impl RtLolaParser {
             }
         } else {
             None
+        }
+        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
+
+        let condition = if let Some(pair) = next_pair {
+            assert_eq!(pair.as_rule(), Rule::Expr);
+            self.build_expression_ast(pair.into_inner())?
+        } else {
+            Expression {
+                kind: ExpressionKind::Lit(Literal::new_bool(self.spec.next_id(), true, Span::Unknown)),
+                id: self.spec.next_id(),
+                span: Span::Unknown,
+            }
         };
 
-        let condition_pair = next_pair.expect("mismatch between grammar and ast");
-        let condition = match condition_pair.as_rule() {
-            Rule::Expr => self.build_expression_ast(condition_pair.into_inner()),
-            _ => unreachable!(),
-        }?;
         Ok(CloseSpec {
             condition,
             annotated_pacing,
@@ -601,8 +641,8 @@ impl RtLolaParser {
      * - `Rule::Expr`
      * - (`Rule::StringLiteral`)?
      */
-    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Trigger, RtLolaError> {
-        assert_eq!(pair.as_rule(), Rule::Trigger);
+    fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Output, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::SimpleTrigger);
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner();
 
@@ -610,37 +650,65 @@ impl RtLolaParser {
 
         // Parse the `@ [Expr]` part of output declaration
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
-            let expr = self.build_expression_ast(pair.into_inner())?;
+            let expr = self.parse_activation_condition(pair)?;
             pair = pairs.next().expect("mismatch between grammar and AST");
-            Some(expr)
+            expr
         } else {
-            None
+            AnnotatedPacingType::NotAnnotated
         };
 
         let expression = self.build_expression_ast(pair.into_inner())?;
 
-        let message = pairs.next().map(|pair| {
-            assert_eq!(pair.as_rule(), Rule::String);
-            pair.as_str().to_string()
-        });
-
-        // Parse list of info streams
-        let info_streams = pairs
+        let (msg, msg_span) = pairs
             .next()
             .map(|pair| {
-                assert_eq!(pair.as_rule(), Rule::IdentList);
-                pair.into_inner().into_iter().map(|p| self.parse_ident(&p)).collect()
+                assert_eq!(pair.as_rule(), Rule::String);
+                (pair.as_str().to_owned(), pair.as_span().into())
             })
-            .unwrap_or_default();
+            .unwrap_or(("".into(), Span::Unknown));
 
-        Ok(Trigger {
+        let msg_expr = Expression {
+            kind: ExpressionKind::Lit(Literal::new_str(self.spec.next_id(), &msg, span)),
             id: self.spec.next_id(),
-            expression,
-            annotated_pacing_type,
-            message,
-            info_streams,
+            span: msg_span,
+        };
+
+        Ok(Output {
+            kind: OutputKind::Trigger,
+            annotated_type: None,
+            params: Vec::new(),
+            spawn: None,
+            eval: vec![EvalSpec {
+                annotated_pacing: annotated_pacing_type,
+                condition: Some(expression),
+                eval_expression: Some(msg_expr),
+                id: self.spec.next_id(),
+                span,
+            }],
+            close: None,
+            id: self.spec.next_id(),
             span,
         })
+    }
+
+    fn parse_activation_condition(&self, pair: Pair<'_, Rule>) -> Result<AnnotatedPacingType, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::ActivationCondition);
+        let inner = pair.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::GlobalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Global(expr))
+            },
+            Rule::LocalActivationCondition => {
+                let expr = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Local(expr))
+            },
+            Rule::Expr => {
+                let expr: Expression = self.build_expression_ast(inner.into_inner())?;
+                Ok(AnnotatedPacingType::Unspecified(expr))
+            },
+            _ => unreachable!("mismatch between grammar and AST"),
+        }
     }
 
     /**
@@ -812,7 +880,7 @@ impl RtLolaParser {
             .map_infix(|lhs, op, rhs| {
 
                 // Reduce function combining `Expression`s to `Expression`s with the correct precs
-                let (lhs, rhs) = RtLolaError::combine(lhs, rhs, |a, b| (a,b))?;
+                let (lhs, rhs) = RtLolaError::combine(lhs, rhs, |a, b| (a, b))?;
                 let span = lhs.span.union(&rhs.span);
                 let op = match op.as_rule() {
                     // Arithmetic
@@ -825,6 +893,7 @@ impl RtLolaParser {
                     // Logical
                     Rule::And => BinOp::And,
                     Rule::Or => BinOp::Or,
+                    Rule::Implies => BinOp::Implies,
                     // Comparison
                     Rule::LessThan => BinOp::Lt,
                     Rule::LessThanOrEqual => BinOp::Le,
@@ -842,7 +911,7 @@ impl RtLolaParser {
                     Rule::Dot => {
                         let (unop, binop_span, inner) = match lhs.kind {
                             ExpressionKind::Unary(unop, inner) => (Some(unop), inner.span.union(&rhs.span), inner),
-                            _ => (None, span.clone(), Box::new(lhs)),
+                            _ => (None, span, Box::new(lhs)),
                         };
                         match rhs.kind {
                             // access to a tuple
@@ -865,7 +934,7 @@ impl RtLolaParser {
                                             self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -880,7 +949,7 @@ impl RtLolaParser {
                                     "offset(by:)" => {
                                         assert_eq!(args.len(), 1);
                                         let offset_expr = &args[0];
-                                        let rhs_span = rhs.span.clone();
+                                        let rhs_span = rhs.span;
                                         let offset = offset_expr.parse_offset().map_err(|reason| Diagnostic::error("failed to parse offset").add_span_with_label(rhs_span, Some(&reason), true))?;
 
                                         ExpressionKind::Offset(inner, offset)
@@ -894,7 +963,7 @@ impl RtLolaParser {
                                         let lhs = Expression::new(
                                             self.spec.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Hold),
-                                            span.clone(),
+                                            span,
                                         );
                                         ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
@@ -907,7 +976,7 @@ impl RtLolaParser {
                                         let lhs = Expression::new(
                                             self.spec.next_id(),
                                             ExpressionKind::StreamAccess(inner, StreamAccessKind::Get),
-                                            span.clone(),
+                                            span,
                                         );
                                         ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
@@ -915,7 +984,7 @@ impl RtLolaParser {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Fresh)
                                     }
-                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" |"aggregate(over:using:)" | "aggregate(over_exactly:using:)" => {
+                                    "aggregate(over_discrete:using:)" | "aggregate(over_exactly_discrete:using:)" | "aggregate(over:using:)" | "aggregate(over_exactly:using:)" | "aggregate(over_instances:using:)" => {
                                         assert_eq!(args.len(), 2);
                                         let window_op = match &args[1].kind {
                                             ExpressionKind::Ident(i) => match i.name.as_str() {
@@ -942,23 +1011,37 @@ impl RtLolaParser {
                                                     let n_string = i.name.as_str().to_string();
                                                     let n_string: String = n_string.chars().skip("pctl".len()).collect();
                                                     let percentile: usize = n_string.parse::<usize>().map_err(|_|
-                                                        RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
+                                                        RtLolaError::from(Diagnostic::error(&format!("unknown aggregation function {}, invalid number-percentile suffix {}", i.name, n_string)).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))
                                                     )?;
-                                                    if percentile > 100{
-                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label( i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
-
+                                                    if percentile > 100 {
+                                                        return Err(Diagnostic::error(&format!("unknown aggregation function {}, invalid percentile suffix", i.name)).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                     }
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
                                                 fun => {
-                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                 }
                                             },
                                             _ => {
-                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span.clone(), Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                             }
                                         };
-                                        if signature.contains("discrete") {
+                                        if signature.contains("instances") {
+                                            let instances = match &args[0].kind {
+                                                ExpressionKind::Ident(i) => match i.name.as_str() {
+                                                    "fresh" | "Fresh" => InstanceSelection::Fresh,
+                                                    "all" | "All" => InstanceSelection::All,
+                                                    sel => {
+                                                        return Err(Diagnostic::error(&format!("unknown instance selection {sel}")).add_span_with_label(i.span, Some("available: fresh, all"), true).into());
+                                                    }
+                                                }
+                                                _ => {
+                                                    return Err(Diagnostic::error("expected instance selection").add_span_with_label(args[0].span, Some("available: fresh, all"), true).into());
+                                                }
+                                            };
+                                            let aggregation = window_op.try_into().map_err(|reason| Diagnostic::error(&format!("Operation not supported: {reason}")).add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))?;
+                                            ExpressionKind::InstanceAggregation { expr: inner, selection: instances, aggregation }
+                                        } else if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
                                                 // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
@@ -988,7 +1071,7 @@ impl RtLolaParser {
                                             self.spec.next_id(),
                                             ExpressionKind::Unary(unop, Box::new(binop_expr)),
                                             span,
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -998,7 +1081,7 @@ impl RtLolaParser {
                         }
                     }
                     Rule::OpeningBracket => {
-                        let rhs_span = rhs.span.clone();
+                        let rhs_span = rhs.span;
                         let offset = rhs.parse_offset().map_err(|reason| Diagnostic::error("failed to parse offset expression").add_span_with_label(rhs_span, Some(&reason), true))?;
                         match lhs.kind {
                             ExpressionKind::Unary(unop, inner) => {
@@ -1016,7 +1099,7 @@ impl RtLolaParser {
                                     self.spec.next_id(),
                                     ExpressionKind::Offset(lhs.into(), offset),
                                     span,
-                                ))
+                                ));
                             }
                         }
                     }
@@ -1128,12 +1211,7 @@ impl RtLolaParser {
                 let span: Span = span.into();
                 Ok(Expression::new(
                     self.spec.next_id(),
-                    ExpressionKind::Lit(Literal::new_numeric(
-                        self.spec.next_id(),
-                        pair.as_str(),
-                        None,
-                        span.clone(),
-                    )),
+                    ExpressionKind::Lit(Literal::new_numeric(self.spec.next_id(), pair.as_str(), None, span)),
                     span,
                 ))
             },
@@ -1185,7 +1263,7 @@ impl RtLolaParser {
                 None => {
                     return Err(format!(
                         "parsing rational '{repr}' failed: e exponent {exp} does not fit into i16"
-                    ))
+                    ));
                 },
             };
             let factor = BigInt::from_u8(10).unwrap().pow(exp.unsigned_abs());
@@ -1201,7 +1279,7 @@ impl RtLolaParser {
             _ => {
                 return Err(format!(
                     "parsing rational failed: rational {r} does not fit into Rational64"
-                ))
+                ));
             },
         };
         Ok(Rational::from(p))
@@ -1241,8 +1319,8 @@ pub(crate) fn to_rtlola_error(err: pest::error::Error<Rule>) -> RtLolaError {
         ErrorVariant::CustomError { message: msg } => msg,
     };
     let span = match err.location {
-        InputLocation::Pos(start) => rtlola_reporting::Span::Direct { start, end: start },
-        InputLocation::Span(s) => rtlola_reporting::Span::Direct { start: s.0, end: s.1 },
+        InputLocation::Pos(start) => Span::Direct { start, end: start },
+        InputLocation::Span(s) => Span::Direct { start: s.0, end: s.1 },
     };
     Diagnostic::error(&msg)
         .add_span_with_label(span, Some("here"), true)
@@ -1255,17 +1333,13 @@ mod tests {
 
     use super::*;
 
-    fn create_parser(spec: &str) -> RtLolaParser {
-        RtLolaParser::new(ParserConfig::for_string(spec.into()))
-    }
-
     fn parse(spec: &str) -> RtLolaAst {
-        super::super::parse(ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
+        super::super::parse(&ParserConfig::for_string(spec.into())).unwrap_or_else(|e| panic!("{:?}", e))
     }
 
     fn parse_without_desugar(spec: &str) -> RtLolaAst {
         let cfg = ParserConfig::for_string(spec.into());
-        RtLolaParser::new(cfg)
+        RtLolaParser::new(&cfg)
             .parse_spec()
             .unwrap_or_else(|e| panic!("{:?}", e))
     }
@@ -1307,7 +1381,8 @@ mod tests {
     #[test]
     fn parse_constant_ast() {
         let spec = "constant five : Int := 5";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1319,7 +1394,8 @@ mod tests {
     #[test]
     fn parse_constant_double() {
         let spec = "constant fiveoh: Double := 5.0";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::ConstantStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1348,7 +1424,8 @@ mod tests {
     #[test]
     fn parse_input_ast() {
         let spec = "input a: Int, b: Int, c: Bool";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::InputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1363,7 +1440,8 @@ mod tests {
     #[test]
     fn parse_mirror_ast() {
         let spec = "output a mirrors b when 3 > 5";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::MirrorStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1387,7 +1465,7 @@ mod tests {
             rule:   Rule::OutputStream,
             tokens: [
                 OutputStream(0, 25, [
-                    Ident(7, 10, []),
+                    NamedOutputDecl(0, 10, [Ident(7, 10)]),
                     Type(12, 15, [
                         Ident(12, 15, []),
                     ]),
@@ -1410,7 +1488,8 @@ mod tests {
     #[test]
     fn parse_output_ast() {
         let spec = "output out: Int eval with in + 1";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         let pair = LolaParser::parse(Rule::OutputStream, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1424,9 +1503,9 @@ mod tests {
         parses_to! {
             parser: LolaParser,
             input:  "trigger in != out \"some message\"",
-            rule:   Rule::Trigger,
+            rule:   Rule::SimpleTrigger,
             tokens: [
-                Trigger(0, 32, [
+                SimpleTrigger(0, 32, [
                     Expr(8, 17, [
                         Ident(8, 10, []),
                         NotEqual(11, 13, []),
@@ -1441,19 +1520,61 @@ mod tests {
     #[test]
     fn parse_trigger_ast() {
         let spec = "trigger in ≠ out \"some message\"";
-        let parser = create_parser(spec);
-        let pair = LolaParser::parse(Rule::Trigger, spec)
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
             .unwrap();
         let ast = parser.parse_trigger(pair).unwrap();
-        assert_eq!(format!("{}", ast), "trigger in ≠ out \"some message\"")
+        assert_eq!(format!("{}", ast), "trigger eval when in ≠ out with \"some message\"")
+    }
+
+    #[test]
+    fn parse_complex_trigger() {
+        let spec =
+            "trigger (p) spawn when a = 0 with b eval @1Hz when b = 0 with \"msg\".format(a) close @2Hz when true";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), spec)
+    }
+
+    #[test]
+    fn trigger_missing_message() {
+        let spec = "trigger eval when a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::OutputStream, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_output(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
+    }
+
+    #[test]
+    fn trigger_missing_message2() {
+        let spec = "trigger a = 0";
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
+        let pair = LolaParser::parse(Rule::SimpleTrigger, spec)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let ast = parser.parse_trigger(pair).unwrap();
+        assert_eq!(format!("{}", ast), "trigger eval when a = 0 with \"\"");
     }
 
     #[test]
     fn parse_expression() {
         let content = "in + 1";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1465,7 +1586,8 @@ mod tests {
     #[test]
     fn parse_expression_precedence() {
         let content = "(a ∨ b ∧ c)";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1477,7 +1599,8 @@ mod tests {
     #[test]
     fn parse_missing_closing_parenthesis() {
         let content = "(a ∨ b ∧ c";
-        let parser = create_parser(content);
+        let config = ParserConfig::for_string(content.into());
+        let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
             .unwrap_or_else(|e| panic!("{}", e))
             .next()
@@ -1488,7 +1611,7 @@ mod tests {
 
     #[test]
     fn build_simple_ast() {
-        let spec = "input in: Int\noutput out: Int eval with in\ntrigger in ≠ out\n";
+        let spec = "input in: Int\noutput out: Int eval with in\ntrigger eval when in ≠ out with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -1558,42 +1681,35 @@ mod tests {
 
     #[test]
     fn build_trigger() {
-        let spec = "input in: Int\ntrigger in > 5\n";
+        let spec = "input in: Int\ntrigger eval when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_extend() {
-        let spec = "trigger @1Hz in > 5\n";
+        let spec = "trigger eval @1Hz when in > 5 with \"\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 
     #[test]
     fn build_trigger_message() {
-        let spec = "trigger in > 5 \"test trigger\"\n";
+        let spec = "trigger eval when in > 5 with \"test trigger\"\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].message, Some("test trigger".to_string()));
+        let eval = &ast.outputs[0].eval[0];
+        assert!(
+            matches!(&eval.eval_expression, Some(Expression {kind: ExpressionKind::Lit(Literal {kind:LitKind::Str(s),..}),..}) if s == "test trigger")
+        );
     }
 
     #[test]
-    fn build_trigger_message_with_info_streams() {
-        let spec = "trigger in > 5 \"test trigger\" (i, o, x)\n";
+    fn build_simple_trigger() {
+        let spec = "trigger x > 10 \"msg\"";
+        let reference = "trigger eval when x > 10 with \"msg\"\n";
         let ast = parse(spec);
-        cmp_ast_spec(&ast, spec);
-        assert_eq!(ast.trigger[0].info_streams.len(), 3);
-        assert_eq!(ast.trigger[0].info_streams[0].name, "i".to_string());
-        assert_eq!(ast.trigger[0].info_streams[1].name, "o".to_string());
-        assert_eq!(ast.trigger[0].info_streams[2].name, "x".to_string());
-    }
-
-    #[test]
-    fn build_trigger_message_with_info_streams_faulty() {
-        let spec = "trigger in > 5 (i, o, x)\n";
-        let parser = create_parser(spec);
-        assert!(matches!(parser.parse_spec(), Err(_)));
+        cmp_ast_spec(&ast, reference);
     }
 
     #[test]
@@ -1882,7 +1998,8 @@ mod tests {
     #[test]
     fn build_multiple_close() {
         let spec = "output x close when true eval with 5 close when false\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => assert_eq!(e.num_errors(), 1),
@@ -1920,7 +2037,8 @@ mod tests {
     #[test]
     fn spawn_duplicate_when() {
         let spec = "output x spawn when true when true eval with 5\n";
-        let parser = create_parser(spec.clone());
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
 
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
@@ -1936,7 +2054,8 @@ mod tests {
     #[test]
     fn spawn_duplicate_with() {
         let spec = "output x (p) spawn @1Hz with 3 with 3 eval with 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => {
@@ -1951,7 +2070,8 @@ mod tests {
     #[test]
     fn duplicate_close_clauses() {
         let spec = "output x eval with 5 close when true close when x == 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => {
@@ -1966,7 +2086,8 @@ mod tests {
     #[test]
     fn spawn_no_expr_no_condition_np_pacing() {
         let spec = "output x spawn eval with 5\n";
-        let parser = create_parser(spec);
+        let config = ParserConfig::for_string(spec.into());
+        let parser = RtLolaParser::new(&config);
         match parser.parse_spec() {
             Ok(_) => panic!("Expected error"),
             Err(e) => assert_eq!(e.num_errors(), 1),
@@ -2004,5 +2125,68 @@ mod tests {
         output c eval @1Hz with b(false).aggregate(over: 1s, using: Σ)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn parse_impl_simpl() {
+        let spec = "input a: Bool\n\
+        input b: Bool\n\
+        output c eval with a -> b\n";
+        let ast = parse(spec);
+        cmp_ast_spec(
+            &ast,
+            "input a: Bool\n\
+            input b: Bool\n\
+            output c eval with !a ∨ b\n",
+        );
+    }
+
+    #[test]
+    fn parse_impl_right_associative() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with a -> b -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !a ∨ !b ∨ c\n");
+    }
+
+    #[test]
+    fn parse_impl_left() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with (a -> b) -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !(!a ∨ b) ∨ c\n");
+    }
+
+    #[test]
+    fn parse_impl_nested() {
+        let spec = "input a: Bool\ninput b: Bool\noutput c eval with a ∧ b -> c\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, "input a: Bool\ninput b: Bool\noutput c eval with !(a ∧ b) ∨ c\n");
+    }
+
+    #[test]
+    fn instance_aggregation_simpl_fresh() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn instance_aggregation_simpl_all() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output c eval with b.aggregate(over_instances: all, using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn global_and_local_frequencies() {
+        let spec = "input a: Int32\n\
+        output not (p) spawn with a eval @1Hz with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
+        output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&dbg!(ast), spec);
     }
 }

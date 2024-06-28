@@ -14,5 +14,5 @@ This crate summarizes the entire RTLola front-end, which includes several sub-mo
 
 # Copyright
 
-Copyright (C) CISPA - Helmholtz Center for Information Security 2021-2023.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Frederik Scheerer, Malte Schledjewski, Maximilian Schwenger.
+Copyright (C) CISPA - Helmholtz Center for Information Security 2021-2024.  Authors: Jan Baumeister, Florian Kohn, Stefan Oswald, Frederik Scheerer, Malte Schledjewski, Maximilian Schwenger.
 Based on original work at Universität des Saarlandes (C) 2020.  Authors: Jan Baumeister, Florian Kohn, Malte Schledjewski, Maximilian Schwenger, Marvin Stenger, and Leander Tentrup.

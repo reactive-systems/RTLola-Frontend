@@ -46,8 +46,8 @@ impl Selectable for FilterSelector {
         let output = hir.output(sref).unwrap();
         match self {
             FilterSelector::Any => true,
-            FilterSelector::Filtered => output.eval_cond().is_some(),
-            FilterSelector::Unfiltered => output.eval_cond().is_none(),
+            FilterSelector::Filtered => output.eval().iter().any(|eval| eval.condition.is_some()),
+            FilterSelector::Unfiltered => output.eval().iter().all(|eval| eval.condition.is_none()),
         }
     }
 }
@@ -82,20 +82,20 @@ impl Selectable for CloseSelector {
             CloseSelector::Closed => close_ty.is_some(),
             CloseSelector::EventBased => {
                 close_ty
-                    .map(|t| t.pacing_ty.is_event_based() || t.pacing_ty.is_constant())
+                    .map(|t| t.eval_pacing.is_event_based() || t.eval_pacing.is_constant())
                     .unwrap_or(false)
             },
             CloseSelector::DynamicPeriodic => {
                 close_ty
-                    .map(|t| t.pacing_ty.is_periodic() && !t.spawn.0.is_constant())
+                    .map(|t| t.eval_pacing.is_periodic() && !t.spawn_pacing.is_constant())
                     .unwrap_or(false)
             },
             CloseSelector::StaticPeriodic => {
                 close_ty
-                    .map(|t| t.pacing_ty.is_periodic() && t.spawn.0.is_constant())
+                    .map(|t| t.eval_pacing.is_periodic() && t.spawn_pacing.is_constant())
                     .unwrap_or(false)
             },
-            CloseSelector::AnyPeriodic => close_ty.map(|t| t.pacing_ty.is_periodic()).unwrap_or(false),
+            CloseSelector::AnyPeriodic => close_ty.map(|t| t.eval_pacing.is_periodic()).unwrap_or(false),
             CloseSelector::NotClosed => output.close().is_none(),
         }
     }
@@ -115,7 +115,7 @@ pub enum PacingSelector {
 impl PacingSelector {
     fn select_eval<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
-        let ty: ConcretePacingType = hir.stream_type(sref).pacing_ty;
+        let ty: ConcretePacingType = hir.stream_type(sref).eval_pacing;
         match self {
             PacingSelector::Any => true,
             PacingSelector::EventBased => ty.is_event_based(),
@@ -125,7 +125,7 @@ impl PacingSelector {
 
     fn select_spawn<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
-        let ty: ConcretePacingType = hir.stream_type(sref).spawn.0;
+        let ty: ConcretePacingType = hir.stream_type(sref).spawn_pacing;
         match self {
             PacingSelector::Any => true,
             PacingSelector::EventBased => ty.is_event_based(),
@@ -172,7 +172,7 @@ pub struct Static {}
 impl Selectable for Static {
     fn select<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
-        hir.stream_type(sref).spawn.0.is_constant()
+        hir.stream_type(sref).spawn_pacing.is_constant()
     }
 }
 
@@ -189,7 +189,7 @@ pub struct Dynamic {
 impl Selectable for Dynamic {
     fn select<M: HirMode + TypedTrait>(&self, hir: &Hir<M>, sref: SRef) -> bool {
         assert!(sref.is_output());
-        !hir.stream_type(sref).spawn.0.is_constant()
+        !hir.stream_type(sref).spawn_pacing.is_constant()
             && self.spawn.select_spawn(hir, sref)
             && self.close.select(hir, sref)
             && self.parameter.select(hir, sref)
@@ -355,7 +355,7 @@ mod tests {
 
     macro_rules! assert_streams {
         ($streams:expr, $expected:expr) => {
-            let names: Vec<&str> = $streams.map(|o| o.name.as_str()).sorted().collect();
+            let names: Vec<String> = $streams.map(|o| o.name()).sorted().collect();
             let expect: Vec<&str> = $expected.into_iter().sorted().collect();
             assert_eq!(names, expect);
         };

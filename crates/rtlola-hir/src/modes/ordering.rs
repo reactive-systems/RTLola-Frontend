@@ -132,13 +132,8 @@ impl Ordered {
                     } else {
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
@@ -171,13 +166,8 @@ impl Ordered {
                         // eval_layer = max(successor_eval_layers) + 1
                         neighbor_layers
                             .into_iter()
-                            .fold(Some(Layer::new(0)), |cur_res_layer, neighbor_layer| {
-                                match (cur_res_layer, neighbor_layer) {
-                                    (Some(cur_res_layer), Some(neighbor_layer)) => {
-                                        Some(std::cmp::max(cur_res_layer, neighbor_layer))
-                                    },
-                                    _ => None,
-                                }
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
                             })
                             .map(|layer| Layer::new(layer.inner() + 1))
                     };
@@ -207,7 +197,7 @@ mod tests {
     use super::*;
     use crate::modes::BaseMode;
     fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>) {
-        let ast = parse(ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
             .check_types()
@@ -307,7 +297,11 @@ mod tests {
 
     #[test]
     fn discrete_window_lookup() {
-        let spec = "input a: UInt8\noutput b: UInt8 @1Hz := a.aggregate(over_discrete: 5, using: sum)\noutput c: UInt8 := a + 3\noutput d: UInt8 @1Hz := c.aggregate(over_discrete: 5, using: sum)";
+        let spec = "input a: UInt8\n\
+        output b: UInt8 := a.aggregate(over_discrete: 5, using: sum)\n\
+        output c: UInt8 := a + 3\n\
+        output d: UInt8 := c.aggregate(over_discrete: 5, using: sum)";
+
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::Out(0)),
@@ -318,9 +312,9 @@ mod tests {
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
             (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
             (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
         ]
         .into_iter()
         .collect();
@@ -532,7 +526,24 @@ mod tests {
 
     #[test]
     fn parameter_loop_with_lookup_in_close() {
-        let spec = "input a: Int8\ninput b: Int8\noutput c(p) spawn with a when a < b eval with p + b + g(p).hold().defaults(to: 0)\noutput d(p) spawn with b when c(4).hold().defaults(to: 0) < 4 eval with b + 5\noutput e(p) spawn with b eval with d(p).hold().defaults(to: 0) + b\noutput f(p) spawn with b eval when e(p).hold().defaults(to: 0) < 6 with b + 5\noutput g(p) spawn with b close @true when f(p).hold().defaults(to: 0) < 6 eval with b + 5";
+        let spec = "\
+        input a: Int8\n\
+        input b: Int8\n\
+        output c(p) \n\
+            spawn with a when a < b\n\
+            eval with p + b + g(p).hold().defaults(to: 0)\n\
+        output d(p) \n\
+            spawn with b when c(4).hold().defaults(to: 0) < 4\n\
+            eval with b + 5\n\
+        output e(p)\n\
+            spawn with b\n\
+            eval with d(p).hold().defaults(to: 0) + b\n\
+        output f(p)\n\
+            spawn with b\n\
+            eval when e(p).hold().defaults(to: 0) < 6 with b + 5\n\
+        output g(p)\n\
+            spawn with b close @true when f(p).hold().defaults(to: 0) < 6\n\
+            eval with b + 5";
         let sname_to_sref = vec![
             ("a", SRef::In(0)),
             ("b", SRef::In(1)),
@@ -639,5 +650,23 @@ mod tests {
         .into_iter()
         .collect();
         check_eval_order_for_spec(spec, ref_layers)
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p) spawn with a eval when a > 5 with b(p).offset(by: -1).defaults(to: 0) + a\n\
+        output c eval with b.aggregate(over_instances: fresh, using: Σ)\n";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
+            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
     }
 }

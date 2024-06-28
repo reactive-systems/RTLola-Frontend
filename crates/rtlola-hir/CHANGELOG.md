@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 28.06.2024
+
+### Added
+- Added the `FeatureSelector` to check for unsupported language features.
+- Added `is_eval_filtered` method to stream trait.
+- Add '->' syntactic sugar
+- Added `window_num_buckets` method to `MemBoundTrait`.
+- Added `sliding_window_bucket_size` method to `MemBoundTrait`.
+- Added support for multiple eval clauses.
+- Added `round` function
+
+### Changed
+- Applying the `abs()` function to unsigned values is now rejected by the typechecker.
+- Discrete windows are now event-based and follow the pacing of the stream they aggregate.
+- Projecting out of optional tuples is now allowed and produces an optional value.
+- Include origin of stream access in `direct_accesses_with` and `direct_accessed_by_with`.
+- Triggers are represented as output streams and not handled separately.
+
 ## [0.4.1] - 02.02.2023
 
 ### Changed

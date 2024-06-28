@@ -1,7 +1,5 @@
-use rtlola_reporting::Span;
-
 use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, RtLolaAst};
+use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
 
 /// Enables usage of mirror streams
 ///
@@ -19,7 +17,10 @@ impl Mirror {
             span,
             id: mirror_id,
         } = stream.clone();
-        let target = ast.outputs.iter().find(|o| o.name.name == target.name);
+        let target = ast
+            .outputs
+            .iter()
+            .find(|o| o.name().is_some_and(|name| name.name == target.name));
         let target = target.expect("mirror stream refers to a stream that does not exist");
         let target = (**target).clone();
 
@@ -40,7 +41,7 @@ impl Mirror {
                     Some(old_f) => {
                         Expression {
                             id: ast.next_id(),
-                            span: Span::Indirect(Box::new(filter_span.clone())),
+                            span: filter_span.to_indirect(),
                             kind: crate::ast::ExpressionKind::Binary(
                                 BinOp::And,
                                 Box::new(old_f),
@@ -53,17 +54,17 @@ impl Mirror {
                 EvalSpec {
                     condition: Some(new_filter),
                     id: t_id.primed(),
-                    span: Span::Indirect(Box::new(t_span)),
+                    span: t_span.to_indirect(),
                     annotated_pacing: t_annotated_pacing,
                     eval_expression: t_eval,
                 }
             })
             .collect();
         let output = Output {
-            name,
+            kind: OutputKind::NamedOutput(name),
             eval: new_eval_specs,
             id: ast.next_id(),
-            span: Span::Indirect(Box::new(span)),
+            span: span.to_indirect(),
             ..target
         };
         ChangeSet::replace_stream(mirror_id, output)

@@ -74,7 +74,7 @@ clippy:reporting:
     - docker
   stage: clippy
   image: rust:latest
-  needs: ["format:reporting"]
+  needs: [ "format:reporting" ]
   cache:
     key: "reporting"
     policy: pull-push
@@ -91,7 +91,7 @@ clippy:parser:
     - docker
   stage: clippy
   image: rust:latest
-  needs: ["format:parser"]
+  needs: [ "format:parser" ]
   cache:
     key: "parser"
     policy: pull-push
@@ -108,7 +108,7 @@ clippy:macros:
     - docker
   stage: clippy
   image: rust:latest
-  needs: ["format:macros"]
+  needs: [ "format:macros" ]
   cache:
     key: "macros"
     policy: pull-push
@@ -125,7 +125,7 @@ clippy:hir:
     - docker
   stage: clippy
   image: rust:latest
-  needs: ["format:hir"]
+  needs: [ "format:hir" ]
   cache:
     key: "hir"
     policy: pull-push
@@ -142,7 +142,7 @@ clippy:frontend:
     - docker
   stage: clippy
   image: rust:latest
-  needs: ["format:frontend"]
+  needs: [ "format:frontend" ]
   cache:
     key: "frontend"
     policy: pull-push
@@ -160,7 +160,7 @@ ignored:reporting:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
-  needs: ["clippy:reporting"]
+  needs: [ "clippy:reporting" ]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-reporting
@@ -170,7 +170,7 @@ ignored:parser:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
-  needs: ["clippy:parser"]
+  needs: [ "clippy:parser" ]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-parser
@@ -180,7 +180,7 @@ ignored:macros:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
-  needs: ["clippy:macros"]
+  needs: [ "clippy:macros" ]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-macros
@@ -190,7 +190,7 @@ ignored:hir:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
-  needs: ["clippy:hir"]
+  needs: [ "clippy:hir" ]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-hir
@@ -200,7 +200,7 @@ ignored:frontend:
     - docker
   stage: check-ignored-tests
   image: alpine:latest
-  needs: ["clippy:frontend"]
+  needs: [ "clippy:frontend" ]
   script:
     - apk update && apk add --no-cache bash
     - ./check_ignored_tests_without_comment.sh rtlola-frontend
@@ -211,7 +211,7 @@ test:reporting:
     - docker
   stage: test
   image: rust:latest
-  needs: ["ignored:reporting"]
+  needs: [ "ignored:reporting" ]
   cache:
     key: "reporting"
     policy: pull-push
@@ -229,7 +229,7 @@ test:parser:
     - docker
   stage: test
   image: rust:latest
-  needs: ["ignored:parser"]
+  needs: [ "ignored:parser" ]
   cache:
     key: "parser"
     policy: pull-push
@@ -247,7 +247,7 @@ test:macros:
     - docker
   stage: test
   image: rust:latest
-  needs: ["ignored:macros"]
+  needs: [ "ignored:macros" ]
   cache:
     key: "macros"
     policy: pull-push
@@ -265,7 +265,7 @@ test:hir:
     - docker
   stage: test
   image: rust:latest
-  needs: ["ignored:hir"]
+  needs: [ "ignored:hir" ]
   cache:
     key: "hir"
     policy: pull-push
@@ -283,7 +283,7 @@ test:frontend:
     - docker
   stage: test
   image: rust:latest
-  needs: ["ignored:frontend"]
+  needs: [ "ignored:frontend" ]
   cache:
     key: "frontend"
     policy: pull-push
@@ -300,7 +300,7 @@ test:frontend:
 
 test:windows:
   stage: additional-test
-  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  needs: [ "test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend" ]
   variables:
     CARGO_HOME: "C:\\Users\\react\\.cargo"
   tags:
@@ -318,7 +318,7 @@ test:nightly:
     - docker
   stage: additional-test
   image: rustlang/rust:nightly
-  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  needs: [ "test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend" ]
   cache:
     key: "nightly"
     policy: pull-push
@@ -326,13 +326,12 @@ test:nightly:
       - crates/target/
       - $CARGO_HOME
   variables:
-    RUSTFLAGS: "-Zinstrument-coverage -Zgcc-ld=lld"
+    RUSTFLAGS: "-Cinstrument-coverage"
     LLVM_PROFILE_FILE: "json5format-%m.profraw"
   script:
     - (rm -r ./target/debug/coverage/) || true
     - apt-get update -yqq
-    - apt-get install -yqq --no-install-recommends libpcap-dev python3-pip
-    - pip3 install junit-xml
+    - apt-get install -yqq --no-install-recommends libpcap-dev python3-junit.xml
     - curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
     - cargo install cargo2junit
     - rustup component add llvm-tools-preview
@@ -352,7 +351,7 @@ test:nightly:
 
 test:wasm:
   stage: additional-test
-  needs: ["test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend"]
+  needs: [ "test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend" ]
   tags:
     - docker
   image: rust:latest
@@ -433,7 +432,7 @@ doc:reporting:
     - docker
   stage: docs
   image: rust:latest
-  needs: ["test:reporting"]
+  needs: [ "test:reporting" ]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
@@ -452,7 +451,7 @@ doc:parser:
     - docker
   stage: docs
   image: rust:latest
-  needs: ["test:parser"]
+  needs: [ "test:parser" ]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
@@ -471,7 +470,7 @@ doc:macros:
     - docker
   stage: docs
   image: rust:latest
-  needs: ["test:macros"]
+  needs: [ "test:macros" ]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
@@ -490,7 +489,7 @@ doc:hir:
     - docker
   stage: docs
   image: rust:latest
-  needs: ["test:hir"]
+  needs: [ "test:hir" ]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true
@@ -509,7 +508,7 @@ doc:frontend:
     - docker
   stage: docs
   image: rust:latest
-  needs: ["test:frontend"]
+  needs: [ "test:frontend" ]
   variables:
     RUSTDOCFLAGS: "-Dwarnings"
   allow_failure: true

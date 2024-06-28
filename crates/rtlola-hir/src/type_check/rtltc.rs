@@ -20,13 +20,14 @@ where
     /// The [Hir] the checked is performed for.
     pub(crate) hir: &'a Hir<M>,
     /// A stream nme lookup table, generated for the input `Hir`.
-    pub(crate) names: HashMap<StreamReference, &'a str>,
+    pub(crate) names: HashMap<StreamReference, String>,
 }
 
 /// Wrapper enum to unify streams, expressions and parameter during inference.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NodeId {
     SRef(StreamReference),
+    Eval(usize, StreamReference),
     Expr(ExprId),
     Param(usize, StreamReference),
 }
@@ -36,7 +37,7 @@ pub(crate) trait Resolvable: Debug {
     fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
         key1: Option<TcKey>,
         key2: Option<TcKey>,
     ) -> Diagnostic;
@@ -63,7 +64,7 @@ impl<K: Resolvable> TypeError<K> {
     pub(crate) fn into_diagnostic(
         self,
         spans: &[&HashMap<TcKey, Span>],
-        names: &HashMap<StreamReference, &str>,
+        names: &HashMap<StreamReference, String>,
     ) -> Diagnostic {
         self.kind.into_diagnostic(spans, names, self.key1, self.key2)
     }
@@ -85,8 +86,7 @@ where
     /// Detailed error information is emitted by the [Handler].
     pub(crate) fn check(&mut self) -> Result<Typed, RtLolaError> {
         let pacing_tt = self.pacing_type_infer()?;
-
-        let value_tt = self.value_type_infer(&pacing_tt)?;
+        let value_tt = self.value_type_infer()?;
 
         let mut expression_map = HashMap::new();
         let mut stream_map = HashMap::new();
@@ -95,10 +95,12 @@ where
             let concrete_pacing = pacing_tt[id].clone();
             let st = StreamType {
                 value_ty: value_tt[id].clone(),
-                pacing_ty: concrete_pacing.expression_pacing,
-                filter: concrete_pacing.filter,
-                spawn: (concrete_pacing.spawn.0, concrete_pacing.spawn.1),
-                close: concrete_pacing.close,
+                eval_pacing: concrete_pacing.eval_pacing,
+                eval_condition: concrete_pacing.eval_condition,
+                spawn_pacing: concrete_pacing.spawn_pacing,
+                spawn_condition: concrete_pacing.spawn_condition,
+                close_pacing: concrete_pacing.close_pacing,
+                close_condition: concrete_pacing.close_condition,
             };
             match id {
                 NodeId::SRef(sref) => {
@@ -110,10 +112,20 @@ where
                 NodeId::Param(id, sref) => {
                     parameters.insert((*sref, *id), st.value_ty);
                 },
+                NodeId::Eval(_, _) => {
+                    unreachable!("no value type for eval clauses")
+                },
             }
         });
 
-        Ok(Typed::new(stream_map, expression_map, parameters))
+        let mut eval_clauses = HashMap::new();
+        pacing_tt.keys().for_each(|id| {
+            if let NodeId::Eval(idx, sref) = id {
+                let eval_pacing = pacing_tt[id].eval_pacing.clone();
+                eval_clauses.insert((*sref, *idx), eval_pacing);
+            };
+        });
+        Ok(Typed::new(stream_map, expression_map, parameters, eval_clauses))
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].
@@ -123,11 +135,8 @@ where
     }
 
     /// starts the value type infer part with the [ValueTypeChecker].
-    pub(crate) fn value_type_infer(
-        &self,
-        pacing_tt: &HashMap<NodeId, ConcreteStreamPacing>,
-    ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
-        let ctx = ValueTypeChecker::new(self.hir, &self.names, pacing_tt);
+    pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
+        let ctx = ValueTypeChecker::new(self.hir, &self.names);
         ctx.type_check()
     }
 }
@@ -153,7 +162,7 @@ mod tests {
     use crate::type_check::rtltc::LolaTypeChecker;
 
     fn setup_ast(spec: &str) -> RtLolaHir<BaseMode> {
-        let ast: RtLolaAst = match parse(ParserConfig::for_string(spec.to_string())) {
+        let ast: RtLolaAst = match parse(&ParserConfig::for_string(spec.to_string())) {
             Ok(s) => s,
             Err(e) => panic!("Spec {} cannot be parsed: {:?}", spec, e),
         };

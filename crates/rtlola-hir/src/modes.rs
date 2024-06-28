@@ -5,12 +5,13 @@ pub(crate) mod ordering;
 pub(crate) mod types;
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Streamdependencies, Transitivedependencies, Windowdependencies};
+use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
 use self::types::HirType;
-use crate::hir::{ExprId, Hir, SRef, StreamAccessKind, WRef};
+use crate::hir::{ConcretePacingType, ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
 use crate::type_check::{ConcreteValueType, StreamType};
@@ -52,7 +53,6 @@ impl HirStage for Hir<BaseMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -81,6 +81,7 @@ pub struct Typed {
     stream_types: HashMap<SRef, StreamType>,
     expression_types: HashMap<ExprId, StreamType>,
     param_types: HashMap<(SRef, usize), ConcreteValueType>,
+    eval_types: HashMap<(SRef, usize), ConcretePacingType>,
 }
 
 /// Represents the mode after the type checker call
@@ -99,11 +100,13 @@ impl Typed {
         stream_types: HashMap<SRef, StreamType>,
         expression_types: HashMap<ExprId, StreamType>,
         param_types: HashMap<(SRef, usize), ConcreteValueType>,
+        eval_types: HashMap<(SRef, usize), ConcretePacingType>,
     ) -> Self {
         Typed {
             stream_types,
             expression_types,
             param_types,
+            eval_types,
         }
     }
 }
@@ -140,6 +143,13 @@ pub trait TypedTrait {
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) or the index is invalid.
     fn get_parameter_type(&self, sr: SRef, idx: usize) -> ConcreteValueType;
+
+    /// Returns the [ConcretePacingType] of the given stream
+    ///
+    /// # Panic
+    /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid
+    /// or the index of the eval clause is out of bounds.
+    fn eval_pacing_type(&self, sr: SRef, idx: usize) -> ConcretePacingType;
 }
 
 impl HirStage for Hir<TypedMode> {
@@ -156,7 +166,6 @@ impl HirStage for Hir<TypedMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -220,7 +229,7 @@ pub trait DepAnaTrait {
     /// are used to access that stream.
     /// A stream `who` accesses a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'who' has a stream or window lookup to `res`.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
-    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
+    fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>;
 
     /// Returns all streams that are transitive accessed by `who`
     ///
@@ -242,7 +251,7 @@ pub trait DepAnaTrait {
     /// that they use to access `who`.
     /// A stream `who` is accessed by a stream `res`, if the stream expression, the spawn condition and definition, the evaluation condition, or the close condition of 'res' has a stream or window lookup to 'who'.
     /// Direct accesses are all accesses appearing in the expressions of the stream itself.
-    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<StreamAccessKind>)>;
+    fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>;
 
     /// Returns all streams that transitive access `who`
     ///
@@ -282,7 +291,6 @@ impl HirStage for Hir<DepAnaMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -348,7 +356,6 @@ impl HirStage for Hir<OrderedMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
@@ -371,6 +378,8 @@ impl Hir<OrderedMode> {
 #[derive(Debug, Clone)]
 pub struct MemBound {
     memory_bound_per_stream: HashMap<SRef, MemorizationBound>,
+    memory_bound_per_window: HashMap<WRef, MemorizationBound>,
+    sliding_window_bucket_size: HashMap<WRef, Duration>,
 }
 
 /// Represents the mode after the memory analysis
@@ -398,6 +407,19 @@ pub trait MemBoundTrait {
     /// # Panic
     /// The function panics if the [StreamReference](crate::hir::StreamReference) is invalid.
     fn memory_bound(&self, sr: SRef) -> MemorizationBound;
+
+    /// Returns the memory bound of the given sliding window
+    ///
+    /// # Panic
+    /// The function panics if the [WindowReference](crate::hir::WindowReference) is invalid.
+    fn num_buckets(&self, wr: WRef) -> MemorizationBound;
+
+    /// Returns the time per bucket of a sliding window.
+    ///
+    /// # Panic
+    /// The function panics if the [WindowReference](crate::hir::WindowReference) is not a valid
+    /// sliding window reference.
+    fn bucket_size(&self, wr: WRef) -> Duration;
 }
 
 impl HirStage for Hir<MemBoundMode> {
@@ -414,7 +436,6 @@ impl HirStage for Hir<MemBoundMode> {
         Ok(Hir {
             inputs: self.inputs,
             outputs: self.outputs,
-            triggers: self.triggers,
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,

@@ -2,7 +2,7 @@
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::RwLock;
 
 use codespan_reporting::diagnostic::{Diagnostic as RawDiagnostic, Label, Severity};
@@ -13,8 +13,7 @@ use codespan_reporting::term::Config;
 use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
-// Todo: Change Indirect to Indirect { start: usize, end: usize } to make Span copy
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {
@@ -24,8 +23,14 @@ pub enum Span {
         end: usize,
     },
     /// Indirect code reference created through ast refactoring
-    Indirect(Box<Self>),
+    Indirect {
+        /// The start of the span in characters absolute to the beginning of the specification.
+        start: usize,
+        /// The end of the span in characters absolute to the beginning of the specification.
+        end: usize,
+    },
     /// An unknown code reference
+    #[default]
     Unknown,
 }
 impl<'a> From<pest::Span<'a>> for Span {
@@ -49,7 +54,7 @@ impl Span {
     pub fn is_indirect(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
-            Span::Indirect(_) => true,
+            Span::Indirect { .. } => true,
             Span::Unknown => false,
         }
     }
@@ -58,7 +63,7 @@ impl Span {
     pub fn is_unknown(&self) -> bool {
         match self {
             Span::Direct { .. } => false,
-            Span::Indirect(_) => false,
+            Span::Indirect { .. } => false,
             Span::Unknown => true,
         }
     }
@@ -67,27 +72,26 @@ impl Span {
     /// Note: If the span is unknown returns (usize::min, usize::max)
     fn get_bounds(&self) -> (usize, usize) {
         match self {
-            Span::Direct { start: s, end: e } => (*s, *e),
-            Span::Indirect(s) => s.get_bounds(),
-            Span::Unknown => (usize::min_value(), usize::max_value()),
+            Span::Indirect { start, end } | Span::Direct { start, end } => (*start, *end),
+            Span::Unknown => (usize::MIN, usize::MAX),
         }
     }
 
     /// Combines two spans to their union
     pub fn union(&self, other: &Self) -> Self {
         if self.is_unknown() {
-            return other.clone();
+            return *other;
         }
         if other.is_unknown() {
-            return self.clone();
+            return *self;
         }
         let (start1, end1) = self.get_bounds();
         let (start2, end2) = other.get_bounds();
         if self.is_indirect() || other.is_indirect() {
-            Span::Indirect(Box::new(Span::Direct {
+            Span::Indirect {
                 start: start1.min(start2),
                 end: end1.max(end2),
-            }))
+            }
         } else {
             Span::Direct {
                 start: start1.min(start2),
@@ -95,23 +99,32 @@ impl Span {
             }
         }
     }
+
+    /// Converts a direct span to an indirect one.
+    pub fn to_indirect(self) -> Self {
+        match self {
+            Span::Direct { start, end } => Span::Indirect { start, end },
+            Span::Indirect { .. } => self,
+            Span::Unknown => self,
+        }
+    }
 }
 
 /// A handler is responsible for emitting warnings and errors
-pub struct Handler {
+pub struct Handler<'a> {
     /// The number of errors that have already occurred
     error_count: RwLock<usize>,
     /// The number of warnings that have already occurred
     warning_count: RwLock<usize>,
     /// The input file the handler refers to given by a path and its content
-    input: SimpleFile<String, String>,
+    input: SimpleFile<&'a str, &'a str>,
     /// The output the handler is emitting to
     output: RwLock<Box<dyn WriteColor>>,
     /// The config for the error formatting
     config: Config,
 }
-impl Debug for Handler {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> Debug for Handler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Handler")
             .field("error_count", &self.error_count)
             .field("warning_count", &self.warning_count)
@@ -121,26 +134,26 @@ impl Debug for Handler {
     }
 }
 
-impl Handler {
+impl<'a> Handler<'a> {
     /// Creates a new Handler
     /// `input_path` refers to the path of the input file
     /// `input_content` refers to the content of the input file
-    pub fn new(input_path: PathBuf, input_content: String) -> Self {
+    pub fn new(input_path: &'a Path, input_content: &'a str) -> Self {
         Handler {
             error_count: RwLock::new(0),
             warning_count: RwLock::new(0),
-            input: SimpleFile::new(input_path.to_str().unwrap_or("unknown file").into(), input_content),
+            input: SimpleFile::new(input_path.to_str().unwrap_or("unknown file"), input_content),
             output: RwLock::new(Box::new(StandardStream::stderr(ColorChoice::Always))),
             config: Config::default(),
         }
     }
 
     /// Creates a new handler without a path.
-    pub fn without_file(input_content: String) -> Self {
+    pub fn without_file(input_content: &'a str) -> Self {
         Handler {
             error_count: RwLock::new(0),
             warning_count: RwLock::new(0),
-            input: SimpleFile::new("unknown file".into(), input_content),
+            input: SimpleFile::new("unknown file", input_content),
             output: RwLock::new(Box::new(StandardStream::stderr(ColorChoice::Always))),
             config: Config::default(),
         }
@@ -202,7 +215,7 @@ impl Handler {
     pub fn warn_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RawDiagnostic::warning().with_message(message);
         if !span.is_unknown() {
-            let mut label = Label::primary((), span.clone());
+            let mut label = Label::primary((), span);
             if let Some(l) = span_label {
                 label.message = l.into();
             }
@@ -224,7 +237,7 @@ impl Handler {
     pub fn error_with_span(&self, message: &str, span: Span, span_label: Option<&str>) {
         let mut diag = RawDiagnostic::error().with_message(message);
         if !span.is_unknown() {
-            let mut label = Label::primary((), span.clone());
+            let mut label = Label::primary((), span);
             if let Some(l) = span_label {
                 label.message = l.into();
             }
@@ -237,7 +250,7 @@ impl Handler {
     }
 }
 
-/// A `Diagnostic` is more flexible way to build and output errors and warnings.
+/// A [Diagnostic] is more flexible way to build and output errors and warnings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
     /// The internal representation of the diagnostic
@@ -440,11 +453,15 @@ impl From<RtLolaError> for Result<(), RtLolaError> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     #[test]
     fn error_span() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         let span = Span::Direct { start: 9, end: 12 };
         handler.error_with_span("Unknown Type", span, Some("here".into()));
         assert_eq!(handler.emitted_errors(), 1);
@@ -452,7 +469,9 @@ mod tests {
 
     #[test]
     fn warning_span() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         let span = Span::Direct { start: 9, end: 12 };
         handler.warn_with_span("Unknown Type", span, Some("here".into()));
         assert_eq!(handler.emitted_warnings(), 1);
@@ -460,21 +479,27 @@ mod tests {
 
     #[test]
     fn error() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         handler.error("Unknown Type");
         assert_eq!(handler.emitted_errors(), 1);
     }
 
     #[test]
     fn warning() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         handler.warn("Unknown Type");
         assert_eq!(handler.emitted_warnings(), 1);
     }
 
     #[test]
     fn error_span_no_label() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         let span = Span::Direct { start: 9, end: 12 };
         handler.error_with_span("Unknown Type", span, None);
         assert_eq!(handler.emitted_errors(), 1);
@@ -482,9 +507,11 @@ mod tests {
 
     #[test]
     fn custom() {
-        let handler = Handler::new(PathBuf::from("stdin"), "input i: Int\noutput x = 5".into());
+        let path = PathBuf::from("stdin");
+        let content = "input i: Int\noutput x = 5";
+        let handler = Handler::new(&path, &content);
         let span1 = Span::Direct { start: 9, end: 12 };
-        let span2 = Span::Indirect(Box::new(Span::Direct { start: 20, end: 21 }));
+        let span2 = Span::Indirect { start: 20, end: 21 };
         let span3 = Span::Direct { start: 24, end: 25 };
         handler.emit(
             &Diagnostic::error("Failed with love")

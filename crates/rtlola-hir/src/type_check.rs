@@ -28,10 +28,12 @@ where
 pub enum ConcretePacingType {
     /// The stream / expression can be evaluated whenever the activation condition is satisfied.
     Event(ActivationCondition),
-    /// The stream / expression can be evaluated with a fixed frequency.
-    FixedPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with a fixed global frequency.
+    FixedGlobalPeriodic(UOM_Frequency),
+    /// The stream / expression can be evaluated with a fixed local frequency.
+    FixedLocalPeriodic(UOM_Frequency),
     /// The stream / expression can be evaluated with any frequency.
-    Periodic,
+    AnyPeriodic,
     /// The stream / expression can always be evaluated.
     Constant,
 }
@@ -39,7 +41,10 @@ pub enum ConcretePacingType {
 impl ConcretePacingType {
     /// Returns true if the type is fixed-periodic
     pub fn is_periodic(&self) -> bool {
-        matches!(self, ConcretePacingType::FixedPeriodic(_))
+        matches!(
+            self,
+            ConcretePacingType::FixedLocalPeriodic(_) | ConcretePacingType::FixedGlobalPeriodic(_)
+        )
     }
 
     /// Returns true if the type is event-based
@@ -54,7 +59,7 @@ impl ConcretePacingType {
 }
 
 /// The external definition for a value type.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum ConcreteValueType {
     /// Bool e.g. true, false
     Bool,
@@ -92,14 +97,17 @@ pub enum ConcreteValueType {
 #[derive(Debug, Clone)]
 pub struct ConcreteStreamPacing {
     /// The pacing of the stream expression.
-    pub expression_pacing: ConcretePacingType,
-    /// First element is the pacing of the spawn expression
-    /// Second element is the spawn condition expression
-    pub spawn: (ConcretePacingType, Expression),
+    pub eval_pacing: ConcretePacingType,
     /// The filter expression
-    pub filter: Expression,
+    pub eval_condition: Expression,
+    /// The pacing of the spawn expression
+    pub spawn_pacing: ConcretePacingType,
+    /// The spawn condition expression
+    pub spawn_condition: Expression,
+    /// The pacing of the close expression.
+    pub close_pacing: ConcretePacingType,
     /// The close expression
-    pub close: Expression,
+    pub close_condition: Expression,
 }
 
 /// The external definition of the stream type.
@@ -108,14 +116,16 @@ pub struct StreamType {
     /// The [ConcreteValueType] of the stream and his expression, e.g. Bool.
     pub value_ty: ConcreteValueType,
     /// The [ConcretePacingType] of the stream, e.g. 5Hz.
-    pub pacing_ty: ConcretePacingType,
-    /// The spawn type of the stream.
-    /// Given by the composition of the spawn expression and the pacing of the spawn expression.
-    pub spawn: (ConcretePacingType, Expression),
+    pub eval_pacing: ConcretePacingType,
     /// The filter type given by the filter expression.
     /// The stream only has to be evaluated if this boolean expression evaluates to true.
-    pub filter: Expression,
-    /// The close type given by the close expression.
+    pub eval_condition: Expression,
+    /// The pacing of the spawn expression.
+    pub spawn_pacing: ConcretePacingType,
+    /// The spawn condition of the stream. The spawn expression only has to be evaluated if this expression evaluates to true.
+    pub spawn_condition: Expression,
+    /// The pacing of the close condition.
+    pub close_pacing: ConcretePacingType,
     /// The stream can be closed and does not have to be evaluated if this boolean expression returns true.
-    pub close: Expression,
+    pub close_condition: Expression,
 }

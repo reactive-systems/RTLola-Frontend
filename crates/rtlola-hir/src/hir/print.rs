@@ -9,7 +9,7 @@ use crate::hir::{FnExprKind, Inlined, StreamAccessKind, StreamReference, WidenEx
 
 impl Expression {
     /// Produces a prettified string representation of the expression given the names of the streams
-    pub(crate) fn pretty_string(&self, names: &HashMap<StreamReference, &str>) -> String {
+    pub(crate) fn pretty_string(&self, names: &HashMap<StreamReference, String>) -> String {
         use crate::hir::expression::ExpressionKind::*;
         match &self.kind {
             StreamAccess(sref, kind, params) => {
@@ -51,7 +51,7 @@ impl Expression {
             },
             ArithLog(op, args) => {
                 if args.len() == 1 {
-                    format!("{}{}", op, args.get(0).unwrap().pretty_string(names))
+                    format!("{}{}", op, args.first().unwrap().pretty_string(names))
                 } else {
                     format!(
                         "({})",
@@ -92,7 +92,7 @@ impl Display for Expression {
             },
             ArithLog(op, args) => {
                 if args.len() == 1 {
-                    write!(f, "{}{}", op, args.get(0).unwrap())
+                    write!(f, "{}{}", op, args.first().unwrap())
                 } else {
                     write!(f, "({})", args.iter().map(|e| format!("{e}")).join(&format!(" {op} ")))
                 }
@@ -181,6 +181,7 @@ impl Display for WindowReference {
         match self {
             WindowReference::Sliding(u) => write!(f, "SlidingWin({u})"),
             WindowReference::Discrete(u) => write!(f, "DiscreteWin({u})"),
+            WindowReference::Instance(u) => write!(f, "InstanceAggr({u})"),
         }
     }
 }
@@ -208,8 +209,10 @@ impl Display for AnnotatedType {
             Tuple(tys) => write!(f, "({})", tys.iter().map(|t| format!("{t}")).join(",")),
             //Used in function declaration
             Numeric => write!(f, "Numeric"),
+            Signed => write!(f, "Signed"),
             Sequence => write!(f, "Sequence"),
             Param(idx, name) => write!(f, "FunctionParam({idx}, {name})"),
+            Any => write!(f, "Any"),
         }
     }
 }
