@@ -40,7 +40,7 @@ ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
 InputStream = { TagLists? ~ "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
-OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~ 
+OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~
  (((SpawnDecl| CloseDecl)* ~ EvalDecl ~ (SpawnDecl | EvalDecl | CloseDecl)*)| SimpleEvalDecl)
 }
 TriggerDecl = { "trigger" }
