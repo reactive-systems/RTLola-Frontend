@@ -466,15 +466,11 @@ impl Hir<MemBoundMode> {
         let all_tags = self
             .inputs
             .iter()
-            .flat_map(|input| input.tags.iter().map(|(_, tag)| tag))
-            .chain(
-                self.outputs
-                    .iter()
-                    .flat_map(|output| output.tags.iter().map(|(_, tag)| tag)),
-            );
+            .flat_map(|input| input.tags.values())
+            .chain(self.outputs.iter().flat_map(|output| output.tags.values()));
         let error = all_tags
             .filter_map(|tag| {
-                if let Err(e) = tag_validator.check(tag.key.as_str(), tag.value.as_ref().map(|s| s.as_str())) {
+                if let Err(e) = tag_validator.check(tag.key.as_str(), tag.value.as_deref()) {
                     Some(Diagnostic::error(&e).add_span_with_label(tag.span, Some("Found tag here"), true))
                 } else {
                     None

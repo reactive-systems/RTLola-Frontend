@@ -973,7 +973,7 @@ mod tests {
         input a : Bool
         #[warning]
         trigger a";
-        let (_, mir) = lower_spec(spec);
+        let (_, mir) = lower_spec_with_validator(spec, &TagValidator::new(|_, _| Ok(())));
         let input_tags = &mir.inputs[0].tags;
         assert_eq!(input_tags.len(), 2);
         assert!(input_tags["key"].as_ref().unwrap() == "value");

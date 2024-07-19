@@ -159,7 +159,10 @@ impl Default for TagValidator {
 }
 
 impl TagValidator {
-    fn new(f: impl Fn(&str, Option<&str>) -> Result<(), String> + 'static) -> Self {
+    /// Construct a new `TagValidator` for the given closure. The closure is called
+    /// for each key-value pair combination found in the specification to decide, whether
+    /// it is accepted by the backend.
+    pub fn new(f: impl Fn(&str, Option<&str>) -> Result<(), String> + 'static) -> Self {
         Self(Box::new(f))
     }
 

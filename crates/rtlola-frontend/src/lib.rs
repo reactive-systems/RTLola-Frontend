@@ -109,31 +109,3 @@ pub fn parse_to_base_hir(cfg: &ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLo
 pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
-
-#[test]
-fn test() {
-    let spec = r#"
-        input a : UInt64
-        #[verbosity="test",warning]
-        output b := a + 1
-        #[verbosity="test"]
-        trigger b > 10 "msg"
-    "#;
-
-    let config = ParserConfig::for_string(spec.into()); //.with_supported_tags(["verbosity"]);
-    let config = ParserConfig::for_string(spec.into()).with_tag_validator(|key, value| {
-        if key == "verbosity" {
-            match value {
-                Some("outputs") => Ok(()),
-                Some(other) => Err(format!("for verbosity is {other} not supported.")),
-                None => Err(format!("for verbosity we need argument!")),
-            }
-        } else {
-            Err(format!("{key} not supported."))
-        }
-    });
-    match parse(&config) {
-        Ok(_) => {},
-        Err(e) => Handler::from(&config).emit_error(&e),
-    }
-}
