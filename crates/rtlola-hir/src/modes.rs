@@ -472,26 +472,15 @@ impl Hir<MemBoundMode> {
                     .iter()
                     .flat_map(|output| output.tags.iter().map(|(_, tag)| tag)),
             );
-        let all_tags_spans = all_tags.fold(HashMap::new(), |mut map, tag| {
-            let map_key = (tag.key.as_ref(), tag.value.as_ref().map(|s| s.as_str()));
-            let entry = map.entry(map_key).or_insert_with(Vec::new);
-            entry.push(tag.span);
-            map
-        });
-        let error =
-            all_tags_spans
-                .into_iter()
-                .filter_map(|((key, value), spans)| {
-                    if let Err(e) = tag_validator.check(key, value) {
-                        Some(spans.into_iter().map(move |span| {
-                            Diagnostic::error(&e).add_span_with_label(span, Some("Found tag here"), true)
-                        }))
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .collect::<RtLolaError>();
+        let error = all_tags
+            .filter_map(|tag| {
+                if let Err(e) = tag_validator.check(tag.key.as_str(), tag.value.as_ref().map(|s| s.as_str())) {
+                    Some(Diagnostic::error(&e).add_span_with_label(tag.span, Some("Found tag here"), true))
+                } else {
+                    None
+                }
+            })
+            .collect::<RtLolaError>();
         if error.num_errors() == 0 {
             Ok(self)
         } else {

@@ -114,6 +114,7 @@ pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
 fn test() {
     let spec = r#"
         input a : UInt64
+        #[verbosity="test",warning]
         output b := a + 1
         #[verbosity="test"]
         trigger b > 10 "msg"
