@@ -36,7 +36,7 @@ use config::FrontendConfig;
 use hir::Hir;
 pub use hir::RtLolaHir;
 pub use modes::{BaseMode, CompleteMode};
-use rtlola_parser::RtLolaAst;
+use rtlola_parser::{MemoryBoundMode, RtLolaAst};
 use rtlola_reporting::RtLolaError;
 
 /// Transforms a [RtLolaAst] into the [RtLolaHir].

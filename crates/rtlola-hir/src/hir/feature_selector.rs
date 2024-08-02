@@ -530,7 +530,7 @@ impl FeatureSelector {
 #[cfg(test)]
 mod test {
     use rtlola_parser::ast::WindowOperation;
-    use rtlola_parser::ParserConfig;
+    use rtlola_parser::{MemoryBoundMode, ParserConfig};
     use rtlola_reporting::Handler;
 
     use crate::fully_analyzed;

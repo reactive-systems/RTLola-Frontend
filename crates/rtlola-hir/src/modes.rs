@@ -7,6 +7,7 @@ pub(crate) mod types;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use rtlola_parser::MemoryBoundMode;
 use rtlola_reporting::RtLolaError;
 
 use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
@@ -374,8 +375,8 @@ impl Hir<OrderedMode> {
     ///
     /// # Fails
     /// The function fails if the memory cannot be determined.
-    pub fn determine_memory_bounds(self, cfg: &FrontendConfig) -> Result<Hir<MemBoundMode>, RtLolaError> {
-        self.progress(cfg)
+    pub fn determine_memory_bounds(self) -> Result<Hir<MemBoundMode>, RtLolaError> {
+        self.progress()
     }
 }
 
