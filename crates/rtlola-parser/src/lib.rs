@@ -140,34 +140,3 @@ impl<'a> From<&'a ParserConfig> for Handler<'a> {
         }
     }
 }
-
-/// Validates if a key-value pair in a tag is supported by the backend.
-pub struct TagValidator(Box<dyn Fn(&str, Option<&str>) -> Result<(), String>>);
-
-impl Debug for TagValidator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TagValidator")
-    }
-}
-
-impl Default for TagValidator {
-    fn default() -> Self {
-        Self(Box::new(|tag, _| {
-            Err(format!("No tags are supported, but got \"{tag}\""))
-        }))
-    }
-}
-
-impl TagValidator {
-    /// Construct a new `TagValidator` for the given closure. The closure is called
-    /// for each key-value pair combination found in the specification to decide, whether
-    /// it is accepted by the backend.
-    pub fn new(f: impl Fn(&str, Option<&str>) -> Result<(), String> + 'static) -> Self {
-        Self(Box::new(f))
-    }
-
-    /// Check whether the tag validator allows the key-value pair inside a tag
-    pub fn check(&self, key: &str, value: Option<&str>) -> Result<(), String> {
-        self.0(key, value)
-    }
-}
