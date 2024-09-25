@@ -533,7 +533,6 @@ mod test {
     use rtlola_parser::{MemoryBoundMode, ParserConfig};
     use rtlola_reporting::Handler;
 
-    use crate::config::TagValidator;
     use crate::fully_analyzed;
     use crate::hir::{ConcreteValueType, FeatureSelector};
 

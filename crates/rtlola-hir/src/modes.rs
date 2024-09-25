@@ -375,8 +375,8 @@ impl Hir<OrderedMode> {
     ///
     /// # Fails
     /// The function fails if the memory cannot be determined.
-    pub fn determine_memory_bounds(self) -> Result<Hir<MemBoundMode>, RtLolaError> {
-        self.progress()
+    pub fn determine_memory_bounds(self, cfg: &FrontendConfig) -> Result<Hir<MemBoundMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 
@@ -462,7 +462,8 @@ impl Hir<MemBoundMode> {
     }
 
     /// Validate the tags in the specification against the `tag_validator`.
-    pub fn validate_tags(self, tag_validator: &TagValidator) -> Result<Self, RtLolaError> {
+    pub fn validate_tags(self, cfg: &FrontendConfig) -> Result<Self, RtLolaError> {
+        let tag_validator = cfg.tag_validator();
         let all_tags = self
             .inputs
             .iter()

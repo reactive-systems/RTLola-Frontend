@@ -170,7 +170,7 @@ impl<'a> RtLolaParser<'a> {
      * - (`Rule::TagLists`)?
      * - `Rule::Ident`
      * - (`Rule::ParamList`)?
-     * - `Rule::Type
+     * - `Rule::Type`
      */
     fn parse_inputs(&self, pair: Pair<'_, Rule>) -> Vec<Input> {
         assert_eq!(pair.as_rule(), Rule::InputStream);
