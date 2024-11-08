@@ -1,4 +1,5 @@
 //! This module contains helper to report messages (warnings/errors)
+use std::error::Error;
 use std::fmt::Debug;
 use std::iter::FromIterator;
 use std::ops::Range;
@@ -334,6 +335,28 @@ impl From<Diagnostic> for RawDiagnostic<()> {
 /// An error type to collect diagnostics throughout the frontend.
 pub struct RtLolaError {
     errors: Vec<Diagnostic>,
+}
+
+impl Error for RtLolaError {}
+
+impl std::fmt::Display for RtLolaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "RTLola Error: {} errors, {} warnings:",
+            self.num_errors(),
+            self.num_warnings()
+        )?;
+        for msg in self.iter() {
+            let severity = match msg.inner.severity {
+                Severity::Warning => "[WARNING]",
+                Severity::Error => "[ERROR]",
+                _ => unreachable!(),
+            };
+            writeln!(f, "- {severity} {}", msg.inner.message)?;
+        }
+        Ok(())
+    }
 }
 
 impl RtLolaError {
