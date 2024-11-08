@@ -226,14 +226,8 @@ impl Display for Expression {
             ExpressionKind::Ite(cond, cons, alt) => {
                 write!(f, "if {cond} then {cons} else {alt}")
             },
-            ExpressionKind::ParenthesizedExpression(left, expr, right) => {
-                write!(
-                    f,
-                    "{}{}{}",
-                    if left.is_some() { "(" } else { "" },
-                    expr,
-                    if right.is_some() { ")" } else { "" }
-                )
+            ExpressionKind::ParenthesizedExpression(expr) => {
+                write!(f, "({})", expr,)
             },
             ExpressionKind::MissingExpression => Ok(()),
             ExpressionKind::Tuple(exprs) => write_delim_list(f, exprs, "(", ")", ", "),

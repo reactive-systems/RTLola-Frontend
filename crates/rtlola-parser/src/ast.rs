@@ -276,22 +276,6 @@ pub struct TypeDeclField {
     pub span: Span,
 }
 
-/// An Ast node representing an opening or closing parenthesis.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct Parenthesis {
-    /// The id of the node in the Ast
-    pub id: NodeId,
-    /// The span in the specification declaring the extend declaration
-    pub span: Span,
-}
-
-impl Parenthesis {
-    /// Creates a new Parenthesis
-    pub(crate) fn new(id: NodeId, span: Span) -> Parenthesis {
-        Parenthesis { id, span }
-    }
-}
-
 /// An Ast node representing the declaration of a value type
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Type {
@@ -413,7 +397,7 @@ pub enum ExpressionKind {
     /// An if-then-else expression
     Ite(Box<Expression>, Box<Expression>, Box<Expression>),
     /// An expression enveloped in parentheses
-    ParenthesizedExpression(Option<Box<Parenthesis>>, Box<Expression>, Option<Box<Parenthesis>>),
+    ParenthesizedExpression(Box<Expression>),
     /// An expression was expected, e.g., after an operator like `*`
     MissingExpression,
     /// A tuple expression

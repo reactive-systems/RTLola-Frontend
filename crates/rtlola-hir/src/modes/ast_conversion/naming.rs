@@ -409,7 +409,7 @@ impl NamingAnalysis {
                     .collect::<RtLolaError>()
                     .into()
             },
-            ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => self.check_expression(expr),
+            ParenthesizedExpression(expr) | Unary(_, expr) | Field(expr, _) => self.check_expression(expr),
             Tuple(exprs) => {
                 exprs
                     .iter()

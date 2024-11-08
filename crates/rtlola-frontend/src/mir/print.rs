@@ -501,7 +501,7 @@ mod tests {
         comparison1:
         "(1 > 2) && !false || (2 != 2)" => "1 > 2 ∧ !false ∨ 2 ≠ 2",
         comparison2:
-        "(true == (1 > 2 || false)" => "true = (1 > 2 ∨ false)",
+        "(true == (1 > 2 || false))" => "true = (1 > 2 ∨ false)",
         associativity:
         "1 - (2 - 3)" => "1 - (2 - 3)",
         associativity2:

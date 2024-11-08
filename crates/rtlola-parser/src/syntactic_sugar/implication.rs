@@ -1,5 +1,5 @@
 use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, Expression, ExpressionKind, Parenthesis, RtLolaAst, UnOp};
+use crate::ast::{BinOp, Expression, ExpressionKind, RtLolaAst, UnOp};
 
 /// Allows for using a implies b.
 ///
@@ -39,21 +39,11 @@ impl Implication {
                     | ExpressionKind::Offset(_, _)
                     | ExpressionKind::Tuple(_)
                     | ExpressionKind::Field(_, _)
-                    | ExpressionKind::ParenthesizedExpression(_, _, _)
+                    | ExpressionKind::ParenthesizedExpression(_)
                     | ExpressionKind::MissingExpression => lhs,
                     ExpressionKind::Binary(_, _, _) | ExpressionKind::Ite(_, _, _) => {
                         let lhs = Expression {
-                            kind: ExpressionKind::ParenthesizedExpression(
-                                Some(Box::new(Parenthesis {
-                                    id: ast.next_id(),
-                                    span: expr.span.to_indirect(),
-                                })),
-                                lhs,
-                                Some(Box::new(Parenthesis {
-                                    id: ast.next_id(),
-                                    span: expr.span.to_indirect(),
-                                })),
-                            ),
+                            kind: ExpressionKind::ParenthesizedExpression(lhs),
                             id: new_id,
                             span: expr.span.to_indirect(),
                         };
