@@ -206,6 +206,19 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?
             },
+            AnnotatedType::Fixed(0, 0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Fixed))?,
+            AnnotatedType::Fixed(total, fractional) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedFixed(*total, *fractional)))?
+            },
+            AnnotatedType::UFixed(0, 0) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::UFixed))?
+            },
+            AnnotatedType::UFixed(total, fractional) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedUFixed(*total, *fractional)))?
+            },
             AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
             AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
             AnnotatedType::Option(op) => {
@@ -229,6 +242,10 @@ where
             AnnotatedType::Signed => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
+            },
+            AnnotatedType::Fractional => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
             },
             AnnotatedType::Sequence => {
                 self.tyc
@@ -806,6 +823,9 @@ where
             | AnnotatedType::Int(_)
             | AnnotatedType::Float(_)
             | AnnotatedType::UInt(_)
+            | AnnotatedType::Fixed(_, _)
+            | AnnotatedType::UFixed(_, _)
+            | AnnotatedType::Fractional
             | AnnotatedType::Bool
             | AnnotatedType::String
             | AnnotatedType::Bytes
@@ -1904,11 +1924,19 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
-    fn test_sqrt() {
+    fn test_sqrt_float() {
         let spec = "import math\ninput a: Float32\noutput b := sqrt(a)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_sqrt_fixed() {
+        let spec = "import math\ninput a: Fixed64_32\noutput b := sqrt(a)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("b");
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Fixed64_32);
     }
 
     #[test]

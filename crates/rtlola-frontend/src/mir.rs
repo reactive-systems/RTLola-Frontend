@@ -120,6 +120,10 @@ pub enum Type {
     UInt(UIntTy),
     /// A floating point type of fixed bit-width
     Float(FloatTy),
+    /// A signed fixed point type of fixed bit-width
+    Fixed(FixedTy),
+    /// An unsigned fixed point type of fixed bit-width
+    UFixed(FixedTy),
     /// A unicode string
     String,
     /// A sequence of 8-bit bytes
@@ -183,6 +187,17 @@ pub enum FloatTy {
     Float32,
     /// Represents a 64-bit floating point number.
     Float64,
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FixedTy {
+    /// Represents a 64-bit fixed point number with 32 integer bits and 32 fractional bits
+    Fixed64_32,
+    /// Represents a 32-bit fixed point number with 16 integer bits and 16 fractional bits
+    Fixed32_16,
+    /// Represents a 16-bit fixed point number with 16 integer bits and 8 fractional bits
+    Fixed16_8,
 }
 
 impl From<ConcreteValueType> for Type {
@@ -1141,6 +1156,9 @@ impl Type {
             Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
             Type::Float(FloatTy::Float32) => Some(ValSize(4)),
             Type::Float(FloatTy::Float64) => Some(ValSize(8)),
+            Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => Some(ValSize(64)),
+            Type::Fixed(FixedTy::Fixed32_16) | Type::UFixed(FixedTy::Fixed32_16) => Some(ValSize(32)),
+            Type::Fixed(FixedTy::Fixed16_8) | Type::UFixed(FixedTy::Fixed16_8) => Some(ValSize(16)),
             Type::Option(_) => unimplemented!("Size of option not determined, yet."),
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();

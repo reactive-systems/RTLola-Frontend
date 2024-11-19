@@ -382,6 +382,12 @@ impl Mir {
             ConcreteValueType::UInteger64 => mir::Type::UInt(mir::UIntTy::UInt64),
             ConcreteValueType::Float32 => mir::Type::Float(mir::FloatTy::Float32),
             ConcreteValueType::Float64 => mir::Type::Float(mir::FloatTy::Float64),
+            ConcreteValueType::Fixed64_32 => mir::Type::Fixed(mir::FixedTy::Fixed64_32),
+            ConcreteValueType::Fixed32_16 => mir::Type::Fixed(mir::FixedTy::Fixed32_16),
+            ConcreteValueType::Fixed16_8 => mir::Type::Fixed(mir::FixedTy::Fixed16_8),
+            ConcreteValueType::UFixed64_32 => mir::Type::UFixed(mir::FixedTy::Fixed64_32),
+            ConcreteValueType::UFixed32_16 => mir::Type::UFixed(mir::FixedTy::Fixed32_16),
+            ConcreteValueType::UFixed16_8 => mir::Type::UFixed(mir::FixedTy::Fixed16_8),
             ConcreteValueType::Tuple(elements) => {
                 let elements = elements.iter().map(Self::lower_value_type).collect::<Vec<_>>();
                 mir::Type::Tuple(elements)

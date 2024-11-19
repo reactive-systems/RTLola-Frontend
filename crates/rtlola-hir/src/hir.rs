@@ -854,14 +854,17 @@ impl<'a> CloseDef<'a> {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub(crate) enum AnnotatedType {
     Int(u32),
+    Fixed(u32, u32),
     Float(u32),
     UInt(u32),
+    UFixed(u32, u32),
     Bool,
     String,
     Bytes,
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
     Numeric,
+    Fractional,
     Signed,
     Sequence,
     Param(usize, String),

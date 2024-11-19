@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rtlola_hir::hir::OutputKind;
 
 use super::{
-    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
+    FixedTy, FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
     WindowOperation,
 };
 use crate::mir::{
@@ -59,6 +59,8 @@ impl Display for Type {
             Type::Float(_) => write!(f, "Float{}", self.size().expect("Floats are sized.").0 * 8),
             Type::UInt(_) => write!(f, "UInt{}", self.size().expect("UInts are sized.").0 * 8),
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
+            Type::Fixed(ty) => write!(f, "Fixed{ty}"),
+            Type::UFixed(ty) => write!(f, "Fixed{ty}"),
             Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {ret}"), ","),
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
@@ -96,6 +98,16 @@ impl Display for FloatTy {
         match self {
             FloatTy::Float32 => write!(f, "32"),
             FloatTy::Float64 => write!(f, "64"),
+        }
+    }
+}
+
+impl Display for FixedTy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            FixedTy::Fixed64_32 => write!(f, "64_32"),
+            FixedTy::Fixed32_16 => write!(f, "32_16"),
+            FixedTy::Fixed16_8 => write!(f, "16_8"),
         }
     }
 }

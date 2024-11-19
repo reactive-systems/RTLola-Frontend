@@ -463,10 +463,42 @@ impl ExpressionTransformer {
                         return Ok(AnnotatedType::Float(size));
                     }
                 }
+                if let Some(size_str) = string.strip_prefix("Fixed") {
+                    let (total_bits, fractional_bits) = Self::parse_fixed_bits(size_str)?;
+                    return Ok(AnnotatedType::Fixed(total_bits, fractional_bits));
+                }
+                if let Some(size_str) = string.strip_prefix("UFixed") {
+                    let (total_bits, fractional_bits) = Self::parse_fixed_bits(size_str)?;
+                    return Ok(AnnotatedType::UFixed(total_bits, fractional_bits));
+                }
                 if string == "Bytes" {
                     return Ok(AnnotatedType::Bytes);
                 }
                 Err("unknown type".into())
+            },
+        }
+    }
+
+    fn parse_fixed_bits(annotation: &str) -> Result<(u32, u32), String> {
+        if annotation.is_empty() {
+            return Ok((64, 32));
+        }
+        match annotation.split_once('_') {
+            Some((total_bits_str, fractional_bits_str)) => {
+                let total_bits: u32 = total_bits_str
+                    .parse()
+                    .map_err(|_| "Invalid bit length for total bits of fixed-point type")?;
+                let fractional_bits: u32 = fractional_bits_str
+                    .parse()
+                    .map_err(|_| "Invalid bit length for total bits of fixed-point type")?;
+                Ok((total_bits, fractional_bits))
+            },
+            None => {
+                let total_bits: u32 = annotation
+                    .parse()
+                    .map_err(|_| "Invalid bit length for fixed-point type")?;
+                let fractional_bits = total_bits / 2;
+                Ok((total_bits, fractional_bits))
             },
         }
     }

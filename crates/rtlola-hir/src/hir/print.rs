@@ -213,6 +213,9 @@ impl Display for AnnotatedType {
             Sequence => write!(f, "Sequence"),
             Param(idx, name) => write!(f, "FunctionParam({idx}, {name})"),
             Any => write!(f, "Any"),
+            Fixed(total, fractional) => write!(f, "Fixed{total}_{fractional}"),
+            UFixed(total, fractional) => write!(f, "UFixed{total}_{fractional}"),
+            Fractional => write!(f, "Fractional"),
         }
     }
 }
