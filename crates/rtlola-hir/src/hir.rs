@@ -865,6 +865,7 @@ pub(crate) enum AnnotatedType {
     Tuple(Vec<AnnotatedType>),
     Numeric,
     Fractional,
+    PositiveFractional,
     Signed,
     Sequence,
     Param(usize, String),

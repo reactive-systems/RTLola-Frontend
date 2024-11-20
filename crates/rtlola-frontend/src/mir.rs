@@ -24,7 +24,6 @@ mod schedule;
 use std::convert::TryInto;
 use std::time::Duration;
 
-use fixed::types::{I64F64, U64F64};
 use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;

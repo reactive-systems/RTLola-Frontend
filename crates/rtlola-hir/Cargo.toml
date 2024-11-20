@@ -30,5 +30,4 @@ rtlola-parser = { path = "../rtlola-parser" }
 rusttyc = { git = "https://github.com/Schwenger/RustTyC.git", branch="context_sensitive"}
 serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "*", features = ["serde"] }
-fixed = "1.28.0"
 rust_decimal = "1.36.0"

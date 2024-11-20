@@ -30,5 +30,4 @@ serde_json = "1.0.86"
 num-rational = { version = "0.3.2", features = ["serde"] }
 dot = "0.1.4"
 sha2 = "0.10"
-fixed = { version = "1.28.0", features = ["serde"] }
 rust_decimal = "1.36.0"
