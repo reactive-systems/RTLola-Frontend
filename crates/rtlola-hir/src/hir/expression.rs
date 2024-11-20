@@ -3,10 +3,10 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-use fixed::types::I64F64;
 use itertools::{iproduct, Either};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 use rtlola_reporting::Span;
+use rust_decimal::Decimal;
 
 use super::WindowReference;
 use crate::hir::{AnnotatedType, Hir, Offset, SRef, StreamReference, WRef};
@@ -190,7 +190,7 @@ pub enum Literal {
     /// Integer constant known to be signed
     SInt(i128),
     /// Decimal constant
-    Decimal(I64F64),
+    Decimal(Decimal),
 }
 
 impl Hash for Literal {

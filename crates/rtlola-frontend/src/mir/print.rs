@@ -19,7 +19,7 @@ impl Display for Constant {
             Constant::Int(i) => write!(f, "{i}"),
             Constant::Float(fl) => write!(f, "{fl:?}"),
             Constant::Str(s) => write!(f, "\"{s}\""),
-            Constant::Fixed(i) => write!(f, "{i}"),
+            Constant::Decimal(i) => write!(f, "{i}"),
         }
     }
 }

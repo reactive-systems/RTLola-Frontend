@@ -32,6 +32,7 @@ pub use rtlola_hir::hir::{
     InputReference, Layer, MemorizationBound, Origin, OutputKind, OutputReference, StreamLayers, StreamReference,
     WindowReference,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
@@ -521,7 +522,7 @@ pub enum Constant {
     #[allow(missing_docs)]
     Float(f64),
     #[allow(missing_docs)]
-    Fixed(I64F64),
+    Decimal(Decimal),
 }
 
 /// Arithmetical and logical operations

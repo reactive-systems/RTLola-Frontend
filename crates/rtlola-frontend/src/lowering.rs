@@ -1,8 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 use std::iter::zip;
 
-use fixed::traits::LossyFrom;
 use itertools::Itertools;
+use num::ToPrimitive;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
     DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, Literal, MemBoundTrait, Offset,
@@ -521,8 +521,8 @@ impl Mir {
             },
             Literal::Decimal(f) => {
                 match ty {
-                    mir::Type::Float(_) => mir::Constant::Float(f64::lossy_from(*f)),
-                    mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Fixed(*f),
+                    mir::Type::Float(_) => mir::Constant::Float(f.to_f64().unwrap()),
+                    mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
                     _ => unreachable!(),
                 }
             },
