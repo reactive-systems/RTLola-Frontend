@@ -137,7 +137,7 @@ where
             Literal::Bool(_) => AbstractValueType::Bool,
             Literal::Integer(_) => AbstractValueType::Integer,
             Literal::SInt(_) => AbstractValueType::SInteger,
-            Literal::Float(_) => AbstractValueType::Float,
+            Literal::Decimal(_) => AbstractValueType::FractionalNumeric,
         }
     }
 
@@ -2064,5 +2064,25 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input a : Int8\ninput b : Bool\n\
                     output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn decimal_constant() {
+        let spec = "input a : Fixed64\n\
+        output b := a * 1000.0";
+        let (_tb, result_map) = check_value_type(spec);
+        for (_, ty) in result_map {
+            assert_eq!(ty, ConcreteValueType::Fixed64_32);
+        }
+    }
+
+    #[test]
+    fn float_constant() {
+        let spec = "input a : Float32\n\
+        output b := a * 1000.0";
+        let (_tb, result_map) = check_value_type(spec);
+        for (_, ty) in result_map {
+            assert_eq!(ty, ConcreteValueType::Float32);
+        }
     }
 }

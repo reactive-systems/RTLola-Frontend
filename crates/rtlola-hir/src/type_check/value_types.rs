@@ -285,7 +285,7 @@ impl Constructable for AbstractValueType {
             AbstractValueType::SizedUFixed(_, _) => Err(ReificationTooWide(*self)),
             AbstractValueType::Numeric => Err(CannotReify(*self)),
             AbstractValueType::SignedNumeric => Err(CannotReify(*self)),
-            AbstractValueType::FractionalNumeric => Err(CannotReify(*self)),
+            AbstractValueType::FractionalNumeric => Ok(ConcreteValueType::Float32),
             AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
             AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
             AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),

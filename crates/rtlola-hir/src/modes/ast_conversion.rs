@@ -561,7 +561,7 @@ impl ExpressionTransformer {
 
                 if num_str.contains('.') {
                     // Floating Point
-                    Literal::Float(
+                    Literal::Decimal(
                         num_str
                             .parse()
                             .map_err(|_| TransformationErr::NonNumericInLiteral(lit.span))?,

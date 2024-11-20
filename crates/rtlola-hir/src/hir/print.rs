@@ -130,7 +130,7 @@ impl Display for Constant {
         match lit {
             Literal::SInt(v) => write!(f, "{v}"),
             Literal::Integer(v) => write!(f, "{v}"),
-            Literal::Float(v) => write!(f, "{v}"),
+            Literal::Decimal(v) => write!(f, "{v}"),
             Literal::Bool(v) => write!(f, "{v}"),
             Literal::Str(v) => write!(f, "{v}"),
         }

@@ -24,6 +24,7 @@ mod schedule;
 use std::convert::TryInto;
 use std::time::Duration;
 
+use fixed::types::{I64F64, U64F64};
 use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
@@ -519,6 +520,8 @@ pub enum Constant {
     Int(i64),
     #[allow(missing_docs)]
     Float(f64),
+    #[allow(missing_docs)]
+    Fixed(I64F64),
 }
 
 /// Arithmetical and logical operations
