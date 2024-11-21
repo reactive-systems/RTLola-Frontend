@@ -529,7 +529,7 @@ where
                                 //Origin stream hs to be a tuple of size 2
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Tuple(2)))?;
-                                // Origin stream has to be a (Float, Float) tuple
+                                // Origin stream has to be a (FractionalNumeric, FractionalNumeric) tuple
                                 let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
                                 let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
                                 self.tyc.impose(
@@ -605,16 +605,26 @@ where
                             | ArithLogOp::Mul
                             | ArithLogOp::Div
                             | ArithLogOp::Rem
-                            | ArithLogOp::Pow
-                            | ArithLogOp::Shl
+                            | ArithLogOp::Pow => {
+                                self.tyc
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+
+                                self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
+                                self.tyc.impose(term_key.equate_with(left_key))?;
+                                self.tyc.impose(term_key.equate_with(right_key))?;
+                            },
+                            // <T:Integer> T x T -> T
+                            ArithLogOp::Shl
                             | ArithLogOp::Shr
                             | ArithLogOp::BitAnd
                             | ArithLogOp::BitOr
                             | ArithLogOp::BitXor => {
                                 self.tyc
-                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Integer))?;
                                 self.tyc
-                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Integer))?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
@@ -658,9 +668,16 @@ where
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
                             },
                             //Num -> Num
-                            ArithLogOp::Neg | ArithLogOp::BitNot => {
+                            ArithLogOp::Neg => {
                                 self.tyc
                                     .impose(arg_key.concretizes_explicit(AbstractValueType::Numeric))?;
+
+                                self.tyc.impose(term_key.equate_with(arg_key))?;
+                            },
+                            //Integer -> Integer
+                            ArithLogOp::BitNot => {
+                                self.tyc
+                                    .impose(arg_key.concretizes_explicit(AbstractValueType::Integer))?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
                             },
