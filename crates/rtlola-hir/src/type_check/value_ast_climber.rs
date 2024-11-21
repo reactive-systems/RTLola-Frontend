@@ -247,10 +247,6 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
             },
-            AnnotatedType::PositiveFractional => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::PositiveFractionalNumeric))?
-            },
             AnnotatedType::Sequence => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
@@ -849,7 +845,6 @@ where
             | AnnotatedType::Fixed(_, _)
             | AnnotatedType::UFixed(_, _)
             | AnnotatedType::Fractional
-            | AnnotatedType::PositiveFractional
             | AnnotatedType::Bool
             | AnnotatedType::String
             | AnnotatedType::Bytes
@@ -1303,7 +1298,7 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
 
     #[test]
@@ -1586,7 +1581,7 @@ output o_9: Bool @i_0 := true  && true";
         let out1 = tb.output("out1");
         let tuple_type = ConcreteValueType::Tuple(vec![
             ConcreteValueType::Integer64,
-            ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Bool]),
+            ConcreteValueType::Tuple(vec![ConcreteValueType::Float64, ConcreteValueType::Bool]),
         ]);
         assert_eq!(result_map[&NodeId::SRef(out2)], tuple_type);
         assert_eq!(result_map[&NodeId::SRef(out1)], ConcreteValueType::Bool);
@@ -1674,14 +1669,14 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
         let spec =
             "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
 
     #[test]
@@ -1961,12 +1956,6 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UFixed64_32);
-    }
-
-    #[test]
-    fn test_sqrt_fixed2() {
-        let spec = "import math\ninput a: Fixed64_32\noutput b := sqrt(a)";
-        assert_eq!(1, num_errors(spec));
     }
 
     #[test]

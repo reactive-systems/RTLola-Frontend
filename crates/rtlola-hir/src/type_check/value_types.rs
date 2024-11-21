@@ -53,8 +53,6 @@ pub(crate) enum AbstractValueType {
     SignedNumeric,
     /// A numeric that is either a float or fixed point
     FractionalNumeric,
-    /// A numeric that is either a float or fixed point and is positive
-    PositiveFractionalNumeric,
     /// Either a signed or and unsigned integer
     Integer,
     /// An signed integer of arbitrary size
@@ -111,7 +109,6 @@ impl Variant for AbstractValueType {
             (UInteger, UInteger) => Ok((UInteger, 0)),
             (Float, Float) => Ok((Float, 0)),
             (FractionalNumeric, FractionalNumeric) => Ok((FractionalNumeric, 0)),
-            (PositiveFractionalNumeric, PositiveFractionalNumeric) => Ok((PositiveFractionalNumeric, 0)),
             (SInteger, SizedSInteger(x)) | (SizedSInteger(x), SInteger) => Ok((SizedSInteger(x), 0)),
             (SizedSInteger(l), SizedSInteger(r)) if l == r => Ok((SizedSInteger(l), 0)),
             (SizedSInteger(_), SizedSInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
@@ -123,7 +120,6 @@ impl Variant for AbstractValueType {
             (SizedFloat(_), SizedFloat(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Fixed, Fixed) => Ok((Fixed, 0)),
             (UFixed, UFixed) => Ok((UFixed, 0)),
-            (Fixed, UFixed) | (UFixed, Fixed) => Ok((Fixed, 0)),
             (Fixed, SizedFixed(total, fractional)) | (SizedFixed(total, fractional), Fixed) => {
                 Ok((SizedFixed(total, fractional), 0))
             },
@@ -153,16 +149,6 @@ impl Variant for AbstractValueType {
             (Numeric, SizedFloat(i)) | (SizedFloat(i), Numeric) => Ok((SizedFloat(i), 0)),
             (Numeric, SignedNumeric) | (SignedNumeric, Numeric) => Ok((SignedNumeric, 0)),
             (Numeric, FractionalNumeric) | (FractionalNumeric, Numeric) => Ok((FractionalNumeric, 0)),
-            (Numeric, PositiveFractionalNumeric) | (PositiveFractionalNumeric, Numeric) => {
-                Ok((PositiveFractionalNumeric, 0))
-            },
-            (FractionalNumeric, PositiveFractionalNumeric) | (PositiveFractionalNumeric, FractionalNumeric) => {
-                Ok((PositiveFractionalNumeric, 0))
-            },
-            (PositiveFractionalNumeric, Float) | (Float, PositiveFractionalNumeric) => Ok((Float, 0)),
-            (PositiveFractionalNumeric, SizedFloat(i)) | (SizedFloat(i), PositiveFractionalNumeric) => {
-                Ok((SizedFloat(i), 0))
-            },
             (SignedNumeric, SInteger) | (SInteger, SignedNumeric) => Ok((SInteger, 0)),
             (SignedNumeric, SizedSInteger(w)) | (SizedSInteger(w), SignedNumeric) => Ok((SizedSInteger(w), 0)),
             (SignedNumeric, Float) | (Float, SignedNumeric) => Ok((Float, 0)),
@@ -180,12 +166,9 @@ impl Variant for AbstractValueType {
             (FractionalNumeric, SizedFixed(total, fractional)) | (SizedFixed(total, fractional), FractionalNumeric) => {
                 Ok((SizedFixed(total, fractional), 0))
             },
-            (FractionalNumeric | PositiveFractionalNumeric, UFixed)
-            | (UFixed, FractionalNumeric | PositiveFractionalNumeric) => Ok((UFixed, 0)),
-            (FractionalNumeric | PositiveFractionalNumeric, SizedUFixed(total, fractional))
-            | (SizedUFixed(total, fractional), FractionalNumeric | PositiveFractionalNumeric) => {
-                Ok((SizedUFixed(total, fractional), 0))
-            },
+            (FractionalNumeric, UFixed) | (UFixed, FractionalNumeric) => Ok((UFixed, 0)),
+            (FractionalNumeric, SizedUFixed(total, fractional))
+            | (SizedUFixed(total, fractional), FractionalNumeric) => Ok((SizedUFixed(total, fractional), 0)),
             (Float | SizedFloat(_), Fixed | SizedFixed(_, _) | UFixed | SizedUFixed(_, _))
             | (Fixed | SizedFixed(_, _) | UFixed | SizedUFixed(_, _), Float | SizedFloat(_)) => {
                 Err(TypeClash(lhs.variant, rhs.variant))
@@ -247,7 +230,6 @@ impl Variant for AbstractValueType {
             | UFixed
             | SizedUFixed(_, _)
             | FractionalNumeric
-            | PositiveFractionalNumeric
             | Bool
             | Sequence
             | String
@@ -304,8 +286,8 @@ impl Constructable for AbstractValueType {
             AbstractValueType::SizedUFixed(_, _) => Err(ReificationTooWide(*self)),
             AbstractValueType::Numeric => Err(CannotReify(*self)),
             AbstractValueType::SignedNumeric => Err(CannotReify(*self)),
-            AbstractValueType::FractionalNumeric => Ok(ConcreteValueType::Float32), // TODO: help
-            AbstractValueType::PositiveFractionalNumeric => Ok(ConcreteValueType::Float32),
+            // default for decimal constants without exact inferred type
+            AbstractValueType::FractionalNumeric => Ok(ConcreteValueType::Float64),
             AbstractValueType::Integer => Ok(ConcreteValueType::Integer64),
             AbstractValueType::Bool => Ok(ConcreteValueType::Bool),
             AbstractValueType::Tuple(_) => Ok(ConcreteValueType::Tuple(children.to_vec())),
@@ -374,7 +356,6 @@ impl ConcreteValueType {
             AnnotatedType::Signed => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Any => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
-            AnnotatedType::PositiveFractional => Err(AnnotationInvalid(at.clone())),
         }
     }
 
@@ -425,7 +406,6 @@ impl Display for AbstractValueType {
             AbstractValueType::UFixed => write!(f, "UFixed"),
             AbstractValueType::SizedUFixed(total, fractional) => write!(f, "UFixed{}_{}", total, fractional),
             AbstractValueType::FractionalNumeric => write!(f, "FractionalNumeric"),
-            AbstractValueType::PositiveFractionalNumeric => write!(f, "PositiveFractionalNumeric"),
             AbstractValueType::Bool => write!(f, "Bool"),
             AbstractValueType::AnyTuple => write!(f, "AnyTuple"),
             AbstractValueType::Tuple(w) => write!(f, "{}Tuple", *w),

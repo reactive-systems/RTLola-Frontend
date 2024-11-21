@@ -216,7 +216,6 @@ impl Display for AnnotatedType {
             Fixed(total, fractional) => write!(f, "Fixed{total}_{fractional}"),
             UFixed(total, fractional) => write!(f, "UFixed{total}_{fractional}"),
             Fractional => write!(f, "Fractional"),
-            PositiveFractional => write!(f, "PositiveFractional"),
         }
     }
 }

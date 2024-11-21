@@ -48,7 +48,7 @@ lazy_static! {
     // fn sqrt<T: Fractional>(T) -> T
     static ref SQRT: FuncDecl = FuncDecl {
         name: FunctionName::new("sqrt".to_string(), &[None]),
-        generics: vec![AnnotatedType::PositiveFractional],
+        generics: vec![AnnotatedType::Fractional],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
