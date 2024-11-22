@@ -393,13 +393,9 @@ impl Desugarizer {
                     ..*ast_expr
                 }
             },
-            ParenthesizedExpression(lp, inner, rp) => {
+            ParenthesizedExpression(inner) => {
                 Expression {
-                    kind: ParenthesizedExpression(
-                        lp.clone(),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        rp.clone(),
-                    ),
+                    kind: ParenthesizedExpression(Box::new(Self::apply_expr_global_change(target_id, new_expr, inner))),
                     span,
                     ..*ast_expr
                 }
@@ -580,11 +576,11 @@ impl Desugarizer {
                     id,
                 }
             },
-            ParenthesizedExpression(lp, inner, rp) => {
+            ParenthesizedExpression(inner) => {
                 let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
                 Expression {
-                    kind: ParenthesizedExpression(lp, Box::new(inner), rp),
+                    kind: ParenthesizedExpression(Box::new(inner)),
                     span,
                     id,
                 }

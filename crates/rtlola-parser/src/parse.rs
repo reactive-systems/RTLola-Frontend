@@ -1132,11 +1132,6 @@ impl<'a> RtLolaParser<'a> {
                 let opp = inner.next().expect(
                     "Rule::ParenthesizedExpression has a token for the (potentialy missing) opening parenthesis",
                 );
-                let opening_parenthesis = if let Rule::OpeningParenthesis = opp.as_rule() {
-                    Some(Box::new(Parenthesis::new(self.spec.next_id(), opp.as_span().into())))
-                } else {
-                    None
-                };
 
                 let inner_expression = inner
                     .next()
@@ -1145,22 +1140,22 @@ impl<'a> RtLolaParser<'a> {
                 let closing = inner.next().expect(
                     "Rule::ParenthesizedExpression has a token for the (potentialy missing) closing parenthesis",
                 );
-                let closing_parenthesis = if let Rule::ClosingParenthesis = closing.as_rule() {
-                    Some(Box::new(Parenthesis::new(
-                        self.spec.next_id(),
-                        closing.as_span().into(),
-                    )))
-                } else {
-                    None
+                if let Rule::MissingClosingParenthesis = closing.as_rule() {
+                    return Err(Diagnostic::error("The expression is missing a closing parenthesis.")
+                        .add_span_with_label(opp.as_span().into(), Some("found opening parenthesis here"), false)
+                        .add_span_with_label(
+                            closing.as_span().into(),
+                            Some("expected closing parenthesis here"),
+                            true,
+                        )
+                        .into());
                 };
 
                 Ok(Expression::new(
                     self.spec.next_id(),
-                    ExpressionKind::ParenthesizedExpression(
-                        opening_parenthesis,
-                        Box::new(self.build_expression_ast(inner_expression.into_inner())?),
-                        closing_parenthesis,
-                    ),
+                    ExpressionKind::ParenthesizedExpression(Box::new(
+                        self.build_expression_ast(inner_expression.into_inner())?,
+                    )),
                     span.into(),
                 ))
             },
@@ -1586,19 +1581,6 @@ mod tests {
     #[test]
     fn parse_expression_precedence() {
         let content = "(a ∨ b ∧ c)";
-        let config = ParserConfig::for_string(content.into());
-        let parser = RtLolaParser::new(&config);
-        let expr = LolaParser::parse(Rule::Expr, content)
-            .unwrap_or_else(|e| panic!("{}", e))
-            .next()
-            .unwrap();
-        let ast = parser.build_expression_ast(expr.into_inner()).unwrap();
-        assert_eq!(format!("{}", ast), content)
-    }
-
-    #[test]
-    fn parse_missing_closing_parenthesis() {
-        let content = "(a ∨ b ∧ c";
         let config = ParserConfig::for_string(content.into());
         let parser = RtLolaParser::new(&config);
         let expr = LolaParser::parse(Rule::Expr, content)
@@ -2188,5 +2170,14 @@ mod tests {
         output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
         let ast = parse(spec);
         cmp_ast_spec(&dbg!(ast), spec);
+    }
+
+    #[test]
+    fn missing_closing_parenthesis() {
+        let spec = "input a: Int32\n\
+        output b := 1 + (1 * 2\n\
+        output c := 1 * (1 + 2";
+        let e = super::super::parse(&ParserConfig::for_string(spec.into())).unwrap_err();
+        assert_eq!(e.num_errors(), 2);
     }
 }

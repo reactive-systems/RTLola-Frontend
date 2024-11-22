@@ -825,7 +825,7 @@ impl ExpressionTransformer {
                     alternative,
                 }
             },
-            ast::ExpressionKind::ParenthesizedExpression(_, inner, _) => {
+            ast::ExpressionKind::ParenthesizedExpression(inner) => {
                 return self.transform_expression(*inner, current_output);
             },
             ast::ExpressionKind::MissingExpression => return Err(TransformationErr::MissingExpr(span)),
@@ -974,7 +974,7 @@ impl ExpressionTransformer {
                 ..
             } = spawn_spec;
             let expression = expression.map_or(Ok(None), |expr| {
-                if let ast::ExpressionKind::ParenthesizedExpression(_, ref exp, _) = expr.kind {
+                if let ast::ExpressionKind::ParenthesizedExpression(ref exp) = expr.kind {
                     if let ast::ExpressionKind::MissingExpression = exp.kind {
                         return Ok(None);
                     }

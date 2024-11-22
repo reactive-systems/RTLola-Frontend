@@ -273,7 +273,7 @@ impl Expression {
             | Field(inner, _)
             | StreamAccess(inner, _)
             | Offset(inner, _)
-            | ParenthesizedExpression(_, inner, _) => Box::new(std::iter::once(self).chain(inner.iter())),
+            | ParenthesizedExpression(inner) => Box::new(std::iter::once(self).chain(inner.iter())),
             Binary(_, left, right)
             | Default(left, right)
             | DiscreteWindowAggregation {
