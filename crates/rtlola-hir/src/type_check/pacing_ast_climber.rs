@@ -235,6 +235,13 @@ where
         // Keys to capture the types of a whole stream
         let stream_keys = self.node_key[&NodeId::SRef(output.sr)];
         let eval_keys = self.new_stream_key();
+        let eval_spans = output
+            .eval
+            .iter()
+            .map(|eval| eval.span)
+            .reduce(|eval1, eval2| eval1.union(&eval2))
+            .unwrap();
+        self.add_span_to_stream_key(eval_keys, eval_spans);
 
         let infer_pacing = self.hir.eval_unchecked(output.sr).len() == 1;
         if !infer_pacing {
@@ -256,7 +263,7 @@ where
         // Type filter
         for (i, eval) in self.hir.eval_unchecked(output.sr).iter().enumerate() {
             let current_eval_keys = self.node_key[&NodeId::Eval(i, output.sr)];
-            self.eval_infer(eval, current_eval_keys)?;
+            self.eval_infer(eval, current_eval_keys, infer_pacing)?;
             self.impose_more_concrete(eval_keys, current_eval_keys)?;
         }
 
@@ -272,18 +279,20 @@ where
         Ok(())
     }
 
-    fn eval_infer(&mut self, eval: &EvalDef, eval_keys: StreamTypeKeys) -> Result<(), TypeError<PacingErrorKind>> {
+    fn eval_infer(
+        &mut self,
+        eval: &EvalDef,
+        eval_keys: StreamTypeKeys,
+        infer: bool,
+    ) -> Result<(), TypeError<PacingErrorKind>> {
         let expr_keys = self.expression_infer(eval.expression)?;
         let filter_keys = eval
             .condition
             .map(|expr| self.expression_infer(expr))
             .unwrap_or_else(|| Ok(self.new_stream_key()))?;
 
-        let inferred_eval_keys = self.new_stream_key();
-
-        self.impose_more_concrete(inferred_eval_keys, expr_keys)?;
-        self.impose_more_concrete(inferred_eval_keys, filter_keys)?;
-        self.impose_more_concrete(eval_keys, inferred_eval_keys)?;
+        self.impose_more_concrete(eval_keys, expr_keys)?;
+        self.impose_more_concrete(eval_keys, filter_keys)?;
 
         if let Some((annotated_ty, _)) = AbstractPacingType::from_pt(eval.annotated_pacing, self.hir)? {
             let annotation_key = self.new_stream_key();
@@ -302,8 +311,12 @@ where
                     .eval_condition
                     .concretizes_explicit(AbstractSemanticType::for_filter(condition, self.exp_context.clone())),
             )?;
-            self.expression_tyc
-                .impose(eval_keys.eval_condition.concretizes(cond_key.eval_condition))?;
+            if infer {
+                // This is only needed if the eval condition has to be inferred, i.e. if there is only one eval clause
+                // Otherwise the eval condition is already set in the infer_output function.
+                self.expression_tyc
+                    .impose(eval_keys.eval_condition.concretizes(cond_key.eval_condition))?;
+            }
             self.exp_type_implies(cond_key.eval_condition, eval_keys.eval_condition, false);
         }
         Ok(())
@@ -3074,5 +3087,17 @@ mod tests {
     output c spawn @a close @(a&&b) when a eval @1Hz with true
     output d spawn @a close when a || b eval @1Hz with c";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn multiple_eval_self_ref() {
+        let spec = "
+        input a : UInt64
+
+        output b
+          eval @a when a == 0 with b.last(or: 0)
+          eval @a when a == 1 with b.last(or: 0) + 1
+        ";
+        assert_eq!(0, num_errors(spec));
     }
 }

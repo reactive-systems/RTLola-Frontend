@@ -478,7 +478,8 @@ impl Resolvable for PacingErrorKind {
                         span2,
                         Some(format!("and found {ty2} here").as_str()),
                         false,
-                    )},
+                    )
+            }
             IncompatibleExpressions(e1, e2) => {
                 let span1 = key1.and_then(|k| exp_spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| exp_spans.get(&k).cloned());
@@ -603,27 +604,27 @@ impl Resolvable for PacingErrorKind {
                     )
             }
             SpawnPeriodicMismatch { access_span, target_spawn_span, source_spawn_span, target_spawn_pacing, target_spawn_condition, source_spawn_pacing, source_spawn_condition } =>
-            Diagnostic::error(
-                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
-            )
-                .add_span_with_label(
-                    access_span,
-                    Some("Found synchronous stream access here"),
-                    true,
+                Diagnostic::error(
+                    "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
                 )
-                .maybe_add_span_with_label(target_spawn_span, Some(&format!("Found target spawn condition here: spawn @({}) when {} with <...>", target_spawn_pacing.to_pretty_string(names), target_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
-                .maybe_add_span_with_label(source_spawn_span, Some(&format!("Found source spawn condition here: spawn @({}) when {} with <...>", source_spawn_pacing.to_pretty_string(names), source_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
+                    .add_span_with_label(
+                        access_span,
+                        Some("Found synchronous stream access here"),
+                        true,
+                    )
+                    .maybe_add_span_with_label(target_spawn_span, Some(&format!("Found target spawn condition here: spawn @({}) when {} with <...>", target_spawn_pacing.to_pretty_string(names), target_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
+                    .maybe_add_span_with_label(source_spawn_span, Some(&format!("Found source spawn condition here: spawn @({}) when {} with <...>", source_spawn_pacing.to_pretty_string(names), source_spawn_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
             ClosePeriodicMismatch { access_span, target_close_span, source_close_span, target_close_pacing, target_close_condition, source_close_pacing, source_close_condition } =>
-            Diagnostic::error(
-                "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
-            )
-                .add_span_with_label(
-                    access_span,
-                    Some("Found synchronous stream access here"),
-                    true,
+                Diagnostic::error(
+                    "In pacing type analysis:\nPeriodic stream out of sync with accessed stream due to a close annotation.",
                 )
-                .maybe_add_span_with_label(target_close_span, Some(&format!("Found target close condition here: close @({}) when {}", target_close_pacing.to_pretty_string(names), target_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
-                .maybe_add_span_with_label(source_close_span, Some(&format!("Found source close condition here: close @({}) when {}", source_close_pacing.to_pretty_string(names), source_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
+                    .add_span_with_label(
+                        access_span,
+                        Some("Found synchronous stream access here"),
+                        true,
+                    )
+                    .maybe_add_span_with_label(target_close_span, Some(&format!("Found target close condition here: close @({}) when {}", target_close_pacing.to_pretty_string(names), target_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false)
+                    .maybe_add_span_with_label(source_close_span, Some(&format!("Found source close condition here: close @({}) when {}", source_close_pacing.to_pretty_string(names), source_close_condition.map_or("true".into(), |c| c.pretty_string(names)))), false),
             InvalidSyncAccessParameter {
                 target_span,
                 target_spawn_expr,
