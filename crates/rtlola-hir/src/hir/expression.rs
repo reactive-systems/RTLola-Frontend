@@ -6,6 +6,7 @@ use std::time::Duration;
 use itertools::{iproduct, Either};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
 use rtlola_reporting::Span;
+use rust_decimal::Decimal;
 
 use super::WindowReference;
 use crate::hir::{AnnotatedType, Hir, Offset, SRef, StreamReference, WRef};
@@ -188,8 +189,8 @@ pub enum Literal {
     Integer(i64),
     /// Integer constant known to be signed
     SInt(i128),
-    /// Floating point constant
-    Float(f64),
+    /// Decimal constant
+    Decimal(Decimal),
 }
 
 impl Hash for Literal {
@@ -211,7 +212,7 @@ impl Hash for Literal {
                 4.hash(state);
                 si.hash(state);
             },
-            Literal::Float(_) => {
+            Literal::Decimal(_) => {
                 5.hash(state);
             },
         }
@@ -222,7 +223,7 @@ impl PartialEq for Literal {
     fn eq(&self, other: &Self) -> bool {
         use self::Literal::*;
         match (self, other) {
-            (Float(f1), Float(f2)) => f64::abs(f1 - f2) < 0.00001f64,
+            (Decimal(f1), Decimal(f2)) => f1 == f2,
             (Str(s1), Str(s2)) => s1 == s2,
             (Bool(b1), Bool(b2)) => b1 == b2,
             (Integer(i1), Integer(i2)) => i1 == i2,

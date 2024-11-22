@@ -83,6 +83,18 @@ pub enum ConcreteValueType {
     Float32,
     /// 64-bit floating point value
     Float64,
+    /// A 64-bit signed fixed-point number with 32-bits fractional part
+    Fixed64_32,
+    /// A 32-bit signed fixed-point number with 16-bits fractional part
+    Fixed32_16,
+    /// A 16-bit signed fixed-point number with 8-bits fractional part
+    Fixed16_8,
+    /// A 64-bit unsigned fixed-point number with 32-bits fractional part
+    UFixed64_32,
+    /// A 32-bit unsigned fixed-point number with 16-bits fractional part
+    UFixed32_16,
+    /// A 16-bit unsigned fixed-point number with 8-bits fractional part
+    UFixed16_8,
     /// A tuple type of arbitrary but fixed length: (Int8, Float32, Bool)
     Tuple(Vec<ConcreteValueType>),
     /// String value: "Hello"

@@ -45,10 +45,10 @@ lazy_static! {
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(1, "U".to_string()),
     };
-    // fn sqrt<T: FloatingPoint>(T) -> T
+    // fn sqrt<T: Fractional>(T) -> T
     static ref SQRT: FuncDecl = FuncDecl {
         name: FunctionName::new("sqrt".to_string(), &[None]),
-        generics: vec![AnnotatedType::Float(0)],
+        generics: vec![AnnotatedType::Fractional],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
@@ -66,50 +66,50 @@ lazy_static! {
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn cos<T: FloatingPoint>(T) -> T
+    // fn cos<T: Fractional>(T) -> T
     static ref COS: FuncDecl = FuncDecl {
         name: FunctionName::new("cos".to_string(), &[None]),
-        generics: vec![AnnotatedType::Float(0),
+        generics: vec![AnnotatedType::Fractional
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn sin<T: FloatingPoint>(T) -> T
+    // fn sin<T: Fractional>(T) -> T
     static ref SIN: FuncDecl = FuncDecl {
         name: FunctionName::new("sin".to_string(), &[None]),
-        generics: vec![AnnotatedType::Float(0),
+        generics: vec![AnnotatedType::Fractional
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn tan<T: FloatingPoint>(T) -> T
+    // fn tan<T: Fractional>(T) -> T
     static ref TAN: FuncDecl = FuncDecl {
         name: FunctionName::new("tan".to_string(), &[None]),
-        generics: vec![AnnotatedType::Float(0),
+        generics: vec![AnnotatedType::Fractional,
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn arcsin<T: FloatingPoint>(T) -> T
+    // fn arcsin<T: Fractional>(T) -> T
     static ref ARCSIN: FuncDecl = FuncDecl {
         name: FunctionName::new("arcsin".to_string(), &[None]),
-        generics: vec![ AnnotatedType::Float(0),
+        generics: vec![ AnnotatedType::Fractional,
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn arccos<T: FloatingPoint>(T) -> T
+    // fn arccos<T: Fractional>(T) -> T
     static ref ARCCOS: FuncDecl = FuncDecl {
         name: FunctionName::new("arccos".to_string(), &[None]),
-        generics: vec![ AnnotatedType::Float(0),
+        generics: vec![ AnnotatedType::Fractional,
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
     };
-    // fn arctan<T: FloatingPoint>(T) -> T
+    // fn arctan<T: Fractional>(T) -> T
     static ref ARCTAN: FuncDecl = FuncDecl {
         name: FunctionName::new("arctan".to_string(), &[None]),
-        generics: vec![ AnnotatedType::Float(0),
+        generics: vec![ AnnotatedType::Fractional,
         ],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
         return_type: AnnotatedType::Param(0, "T".to_string()),
@@ -195,6 +195,12 @@ lazy_static! {
         ("Float16", &AnnotatedType::Float(16)),
         ("Float32", &AnnotatedType::Float(32)),
         ("Float64", &AnnotatedType::Float(64)),
+        ("Fixed64_32", &AnnotatedType::Fixed(64, 32)),
+        ("Fixed32_16", &AnnotatedType::Fixed(32, 16)),
+        ("Fixed16_8", &AnnotatedType::Fixed(16, 8)),
+        ("UFixed64_32", &AnnotatedType::UFixed(64, 32)),
+        ("UFixed32_16", &AnnotatedType::UFixed(32, 16)),
+        ("UFixed16_8", &AnnotatedType::UFixed(16, 8)),
         ("String", &AnnotatedType::String),
         ("Bytes", &AnnotatedType::Bytes),
     ];
@@ -210,5 +216,9 @@ lazy_static! {
         ("Int", &AnnotatedType::Int(64)),
         ("UInt", &AnnotatedType::UInt(64)),
         ("Float", &AnnotatedType::Float(64)),
+        ("Fixed", &AnnotatedType::Fixed(64, 32)),
+        ("Fixed64", &AnnotatedType::Fixed(64, 32)),
+        ("UFixed", &AnnotatedType::UFixed(64, 32)),
+        ("UFixed64", &AnnotatedType::UFixed(64, 32)),
     ];
 }

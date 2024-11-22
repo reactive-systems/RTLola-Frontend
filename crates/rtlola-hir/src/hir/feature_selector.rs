@@ -134,6 +134,12 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::UInteger64
             | ConcreteValueType::Float32
             | ConcreteValueType::Float64
+            | ConcreteValueType::Fixed64_32
+            | ConcreteValueType::Fixed32_16
+            | ConcreteValueType::Fixed16_8
+            | ConcreteValueType::UFixed64_32
+            | ConcreteValueType::UFixed32_16
+            | ConcreteValueType::UFixed16_8
             | ConcreteValueType::TString
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
             ConcreteValueType::Tuple(children) => {

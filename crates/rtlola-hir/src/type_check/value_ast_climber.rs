@@ -137,7 +137,7 @@ where
             Literal::Bool(_) => AbstractValueType::Bool,
             Literal::Integer(_) => AbstractValueType::Integer,
             Literal::SInt(_) => AbstractValueType::SInteger,
-            Literal::Float(_) => AbstractValueType::Float,
+            Literal::Decimal(_) => AbstractValueType::FractionalNumeric,
         }
     }
 
@@ -206,6 +206,19 @@ where
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?
             },
+            AnnotatedType::Fixed(0, 0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Fixed))?,
+            AnnotatedType::Fixed(total, fractional) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedFixed(*total, *fractional)))?
+            },
+            AnnotatedType::UFixed(0, 0) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::UFixed))?
+            },
+            AnnotatedType::UFixed(total, fractional) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SizedUFixed(*total, *fractional)))?
+            },
             AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
             AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
             AnnotatedType::Option(op) => {
@@ -229,6 +242,10 @@ where
             AnnotatedType::Signed => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
+            },
+            AnnotatedType::Fractional => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
             },
             AnnotatedType::Sequence => {
                 self.tyc
@@ -448,7 +465,7 @@ where
                                 }
                             },
                             //integral :T <T:Num> -> T
-                            //integral : T <T:Num> -> Float   <-- currently used
+                            //integral : T <T:Num> -> FractionalNumber   <-- currently used
                             WindowOperation::Integral => {
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
@@ -458,11 +475,11 @@ where
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
                                     self.tyc
-                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Float))?;
+                                        .impose(inner_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
                                 } else {
                                     //self.tyc.impose(term_key.concretizes(ex_key))?;
                                     self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Float))?;
+                                        .impose(term_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
                                 }
                             },
                             //Σ and Π :T <T:Num> -> T
@@ -494,27 +511,29 @@ where
                                         .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
                                 }
                             },
-                            // Float -> Option<Float>
+                            // <F: FractionalNumeric> F -> Option<F>
                             WindowOperation::Variance | WindowOperation::StandardDeviation => {
                                 self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Float))?;
+                                    .impose(target_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
                                 self.tyc
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
                             },
-                            //<F:Float > (F,F) -> Option<F>
+                            //<F:FractionalNumeric > (F,F) -> Option<F>
                             WindowOperation::Covariance => {
                                 //Origin stream hs to be a tuple of size 2
                                 self.tyc
                                     .impose(target_key.concretizes_explicit(AbstractValueType::Tuple(2)))?;
-                                // Origin stream has to be a (Float, Float) tuple
+                                // Origin stream has to be a (FractionalNumeric, FractionalNumeric) tuple
                                 let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
                                 let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
-                                self.tyc
-                                    .impose(target_child_1.concretizes_explicit(AbstractValueType::Float))?;
-                                self.tyc
-                                    .impose(target_child_2.concretizes_explicit(AbstractValueType::Float))?;
+                                self.tyc.impose(
+                                    target_child_1.concretizes_explicit(AbstractValueType::FractionalNumeric),
+                                )?;
+                                self.tyc.impose(
+                                    target_child_2.concretizes_explicit(AbstractValueType::FractionalNumeric),
+                                )?;
                                 //Result Key is option, window is failable (empty set)
                                 self.tyc
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
@@ -582,16 +601,26 @@ where
                             | ArithLogOp::Mul
                             | ArithLogOp::Div
                             | ArithLogOp::Rem
-                            | ArithLogOp::Pow
-                            | ArithLogOp::Shl
+                            | ArithLogOp::Pow => {
+                                self.tyc
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+
+                                self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
+                                self.tyc.impose(term_key.equate_with(left_key))?;
+                                self.tyc.impose(term_key.equate_with(right_key))?;
+                            },
+                            // <T:Integer> T x T -> T
+                            ArithLogOp::Shl
                             | ArithLogOp::Shr
                             | ArithLogOp::BitAnd
                             | ArithLogOp::BitOr
                             | ArithLogOp::BitXor => {
                                 self.tyc
-                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                    .impose(left_key.concretizes_explicit(AbstractValueType::Integer))?;
                                 self.tyc
-                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                    .impose(right_key.concretizes_explicit(AbstractValueType::Integer))?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
@@ -635,9 +664,16 @@ where
                                     .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
                             },
                             //Num -> Num
-                            ArithLogOp::Neg | ArithLogOp::BitNot => {
+                            ArithLogOp::Neg => {
                                 self.tyc
                                     .impose(arg_key.concretizes_explicit(AbstractValueType::Numeric))?;
+
+                                self.tyc.impose(term_key.equate_with(arg_key))?;
+                            },
+                            //Integer -> Integer
+                            ArithLogOp::BitNot => {
+                                self.tyc
+                                    .impose(arg_key.concretizes_explicit(AbstractValueType::Integer))?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
                             },
@@ -806,6 +842,9 @@ where
             | AnnotatedType::Int(_)
             | AnnotatedType::Float(_)
             | AnnotatedType::UInt(_)
+            | AnnotatedType::Fixed(_, _)
+            | AnnotatedType::UFixed(_, _)
+            | AnnotatedType::Fractional
             | AnnotatedType::Bool
             | AnnotatedType::String
             | AnnotatedType::Bytes
@@ -1259,7 +1298,7 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
 
     #[test]
@@ -1542,7 +1581,7 @@ output o_9: Bool @i_0 := true  && true";
         let out1 = tb.output("out1");
         let tuple_type = ConcreteValueType::Tuple(vec![
             ConcreteValueType::Integer64,
-            ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Bool]),
+            ConcreteValueType::Tuple(vec![ConcreteValueType::Float64, ConcreteValueType::Bool]),
         ]);
         assert_eq!(result_map[&NodeId::SRef(out2)], tuple_type);
         assert_eq!(result_map[&NodeId::SRef(out1)], ConcreteValueType::Bool);
@@ -1630,14 +1669,14 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
         let spec =
             "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
     }
 
     #[test]
@@ -1904,11 +1943,19 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
-    fn test_sqrt() {
+    fn test_sqrt_float() {
         let spec = "import math\ninput a: Float32\noutput b := sqrt(a)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+    }
+
+    #[test]
+    fn test_sqrt_fixed() {
+        let spec = "import math\ninput a: UFixed64_32\noutput b := sqrt(a)";
+        let (tb, result_map) = check_value_type(spec);
+        let out_id = tb.output("b");
+        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UFixed64_32);
     }
 
     #[test]
@@ -2036,5 +2083,40 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input a : Int8\ninput b : Bool\n\
                     output c eval @(a&&b) when a == 0 with a eval @(a&&b) when a > 0 with b";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn decimal_constant() {
+        let spec = "input a : Fixed64\n\
+        output b := a * 1000.0";
+        let (_tb, result_map) = check_value_type(spec);
+        for (_, ty) in result_map {
+            assert_eq!(ty, ConcreteValueType::Fixed64_32);
+        }
+    }
+
+    #[test]
+    fn float_constant() {
+        let spec = "input a : Float32\n\
+        output b := a * 1000.0";
+        let (_tb, result_map) = check_value_type(spec);
+        for (_, ty) in result_map {
+            assert_eq!(ty, ConcreteValueType::Float32);
+        }
+    }
+
+    #[test]
+    fn fixed_window() {
+        let spec = "input a : Fixed64_32\n\
+        output b @1Hz := a.aggregate(over: 2s, using: sum)\n\
+        output c : Fixed64_32 @1Hz := a.aggregate(over: 2s, using: integral)\n\
+        output d @1Hz := a.aggregate(over: 2s, using: average).defaults(to: 0.0)";
+        let (tb, result_map) = check_value_type(spec);
+        let b = tb.output("b");
+        let c = tb.output("c");
+        let d = tb.output("d");
+        assert_eq!(result_map[&NodeId::SRef(b)], ConcreteValueType::Fixed64_32);
+        assert_eq!(result_map[&NodeId::SRef(c)], ConcreteValueType::Fixed64_32);
+        assert_eq!(result_map[&NodeId::SRef(d)], ConcreteValueType::Fixed64_32);
     }
 }

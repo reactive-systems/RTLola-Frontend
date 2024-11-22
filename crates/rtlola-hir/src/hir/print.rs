@@ -130,7 +130,7 @@ impl Display for Constant {
         match lit {
             Literal::SInt(v) => write!(f, "{v}"),
             Literal::Integer(v) => write!(f, "{v}"),
-            Literal::Float(v) => write!(f, "{v}"),
+            Literal::Decimal(v) => write!(f, "{v}"),
             Literal::Bool(v) => write!(f, "{v}"),
             Literal::Str(v) => write!(f, "{v}"),
         }
@@ -213,6 +213,9 @@ impl Display for AnnotatedType {
             Sequence => write!(f, "Sequence"),
             Param(idx, name) => write!(f, "FunctionParam({idx}, {name})"),
             Any => write!(f, "Any"),
+            Fixed(total, fractional) => write!(f, "Fixed{total}_{fractional}"),
+            UFixed(total, fractional) => write!(f, "UFixed{total}_{fractional}"),
+            Fractional => write!(f, "Fractional"),
         }
     }
 }
