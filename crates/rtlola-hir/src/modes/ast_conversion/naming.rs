@@ -142,40 +142,35 @@ impl NamingAnalysis {
     /// Checks that the parameter name and type are both valid
     fn check_param(&mut self, param: &Rc<Parameter>) -> Result<(), RtLolaError> {
         let mut error = RtLolaError::new();
-        // check the name
+
+        // check if there is a parameter with the same name
         if let Some(decl) = self
             .declarations
-            .get_decl_for(&DeclName::Ident(param.name.name.clone()))
+            .get_decl_in_current_scope_for(&DeclName::Ident(param.name.name.clone()))
         {
-            assert!(!decl.is_type());
-
-            // check if there is a parameter with the same name
-            if let Some(decl) = self
-                .declarations
-                .get_decl_in_current_scope_for(&DeclName::Ident(param.name.name.clone()))
-            {
-                error.add(
-                    Diagnostic::error(&format!(
-                        "identifier `{}` is use more than once in this paramater list",
-                        param.name.name
-                    ))
-                    .add_span_with_label(
-                        param.name.span,
-                        Some(&format!("`{}` used as a parameter more than once", param.name.name)),
-                        true,
-                    )
-                    .add_span_with_label(
-                        decl.get_span().expect("as it is in parameter list, it has a span"),
-                        Some(&format!("previous use of the parameter `{}` here", param.name.name)),
-                        false,
-                    ),
-                );
-            }
+            error.add(
+                Diagnostic::error(&format!(
+                    "identifier `{}` is use more than once in this parameter list",
+                    param.name.name
+                ))
+                .add_span_with_label(
+                    param.name.span,
+                    Some(&format!("`{}` used as a parameter more than once", param.name.name)),
+                    true,
+                )
+                .add_span_with_label(
+                    decl.get_span().expect("as it is in parameter list, it has a span"),
+                    Some(&format!("previous use of the parameter `{}` here", param.name.name)),
+                    false,
+                ),
+            );
         } else {
+            let decl = Declaration::Param(param.clone());
             // it does not exist
-            if let Err(e) = self.add_decl_for(Declaration::Param(param.clone())) {
+            if let Err(e) = self.add_decl_for(decl.clone()) {
                 error.join(e);
             }
+            self.result.insert(param.id, decl);
         }
 
         // check the type is there exists a parameter type
@@ -615,7 +610,6 @@ impl From<FunctionName> for crate::hir::FunctionName {
 
 #[cfg(test)]
 mod tests {
-
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
@@ -750,5 +744,16 @@ mod tests {
     fn test_param_use() {
         let spec = "output a(x,y,z) := if y then y else z";
         assert_eq!(0, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_param_shadow() {
+        let spec = "input id : UInt64\ninput user_id: UInt64\noutput count_users(id)\nspawn with user_id\neval when id == user_id with count_users(id).offset(by:-1).defaults(to: 0) + 1";
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let mut naming_analyzer = NamingAnalysis::new();
+        let table = naming_analyzer.check(&ast).unwrap();
+        let param = ast.outputs[0].params[0].clone();
+        let decl = table.get(&param.id).unwrap();
+        assert!(matches!(decl, Declaration::Param(param)));
     }
 }
