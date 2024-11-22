@@ -754,6 +754,6 @@ mod tests {
         let table = naming_analyzer.check(&ast).unwrap();
         let param = ast.outputs[0].params[0].clone();
         let decl = table.get(&param.id).unwrap();
-        assert!(matches!(decl, Declaration::Param(param)));
+        assert!(matches!(decl, Declaration::Param(_)));
     }
 }
