@@ -396,11 +396,11 @@ impl Display for AbstractValueType {
             AbstractValueType::SignedNumeric => write!(f, "SignedNumeric"),
             AbstractValueType::Integer => write!(f, "Integer"),
             AbstractValueType::SInteger => write!(f, "Int"),
-            AbstractValueType::SizedSInteger(w) => write!(f, "Int({})", *w),
+            AbstractValueType::SizedSInteger(w) => write!(f, "Int{}", *w),
             AbstractValueType::UInteger => write!(f, "UInt"),
-            AbstractValueType::SizedUInteger(w) => write!(f, "UInt({})", *w),
+            AbstractValueType::SizedUInteger(w) => write!(f, "UInt{}", *w),
             AbstractValueType::Float => write!(f, "Float"),
-            AbstractValueType::SizedFloat(w) => write!(f, "Float({})", *w),
+            AbstractValueType::SizedFloat(w) => write!(f, "Float{}", *w),
             AbstractValueType::Fixed => write!(f, "Fixed"),
             AbstractValueType::SizedFixed(total, fractional) => write!(f, "Fixed{}_{}", total, fractional),
             AbstractValueType::UFixed => write!(f, "UFixed"),
@@ -520,9 +520,10 @@ impl Resolvable for ValueErrorKind {
                 Diagnostic::error(
                     &format!("In value type analysis:\nFound incompatible types: {ty1} and {ty2}"),
                 )
-                .maybe_add_span_with_label(span1, Some(&format!("found {ty1} here")), true)
-                .maybe_add_span_with_label(span2, Some(&format!("found {ty2} here")), false)
-            },
+                    .maybe_add_span_with_label(span1, Some(&format!("found {ty1} here")), true)
+                    .maybe_add_span_with_label(span2, Some(&format!("found {ty2} here")), false)
+                    .add_note(&format!("Help: Consider adding a type cast: cast<{ty2}>(...)"))
+            }
             ValueErrorKind::TupleSize(size1, size2) => {
                 let span1 = key1.and_then(|k| spans.get(&k).cloned());
                 let span2 = key2.and_then(|k| spans.get(&k).cloned());
@@ -531,52 +532,53 @@ impl Resolvable for ValueErrorKind {
                         "In value type analysis:\nTried to merge Tuples of different sizes {size1} and {size2}",
                     ),
                 )
-                .maybe_add_span_with_label(span1, Some(&format!("found Tuple of size {size1} here")), true)
-                .maybe_add_span_with_label(span2, Some(&format!("found Tuple of size {size2} here")), false)
-            },
+                    .maybe_add_span_with_label(span1, Some(&format!("found Tuple of size {size1} here")), true)
+                    .maybe_add_span_with_label(span2, Some(&format!("found Tuple of size {size2} here")), false)
+            }
             ValueErrorKind::ReificationTooWide(ty) => {
                 Diagnostic::error(
                     &format!("In value type analysis:\nType {ty} is too wide to be concretized"),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            }
             ValueErrorKind::CannotReify(ty) => {
                 Diagnostic::error(
                     &format!("In value type analysis:\nType {ty} cannot be concretized"),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .add_note("Help: Consider an explicit type annotation.")
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                    .add_note("Help: Consider an explicit type annotation.")
+            }
             ValueErrorKind::AnnotationTooWide(ty) => {
                 Diagnostic::error(
                     &format!("In value type analysis:\nAnnotated Type {ty} is too wide"),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            }
             ValueErrorKind::AnnotationInvalid(ty) => {
                 Diagnostic::error(
                     &format!("In value type analysis:\nUnknown annotated type: {ty}"),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-                .add_note("Help: Consider an explicit type annotation.")
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+                    .add_note("Help: Consider an explicit type annotation.")
+            }
             ValueErrorKind::ExactTypeMismatch(inferred, expected) => {
                 Diagnostic::error(
                     &format!(
                         "In value type analysis:\nInferred type {inferred} but expected {expected}.",
                     ),
                 )
-                .maybe_add_span_with_label(
-                    key1.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("Found {expected} here")),
-                    false,
-                )
-                .maybe_add_span_with_label(
-                    key2.and_then(|k| spans.get(&k).cloned()),
-                    Some(&format!("But inferred {inferred} here")),
-                    true,
-                )
-            },
+                    .maybe_add_span_with_label(
+                        key1.and_then(|k| spans.get(&k).cloned()),
+                        Some(&format!("Found {expected} here")),
+                        false,
+                    )
+                    .maybe_add_span_with_label(
+                        key2.and_then(|k| spans.get(&k).cloned()),
+                        Some(&format!("But inferred {inferred} here")),
+                        true,
+                    )
+                    .add_note(&format!("Help: Consider adding a type cast: cast<{expected}>(...)"))
+            }
             ValueErrorKind::AccessOutOfBound(ty, idx) => {
                 Diagnostic::error(
                     &format!(
@@ -585,16 +587,16 @@ impl Resolvable for ValueErrorKind {
                         ty
                     ),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            }
             ValueErrorKind::ArityMismatch(ty, inferred, expected) => {
                 Diagnostic::error(
                     &format!(
                         "In value type analysis:\nExpected type {ty} to have {expected} children but inferred {inferred}",
                     ),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            }
             ValueErrorKind::ChildConstruction(child_err, parent, idx) => {
                 let reason = match child_err.as_ref() {
                     ValueErrorKind::ReificationTooWide(ty) => format!("Type {ty} is too wide to be concretized"),
@@ -604,26 +606,26 @@ impl Resolvable for ValueErrorKind {
                 Diagnostic::error(
                     &format!("In value type analysis:\nCannot construct sub type of {parent} at index {idx}.\nReason: {reason}"),
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
-            },
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some("here"), true)
+            }
             ValueErrorKind::UnnecessaryTypeParam(span) => {
                 Diagnostic::error(
                     "This function has more input type parameter then defined generic types. All unnecessary type arguments can be removed.",
                 )
                     .add_span_with_label(span, Some("here"), true)
-            },
+            }
             ValueErrorKind::InvalidWiden(bound, inner) => {
                 Diagnostic::error(
                     &format!("In value type analysis:\nInvalid application of the widen operator.\nTarget width is {} but supplied width is {}.", bound.width().unwrap_or(0), inner.width().unwrap_or(0))
                 )
                     .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Widen with traget {bound} is found here")), false)
                     .maybe_add_span_with_label(key2.and_then(|k| spans.get(&k).cloned()), Some(&format!("Inferred type {inner} here")), true)
-            },
+            }
             ValueErrorKind::OptionNotAllowed(ty) => {
                 Diagnostic::error(
-                "In value type analysis:\nAn optional type is not allowed here."
+                    "In value type analysis:\nAn optional type is not allowed here."
                 )
-                .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Optional type: {ty} found here")), true)
+                    .maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Optional type: {ty} found here")), true)
                     .add_note("Help: Consider using the default operator to resolve the optional.")
             }
             ValueErrorKind::WrongTriggerMsg(ty) => {
