@@ -522,7 +522,7 @@ impl Resolvable for ValueErrorKind {
                 )
                     .maybe_add_span_with_label(span1, Some(&format!("found {ty1} here")), true)
                     .maybe_add_span_with_label(span2, Some(&format!("found {ty2} here")), false)
-                    .add_note(&format!("Help: Consider adding a type cast: cast<{ty2}>(...)"))
+                    .add_note(&format!("Help: Consider adding a type cast: cast<{ty1},{ty2}>(...)"))
             }
             ValueErrorKind::TupleSize(size1, size2) => {
                 let span1 = key1.and_then(|k| spans.get(&k).cloned());
@@ -577,7 +577,7 @@ impl Resolvable for ValueErrorKind {
                         Some(&format!("But inferred {inferred} here")),
                         true,
                     )
-                    .add_note(&format!("Help: Consider adding a type cast: cast<{expected}>(...)"))
+                    .add_note(&format!("Help: Consider adding a type cast: cast<{inferred},{expected}>(...)"))
             }
             ValueErrorKind::AccessOutOfBound(ty, idx) => {
                 Diagnostic::error(
