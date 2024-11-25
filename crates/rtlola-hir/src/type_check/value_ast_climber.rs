@@ -1647,7 +1647,7 @@ output o_9: Bool @i_0 := true  && true";
     //#[ignore] //symmetric type relation extends input int8 to float
     fn test_aggregation_implicit_cast3() {
         let spec =
-                            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
+            "input in: Int8\n output out: Float32 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
@@ -1658,7 +1658,7 @@ output o_9: Bool @i_0 := true  && true";
     #[test]
     fn test_aggregation_integer_integral() {
         let spec =
-                            "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
+            "input in: UInt8\n output out: UInt8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
         assert_eq!(1, num_errors(spec));
         let spec =
             "input in: Int8\n output out: Int8 @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5)";
