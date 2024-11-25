@@ -1478,12 +1478,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_op_in_ac() {
-        let spec = "input in: Int8\n output out: Int16 @!in := 5";
-        assert_eq!(1, num_errors(spec));
-    }
-
-    #[test]
     fn test_timed() {
         let spec = "output o1: Bool @10Hz:= false\noutput o2: Bool @10Hz:= o1";
         assert_eq!(0, num_errors(spec));

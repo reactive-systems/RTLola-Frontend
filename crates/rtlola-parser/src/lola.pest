@@ -20,9 +20,16 @@ SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
 SpawnWith = { "with " ~Expr }
 SpawnWhen = { "when " ~Expr }
 
-ActivationCondition = { "@" ~ ( GlobalActivationCondition | LocalActivationCondition | Expr)}
-GlobalActivationCondition = { "Global" ~ "(" ~ Expr ~ ")"}
-LocalActivationCondition = {"Local" ~ "(" ~ Expr ~ ")"}
+ActivationCondition = { "@" ~ (TopLevelAC | "(" ~ TopLevelAC ~ ")")}
+  TopLevelAC = _{GlobalActivationCondition | LocalActivationCondition | AcExpr}
+    GlobalActivationCondition = { "Global" ~ "(" ~ AcExpr ~ ")"}
+    LocalActivationCondition = {"Local" ~ "(" ~ AcExpr ~ ")"}
+      AcExpr = {NumberLiteral | PositiveBooleanExpr}
+        PositiveBooleanExpr = {
+            True
+            | (Ident | "(" ~ PositiveBooleanExpr ~ ")") ~ ((And | BitAnd | Or | BitOr) ~ PositiveBooleanExpr)*
+            | "(" ~ PositiveBooleanExpr ~ ")"
+        }
 
 CloseDecl = { "close" ~ ActivationCondition? ~ ("when" ~Expr)? }
 
