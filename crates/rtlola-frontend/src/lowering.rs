@@ -11,6 +11,7 @@ use rtlola_hir::hir::{
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, Tag, WindowOperation};
+use rtlola_reporting::Span;
 
 use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
 
@@ -48,6 +49,8 @@ impl Mir {
                     memory_bound: hir.memory_bound(sr),
                     reference: sr_map[&sr],
                     tags: Self::lower_tags(&i.tags),
+                    #[cfg(feature = "spanned")]
+                    span: i.span(),
                 }
             })
             .collect::<Vec<mir::InputStream>>();
@@ -77,6 +80,8 @@ impl Mir {
                 reference: sr_map[&sr],
                 params: Self::lower_parameters(&hir, sr),
                 tags: Self::lower_tags(&o.tags),
+                #[cfg(feature = "spanned")]
+                span: o.span(),
             }
         });
 
@@ -265,10 +270,14 @@ impl Mir {
         let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, sr_map, expr));
         let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, sr_map, expr));
+        #[cfg(feature = "spanned")]
+        let spawn_span = hir.spawn(sr).map(|s| s.span).unwrap_or(Span::Unknown);
         Spawn {
             expression: spawn_expression,
             pacing: spawn_pacing,
             condition: spawn_cond,
+            #[cfg(feature = "spanned")]
+            span: spawn_span,
         }
     }
 
@@ -285,10 +294,14 @@ impl Mir {
                 let expr = Self::lower_expr(hir, sr_map, expr);
                 let condition = cond.map(|f| Self::lower_expr(hir, sr_map, f));
                 let pacing = Self::lower_pacing_type(hir.eval_pacing_type(sr, idx), sr_map);
+                #[cfg(feature = "spanned")]
+                let eval_span = hir.eval(sr).unwrap()[idx].span;
                 EvalClause {
                     pacing,
                     condition,
                     expression: expr,
+                    #[cfg(feature = "spanned")]
+                    span: eval_span,
                 }
             })
             .collect();
@@ -302,7 +315,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> Close {
-        let (close, close_pacing, close_self_ref) = hir
+        let (close, close_pacing, close_self_ref, _close_span) = hir
             .close_cond(sr)
             .map(|expr| {
                 let cpt = hir.stream_type(sr).close_pacing;
@@ -312,17 +325,21 @@ impl Mir {
                         | ConcretePacingType::FixedGlobalPeriodic(_)
                         | ConcretePacingType::FixedLocalPeriodic(_)
                 );
+                let close_span = hir.close(sr).unwrap().span;
                 (
                     Some(Self::lower_expr(hir, sr_map, expr)),
                     Self::lower_pacing_type(cpt, sr_map),
                     close_self_ref,
+                    close_span,
                 )
             })
-            .unwrap_or((None, mir::PacingType::Constant, false));
+            .unwrap_or((None, mir::PacingType::Constant, false, Span::Unknown));
         Close {
             condition: close,
             pacing: close_pacing,
             has_self_reference: close_self_ref,
+            #[cfg(feature = "spanned")]
+            span: _close_span,
         }
     }
 
@@ -419,6 +436,8 @@ impl Mir {
         mir::Expression {
             kind: Self::lower_expression_kind(hir, sr_map, &expr.kind, &ty),
             ty,
+            #[cfg(feature = "spanned")]
+            span: expr.span(),
         }
     }
 
@@ -672,6 +691,8 @@ impl Mir {
                     name: parameter.name.clone(),
                     ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
                     idx: parameter.index(),
+                    #[cfg(feature = "spanned")]
+                    span: parameter.span(),
                 }
             })
             .collect()
@@ -679,6 +700,7 @@ impl Mir {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "spanned"))]
 mod tests {
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
