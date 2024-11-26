@@ -600,6 +600,15 @@ impl Literal {
             span,
         }
     }
+
+    /// Creates a new tuple literal
+    pub(crate) fn new_tuple(id: NodeId, val: Vec<Literal>, span: Span) -> Literal {
+        Literal {
+            id,
+            kind: LitKind::Tuple(val),
+            span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -614,6 +623,8 @@ pub enum LitKind {
     Numeric(String, Option<String>),
     /// A boolean literal (`true`)
     Bool(bool),
+    /// A tuple of literal values
+    Tuple(Vec<Literal>),
 }
 
 /// An Ast node representing a binary operator.

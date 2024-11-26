@@ -178,6 +178,7 @@ pub struct WidenExprKind {
     /// The new type of `expr`
     pub(crate) ty: AnnotatedType,
 }
+
 /// Represents a constant value of a certain kind.
 #[derive(Debug, Clone)]
 pub enum Literal {
@@ -191,6 +192,8 @@ pub enum Literal {
     SInt(i128),
     /// Decimal constant
     Decimal(Decimal),
+    /// A tuple of literals
+    Tuple(Vec<Literal>),
 }
 
 impl Hash for Literal {
@@ -214,6 +217,10 @@ impl Hash for Literal {
             },
             Literal::Decimal(_) => {
                 5.hash(state);
+            },
+            Literal::Tuple(elements) => {
+                6.hash(state);
+                elements.hash(state);
             },
         }
     }

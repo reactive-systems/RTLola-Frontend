@@ -152,7 +152,8 @@ RawString = @{ (!("\"" ~ PEEK) ~ ANY)* }
 BooleanLiteral = _{ True | False}
 True = @{"true"| "⊤"}
 False = @{"false"  | "⊥"}
-Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral}
+Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral | TupleLiteral}
+TupleLiteral = {"(" ~ Literal ~(","~Literal)+ ~ ")"}
 
 IntegerLiteral = @{ Digit+ }
 SignedIntegerLiteral = @{ ("+" | "-")?~IntegerLiteral }

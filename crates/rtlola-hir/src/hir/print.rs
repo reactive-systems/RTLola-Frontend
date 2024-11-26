@@ -121,19 +121,26 @@ impl Display for Expression {
     }
 }
 
+impl Display for Literal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Literal::SInt(v) => write!(f, "{v}"),
+            Literal::Integer(v) => write!(f, "{v}"),
+            Literal::Decimal(v) => write!(f, "{v}"),
+            Literal::Bool(v) => write!(f, "{v}"),
+            Literal::Str(v) => write!(f, "{v}"),
+            Literal::Tuple(elements) => write!(f, "({})", elements.iter().map(|l| format!("{l}")).join(", ")),
+        }
+    }
+}
+
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let lit = match self {
             Constant::Inlined(Inlined { lit, .. }) => lit,
             Constant::Basic(c) => c,
         };
-        match lit {
-            Literal::SInt(v) => write!(f, "{v}"),
-            Literal::Integer(v) => write!(f, "{v}"),
-            Literal::Decimal(v) => write!(f, "{v}"),
-            Literal::Bool(v) => write!(f, "{v}"),
-            Literal::Str(v) => write!(f, "{v}"),
-        }
+        write!(f, "{lit}")
     }
 }
 
