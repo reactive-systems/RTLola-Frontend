@@ -358,6 +358,7 @@ impl Display for Literal {
             LitKind::Bool(val) => write!(f, "{val}"),
             LitKind::Numeric(val, unit) => write!(f, "{}{}", val, unit.clone().unwrap_or_default()),
             LitKind::Str(s) => write!(f, "\"{s}\""),
+            LitKind::Tuple(elements) => write_delim_list(f, elements, "(", ")", ", "),
             LitKind::RawStr(s) => {
                 // need to determine padding with `#`
                 let mut padding = 0;

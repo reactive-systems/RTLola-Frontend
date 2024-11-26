@@ -131,14 +131,40 @@ where
         Ok(result_map)
     }
 
-    fn match_const_literal(&self, lit: &Literal) -> AbstractValueType {
+    fn match_const_literal(&mut self, lit: &Literal, target: TcKey) -> Result<(), TypeError<ValueErrorKind>> {
         match lit {
-            Literal::Str(_) => AbstractValueType::String,
-            Literal::Bool(_) => AbstractValueType::Bool,
-            Literal::Integer(_) => AbstractValueType::Integer,
-            Literal::SInt(_) => AbstractValueType::SInteger,
-            Literal::Decimal(_) => AbstractValueType::FractionalNumeric,
+            Literal::Str(_) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::String))?
+            },
+            Literal::Bool(_) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
+            Literal::Integer(_) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Integer))?
+            },
+            Literal::SInt(_) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::SInteger))?
+            },
+            Literal::Decimal(_) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
+            },
+            Literal::Tuple(elements) => {
+                self.tyc
+                    .impose(target.concretizes_explicit(AbstractValueType::Tuple(elements.len())))?;
+                elements
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, el)| {
+                        let child = self.tyc.get_child_key(target, idx)?;
+                        self.match_const_literal(el, child)?;
+                        Ok(())
+                    })
+                    .collect::<Result<Vec<()>, TypeError<ValueErrorKind>>>()?;
+            },
         }
+        Ok(())
     }
 
     fn bind_to_annotated_type(
@@ -377,8 +403,7 @@ where
                         lit
                     },
                 };
-                let literal_type = self.match_const_literal(cons_lit);
-                self.tyc.impose(term_key.concretizes_explicit(literal_type))?;
+                self.match_const_literal(cons_lit, term_key)?;
             },
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
@@ -2118,5 +2143,45 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(result_map[&NodeId::SRef(b)], ConcreteValueType::Fixed64_32);
         assert_eq!(result_map[&NodeId::SRef(c)], ConcreteValueType::Fixed64_32);
         assert_eq!(result_map[&NodeId::SRef(d)], ConcreteValueType::Fixed64_32);
+    }
+
+    #[test]
+    fn tuple_literal_annotated() {
+        let spec = "output a: (Float, (String, Bool)) @1Hz := (1.0, (\"Hello World\", true))\n";
+        let (tb, result_map) = check_value_type(spec);
+        let a = tb.output("a");
+        let ty = &result_map[&NodeId::SRef(a)];
+        assert!(matches!(ty, ConcreteValueType::Tuple(_)));
+        if let ConcreteValueType::Tuple(elems) = ty {
+            assert_eq!(elems[0], ConcreteValueType::Float64);
+            assert!(matches!(elems[1], ConcreteValueType::Tuple(_)));
+            if let ConcreteValueType::Tuple(sub_elems) = &elems[1] {
+                assert_eq!(sub_elems[0], ConcreteValueType::TString);
+                assert_eq!(sub_elems[1], ConcreteValueType::Bool);
+            }
+        }
+    }
+
+    #[test]
+    fn tuple_literal_annotated_faulty() {
+        let spec = "output a: (Float, Int) @1Hz := (1.0, true)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn tuple_literal_inferred() {
+        let spec = "output a @1Hz := (1.0, (\"Hello World\", true))\n";
+        let (tb, result_map) = check_value_type(spec);
+        let a = tb.output("a");
+        let ty = &result_map[&NodeId::SRef(a)];
+        assert!(matches!(ty, ConcreteValueType::Tuple(_)));
+        if let ConcreteValueType::Tuple(elems) = ty {
+            assert_eq!(elems[0], ConcreteValueType::Float64);
+            assert!(matches!(elems[1], ConcreteValueType::Tuple(_)));
+            if let ConcreteValueType::Tuple(sub_elems) = &elems[1] {
+                assert_eq!(sub_elems[0], ConcreteValueType::TString);
+                assert_eq!(sub_elems[1], ConcreteValueType::Bool);
+            }
+        }
     }
 }

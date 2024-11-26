@@ -806,6 +806,11 @@ impl<'a> RtLolaParser<'a> {
 
                 Literal::new_numeric(self.spec.next_id(), str_rep, unit, span.into())
             },
+            Rule::TupleLiteral => {
+                let span: Span = inner.as_span().into();
+                let elements: Vec<Literal> = inner.into_inner().map(|p| self.parse_literal(p)).collect();
+                Literal::new_tuple(self.spec.next_id(), elements, span)
+            },
             Rule::True => Literal::new_bool(self.spec.next_id(), true, inner.as_span().into()),
             Rule::False => Literal::new_bool(self.spec.next_id(), false, inner.as_span().into()),
             _ => unreachable!(),
@@ -2179,5 +2184,12 @@ mod tests {
         output c := 1 * (1 + 2";
         let e = super::super::parse(&ParserConfig::for_string(spec.into())).unwrap_err();
         assert_eq!(e.num_errors(), 2);
+    }
+
+    #[test]
+    fn tuple_literal() {
+        let spec = "constant test: (Float, (String, Bool)) := (1.0, (\"Hello World\", true))\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
     }
 }

@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, DiscreteAggr, Eval, ExprId,
-    Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, Literal, Offset,
-    Output, OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
+    AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant, Constant, DiscreteAggr,
+    Eval, ExprId, Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation,
+    Literal, Offset, Output, OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef,
+    WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -119,60 +120,60 @@ impl TransformationErr {
                     Some(&format!("Found function {name} here")),
                     true,
                 )
-            },
+            }
             TransformationErr::InvalidRefExpr(span, reason) => {
                 Diagnostic::error(&format!("Invalid stream identifier: {reason}")).add_span_with_label(
                     span,
                     Some("Found here"),
                     true,
                 )
-            },
+            }
             TransformationErr::ConstantWithoutType(span) => {
                 Diagnostic::error("Missing type annotation of constant stream.").add_span_with_label(
                     span,
                     Some("here"),
                     true,
                 )
-            },
+            }
             TransformationErr::NonNumericInLiteral(span) => {
                 Diagnostic::error("Invalid numeric literal.").add_span_with_label(span, Some("here"), true)
-            },
+            }
             TransformationErr::InvalidAc(span, reason) => {
                 Diagnostic::error(&format!("Invalid frequency annotation: {reason}")).add_span_with_label(
                     span,
                     Some("here"),
                     true,
                 )
-            },
+            }
             TransformationErr::InvalidRealtimeOffset(span) => {
                 Diagnostic::error("Invalid time format.").add_span_with_label(span, Some("here"), true)
-            },
+            }
             TransformationErr::InvalidDuration(reason, span) => {
                 Diagnostic::error("Invalid window duration.").add_span_with_label(span, Some(&reason), true)
-            },
+            }
             TransformationErr::MissingExpr(span) => {
                 Diagnostic::error("Expected an expression.").add_span_with_label(span, Some("here"), true)
-            },
+            }
             TransformationErr::MissingWidenArg(span) => {
                 Diagnostic::error("The widen expression expects an argument.").add_span_with_label(
                     span,
                     Some("missing argument here"),
                     true,
                 )
-            },
+            }
             TransformationErr::InvalidType(ty, reason, span) => {
                 Diagnostic::error(&format!("Unknown type {ty}.")).add_span_with_label(span, Some(&reason), true)
-            },
+            }
             TransformationErr::UnknownFunction(span) => {
                 Diagnostic::error("Unknown function.").add_span_with_label(span, Some("Found here"), true)
-            },
+            }
             TransformationErr::InvalidLiteral(span) => {
                 Diagnostic::error("Unit declarations are not allowed on non-time literals.").add_span_with_label(
                     span,
                     Some("here"),
                     true,
                 )
-            },
+            }
             TransformationErr::MissingArguments(span) => {
                 Diagnostic::error("An access to a parameterized output stream is missing its arguments.").add_span_with_label(
                     span,
@@ -196,19 +197,19 @@ impl TransformationErr {
                 )
             }
             TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
-                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {paras} parameters and {targets} spawn expressions",)).add_span_with_label(
+                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {paras} parameters and {targets} spawn expressions", )).add_span_with_label(
                     span,
                     Some("here"),
                     true,
                 )
-            },
+            }
             TransformationErr::InstanceAggregationPara(span) => {
                 Diagnostic::error("Instance aggregations can only be applied to all instances of a stream.").add_span_with_label(
                     span,
                     Some("Remove the parameters here."),
                     true,
                 )
-            },
+            }
             TransformationErr::InstanceAggregationNonPara(span) => {
                 Diagnostic::error("Instance aggregations can only be computed over parameterized streams.").add_span_with_label(
                     span,
@@ -333,6 +334,11 @@ impl ExpressionTransformer {
                 // check that they are equal length
                 let num_spawn_expr = match &spawn_expr.kind {
                     ExpressionKind::Tuple(elements) => elements.len(),
+                    ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(elements)))
+                    | ExpressionKind::LoadConstant(Constant::Inlined(Inlined {
+                        lit: Literal::Tuple(elements),
+                        ..
+                    })) => elements.len(),
                     _ => 1,
                 };
                 if num_spawn_expr != params.len() {
@@ -553,6 +559,14 @@ impl ExpressionTransformer {
         Ok(match &lit.kind {
             ast::LitKind::Bool(b) => Literal::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => Literal::Str(s.clone()),
+            ast::LitKind::Tuple(elements) => {
+                Literal::Tuple(
+                    elements
+                        .iter()
+                        .map(|lit| self.transform_literal(lit))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            },
             ast::LitKind::Numeric(num_str, postfix) => {
                 match postfix {
                     Some(s) if !s.is_empty() => return Err(TransformationErr::InvalidLiteral(lit.span)),
@@ -1268,8 +1282,28 @@ mod tests {
     }
 
     #[test]
-    fn tuple() {
+    fn tuple_lit() {
         let spec = "output o := (1,2,3)";
+        let ir = obtain_expressions(spec);
+        let output_expr_id = ir.outputs[0].eval()[0].expr;
+        let expr = &ir.expression(output_expr_id);
+        assert!(matches!(
+            expr.kind,
+            ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(_)))
+        ));
+        if let ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(v))) = &expr.kind {
+            assert_eq!(v.len(), 3);
+            for atom in v.iter() {
+                assert!(matches!(atom, Literal::Integer(_)));
+            }
+        } else {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn tuple_expr() {
+        let spec = "output o := (1+1,2+2,3+3)";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].eval()[0].expr;
         let expr = &ir.expression(output_expr_id);
@@ -1277,7 +1311,7 @@ mod tests {
         if let ExpressionKind::Tuple(v) = &expr.kind {
             assert_eq!(v.len(), 3);
             for atom in v.iter() {
-                assert!(matches!(atom.kind, ExpressionKind::LoadConstant(_)));
+                assert!(matches!(atom.kind, ExpressionKind::ArithLog(_, _)));
             }
         } else {
             unreachable!()

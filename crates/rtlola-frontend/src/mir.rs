@@ -522,6 +522,8 @@ pub enum Constant {
     Float(f64),
     #[allow(missing_docs)]
     Decimal(Decimal),
+    /// A tuple of constants
+    Tuple(Vec<Constant>),
 }
 
 /// Arithmetical and logical operations
