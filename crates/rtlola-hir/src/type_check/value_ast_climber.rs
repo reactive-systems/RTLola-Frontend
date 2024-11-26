@@ -2163,6 +2163,12 @@ output o_9: Bool @i_0 := true  && true";
     }
 
     #[test]
+    fn tuple_literal_annotated_faulty() {
+        let spec = "output a: (Float, Int) @1Hz := (1.0, true)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
     fn tuple_literal_inferred() {
         let spec = "output a @1Hz := (1.0, (\"Hello World\", true))\n";
         let (tb, result_map) = check_value_type(spec);
