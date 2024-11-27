@@ -34,4 +34,3 @@ rust_decimal = "1.36.0"
 
 [features]
 spanned = []
-# default = ["spanned"]

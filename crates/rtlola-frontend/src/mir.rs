@@ -253,6 +253,7 @@ pub struct InputStream {
     /// The tags annotated to this stream.
     pub tags: Tags,
     #[cfg(feature = "spanned")]
+    /// The span of the input stream definition
     pub span: Span,
 }
 
@@ -290,6 +291,7 @@ pub struct OutputStream {
     /// The tags annotated to this stream.
     pub tags: Tags,
     #[cfg(feature = "spanned")]
+    /// The span of the output stream definition
     pub span: Span,
 }
 
@@ -323,6 +325,7 @@ pub struct Spawn {
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
     #[cfg(feature = "spanned")]
+    /// The span of the spawn clause
     pub span: Span,
 }
 
@@ -348,6 +351,7 @@ pub struct Close {
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
     #[cfg(feature = "spanned")]
+    /// The span of the close clause
     pub span: Span,
 }
 
@@ -382,6 +386,7 @@ pub struct EvalClause {
     /// The eval pacing of the stream, combining the condition and expr pacings of the clause.
     pub pacing: PacingType,
     #[cfg(feature = "spanned")]
+    /// The span of the eval clause
     pub span: Span,
 }
 
@@ -395,6 +400,7 @@ pub struct Parameter {
     /// The index of the parameter.
     pub idx: usize,
     #[cfg(feature = "spanned")]
+    /// The span of the parameter
     pub span: Span,
 }
 
@@ -471,6 +477,7 @@ pub struct Expression {
     /// The type of the expression
     pub ty: Type,
     #[cfg(feature = "spanned")]
+    /// The span of the expression
     pub span: Span,
 }
 
