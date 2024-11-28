@@ -10,7 +10,7 @@ use rtlola_hir::hir::{
     Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
-use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
+use rtlola_parser::ast::{InstanceOperation, InstanceSelection, Tag, WindowOperation};
 
 use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
 
@@ -47,6 +47,7 @@ impl Mir {
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
                     reference: sr_map[&sr],
+                    tags: Self::lower_tags(&i.tags),
                 }
             })
             .collect::<Vec<mir::InputStream>>();
@@ -75,6 +76,7 @@ impl Mir {
                 layer: hir.stream_layers(sr),
                 reference: sr_map[&sr],
                 params: Self::lower_parameters(&hir, sr),
+                tags: Self::lower_tags(&o.tags),
             }
         });
 
@@ -153,6 +155,8 @@ impl Mir {
             })
             .collect();
 
+        let global_tags = Self::lower_tags(hir.global_tags());
+
         Mir {
             inputs,
             outputs,
@@ -162,6 +166,7 @@ impl Mir {
             sliding_windows,
             instance_aggregations,
             triggers,
+            global_tags,
         }
     }
 
@@ -319,6 +324,12 @@ impl Mir {
             pacing: close_pacing,
             has_self_reference: close_self_ref,
         }
+    }
+
+    fn lower_tags(tags: &HashMap<String, Tag>) -> HashMap<String, Option<String>> {
+        tags.iter()
+            .map(|(key, tag)| (key.to_owned(), tag.value.to_owned()))
+            .collect()
     }
 
     fn lower_sliding_window(
@@ -671,6 +682,7 @@ impl Mir {
 mod tests {
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
+    use rtlola_hir::config::FrontendConfig;
     use rtlola_parser::ParserConfig;
     use uom::si::frequency::hertz;
     use uom::si::rational64::Frequency as UOM_Frequency;
@@ -680,10 +692,12 @@ mod tests {
     use crate::mir::{PacingType, Stream};
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
-        let ast = ParserConfig::for_string(spec.into())
-            .parse()
-            .unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = rtlola_hir::fully_analyzed(ast).expect("Invalid AST:");
+        lower_spec_with_config((&ParserConfig::for_string(spec.into())).into())
+    }
+
+    fn lower_spec_with_config(config: FrontendConfig) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
+        let ast = config.parser_config().parse().unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = rtlola_hir::fully_analyzed(ast, &config).expect("Invalid AST:");
         (hir.clone(), Mir::from_hir(hir))
     }
 
@@ -766,7 +780,7 @@ mod tests {
         ));
         assert_eq!(
             &mir_d.spawn.pacing,
-            &mir::PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
+            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
         );
         assert_eq!(
             &mir_d.eval.clauses[0].expression,
@@ -803,7 +817,7 @@ mod tests {
         ));
         assert_eq!(
             mir_d.spawn.pacing,
-            mir::PacingType::GlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
+            PacingType::GlobalPeriodic(UOM_Frequency::new::<hertz>(Rational::from_u8(1).unwrap()))
         );
         assert!(matches!(
             mir_d.eval.clauses[0].condition,
@@ -915,5 +929,33 @@ mod tests {
         let spec = "input a : UInt64\noutput b spawn when a == 0 eval @Global(1Hz) with true close @Local(5s)";
         let (_, mir) = lower_spec(spec);
         assert!(mir.outputs[0].is_closed());
+    }
+
+    #[test]
+    fn tagged_streams() {
+        let spec = "#[key=\"value\", key2=\"value2\"]\n\
+        input a : Bool
+        #[warning]
+        trigger a";
+        let (_, mir) = lower_spec(spec);
+        let input_tags = &mir.inputs[0].tags;
+        assert_eq!(input_tags.len(), 2);
+        assert!(input_tags["key"].as_ref().unwrap() == "value");
+        assert!(input_tags["key2"].as_ref().unwrap() == "value2");
+        let trigger_tags = &mir.outputs[0].tags;
+        assert_eq!(trigger_tags.len(), 1);
+        assert_eq!(trigger_tags["warning"], None);
+    }
+
+    #[test]
+    fn global_tags() {
+        let spec = "#![key=\"value\"]\n\
+        #![warning]
+        input a : Bool";
+        let (_, mir) = lower_spec(spec);
+        let global_tags = &mir.global_tags;
+        assert_eq!(global_tags.len(), 2);
+        assert_eq!(global_tags["key"].as_ref().unwrap(), "value");
+        assert_eq!(global_tags["warning"].as_ref(), None);
     }
 }

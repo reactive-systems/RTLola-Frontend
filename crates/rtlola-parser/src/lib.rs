@@ -37,6 +37,7 @@ mod parse;
 // Shall not be exposed; use parse function instead.
 mod syntactic_sugar;
 
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -47,8 +48,8 @@ pub mod ast;
 pub use ast::RtLolaAst;
 use rtlola_reporting::{Handler, RtLolaError};
 
-#[derive(Debug, Clone)]
 /// The configuration of the parser.
+#[derive(Debug, Clone)]
 pub struct ParserConfig {
     /// The path to the specification file that should be parsed
     path: Option<PathBuf>,

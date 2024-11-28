@@ -2,6 +2,8 @@
 
 use std::fmt::{Display, Formatter, Result};
 
+use itertools::Itertools;
+
 use crate::ast::*;
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
@@ -31,6 +33,28 @@ fn format_type(ty: &Option<Type>) -> String {
     format_opt(ty, ": ", "")
 }
 
+fn format_tags(f: &mut Formatter<'_>, tags: &[Tag], global: bool) -> Result {
+    if tags.is_empty() {
+        return Ok(());
+    }
+    let tag_list = tags
+        .iter()
+        .map(|tag| {
+            if let Some(value) = &tag.value {
+                format!("{}=\"{}\"", &tag.key, value)
+            } else {
+                tag.key.to_string()
+            }
+        })
+        .join(",");
+
+    if global {
+        writeln!(f, "#![{tag_list}]")
+    } else {
+        writeln!(f, "#[{tag_list}]")
+    }
+}
+
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "constant {}{} := {}", self.name, format_type(&self.ty), self.literal)
@@ -39,6 +63,7 @@ impl Display for Constant {
 
 impl Display for Input {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.tags, false)?;
         write!(f, "input {}", self.name)?;
         if !self.params.is_empty() {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
@@ -55,6 +80,7 @@ impl Display for Mirror {
 
 impl Display for Output {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.tags, false)?;
         match &self.kind {
             OutputKind::NamedOutput(name) => write!(f, "output {name}")?,
             OutputKind::Trigger => write!(f, "trigger")?,
@@ -433,6 +459,7 @@ impl Display for Import {
 
 impl Display for RtLolaAst {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.global_tags, true)?;
         for import in &self.imports {
             writeln!(f, "{import}")?;
         }

@@ -195,14 +195,17 @@ mod tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
     fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>) {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .check_types()
+            .check_types(&frontend_config)
             .unwrap()
-            .analyze_dependencies()
+            .analyze_dependencies(&frontend_config)
             .unwrap();
         let order = Ordered::analyze(&hir);
         let Ordered { stream_layers } = order;

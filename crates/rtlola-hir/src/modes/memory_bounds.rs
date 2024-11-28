@@ -197,16 +197,19 @@ mod dynaminc_memory_bound_tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .check_types()
+            .check_types(&frontend_config)
             .unwrap()
-            .analyze_dependencies()
+            .analyze_dependencies(&frontend_config)
             .unwrap()
-            .determine_evaluation_order()
+            .determine_evaluation_order(&frontend_config)
             .unwrap();
         let bounds = MemBound::analyze(&hir, true);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
@@ -415,17 +418,20 @@ mod static_memory_bound_tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
 
     fn calculate_memory_bound(spec: &str) -> MemBound {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .check_types()
+            .check_types(&frontend_config)
             .unwrap()
-            .analyze_dependencies()
+            .analyze_dependencies(&frontend_config)
             .unwrap()
-            .determine_evaluation_order()
+            .determine_evaluation_order(&frontend_config)
             .unwrap();
         MemBound::analyze(&hir, false)
     }

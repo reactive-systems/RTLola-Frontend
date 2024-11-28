@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub use feature_selector::{Feature, FeatureSelector};
+use rtlola_parser::ast::Tag;
 use rtlola_reporting::Span;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -79,6 +80,8 @@ pub struct RtLolaHir<M: HirMode> {
     pub(crate) next_output_ref: usize,
     /// Maps expression ids to their expressions.
     pub(crate) expr_maps: ExpressionMaps,
+    /// A list of the global tags of the specification
+    pub(crate) global_tags: HashMap<String, Tag>,
     /// The current mode
     pub(crate) mode: M,
 }
@@ -416,6 +419,11 @@ impl<M: HirMode> Hir<M> {
             .chain(self.outputs().map(|o| (o.sr, o.name())))
             .collect()
     }
+
+    /// Returns the global tags annotated to the specification
+    pub fn global_tags(&self) -> &HashMap<String, Tag> {
+        &self.global_tags
+    }
 }
 
 /// A collection of maps for expression-related lookups, i.e., expressions, functions, and windows.
@@ -526,6 +534,8 @@ pub struct Input {
     pub(crate) sr: SRef,
     /// The user annotated Type
     pub(crate) annotated_type: AnnotatedType,
+    /// The tags of this stream.
+    pub tags: HashMap<String, Tag>,
     /// The code span the input represents
     pub(crate) span: Span,
 }
@@ -568,6 +578,8 @@ pub struct Output {
     pub(crate) close: Option<Close>,
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
+    /// The tags of this stream.
+    pub tags: HashMap<String, Tag>,
     /// The code span the output represents
     pub(crate) span: Span,
 }

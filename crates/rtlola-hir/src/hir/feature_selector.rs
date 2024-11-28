@@ -540,7 +540,9 @@ mod test {
         use rtlola_parser::parse;
         let handler = Handler::from(cfg);
         let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();
-        let hir = fully_analyzed(ast).map_err(|e| handler.emit_error(&e)).unwrap();
+        let hir = fully_analyzed(ast, &cfg.into())
+            .map_err(|e| handler.emit_error(&e))
+            .unwrap();
         (FeatureSelector::new(hir), handler)
     }
 

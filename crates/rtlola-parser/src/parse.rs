@@ -114,6 +114,10 @@ impl<'a> RtLolaParser<'a> {
                     let type_decl = self.parse_type_declaration(pair);
                     self.spec.type_declarations.push(type_decl);
                 },
+                Rule::GlobalTagList => {
+                    let tags = self.parse_tag_list(pair);
+                    self.spec.global_tags.extend(tags);
+                },
                 Rule::EOI => {},
                 _ => unreachable!(),
             }
@@ -162,6 +166,7 @@ impl<'a> RtLolaParser<'a> {
      * Transforms a `Rule::InputStream` into `Input` AST node.
      * Panics if input is not `Rule::InputStream`.
      * The input rule consists of non-empty sequences of following tokens:
+     * - (`Rule::TagLists`)?
      * - `Rule::Ident`
      * - (`Rule::ParamList`)?
      * - `Rule::Type`
@@ -170,8 +175,15 @@ impl<'a> RtLolaParser<'a> {
         assert_eq!(pair.as_rule(), Rule::InputStream);
         let mut inputs = Vec::new();
         let mut pairs = pair.into_inner();
+
+        let tags = if let Rule::TagLists = pairs.peek().unwrap().as_rule() {
+            self.parse_tag_lists(pairs.next().unwrap())
+        } else {
+            Vec::new()
+        };
         while let Some(pair) = pairs.next() {
             let start = pair.as_span().start();
+
             let name = self.parse_ident(&pair);
 
             let mut pair = pairs.next().expect("mismatch between grammar and AST");
@@ -190,6 +202,7 @@ impl<'a> RtLolaParser<'a> {
                 name,
                 params: params.into_iter().map(Rc::new).collect(),
                 ty,
+                tags: tags.clone(),
                 span: Span::Direct { start, end },
             })
         }
@@ -236,6 +249,12 @@ impl<'a> RtLolaParser<'a> {
 
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner().peekable();
+
+        let tags = if let Rule::TagLists = pairs.peek().unwrap().as_rule() {
+            self.parse_tag_lists(pairs.next().unwrap())
+        } else {
+            Vec::new()
+        };
 
         let pair = pairs.next().unwrap();
         let kind = match pair.as_rule() {
@@ -365,6 +384,7 @@ impl<'a> RtLolaParser<'a> {
             spawn,
             eval,
             close,
+            tags,
             span,
         })
     }
@@ -637,7 +657,8 @@ impl<'a> RtLolaParser<'a> {
      * Transforms a `Rule::Trigger` into `Trigger` AST node.
      * Panics if input is not `Rule::Trigger`.
      * The output rule consists of the following tokens:
-     * - (`Rule::Ident`)?
+     * - (`Rule::TagLists`)?
+     * - (`Rule::ActivationCondition`)?
      * - `Rule::Expr`
      * - (`Rule::StringLiteral`)?
      */
@@ -647,6 +668,14 @@ impl<'a> RtLolaParser<'a> {
         let mut pairs = pair.into_inner();
 
         let mut pair = pairs.next().expect("mismatch between grammar and AST");
+
+        let tags = if let Rule::TagLists = pair.as_rule() {
+            let tags = self.parse_tag_lists(pair);
+            pair = pairs.next().expect("mismatch between grammar and AST");
+            tags
+        } else {
+            Vec::new()
+        };
 
         // Parse the `@ [Expr]` part of output declaration
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
@@ -686,6 +715,7 @@ impl<'a> RtLolaParser<'a> {
                 span,
             }],
             close: None,
+            tags,
             id: self.spec.next_id(),
             span,
         })
@@ -748,6 +778,30 @@ impl<'a> RtLolaParser<'a> {
             id: self.spec.next_id(),
             fields,
         }
+    }
+
+    fn parse_tag_lists(&self, pair: Pair<'_, Rule>) -> Vec<Tag> {
+        assert_eq!(pair.as_rule(), Rule::TagLists);
+        pair.into_inner()
+            .flat_map(|tag_list| self.parse_tag_list(tag_list))
+            .collect()
+    }
+
+    fn parse_tag_list(&self, pair: Pair<'_, Rule>) -> Vec<Tag> {
+        assert!(matches!(pair.as_rule(), Rule::TagList | Rule::GlobalTagList));
+        pair.into_inner()
+            .map(|tag| {
+                let span = tag.as_span().into();
+                let mut pairs = tag.into_inner();
+                let key = pairs
+                    .next()
+                    .expect("mismatch between grammar ans AST")
+                    .as_str()
+                    .to_owned();
+                let value = pairs.next().map(|value| value.as_str().to_owned());
+                Tag { key, value, span }
+            })
+            .collect()
     }
 
     /**
@@ -2174,7 +2228,19 @@ mod tests {
         output global (p) spawn with a eval @Global(1Hz) with global(p).offset(by: -1).defaults(to: 0) + 1\n\
         output local (p) spawn with a eval @Local(1Hz) with local(p).offset(by: -1).defaults(to: 0) + 1\n";
         let ast = parse(spec);
-        cmp_ast_spec(&dbg!(ast), spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn parse_tags() {
+        let spec = "#[key=\"value\"]\n\
+        input a: Int32\n\
+        #[key2]\n\
+        output b eval with a + 1\n\
+        #[key=\"value\",key_without_value,other_key=\"other_value\"]\n\
+        trigger eval when b > 10 with \"test\"\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
     }
 
     #[test]
@@ -2191,5 +2257,18 @@ mod tests {
         let spec = "constant test: (Float, (String, Bool)) := (1.0, (\"Hello World\", true))\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn parse_global_tags() {
+        let spec = "#![key=\"value\"]\n\
+        #![key2=\"value\"]\n\
+        input a: Int32\n\
+        trigger eval when b > 10 with \"test\"\n";
+        let ast = parse(spec);
+        let ref_spec = "#![key=\"value\",key2=\"value\"]\n\
+        input a: Int32\n\
+        trigger eval when b > 10 with \"test\"\n";
+        cmp_ast_spec(&ast, ref_spec);
     }
 }

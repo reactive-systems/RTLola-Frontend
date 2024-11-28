@@ -4,11 +4,11 @@
 // Take a look at https://pest-parser.github.io/book/grammars/syntax.html
 // TODO we can probably mark some rules as atomic or hidden
 
-IncompleteSpec = { SOI ~ ImportStmts ~ Declaration* }
-Spec = { SOI~ (BOM)? ~ ImportStmts ~ Declaration* ~ EOI }
+IncompleteSpec = { SOI ~ GlobalTagLists ~ ImportStmts ~ Declaration* }
+Spec = { SOI~ (BOM)? ~ GlobalTagLists ~ ImportStmts ~ Declaration* ~ EOI }
 ImportStmts = _{ ImportStmt* }
 ImportStmt  = { "import " ~ Ident }
-Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | SimpleTrigger}
+Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | SimpleTrigger }
 BOM = _{"\u{FEFF}"}
 
 // ///////////////// Statements ///////////////////
@@ -38,9 +38,9 @@ TypeDecl = { "type "  ~ Ident ~"{" ~Ident~ ":"~Type~ ("," ~Ident~ ":"~Type)* ~ "
 
 ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
-InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
+InputStream = { TagLists? ~ "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
 
-OutputStream = { (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~ 
+OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~ 
  (((SpawnDecl| CloseDecl)* ~ EvalDecl ~ (SpawnDecl | EvalDecl | CloseDecl)*)| SimpleEvalDecl)
 }
 TriggerDecl = { "trigger" }
@@ -48,9 +48,16 @@ NamedOutputDecl = { "output " ~ Ident }
 
 MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
-SimpleTrigger = { "trigger " ~ ActivationCondition? ~ Expr ~ StringLiteral? }
+SimpleTrigger = { TagLists? ~ "trigger " ~ ActivationCondition? ~ Expr ~ StringLiteral? }
 
 IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
+
+TagLists = { TagList ~ TagList* }
+TagList = { "#" ~ "[" ~ TagItem ~ ("," ~ TagItem)* ~ "]" }
+GlobalTagLists = _{ GlobalTagList* }
+GlobalTagList = { "#!" ~ "[" ~ TagItem ~ ("," ~ TagItem)* ~ "]" }
+TagItem = { Ident ~ ("=" ~ StringLiteral)? }
+
 
 // //////////////// Expressions ///////////////////
 
