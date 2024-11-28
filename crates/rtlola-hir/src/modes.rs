@@ -347,8 +347,8 @@ pub trait OrderedTrait {
 impl HirStage for Hir<OrderedMode> {
     type NextStage = MemBoundMode;
 
-    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
-        let memory = MemBound::analyze(&self, false);
+    fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let memory = MemBound::analyze(&self, cfg.memory_bound_mode());
 
         let mode = MemBoundMode {
             dependencies: self.mode.dependencies,

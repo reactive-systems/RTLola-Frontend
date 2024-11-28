@@ -967,7 +967,9 @@ mod tests {
         input a : Bool
         #[warning]
         trigger a";
-        let (_, mir) = lower_spec(spec);
+        let (_, mir) = lower_spec_with_config(
+            ParserConfig::for_string(spec.into()).with_supported_tags(["key", "key2", "warning"]),
+        );
         let input_tags = &mir.inputs[0].tags;
         assert_eq!(input_tags.len(), 2);
         assert!(input_tags["key"].as_ref().unwrap() == "value");
