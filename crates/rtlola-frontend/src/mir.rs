@@ -33,6 +33,8 @@ pub use rtlola_hir::hir::{
     StreamLayers, StreamReference, WindowReference,
 };
 pub use rtlola_parser::ast::Tag;
+#[cfg(feature = "spanned")]
+use rtlola_reporting::Span;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
@@ -114,6 +116,9 @@ pub struct RtLolaMir {
     pub triggers: Vec<Trigger>,
     /// The global tags of the specification
     pub global_tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span's of the global tags
+    pub global_tags_span: HashMap<String, Span>,
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
@@ -250,6 +255,12 @@ pub struct InputStream {
     pub reference: StreamReference,
     /// The tags annotated to this stream.
     pub tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the input stream
+    pub tags_span: HashMap<String, Span>,
+    #[cfg(feature = "spanned")]
+    /// The span of the input stream definition
+    pub span: Span,
 }
 
 /// Contains all information relevant to every kind of output stream.
@@ -285,6 +296,12 @@ pub struct OutputStream {
     pub params: Vec<Parameter>,
     /// The tags annotated to this stream.
     pub tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the output stream
+    pub tags_span: HashMap<String, Span>,
+    #[cfg(feature = "spanned")]
+    /// The span of the output stream definition
+    pub span: Span,
 }
 
 /// A trigger (represented by the output stream `output_reference`)
@@ -316,6 +333,9 @@ pub struct Spawn {
     pub pacing: PacingType,
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
+    #[cfg(feature = "spanned")]
+    /// The span of the spawn clause
+    pub span: Span,
 }
 
 impl Default for Spawn {
@@ -324,6 +344,8 @@ impl Default for Spawn {
             expression: None,
             pacing: PacingType::Constant,
             condition: None,
+            #[cfg(feature = "spanned")]
+            span: Span::Unknown,
         }
     }
 }
@@ -337,6 +359,9 @@ pub struct Close {
     pub pacing: PacingType,
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
+    #[cfg(feature = "spanned")]
+    /// The span of the close clause
+    pub span: Span,
 }
 
 impl Default for Close {
@@ -345,6 +370,8 @@ impl Default for Close {
             condition: None,
             pacing: PacingType::Constant,
             has_self_reference: false,
+            #[cfg(feature = "spanned")]
+            span: Span::Unknown,
         }
     }
 }
@@ -367,6 +394,9 @@ pub struct EvalClause {
     pub expression: Expression,
     /// The eval pacing of the stream, combining the condition and expr pacings of the clause.
     pub pacing: PacingType,
+    #[cfg(feature = "spanned")]
+    /// The span of the eval clause
+    pub span: Span,
 }
 
 /// Information of a parameter of a parametrized output stream
@@ -378,6 +408,9 @@ pub struct Parameter {
     pub ty: Type,
     /// The index of the parameter.
     pub idx: usize,
+    #[cfg(feature = "spanned")]
+    /// The span of the parameter
+    pub span: Span,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -452,6 +485,9 @@ pub struct Expression {
     pub kind: ExpressionKind,
     /// The type of the expression
     pub ty: Type,
+    #[cfg(feature = "spanned")]
+    /// The span of the expression
+    pub span: Span,
 }
 
 /// This enum contains all possible kinds of expressions and their relevant information.
