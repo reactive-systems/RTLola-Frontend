@@ -13,6 +13,7 @@ use pest::pratt_parser::{Assoc, Op, PrattParser};
 use pest::Parser;
 use pest_derive::Parser;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
+use unicode_normalization::UnicodeNormalization;
 
 use super::ast::*;
 use crate::ast::Literal;
@@ -747,8 +748,9 @@ impl<'a> RtLolaParser<'a> {
      */
     fn parse_ident(&self, pair: &Pair<'_, Rule>) -> Ident {
         assert_eq!(pair.as_rule(), Rule::Ident);
-        let name = pair.as_str().to_string();
-        Ident::new(name, pair.as_span().into())
+        let name = pair.as_str();
+        let normalized_name = name.nfc().collect::<String>();
+        Ident::new(normalized_name, pair.as_span().into())
     }
 
     /**
@@ -2285,5 +2287,27 @@ mod tests {
                 ]),
             ]
         };
+    }
+
+    #[test]
+    fn unicode_normalization() {
+        let precomposed = "é";
+        let decomposed = "e\u{0301}";
+        assert!(precomposed != decomposed);
+
+        let pair1 = LolaParser::parse(Rule::Ident, precomposed)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+        let pair2 = LolaParser::parse(Rule::Ident, decomposed)
+            .unwrap_or_else(|e| panic!("{}", e))
+            .next()
+            .unwrap();
+
+        let config = ParserConfig::for_string("".into());
+        let parser = RtLolaParser::new(&config);
+        let ident1 = parser.parse_ident(&pair1);
+        let ident2 = parser.parse_ident(&pair2);
+        assert_eq!(ident1, ident2)
     }
 }
