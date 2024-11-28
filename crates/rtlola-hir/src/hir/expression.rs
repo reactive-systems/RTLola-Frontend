@@ -593,11 +593,13 @@ impl ExpressionContext {
 
 pub(crate) trait ValueEq {
     fn value_eq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool;
+    #[cfg(test)]
     fn value_neq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool {
         !self.value_eq(other, parameter_map)
     }
 
     fn value_eq_ignore_parameters(&self, other: &Self) -> bool;
+    #[cfg(test)]
     fn value_neq_ignore_parameters(&self, other: &Self) -> bool {
         !self.value_eq_ignore_parameters(other)
     }

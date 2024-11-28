@@ -126,23 +126,6 @@ NotEqual = {"!=" | "≠"}
 Equal = { "="{1,2} }
 CompOp = _{LessThanOrEqual | MoreThanOrEqual | LessThan | MoreThan | NotEqual | Equal}
 
-Sum = {"Σ" | "sum"}
-Count = {"#" | "count"}
-//Product = {"Π" | "prod" | "product"}
-Integral = {"∫"  | "integral"}
-Average = { "avg"| "average" }
-
-// WindowCovariance is not listed as it does not have any utf8 symbols as possible identifier,
-// "covariance" and "cov" will be parsed as normal identifier and are build as valid identifiers
-// and therefore valid window operations, e.g. Median without "µ" could be left out too
-
-WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists | WindowVariance | WindowSd | WindowMedian}
-WindowForall = {"forall" | "∀" | "∧" | "conjunction" }
-WindowExists = {"exists" | "∃" | "∨" | "disjunction" }
-WindowVariance = {"var" | "variance" | "σ²"}
-WindowSd = {"standard_deviation" | "sd" | "σ"}
-WindowMedian = { "med" | "median" | "µ" }
-
 // ////////////////// Literals ////////////////////
 
 NumberLiteral = ${ NumberLiteralValue ~ NumberPostfix?}
@@ -171,8 +154,9 @@ Optional = { Ident ~ "?" }  // Optional types are written `Int32?`
 
 // /////////////////// Names //////////////////////
 
-Ident = @{  (Letter | "_") ~ (Letter | Digit | "_" | "::")* | WindowOp}
-
+// look at https://www.unicode.org/reports/tr31/#R1 and  https://www.unicode.org/reports/tr31/#D1
+Ident = @{ VarianceAggregation | (XID_START | "_") ~ (XID_CONTINUE | "_" | "::")* }
+VarianceAggregation = _{ "σ²" }
 Parameter = { Ident } // Semantic Category
 
 // ////////////////// Symbols /////////////////////
