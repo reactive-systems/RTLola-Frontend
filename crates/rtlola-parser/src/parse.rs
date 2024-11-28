@@ -760,10 +760,8 @@ impl<'a> RtLolaParser<'a> {
     }
 
     fn parse_positive_boolean_expr(&self, pairs: Pairs<Rule>) -> Result<Expression, RtLolaError> {
-        dbg!(&pairs);
         PRATT_PARSER
             .map_primary(|primary| {
-                dbg!(primary.as_rule());
                 match primary.as_rule() {
                     Rule::PositiveBooleanExpr => self.parse_positive_boolean_expr(primary.into_inner()),
                     Rule::Ident => {
