@@ -38,7 +38,6 @@ mod parse;
 mod syntactic_sugar;
 
 use std::fmt::Debug;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -56,15 +55,6 @@ pub struct ParserConfig {
     path: Option<PathBuf>,
     /// The specification given as a string
     spec: String,
-    memory_bound_mode: MemoryBoundMode,
-}
-
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
-/// The way the memory bound is computed.
-pub enum MemoryBoundMode {
-    #[default]
-    Static,
-    Dynamic,
 }
 
 impl ParserConfig {
@@ -77,17 +67,12 @@ impl ParserConfig {
         Ok(ParserConfig {
             path: Some(path_to_spec),
             spec,
-            memory_bound_mode: Default::default(),
         })
     }
 
     /// Creates a new parser configuration for the given specification.
     pub fn for_string(spec: String) -> Self {
-        ParserConfig {
-            path: None,
-            spec,
-            memory_bound_mode: Default::default(),
-        }
+        ParserConfig { path: None, spec }
     }
 
     /// Creates a new parser configuration for the given specification using the name as file name.
@@ -95,7 +80,6 @@ impl ParserConfig {
         ParserConfig {
             path: Some(PathBuf::from(name)),
             spec,
-            memory_bound_mode: Default::default(),
         }
     }
 
@@ -112,18 +96,6 @@ impl ParserConfig {
     /// Returns the specification of the configuration.
     pub fn spec(&self) -> &str {
         &self.spec
-    }
-
-    /// Calculate the memorization bound in dynamic mode
-    pub fn with_dynamic_memory_bound(self) -> Self {
-        Self {
-            memory_bound_mode: MemoryBoundMode::Dynamic,
-            ..self
-        }
-    }
-
-    pub fn memory_bound_mode(&self) -> MemoryBoundMode {
-        self.memory_bound_mode
     }
 }
 

@@ -357,12 +357,6 @@ impl Mir {
             .collect()
     }
 
-    fn lower_tags(tags: &HashMap<String, Tag>) -> HashMap<String, Option<String>> {
-        tags.iter()
-            .map(|(key, tag)| (key.to_owned(), tag.value.to_owned()))
-            .collect()
-    }
-
     fn lower_sliding_window(
         hir: &RtLolaHir<CompleteMode>,
         sr_map: &HashMap<StreamReference, StreamReference>,

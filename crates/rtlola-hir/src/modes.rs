@@ -7,7 +7,6 @@ pub(crate) mod types;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use rtlola_parser::MemoryBoundMode;
 use rtlola_reporting::RtLolaError;
 
 use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
@@ -348,8 +347,8 @@ pub trait OrderedTrait {
 impl HirStage for Hir<OrderedMode> {
     type NextStage = MemBoundMode;
 
-    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
-        let memory = MemBound::analyze(&self, false);
+    fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let memory = MemBound::analyze(&self, cfg.memory_bound_mode());
 
         let mode = MemBoundMode {
             dependencies: self.mode.dependencies,
@@ -459,30 +458,6 @@ impl Hir<MemBoundMode> {
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
     pub fn finalize(self, cfg: &FrontendConfig) -> Result<Hir<CompleteMode>, RtLolaError> {
         self.progress(cfg)
-    }
-
-    /// Validate the tags in the specification against the `tag_validator`.
-    pub fn validate_tags(self, cfg: &FrontendConfig) -> Result<Self, RtLolaError> {
-        let tag_validator = cfg.tag_validator();
-        let all_tags = self
-            .inputs
-            .iter()
-            .flat_map(|input| input.tags.values())
-            .chain(self.outputs.iter().flat_map(|output| output.tags.values()));
-        let error = all_tags
-            .filter_map(|tag| {
-                if let Err(e) = tag_validator.check(tag.key.as_str(), tag.value.as_deref()) {
-                    Some(Diagnostic::error(&e).add_span_with_label(tag.span, Some("Found tag here"), true))
-                } else {
-                    None
-                }
-            })
-            .collect::<RtLolaError>();
-        if error.num_errors() == 0 {
-            Ok(self)
-        } else {
-            Err(error)
-        }
     }
 }
 

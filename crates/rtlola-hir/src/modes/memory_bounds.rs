@@ -9,6 +9,7 @@ use uom::si::rational64::Time as UOM_Time;
 
 use super::dependencies::Origin;
 use super::TypedTrait;
+use crate::config::MemoryBoundMode;
 use crate::hir::{ConcretePacingType, Hir, SRef, StreamAccessKind, WRef, WindowReference};
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
@@ -48,11 +49,10 @@ impl MemorizationBound {
     }
 
     /// Returns the default value for the [MemorizationBound]
-    pub(crate) fn default_value(dynamic: bool) -> MemorizationBound {
-        if dynamic {
-            Self::DYNAMIC_DEFAULT_VALUE
-        } else {
-            Self::STATIC_DEFAULT_VALUE
+    pub(crate) fn default_value(mode: MemoryBoundMode) -> MemorizationBound {
+        match mode {
+            MemoryBoundMode::Static => Self::STATIC_DEFAULT_VALUE,
+            MemoryBoundMode::Dynamic => Self::DYNAMIC_DEFAULT_VALUE,
         }
     }
 }
@@ -105,14 +105,14 @@ impl MemBound {
     /// This function returns for each stream in `spec` the required memory. It differentiates with the `dynamic` flag between a dynamic and a static memory computation.
     /// The dynamic memory computation starts with a memory-bound of 0 and increases the bound only if a value is used in at least one other evaluation cycle, i.e., if synchronous lookups only access a stream with an offset of 0, then this value does not need to be store in the global memory and the bound for this stream is 0.
     /// The static memory computation assumes that each value is stored in the global memory, so the starting value of each stream is 1.
-    pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
+    pub(crate) fn analyze<M>(spec: &Hir<M>, memory_bound_mode: MemoryBoundMode) -> MemBound
     where
         M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Assign streams to default value
         let mut memory_bound_per_stream = spec
             .all_streams()
-            .map(|sr| (sr, MemorizationBound::default_value(dynamic)))
+            .map(|sr| (sr, MemorizationBound::default_value(memory_bound_mode)))
             .collect::<HashMap<SRef, MemorizationBound>>();
 
         let mut memory_bound_per_window = HashMap::new();
@@ -121,7 +121,7 @@ impl MemBound {
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
             let cur_edge_weight = spec.graph().edge_weight(edge_index).unwrap();
-            let cur_edge_bound = cur_edge_weight.as_memory_bound(dynamic);
+            let cur_edge_bound = cur_edge_weight.as_memory_bound(memory_bound_mode);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bound_per_stream.get_mut(sr).unwrap();
@@ -211,7 +211,7 @@ mod dynaminc_memory_bound_tests {
             .unwrap()
             .determine_evaluation_order(&frontend_config)
             .unwrap();
-        let bounds = MemBound::analyze(&hir, true);
+        let bounds = MemBound::analyze(&hir, MemoryBoundMode::Dynamic);
         assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
@@ -433,7 +433,7 @@ mod static_memory_bound_tests {
             .unwrap()
             .determine_evaluation_order(&frontend_config)
             .unwrap();
-        MemBound::analyze(&hir, false)
+        MemBound::analyze(&hir, MemoryBoundMode::Static)
     }
     fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
         let bounds = calculate_memory_bound(spec);

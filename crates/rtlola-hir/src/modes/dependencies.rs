@@ -10,6 +10,7 @@ use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
 
 use super::{DepAna, DepAnaTrait, TypedTrait};
+use crate::config::MemoryBoundMode;
 use crate::hir::{
     ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, SpawnDef,
     StreamAccessKind, WRef, WidenExprKind,
@@ -66,16 +67,16 @@ impl EdgeWeight {
     }
 
     /// Returns the memory bound of the [EdgeWeight]
-    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+    pub(crate) fn as_memory_bound(&self, memory_bound_mode: MemoryBoundMode) -> MemorizationBound {
         match self.kind {
             StreamAccessKind::Sync
             | StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::InstanceAggregation(_)
-            | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(dynamic),
+            | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(memory_bound_mode),
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
-            StreamAccessKind::Offset(o) => o.as_memory_bound(dynamic),
+            StreamAccessKind::Offset(o) => o.as_memory_bound(memory_bound_mode),
         }
     }
 }

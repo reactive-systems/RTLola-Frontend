@@ -9,29 +9,65 @@ use rtlola_parser::ParserConfig;
 #[derive(Debug)]
 pub struct FrontendConfig<'a> {
     parser_config: &'a ParserConfig,
+    memory_bound_mode: MemoryBoundMode,
+}
+
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+/// The way the memory bound is computed.
+pub enum MemoryBoundMode {
+    #[default]
+    /// All values, including values that only exist during a cycle, are counted towards the memory.
+    /// (all streams have a memory bound of at least 1).
+    Static,
+    /// Counts only values that need to be retained between cycles
+    /// (streams with direct sync accesses have memory bound of 0).
+    Dynamic,
 }
 
 impl<'a> From<&'a ParserConfig> for FrontendConfig<'a> {
     fn from(parser_config: &'a ParserConfig) -> Self {
-        Self { parser_config }
+        Self {
+            parser_config,
+            memory_bound_mode: MemoryBoundMode::default(),
+        }
     }
 }
 
 /// Extension to provide additional methods to the ParserConfig.
 pub trait ParserConfigExt<'a> {
+    /// Specifies whether to compute the memory bound in dynamic or static way.
+    fn with_memory_bound_mode(&'a self, memory_bound_mode: MemoryBoundMode) -> FrontendConfig<'a>;
+
     /// Returns a reference to the underlying parser config.
     fn parser_config(&self) -> &ParserConfig;
 }
 
 impl<'a> ParserConfigExt<'a> for ParserConfig {
+    fn with_memory_bound_mode(&'a self, memory_bound_mode: MemoryBoundMode) -> FrontendConfig<'a> {
+        FrontendConfig::from(self).with_memory_bound_mode(memory_bound_mode)
+    }
+
     fn parser_config(&self) -> &ParserConfig {
         self
     }
 }
 
 impl<'a> FrontendConfig<'a> {
+    fn with_memory_bound_mode(self, memory_bound_mode: MemoryBoundMode) -> FrontendConfig<'a> {
+        Self {
+            memory_bound_mode,
+            ..self
+        }
+    }
+
     /// Returns the configuration for the parser
     pub fn parser_config(&self) -> &ParserConfig {
         self.parser_config
+    }
+}
+
+impl<'a> FrontendConfig<'a> {
+    pub(crate) fn memory_bound_mode(&self) -> MemoryBoundMode {
+        self.memory_bound_mode
     }
 }
