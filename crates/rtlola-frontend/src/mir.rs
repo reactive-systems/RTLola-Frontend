@@ -116,6 +116,9 @@ pub struct RtLolaMir {
     pub triggers: Vec<Trigger>,
     /// The global tags of the specification
     pub global_tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span's of the global tags
+    pub global_tags_span: HashMap<String, Span>,
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
@@ -253,6 +256,9 @@ pub struct InputStream {
     /// The tags annotated to this stream.
     pub tags: Tags,
     #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the input stream
+    pub tags_span: HashMap<String, Span>,
+    #[cfg(feature = "spanned")]
     /// The span of the input stream definition
     pub span: Span,
 }
@@ -290,6 +296,9 @@ pub struct OutputStream {
     pub params: Vec<Parameter>,
     /// The tags annotated to this stream.
     pub tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the output stream
+    pub tags_span: HashMap<String, Span>,
     #[cfg(feature = "spanned")]
     /// The span of the output stream definition
     pub span: Span,

@@ -50,6 +50,8 @@ impl Mir {
                     reference: sr_map[&sr],
                     tags: Self::lower_tags(&i.tags),
                     #[cfg(feature = "spanned")]
+                    tags_span: i.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
+                    #[cfg(feature = "spanned")]
                     span: i.span(),
                 }
             })
@@ -80,6 +82,8 @@ impl Mir {
                 reference: sr_map[&sr],
                 params: Self::lower_parameters(&hir, sr),
                 tags: Self::lower_tags(&o.tags),
+                #[cfg(feature = "spanned")]
+                tags_span: o.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
                 #[cfg(feature = "spanned")]
                 span: o.span(),
             }
@@ -161,6 +165,8 @@ impl Mir {
             .collect();
 
         let global_tags = Self::lower_tags(hir.global_tags());
+        #[cfg(feature = "spanned")]
+        let global_tags_span = hir.global_tags().iter().map(|(k, v)| (k.clone(), v.span)).collect();
 
         Mir {
             inputs,
@@ -172,6 +178,8 @@ impl Mir {
             instance_aggregations,
             triggers,
             global_tags,
+            #[cfg(feature = "spanned")]
+            global_tags_span,
         }
     }
 
