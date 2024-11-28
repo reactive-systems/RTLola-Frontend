@@ -727,19 +727,78 @@ impl<'a> RtLolaParser<'a> {
         let inner = pair.into_inner().next().unwrap();
         match inner.as_rule() {
             Rule::GlobalActivationCondition => {
-                let expr = self.build_expression_ast(inner.into_inner())?;
+                let expr = self.parse_ac_expression(inner.into_inner().next().unwrap())?;
                 Ok(AnnotatedPacingType::Global(expr))
             },
             Rule::LocalActivationCondition => {
-                let expr = self.build_expression_ast(inner.into_inner())?;
+                let expr = self.parse_ac_expression(inner.into_inner().next().unwrap())?;
                 Ok(AnnotatedPacingType::Local(expr))
             },
-            Rule::Expr => {
-                let expr: Expression = self.build_expression_ast(inner.into_inner())?;
+            Rule::AcExpr => {
+                let expr = self.parse_ac_expression(inner)?;
                 Ok(AnnotatedPacingType::Unspecified(expr))
             },
             _ => unreachable!("mismatch between grammar and AST"),
         }
+    }
+
+    fn parse_ac_expression(&self, pair: Pair<'_, Rule>) -> Result<Expression, RtLolaError> {
+        assert_eq!(pair.as_rule(), Rule::AcExpr);
+        let inner = pair.into_inner().next().unwrap();
+        let span: Span = inner.as_span().into();
+        match inner.as_rule() {
+            Rule::NumberLiteral => {
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::Lit(self.parse_number_literal(inner)),
+                    span,
+                ))
+            },
+            Rule::PositiveBooleanExpr => self.parse_positive_boolean_expr(inner.into_inner()),
+            _ => unreachable!(),
+        }
+    }
+
+    fn parse_positive_boolean_expr(&self, pairs: Pairs<Rule>) -> Result<Expression, RtLolaError> {
+        PRATT_PARSER
+            .map_primary(|primary| {
+                match primary.as_rule() {
+                    Rule::PositiveBooleanExpr => self.parse_positive_boolean_expr(primary.into_inner()),
+                    Rule::Ident => {
+                        Ok(Expression::new(
+                            self.spec.next_id(),
+                            ExpressionKind::Ident(self.parse_ident(&primary)),
+                            primary.as_span().into(),
+                        ))
+                    },
+                    Rule::True => {
+                        Ok(Expression::new(
+                            self.spec.next_id(),
+                            ExpressionKind::Lit(Literal::new_bool(self.spec.next_id(), true, primary.as_span().into())),
+                            primary.as_span().into(),
+                        ))
+                    },
+                    _ => unreachable!(),
+                }
+            })
+            .map_infix(|lhs, op, rhs| {
+                let lhs = lhs?;
+                let rhs = rhs?;
+                let span = lhs.span.union(&rhs.span);
+                let op = match op.as_rule() {
+                    Rule::And => BinOp::And,
+                    Rule::BitAnd => BinOp::And,
+                    Rule::Or => BinOp::Or,
+                    Rule::BitOr => BinOp::Or,
+                    _ => unreachable!(),
+                };
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+                    span,
+                ))
+            })
+            .parse(pairs)
     }
 
     /**
@@ -852,25 +911,28 @@ impl<'a> RtLolaParser<'a> {
                 let str_rep = inner.as_str();
                 Literal::new_raw_str(self.spec.next_id(), str_rep, inner.as_span().into())
             },
-            Rule::NumberLiteral => {
-                let span = inner.as_span();
-                let mut pairs = inner.into_inner();
-                let value = pairs.next().expect("Mismatch between AST and grammar");
-
-                let str_rep: &str = value.as_str();
-                let unit = pairs.next().map(|unit| unit.as_str().to_string());
-
-                Literal::new_numeric(self.spec.next_id(), str_rep, unit, span.into())
-            },
             Rule::TupleLiteral => {
                 let span: Span = inner.as_span().into();
                 let elements: Vec<Literal> = inner.into_inner().map(|p| self.parse_literal(p)).collect();
                 Literal::new_tuple(self.spec.next_id(), elements, span)
             },
+            Rule::NumberLiteral => self.parse_number_literal(inner),
             Rule::True => Literal::new_bool(self.spec.next_id(), true, inner.as_span().into()),
             Rule::False => Literal::new_bool(self.spec.next_id(), false, inner.as_span().into()),
             _ => unreachable!(),
         }
+    }
+
+    fn parse_number_literal(&self, pair: Pair<'_, Rule>) -> Literal {
+        assert_eq!(pair.as_rule(), Rule::NumberLiteral);
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let value = pairs.next().expect("Mismatch between AST and grammar");
+
+        let str_rep: &str = value.as_str();
+        let unit = pairs.next().map(|unit| unit.as_str().to_string());
+
+        Literal::new_numeric(self.spec.next_id(), str_rep, unit, span.into())
     }
 
     #[allow(clippy::vec_box)]
@@ -2259,6 +2321,25 @@ mod tests {
         let spec = "constant test: (Float, (String, Bool)) := (1.0, (\"Hello World\", true))\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn invalid_op_in_ac() {
+        let spec = "input in: Int8\n output out: Int16 @!in := 5";
+        let e = super::super::parse(&ParserConfig::for_string(spec.into())).unwrap_err();
+        assert_eq!(e.num_errors(), 1);
+    }
+
+    #[test]
+    fn trigger_and_ac_bug() {
+        let spec = "input in: Int8\n trigger @in (true)";
+        assert!(super::super::parse(&ParserConfig::for_string(spec.into())).is_ok())
+    }
+
+    #[test]
+    fn parenthesis_freq_activation() {
+        let spec = "trigger @(1Hz) (true)";
+        assert!(super::super::parse(&ParserConfig::for_string(spec.into())).is_ok())
     }
 
     #[test]
