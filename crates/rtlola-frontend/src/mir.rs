@@ -21,6 +21,7 @@ mod dependency_graph;
 mod print;
 mod schedule;
 
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -28,9 +29,10 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemorizationBound, Origin, OutputKind, OutputReference, StreamLayers, StreamReference,
-    WindowReference,
+    InputReference, Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, OutputReference, RtLolaHir,
+    StreamLayers, StreamReference, WindowReference,
 };
+pub use rtlola_parser::ast::Tag;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
@@ -70,6 +72,8 @@ pub trait Stream {
     /// Returns the collection of sliding windows that access the stream non-transitively.
     /// This includes both sliding and discrete windows.
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
+    /// Returns the tags annotated to this stream.
+    fn tags(&self) -> &HashMap<String, Option<String>>;
 }
 
 /// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
@@ -108,6 +112,8 @@ pub struct RtLolaMir {
     pub instance_aggregations: Vec<InstanceAggregation>,
     /// The references of all outputs that represent triggers
     pub triggers: Vec<Trigger>,
+    /// The global tags of the specification
+    pub global_tags: Tags,
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
@@ -242,6 +248,8 @@ pub struct InputStream {
     pub memory_bound: MemorizationBound,
     /// The reference referring to this stream
     pub reference: StreamReference,
+    /// The tags annotated to this stream.
+    pub tags: Tags,
 }
 
 /// Contains all information relevant to every kind of output stream.
@@ -275,6 +283,8 @@ pub struct OutputStream {
     pub reference: StreamReference,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
+    /// The tags annotated to this stream.
+    pub tags: Tags,
 }
 
 /// A trigger (represented by the output stream `output_reference`)
@@ -291,6 +301,8 @@ impl OutputStream {
         matches!(self.kind, OutputKind::Trigger(_))
     }
 }
+
+type Tags = HashMap<String, Option<String>>;
 
 /// A type alias for references to triggers.
 pub type TriggerReference = usize;
@@ -795,6 +807,10 @@ impl Stream for OutputStream {
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
         &self.aggregated_by
     }
+
+    fn tags(&self) -> &HashMap<String, Option<String>> {
+        &self.tags
+    }
 }
 
 impl Stream for InputStream {
@@ -848,6 +864,10 @@ impl Stream for InputStream {
 
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn tags(&self) -> &HashMap<String, Option<String>> {
+        &self.tags
     }
 }
 
@@ -1139,6 +1159,32 @@ impl RtLolaMir {
     /// Represents the specification as a dependency graph
     pub fn dependency_graph(&self) -> DependencyGraph<'_> {
         DependencyGraph::new(self)
+    }
+
+    /// Returns the input stream with the given name if it exists.
+    pub fn get_input_by_name(&self, name: &str) -> Option<&InputStream> {
+        self.inputs.iter().find(|input| &input.name == name)
+    }
+
+    /// Returns the output stream with the given name if it exists.
+    pub fn get_output_by_name(&self, name: &str) -> Option<&OutputStream> {
+        self.outputs.iter().find(|output| &output.name == name)
+    }
+
+    /// Returns the stream with the given name if it exists.
+    pub fn get_stream_by_name(&self, name: &str) -> Option<&dyn Stream> {
+        self.get_input_by_name(name)
+            .map(|input| {
+                // clippy likes it this way
+                let input: &dyn Stream = input;
+                input
+            })
+            .or_else(|| {
+                self.get_output_by_name(name).map(|output| {
+                    let output: &dyn Stream = output;
+                    output
+                })
+            })
     }
 }
 

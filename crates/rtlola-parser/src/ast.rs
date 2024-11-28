@@ -46,6 +46,8 @@ pub struct RtLolaAst {
     pub type_declarations: Vec<TypeDeclaration>,
     /// Next highest NodeId
     pub next_node_id: RefCell<NodeId>,
+    /// The global tags of the specification
+    pub global_tags: Vec<Tag>,
 }
 
 impl RtLolaAst {
@@ -59,6 +61,7 @@ impl RtLolaAst {
             mirrors: Vec::new(),
             type_declarations: Vec::new(),
             next_node_id: RefCell::new(NodeId::default()),
+            global_tags: Vec::new(),
         }
     }
 
@@ -79,6 +82,7 @@ impl RtLolaAst {
             mirrors,
             type_declarations,
             next_node_id,
+            global_tags,
         } = self;
 
         RtLolaAst {
@@ -89,6 +93,7 @@ impl RtLolaAst {
             mirrors: mirrors.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
             type_declarations: type_declarations.clone(),
             next_node_id: next_node_id.clone(),
+            global_tags: global_tags.clone(),
         }
     }
 }
@@ -129,6 +134,8 @@ pub struct Input {
     pub ty: Type,
     /// The parameters of a parameterized input stream; The vector is empty in non-parametrized streams.
     pub params: Vec<Rc<Parameter>>,
+    /// The tags annotated to that input
+    pub tags: TagList,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the input stream
@@ -160,6 +167,8 @@ pub struct Output {
     pub eval: Vec<EvalSpec>,
     ///  The close declaration of parametrized stream
     pub close: Option<CloseSpec>,
+    /// The tags annotated to that input
+    pub tags: TagList,
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the output stream
@@ -260,6 +269,19 @@ pub struct TypeDeclaration {
     /// The id of the node in the Ast
     pub id: NodeId,
     /// The span in the specification declaring the type declaration
+    pub span: Span,
+}
+
+type TagList = Vec<Tag>;
+
+/// An annotation of a stream.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct Tag {
+    /// The key of the annotation.
+    pub key: String,
+    /// The value of the annotation (if any).
+    pub value: Option<String>,
+    /// The span of the annotation.
     pub span: Span,
 }
 

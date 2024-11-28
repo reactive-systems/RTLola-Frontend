@@ -1,7 +1,7 @@
 //! This module contains helper to report messages (warnings/errors)
 use std::error::Error;
 use std::fmt::Debug;
-use std::iter::FromIterator;
+use std::iter::{self, FromIterator};
 use std::ops::Range;
 use std::path::Path;
 use std::sync::RwLock;
@@ -456,6 +456,28 @@ impl From<Result<(), RtLolaError>> for RtLolaError {
             Ok(()) => RtLolaError::new(),
             Err(e) => e,
         }
+    }
+}
+
+impl RtLolaError {
+    /// Collects the iterator of Result's into a Result of a collection, while
+    /// concatenating all RTLola errors together
+    pub fn collect<T, Q: FromIterator<T> + Extend<T>>(
+        iter: impl IntoIterator<Item = Result<T, Self>>,
+    ) -> Result<Q, RtLolaError> {
+        iter.into_iter().fold(Ok(Q::from_iter(iter::empty())), |e, item| {
+            match (e, item) {
+                (Ok(mut e), Ok(item)) => {
+                    e.extend(iter::once(item));
+                    Ok(e)
+                },
+                (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err(e),
+                (Err(mut e1), Err(e2)) => {
+                    e1.join(e2);
+                    Err(e1)
+                },
+            }
+        })
     }
 }
 

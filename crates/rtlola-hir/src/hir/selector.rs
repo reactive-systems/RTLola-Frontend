@@ -351,6 +351,7 @@ mod tests {
     use rtlola_parser::ParserConfig;
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::CompleteMode;
 
     macro_rules! assert_streams {
@@ -371,10 +372,10 @@ mod tests {
         output f (p: Int8) spawn @1Hz with i.aggregate(over:1s, using: sum) eval with i close when i = 8\n\
         output g eval when i = 5 with i + 5";
 
-        let ast = ParserConfig::for_string(spec.into())
-            .parse()
-            .unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = crate::fully_analyzed(ast).expect("Invalid Spec");
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parser_config.parse().unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = crate::fully_analyzed(ast, &frontend_config).expect("Invalid Spec");
         hir
     }
 

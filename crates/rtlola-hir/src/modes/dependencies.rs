@@ -542,6 +542,7 @@ mod tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
 
     macro_rules! empty_vec_for_map {
@@ -575,8 +576,13 @@ mod tests {
             HashMap<SRef, Vec<(SRef, WRef)>>,
         )>,
     ) {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast).unwrap().check_types().unwrap();
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
+        let hir = Hir::<BaseMode>::from_ast(ast)
+            .unwrap()
+            .check_types(&frontend_config)
+            .unwrap();
         let deps = DepAna::analyze(&hir);
         if let Ok(deps) = deps {
             let (

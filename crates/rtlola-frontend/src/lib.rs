@@ -33,6 +33,7 @@
 pub mod hash;
 mod lowering;
 pub mod mir;
+pub mod tag_parser;
 
 use mir::Mir;
 use rtlola_hir::hir::FeatureSelector;
@@ -42,6 +43,7 @@ use rtlola_parser::RtLolaAst;
 #[cfg(test)]
 mod tests;
 
+pub use rtlola_hir::config::{FrontendConfig, ParserConfigExt};
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
 pub use rtlola_reporting::{Diagnostic, Handler, RawDiagnostic, RtLolaError, Span};
@@ -55,7 +57,7 @@ pub use crate::mir::RtLolaMir;
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse(config: &ParserConfig) -> Result<RtLolaMir, RtLolaError> {
+pub fn parse<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<RtLolaMir, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
 }
@@ -68,7 +70,7 @@ pub fn parse(config: &ParserConfig) -> Result<RtLolaMir, RtLolaError> {
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_with_features(config: &ParserConfig) -> Result<FeatureSelector, RtLolaError> {
+pub fn parse_with_features<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<FeatureSelector, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(FeatureSelector::new(hir))
 }
@@ -80,9 +82,10 @@ pub fn parse_with_features(config: &ParserConfig) -> Result<FeatureSelector, RtL
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_to_final_hir(cfg: &ParserConfig) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
-    let spec = rtlola_parser::parse(cfg)?;
-    rtlola_hir::fully_analyzed(spec)
+pub fn parse_to_final_hir<'a>(cfg: impl Into<FrontendConfig<'a>>) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
+    let config: FrontendConfig = cfg.into();
+    let spec = rtlola_parser::parse(config.parser_config())?;
+    rtlola_hir::fully_analyzed(spec, &config)
 }
 
 /// Attempts to parse a textual specification into an `RtLolaHir<BaseMode>`.

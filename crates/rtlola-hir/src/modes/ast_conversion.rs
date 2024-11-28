@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use rtlola_parser::ast::{
-    self, FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Type,
+    self, FunctionName, Literal as AstLiteral, NodeId, RtLolaAst, SpawnSpec, StreamAccessKind, Tag, Type,
 };
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use serde::{Deserialize, Serialize};
@@ -109,6 +109,8 @@ pub enum TransformationErr {
     LocalPeriodicUnspawned(Span),
     /// An spawn clause is annotated with a local periodic pacing.
     LocalPeriodicInSpawn(Span),
+    /// A stream is annotated with the same key twice
+    DuplicatedTag(String, Span, Span),
 }
 
 impl TransformationErr {
@@ -221,6 +223,7 @@ impl TransformationErr {
             TransformationErr::ExpectedFrequency(span) => Diagnostic::error("Local and Global annotated pacings must be frequencies").add_span_with_label(span, Some("Found Expression here"), true),
             TransformationErr::LocalPeriodicUnspawned(span) => Diagnostic::error("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.").add_span_with_label(span, None, false),
             TransformationErr::LocalPeriodicInSpawn(span) => Diagnostic::error("In pacing type analysis:\nspawn condition can not be local periodic.").add_span_with_label(span, Some("Found local periodic pacing here."), true),
+            TransformationErr::DuplicatedTag(key, first, second) => Diagnostic::error(&format!("The stream is tagged with \"{key}\" more than once.")).add_span_with_label(first, Some("First occurance found here."), false).add_span_with_label(second, Some("Second occurance found here."), true)
         }
     }
 }
@@ -267,6 +270,7 @@ impl ExpressionTransformer {
             mirrors: _,
             type_declarations: _,
             next_node_id: _,
+            global_tags,
         } = ast;
         let mut exprid_to_expr = HashMap::new();
         let mut hir_outputs = vec![];
@@ -280,6 +284,7 @@ impl ExpressionTransformer {
                 eval,
                 close,
                 annotated_type,
+                tags,
                 id: _,
                 span: _,
             } = (*o).clone();
@@ -368,6 +373,8 @@ impl ExpressionTransformer {
                 }
             }
 
+            let new_tags = self.transform_tags(&tags)?;
+
             hir_outputs.push(Output {
                 kind: new_kind,
                 sr,
@@ -376,6 +383,7 @@ impl ExpressionTransformer {
                 eval,
                 close,
                 annotated_type,
+                tags: new_tags,
                 span: o.span,
             });
         }
@@ -390,10 +398,13 @@ impl ExpressionTransformer {
                         .map_err(|reason| TransformationErr::InvalidType(i.ty.clone(), reason, i.span))?,
                     name: i.name.name.clone(),
                     sr: SRef::In(ix),
+                    tags: self.transform_tags(&i.tags)?,
                     span: i.span,
                 })
             })
             .collect::<Result<Vec<_>, TransformationErr>>()?;
+
+        let global_tags = self.transform_tags(&global_tags)?;
 
         let ExpressionTransformer {
             sliding_windows,
@@ -421,7 +432,20 @@ impl ExpressionTransformer {
             outputs: hir_outputs,
             expr_maps,
             mode: new_mode,
+            global_tags,
         })
+    }
+
+    fn transform_tags(&self, tags: &[Tag]) -> Result<HashMap<String, Tag>, TransformationErr> {
+        let mut new_tags: HashMap<String, Tag> = HashMap::new();
+        for tag in tags {
+            if new_tags.contains_key(&tag.key) {
+                let first_span = new_tags[&tag.key].span;
+                return Err(TransformationErr::DuplicatedTag(tag.key.clone(), first_span, tag.span));
+            }
+            new_tags.insert(tag.key.clone(), tag.clone());
+        }
+        Ok(new_tags)
     }
 
     fn annotated_type(ast_ty: &Type) -> Result<AnnotatedType, String> {
