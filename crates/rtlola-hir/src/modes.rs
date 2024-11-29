@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
+use self::dependencies::{
+    DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies,
+};
 use self::types::HirType;
 use crate::config::FrontendConfig;
 use crate::hir::{ConcretePacingType, ExprId, Hir, SRef, StreamAccessKind, WRef};
@@ -186,7 +188,10 @@ impl Hir<TypedMode> {
     ///
     /// # Fails
     /// The function returns a [RtLolaError] if the specification is not well-formed.
-    pub fn analyze_dependencies(self, cfg: &FrontendConfig) -> Result<Hir<DepAnaMode>, RtLolaError> {
+    pub fn analyze_dependencies(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<DepAnaMode>, RtLolaError> {
         self.progress(cfg)
     }
 }
@@ -308,7 +313,10 @@ impl Hir<DepAnaMode> {
     ///
     /// # Fails
     /// The function fails if the evaluation order cannot be determined.
-    pub fn determine_evaluation_order(self, cfg: &FrontendConfig) -> Result<Hir<OrderedMode>, RtLolaError> {
+    pub fn determine_evaluation_order(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<OrderedMode>, RtLolaError> {
         self.progress(cfg)
     }
 }
@@ -374,7 +382,10 @@ impl Hir<OrderedMode> {
     ///
     /// # Fails
     /// The function fails if the memory cannot be determined.
-    pub fn determine_memory_bounds(self, cfg: &FrontendConfig) -> Result<Hir<MemBoundMode>, RtLolaError> {
+    pub fn determine_memory_bounds(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<MemBoundMode>, RtLolaError> {
         self.progress(cfg)
     }
 }

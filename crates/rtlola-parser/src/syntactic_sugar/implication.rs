@@ -48,7 +48,7 @@ impl Implication {
                             span: expr.span.to_indirect(),
                         };
                         Box::new(lhs)
-                    },
+                    }
                 };
                 let lhs = Expression {
                     kind: ExpressionKind::Unary(UnOp::Not, lhs),
@@ -61,7 +61,7 @@ impl Implication {
                     span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
-            },
+            }
             _ => ChangeSet::empty(),
         }
     }

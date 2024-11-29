@@ -23,7 +23,9 @@ impl ParameterDecl {
     pub(crate) fn iter(&self) -> Box<dyn Iterator<Item = &AnnotatedType> + '_> {
         match self {
             ParameterDecl::FixedAmount(v) => Box::new(v.iter()),
-            ParameterDecl::ArbitaryAmount { fixed, repeating } => Box::new(fixed.iter().chain(iter::repeat(repeating))),
+            ParameterDecl::ArbitaryAmount { fixed, repeating } => {
+                Box::new(fixed.iter().chain(iter::repeat(repeating)))
+            }
         }
     }
 }

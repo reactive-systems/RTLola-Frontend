@@ -4,10 +4,10 @@ use std::iter::zip;
 use itertools::Itertools;
 use num::ToPrimitive;
 use rtlola_hir::hir::{
-    ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant, DepAnaTrait,
-    DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined, InstanceAggregation, Literal, MemBoundTrait, Offset,
-    OrderedTrait, Origin, OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind,
-    Window,
+    ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant,
+    DepAnaTrait, DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined,
+    InstanceAggregation, Literal, MemBoundTrait, Offset, OrderedTrait, Origin, OutputKind,
+    SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, InstanceSelection, Tag, WindowOperation};
@@ -39,7 +39,10 @@ impl Mir {
                 mir::InputStream {
                     name: i.name.clone(),
                     ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
-                    accessed_by: Self::lower_accessed_streams(&sr_map, hir.direct_accessed_by_with(sr)),
+                    accessed_by: Self::lower_accessed_streams(
+                        &sr_map,
+                        hir.direct_accessed_by_with(sr),
+                    ),
                     aggregated_by: hir
                         .aggregated_by(sr)
                         .into_iter()
@@ -57,7 +60,10 @@ impl Mir {
             })
             .collect::<Vec<mir::InputStream>>();
         assert!(
-            inputs.iter().enumerate().all(|(idx, i)| idx == i.reference.in_ix()),
+            inputs
+                .iter()
+                .enumerate()
+                .all(|(idx, i)| idx == i.reference.in_ix()),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
@@ -94,7 +100,10 @@ impl Mir {
             .collect::<Vec<_>>();
 
         assert!(
-            outputs.iter().enumerate().all(|(idx, o)| idx == o.reference.out_ix()),
+            outputs
+                .iter()
+                .enumerate()
+                .all(|(idx, o)| idx == o.reference.out_ix()),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
@@ -154,19 +163,23 @@ impl Mir {
 
         let triggers = outputs
             .iter()
-            .filter_map(|output| matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference))
+            .filter_map(|output| {
+                matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference)
+            })
             .enumerate()
-            .map(|(trigger_reference, output_reference)| {
-                Trigger {
-                    trigger_reference,
-                    output_reference,
-                }
+            .map(|(trigger_reference, output_reference)| Trigger {
+                trigger_reference,
+                output_reference,
             })
             .collect();
 
         let global_tags = Self::lower_tags(hir.global_tags());
         #[cfg(feature = "spanned")]
-        let global_tags_span = hir.global_tags().iter().map(|(k, v)| (k.clone(), v.span)).collect();
+        let global_tags_span = hir
+            .global_tags()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.span))
+            .collect();
 
         Mir {
             inputs,
@@ -220,10 +233,10 @@ impl Mir {
             ActivationCondition::Models(disjuncts) if disjuncts.len() == 1 => {
                 let conj = disjuncts.iter().next().unwrap();
                 lower_conjunction(conj)
-            },
-            ActivationCondition::Models(disjuncts) => {
-                mir::ActivationCondition::Disjunction(disjuncts.iter().map(lower_conjunction).collect())
-            },
+            }
+            ActivationCondition::Models(disjuncts) => mir::ActivationCondition::Disjunction(
+                disjuncts.iter().map(lower_conjunction).collect(),
+            ),
             ActivationCondition::True => mir::ActivationCondition::True,
         }
     }
@@ -234,19 +247,15 @@ impl Mir {
         sr: StreamReference,
     ) -> mir::TimeDrivenStream {
         match &hir.stream_type(sr).eval_pacing {
-            ConcretePacingType::FixedGlobalPeriodic(f) => {
-                mir::TimeDrivenStream {
-                    reference: sr_map[&sr],
-                    frequency: *f,
-                    locality: PacingLocality::Global,
-                }
+            ConcretePacingType::FixedGlobalPeriodic(f) => mir::TimeDrivenStream {
+                reference: sr_map[&sr],
+                frequency: *f,
+                locality: PacingLocality::Global,
             },
-            ConcretePacingType::FixedLocalPeriodic(f) => {
-                mir::TimeDrivenStream {
-                    reference: sr_map[&sr],
-                    frequency: *f,
-                    locality: PacingLocality::Local,
-                }
+            ConcretePacingType::FixedLocalPeriodic(f) => mir::TimeDrivenStream {
+                reference: sr_map[&sr],
+                frequency: *f,
+                locality: PacingLocality::Local,
             },
             _ => unreachable!(),
         }
@@ -257,13 +266,15 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
     ) -> mir::PacingType {
         match cpt {
-            ConcretePacingType::Event(ac) => mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map)),
+            ConcretePacingType::Event(ac) => {
+                mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map))
+            }
             ConcretePacingType::FixedLocalPeriodic(freq) => mir::PacingType::LocalPeriodic(freq),
             ConcretePacingType::FixedGlobalPeriodic(freq) => mir::PacingType::GlobalPeriodic(freq),
             ConcretePacingType::Constant => mir::PacingType::Constant,
             other => {
                 unreachable!("Ensured by pacing type checker: {:?}", other)
-            },
+            }
         }
     }
 
@@ -294,7 +305,10 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         sr: StreamReference,
     ) -> Eval {
-        assert_eq!(hir.eval_expr(sr).unwrap().len(), hir.eval_cond(sr).unwrap().len());
+        assert_eq!(
+            hir.eval_expr(sr).unwrap().len(),
+            hir.eval_cond(sr).unwrap().len()
+        );
 
         let clauses = zip(hir.eval_expr(sr).unwrap(), hir.eval_cond(sr).unwrap())
             .enumerate()
@@ -315,7 +329,10 @@ impl Mir {
             .collect();
 
         let eval_pacing = Self::lower_pacing_type(hir.stream_type(sr).eval_pacing, sr_map);
-        Eval { clauses, eval_pacing }
+        Eval {
+            clauses,
+            eval_pacing,
+        }
     }
 
     fn lower_close(
@@ -426,9 +443,12 @@ impl Mir {
             ConcreteValueType::UFixed32_16 => mir::Type::UFixed(mir::FixedTy::Fixed32_16),
             ConcreteValueType::UFixed16_8 => mir::Type::UFixed(mir::FixedTy::Fixed16_8),
             ConcreteValueType::Tuple(elements) => {
-                let elements = elements.iter().map(Self::lower_value_type).collect::<Vec<_>>();
+                let elements = elements
+                    .iter()
+                    .map(Self::lower_value_type)
+                    .collect::<Vec<_>>();
                 mir::Type::Tuple(elements)
-            },
+            }
             ConcreteValueType::TString => mir::Type::String,
             ConcreteValueType::Byte => mir::Type::Bytes,
             ConcreteValueType::Option(v) => mir::Type::Option(Box::new(Self::lower_value_type(v))),
@@ -458,7 +478,7 @@ impl Mir {
         match expr {
             ExpressionKind::LoadConstant(constant) => {
                 mir::ExpressionKind::LoadConstant(Self::lower_constant(constant, ty))
-            },
+            }
             ExpressionKind::ArithLog(op, args) => {
                 let op = Self::lower_arith_log_op(*op);
                 let args = args
@@ -466,15 +486,18 @@ impl Mir {
                     .map(|arg| Self::lower_expr(hir, sr_map, arg))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::ArithLog(op, args)
+            }
+            ExpressionKind::StreamAccess(sr, kind, para) => mir::ExpressionKind::StreamAccess {
+                target: sr_map[sr],
+                access_kind: Self::lower_stream_access_kind(*kind),
+                parameters: para
+                    .iter()
+                    .map(|p| Self::lower_expr(hir, sr_map, p))
+                    .collect(),
             },
-            ExpressionKind::StreamAccess(sr, kind, para) => {
-                mir::ExpressionKind::StreamAccess {
-                    target: sr_map[sr],
-                    access_kind: Self::lower_stream_access_kind(*kind),
-                    parameters: para.iter().map(|p| Self::lower_expr(hir, sr_map, p)).collect(),
-                }
-            },
-            ExpressionKind::ParameterAccess(sr, para) => mir::ExpressionKind::ParameterAccess(sr_map[sr], *para),
+            ExpressionKind::ParameterAccess(sr, para) => {
+                mir::ExpressionKind::ParameterAccess(sr_map[sr], *para)
+            }
             ExpressionKind::Ite {
                 condition,
                 consequence,
@@ -488,19 +511,19 @@ impl Mir {
                     consequence,
                     alternative,
                 }
-            },
+            }
             ExpressionKind::Tuple(elements) => {
                 let elements = elements
                     .iter()
                     .map(|element| Self::lower_expr(hir, sr_map, element))
                     .collect::<Vec<mir::Expression>>();
                 mir::ExpressionKind::Tuple(elements)
-            },
+            }
             ExpressionKind::TupleAccess(tuple, element_pos) => {
                 let tuple = Box::new(Self::lower_expr(hir, sr_map, tuple));
                 let element_pos = *element_pos;
                 mir::ExpressionKind::TupleAccess(tuple, element_pos)
-            },
+            }
             ExpressionKind::Function(kind) => {
                 let FnExprKind { name, args, .. } = kind;
                 match name.as_ref() {
@@ -508,26 +531,26 @@ impl Mir {
                         assert_eq!(args.len(), 1);
                         let expr = Box::new(Self::lower_expr(hir, sr_map, &args[0]));
                         mir::ExpressionKind::Convert { expr }
-                    },
+                    }
                     _ => {
                         let args = args
                             .iter()
                             .map(|arg| Self::lower_expr(hir, sr_map, arg))
                             .collect::<Vec<mir::Expression>>();
                         mir::ExpressionKind::Function(name.clone(), args)
-                    },
+                    }
                 }
-            },
+            }
             ExpressionKind::Widen(kind) => {
                 let WidenExprKind { expr, .. } = kind;
                 let expr = Box::new(Self::lower_expr(hir, sr_map, expr));
                 mir::ExpressionKind::Convert { expr }
-            },
+            }
             ExpressionKind::Default { expr, default } => {
                 let expr = Box::new(Self::lower_expr(hir, sr_map, expr));
                 let default = Box::new(Self::lower_expr(hir, sr_map, default));
                 mir::ExpressionKind::Default { expr, default }
-            },
+            }
         }
     }
 
@@ -542,12 +565,10 @@ impl Mir {
         match constant {
             Literal::Str(s) => mir::Constant::Str(s.clone()),
             Literal::Bool(b) => mir::Constant::Bool(*b),
-            Literal::Integer(i) => {
-                match ty {
-                    mir::Type::Int(_) => mir::Constant::Int(*i),
-                    mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
-                    _ => unreachable!(),
-                }
+            Literal::Integer(i) => match ty {
+                mir::Type::Int(_) => mir::Constant::Int(*i),
+                mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
+                _ => unreachable!(),
             },
             Literal::SInt(i) => {
                 //TODO rewrite to 128 bytes
@@ -556,13 +577,11 @@ impl Mir {
                     mir::Type::UInt(_) => mir::Constant::UInt(*i as u64),
                     _ => unreachable!(),
                 }
-            },
-            Literal::Decimal(f) => {
-                match ty {
-                    mir::Type::Float(_) => mir::Constant::Float(f.to_f64().unwrap()),
-                    mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
-                    _ => unreachable!(),
-                }
+            }
+            Literal::Decimal(f) => match ty {
+                mir::Type::Float(_) => mir::Constant::Float(f.to_f64().unwrap()),
+                mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
+                _ => unreachable!(),
             },
             Literal::Tuple(elements) => {
                 let mir::Type::Tuple(tuple_types) = ty else {
@@ -576,7 +595,7 @@ impl Mir {
                         .map(|(lit, ty)| Self::lower_constant_literal(lit, ty))
                         .collect(),
                 )
-            },
+            }
         }
     }
 
@@ -655,7 +674,9 @@ impl Mir {
             StreamAccessKind::Sync => mir::StreamAccessKind::Sync,
             StreamAccessKind::DiscreteWindow(wref) => mir::StreamAccessKind::DiscreteWindow(wref),
             StreamAccessKind::SlidingWindow(wref) => mir::StreamAccessKind::SlidingWindow(wref),
-            StreamAccessKind::InstanceAggregation(wref) => mir::StreamAccessKind::InstanceAggregation(wref),
+            StreamAccessKind::InstanceAggregation(wref) => {
+                mir::StreamAccessKind::InstanceAggregation(wref)
+            }
             StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
             StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
             StreamAccessKind::Get => mir::StreamAccessKind::Get,
@@ -669,7 +690,7 @@ impl Mir {
             Offset::PastDiscrete(o) => mir::Offset::Past(o),
             Offset::FutureRealTime(_) | Offset::PastRealTime(_) => {
                 unreachable!("Real-time Lookups should be already transformed to discrete lookups.")
-            },
+            }
         }
     }
 
@@ -694,14 +715,12 @@ impl Mir {
     fn lower_parameters(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
         let params = hir.output(sr).expect("is output stream").params();
         params
-            .map(|parameter| {
-                mir::Parameter {
-                    name: parameter.name.clone(),
-                    ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
-                    idx: parameter.index(),
-                    #[cfg(feature = "spanned")]
-                    span: parameter.span(),
-                }
+            .map(|parameter| mir::Parameter {
+                name: parameter.name.clone(),
+                ty: Self::lower_value_type(&hir.get_parameter_type(sr, parameter.index())),
+                idx: parameter.index(),
+                #[cfg(feature = "spanned")]
+                span: parameter.span(),
             })
             .collect()
     }
@@ -726,7 +745,10 @@ mod tests {
     }
 
     fn lower_spec_with_config(config: FrontendConfig) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
-        let ast = config.parser_config().parse().unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = config
+            .parser_config()
+            .parse()
+            .unwrap_or_else(|e| panic!("{:?}", e));
         let hir = rtlola_hir::fully_analyzed(ast, &config).expect("Invalid AST:");
         (hir.clone(), Mir::from_hir(hir))
     }
@@ -744,10 +766,18 @@ mod tests {
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 2);
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
-        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir
+            .inputs
+            .iter()
+            .find(|i| i.name == "a".to_string())
+            .unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
         let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
-        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir
+            .outputs
+            .iter()
+            .find(|i| i.name == "d".to_string())
+            .unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
 
@@ -764,10 +794,18 @@ mod tests {
         assert_eq!(mir.sliding_windows.len(), 3);
         assert_eq!(mir.triggers.len(), 1);
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
-        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir
+            .inputs
+            .iter()
+            .find(|i| i.name == "a".to_string())
+            .unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
         let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
-        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir
+            .outputs
+            .iter()
+            .find(|i| i.name == "d".to_string())
+            .unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
     }
 
@@ -785,10 +823,18 @@ mod tests {
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 0);
         let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
-        let mir_a = mir.inputs.iter().find(|i| i.name == "a".to_string()).unwrap();
+        let mir_a = mir
+            .inputs
+            .iter()
+            .find(|i| i.name == "a".to_string())
+            .unwrap();
         assert_eq!(hir_a.sr(), mir_a.reference);
         let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
-        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir
+            .outputs
+            .iter()
+            .find(|i| i.name == "d".to_string())
+            .unwrap();
         assert_eq!(hir_d.sr(), mir_d.reference);
         assert_eq!(
             &mir_d.spawn.expression,
@@ -835,7 +881,11 @@ mod tests {
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 0);
 
-        let mir_d = mir.outputs.iter().find(|i| i.name == "d".to_string()).unwrap();
+        let mir_d = mir
+            .outputs
+            .iter()
+            .find(|i| i.name == "d".to_string())
+            .unwrap();
 
         assert!(mir_d.spawn.expression.is_none());
         assert!(matches!(

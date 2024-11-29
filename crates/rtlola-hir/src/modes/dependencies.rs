@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use super::{DepAna, DepAnaTrait, TypedTrait};
 use crate::config::MemoryBoundMode;
 use crate::hir::{
-    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef, SpawnDef,
-    StreamAccessKind, WRef, WidenExprKind,
+    ConcretePacingType, Expression, ExpressionKind, FnExprKind, Hir, MemorizationBound, SRef,
+    SpawnDef, StreamAccessKind, WRef, WidenExprKind,
 };
 use crate::modes::HirMode;
 
@@ -62,7 +62,9 @@ impl EdgeWeight {
             | StreamAccessKind::Hold
             | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
-            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => Some(wref),
+            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
+                Some(wref)
+            }
         }
     }
 
@@ -74,7 +76,9 @@ impl EdgeWeight {
             | StreamAccessKind::Fresh
             | StreamAccessKind::DiscreteWindow(_)
             | StreamAccessKind::InstanceAggregation(_)
-            | StreamAccessKind::SlidingWindow(_) => MemorizationBound::default_value(memory_bound_mode),
+            | StreamAccessKind::SlidingWindow(_) => {
+                MemorizationBound::default_value(memory_bound_mode)
+            }
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
             StreamAccessKind::Offset(o) => o.as_memory_bound(memory_bound_mode),
         }
@@ -143,10 +147,22 @@ impl ExtendedDepGraph for DependencyGraph {
             match (lhs_pt, rhs_pt) {
                 (ConcretePacingType::Event(_), ConcretePacingType::Event(_)) => true,
                 (ConcretePacingType::Event(_), _) | (_, ConcretePacingType::Event(_)) => false,
-                (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_)) => true,
-                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
-                (ConcretePacingType::FixedLocalPeriodic(_), ConcretePacingType::FixedGlobalPeriodic(_))
-                | (ConcretePacingType::FixedGlobalPeriodic(_), ConcretePacingType::FixedLocalPeriodic(_)) => true,
+                (
+                    ConcretePacingType::FixedGlobalPeriodic(_),
+                    ConcretePacingType::FixedGlobalPeriodic(_),
+                ) => true,
+                (
+                    ConcretePacingType::FixedLocalPeriodic(_),
+                    ConcretePacingType::FixedLocalPeriodic(_),
+                ) => true,
+                (
+                    ConcretePacingType::FixedLocalPeriodic(_),
+                    ConcretePacingType::FixedGlobalPeriodic(_),
+                )
+                | (
+                    ConcretePacingType::FixedGlobalPeriodic(_),
+                    ConcretePacingType::FixedLocalPeriodic(_),
+                ) => true,
                 _ => unreachable!(),
             }
         });
@@ -168,7 +184,9 @@ impl DepAnaTrait for DepAna {
     fn direct_accesses(&self, who: SRef) -> Vec<SRef> {
         self.direct_accesses
             .get(&who)
-            .map_or(Vec::new(), |accesses| accesses.iter().map(|(sref, _)| *sref).collect())
+            .map_or(Vec::new(), |accesses| {
+                accesses.iter().map(|(sref, _)| *sref).collect()
+            })
     }
 
     fn direct_accesses_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)> {
@@ -184,9 +202,11 @@ impl DepAnaTrait for DepAna {
     }
 
     fn direct_accessed_by(&self, who: SRef) -> Vec<SRef> {
-        self.direct_accessed_by.get(&who).map_or(Vec::new(), |accessed_by| {
-            accessed_by.iter().map(|(sref, _)| *sref).collect()
-        })
+        self.direct_accessed_by
+            .get(&who)
+            .map_or(Vec::new(), |accessed_by| {
+                accessed_by.iter().map(|(sref, _)| *sref).collect()
+            })
     }
 
     fn direct_accessed_by_with(&self, who: SRef) -> Vec<(SRef, Vec<(Origin, StreamAccessKind)>)> {
@@ -202,12 +222,14 @@ impl DepAnaTrait for DepAna {
     }
 
     fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
-        self.aggregated_by.get(&who).map_or(Vec::new(), |aggregated_by| {
-            aggregated_by
-                .iter()
-                .map(|(sref, wref)| (*sref, *wref))
-                .collect::<Vec<(SRef, WRef)>>()
-        })
+        self.aggregated_by
+            .get(&who)
+            .map_or(Vec::new(), |aggregated_by| {
+                aggregated_by
+                    .iter()
+                    .map(|(sref, wref)| (*sref, *wref))
+                    .collect::<Vec<(SRef, WRef)>>()
+            })
     }
 
     fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
@@ -243,7 +265,9 @@ impl DependencyErr {
             .collect();
         match self {
             DependencyErr::WellFormedNess(mut cycle) => {
-                if cycle.len() == 1 || cycle[0] != *cycle.last().expect("Cycle has at least one element") {
+                if cycle.len() == 1
+                    || cycle[0] != *cycle.last().expect("Cycle has at least one element")
+                {
                     cycle.push(cycle[0]);
                 }
                 let cycle_string = cycle.iter().map(|sr| &names[sr]).join(" -> ");
@@ -258,7 +282,7 @@ impl DependencyErr {
                     );
                 }
                 diag
-            },
+            }
         }
     }
 }
@@ -293,12 +317,16 @@ impl DepAna {
             .flat_map(|sr| {
                 spec.spawn(sr).map(
                     |SpawnDef {
-                         expression, condition, ..
+                         expression,
+                         condition,
+                         ..
                      }| {
                         expression
                             .map_or(Vec::new(), |spawn_expr| Self::collect_edges(sr, spawn_expr))
                             .into_iter()
-                            .chain(condition.map_or(Vec::new(), |spawn_cond| Self::collect_edges(sr, spawn_cond)))
+                            .chain(condition.map_or(Vec::new(), |spawn_cond| {
+                                Self::collect_edges(sr, spawn_cond)
+                            }))
                     },
                 )
             })
@@ -312,7 +340,11 @@ impl DepAna {
                     .iter()
                     .enumerate()
                     .flat_map(|(i, eval)| eval.condition.map(|cond| (i, cond)))
-                    .flat_map(|(i, filter)| Self::collect_edges(sr, filter).into_iter().map(move |a| (i, a)))
+                    .flat_map(|(i, filter)| {
+                        Self::collect_edges(sr, filter)
+                            .into_iter()
+                            .map(move |a| (i, a))
+                    })
                     .collect::<Vec<_>>()
             })
             .map(|(i, (src, w, tar))| (src, EdgeWeight::new(w, Origin::Filter(i)), tar));
@@ -337,7 +369,10 @@ impl DepAna {
         let mut graph: DependencyGraph = StableGraph::with_capacity(num_nodes, num_edges);
 
         // add nodes and edges to graph
-        let node_mapping: HashMap<SRef, NodeIndex> = spec.all_streams().map(|sr| (sr, graph.add_node(sr))).collect();
+        let node_mapping: HashMap<SRef, NodeIndex> = spec
+            .all_streams()
+            .map(|sr| (sr, graph.add_node(sr)))
+            .collect();
         edges.iter().for_each(|(src, w, tar)| {
             graph.add_edge(node_mapping[src], node_mapping[tar], *w);
         });
@@ -349,7 +384,8 @@ impl DepAna {
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> = spec.all_streams().map(|sr| (sr, Vec::new())).collect();
+        let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> =
+            spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
@@ -382,7 +418,9 @@ impl DepAna {
                 let sr = *(graph.node_weight(from_index).unwrap());
                 let transitive_dependencies = graph
                     .node_indices()
-                    .filter(|to_index| Self::has_transitive_connection(&graph, from_index, *to_index))
+                    .filter(|to_index| {
+                        Self::has_transitive_connection(&graph, from_index, *to_index)
+                    })
                     .map(|to_index| *(graph.node_weight(to_index).unwrap()))
                     .collect::<Vec<SRef>>();
                 (sr, transitive_dependencies)
@@ -394,7 +432,9 @@ impl DepAna {
                 let sr = *(graph.node_weight(to_index).unwrap());
                 let transitive_dependencies = graph
                     .node_indices()
-                    .filter(|from_index| Self::has_transitive_connection(&graph, *from_index, to_index))
+                    .filter(|from_index| {
+                        Self::has_transitive_connection(&graph, *from_index, to_index)
+                    })
                     .map(|from_index| *(graph.node_weight(from_index).unwrap()))
                     .collect::<Vec<SRef>>();
                 (sr, transitive_dependencies)
@@ -426,7 +466,9 @@ impl DepAna {
                     .map(|(target, accesses)| {
                         (
                             target,
-                            accesses.map(|(_, origin, kind)| (origin, kind)).collect::<Vec<_>>(),
+                            accesses
+                                .map(|(_, origin, kind)| (origin, kind))
+                                .collect::<Vec<_>>(),
                         )
                     })
                     .collect();
@@ -465,11 +507,9 @@ impl DepAna {
     {
         use petgraph::visit::{depth_first_search, DfsEvent};
 
-        depth_first_search(g, g.node_identifiers(), |event| {
-            match event {
-                DfsEvent::BackEdge(start, end) => Err((start, end)),
-                _ => Ok(()),
-            }
+        depth_first_search(g, g.node_identifiers(), |event| match event {
+            DfsEvent::BackEdge(start, end) => Err((start, end)),
+            _ => Ok(()),
         })
     }
 
@@ -486,9 +526,9 @@ impl DepAna {
 
         // check if cyclic
         Self::is_cyclic_directed(&graph).map_err(|(start, end)| {
-            let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None)
-                .next()
-                .expect("If there is a cycle with start and end, then there is a path between them");
+            let path: Vec<NodeIndex> = all_simple_paths(&graph, end, start, 0, None).next().expect(
+                "If there is a cycle with start and end, then there is a path between them",
+            );
             let streams: Vec<SRef> = path.iter().map(|id| graph[*id]).collect();
             DependencyErr::WellFormedNess(streams)
         })
@@ -503,37 +543,38 @@ impl DepAna {
                     .collect::<Vec<(SRef, StreamAccessKind, SRef)>>();
                 args.push((src, *stream_access_kind, *target));
                 args
-            },
+            }
             ExpressionKind::ParameterAccess(_, _) => Vec::new(),
             ExpressionKind::LoadConstant(_) => Vec::new(),
-            ExpressionKind::ArithLog(_op, args) => {
-                args.iter()
-                    .flat_map(|a| Self::collect_edges(src, a).into_iter())
-                    .collect()
-            },
-            ExpressionKind::Tuple(content) => content.iter().flat_map(|a| Self::collect_edges(src, a)).collect(),
-            ExpressionKind::Function(FnExprKind { args, .. }) => {
-                args.iter().flat_map(|a| Self::collect_edges(src, a)).collect()
-            },
+            ExpressionKind::ArithLog(_op, args) => args
+                .iter()
+                .flat_map(|a| Self::collect_edges(src, a).into_iter())
+                .collect(),
+            ExpressionKind::Tuple(content) => content
+                .iter()
+                .flat_map(|a| Self::collect_edges(src, a))
+                .collect(),
+            ExpressionKind::Function(FnExprKind { args, .. }) => args
+                .iter()
+                .flat_map(|a| Self::collect_edges(src, a))
+                .collect(),
             ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
-            } => {
-                Self::collect_edges(src, condition)
-                    .into_iter()
-                    .chain(Self::collect_edges(src, consequence))
-                    .chain(Self::collect_edges(src, alternative))
-                    .collect()
-            },
+            } => Self::collect_edges(src, condition)
+                .into_iter()
+                .chain(Self::collect_edges(src, consequence))
+                .chain(Self::collect_edges(src, alternative))
+                .collect(),
             ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
-            ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => Self::collect_edges(src, inner),
-            ExpressionKind::Default { expr, default } => {
-                Self::collect_edges(src, expr)
-                    .into_iter()
-                    .chain(Self::collect_edges(src, default))
-                    .collect()
-            },
+            ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => {
+                Self::collect_edges(src, inner)
+            }
+            ExpressionKind::Default { expr, default } => Self::collect_edges(src, expr)
+                .into_iter()
+                .chain(Self::collect_edges(src, default))
+                .collect(),
         }
     }
 }
@@ -601,27 +642,43 @@ mod tests {
                     .iter()
                     .for_each(|(sr, _)| assert!(accesses_reference.contains(&sr), "sr: {}", sr));
             });
-            deps.transitive_accesses.iter().for_each(|(sr, accesses_hir)| {
-                let accesses_reference = transitive_accesses.get(sr).unwrap();
-                assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
-                accesses_hir
-                    .iter()
-                    .for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
-            });
-            deps.direct_accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
-                let accessed_by_reference = direct_accessed_by.get(sr).unwrap();
-                assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
-                accessed_by_hir
-                    .iter()
-                    .for_each(|sr| assert!(accessed_by_reference.contains(&sr.0), "sr: {}", sr.0));
-            });
-            deps.transitive_accessed_by.iter().for_each(|(sr, accessed_by_hir)| {
-                let accessed_by_reference = transitive_accessed_by.get(sr).unwrap();
-                assert_eq!(accessed_by_hir.len(), accessed_by_reference.len(), "sr: {}", sr);
-                accessed_by_hir
-                    .iter()
-                    .for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
-            });
+            deps.transitive_accesses
+                .iter()
+                .for_each(|(sr, accesses_hir)| {
+                    let accesses_reference = transitive_accesses.get(sr).unwrap();
+                    assert_eq!(accesses_hir.len(), accesses_reference.len(), "sr: {}", sr);
+                    accesses_hir
+                        .iter()
+                        .for_each(|sr| assert!(accesses_reference.contains(sr), "sr: {}", sr));
+                });
+            deps.direct_accessed_by
+                .iter()
+                .for_each(|(sr, accessed_by_hir)| {
+                    let accessed_by_reference = direct_accessed_by.get(sr).unwrap();
+                    assert_eq!(
+                        accessed_by_hir.len(),
+                        accessed_by_reference.len(),
+                        "sr: {}",
+                        sr
+                    );
+                    accessed_by_hir.iter().for_each(|sr| {
+                        assert!(accessed_by_reference.contains(&sr.0), "sr: {}", sr.0)
+                    });
+                });
+            deps.transitive_accessed_by
+                .iter()
+                .for_each(|(sr, accessed_by_hir)| {
+                    let accessed_by_reference = transitive_accessed_by.get(sr).unwrap();
+                    assert_eq!(
+                        accessed_by_hir.len(),
+                        accessed_by_reference.len(),
+                        "sr: {}",
+                        sr
+                    );
+                    accessed_by_hir
+                        .iter()
+                        .for_each(|sr| assert!(accessed_by_reference.contains(sr), "sr: {}", sr));
+                });
             deps.aggregates.iter().for_each(|(sr, aggregates_hir)| {
                 let aggregates_reference = aggregates.get(sr).unwrap();
                 assert_eq!(aggregates_hir.len(), aggregates_reference.len(), "test");
@@ -629,13 +686,19 @@ mod tests {
                     .iter()
                     .for_each(|lookup| assert!(aggregates_reference.contains(lookup)));
             });
-            deps.aggregated_by.iter().for_each(|(sr, aggregated_by_hir)| {
-                let aggregated_by_reference = aggregated_by.get(sr).unwrap();
-                assert_eq!(aggregated_by_hir.len(), aggregated_by_reference.len(), "test");
-                aggregated_by_hir
-                    .iter()
-                    .for_each(|lookup| assert!(aggregated_by_reference.contains(lookup)));
-            });
+            deps.aggregated_by
+                .iter()
+                .for_each(|(sr, aggregated_by_hir)| {
+                    let aggregated_by_reference = aggregated_by.get(sr).unwrap();
+                    assert_eq!(
+                        aggregated_by_hir.len(),
+                        aggregated_by_reference.len(),
+                        "test"
+                    );
+                    aggregated_by_hir
+                        .iter()
+                        .for_each(|lookup| assert!(aggregated_by_reference.contains(lookup)));
+                });
         } else {
             assert!(dependencies.is_none())
         }
@@ -674,7 +737,13 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("b")], ["d", ("c")]);
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a")],
+            ["c", ("b")],
+            ["d", ("c")]
+        );
         let transitive_accesses = checking_map!(
             sname_to_sref,
             ["a", ()],
@@ -682,7 +751,13 @@ mod tests {
             ["c", ("a", "b")],
             ["d", ("a", "b", "c")]
         );
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ()]);
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b")],
+            ["b", ("c")],
+            ["c", ("d")],
+            ["d", ()]
+        );
         let transitive_accessed_by = checking_map!(
             sname_to_sref,
             ["a", ("b", "c", "d")],
@@ -708,7 +783,9 @@ mod tests {
     #[test]
     fn negative_loop() {
         let spec = "output a: Int8 @1Hz := a.offset(by: -1).defaults(to: 0)";
-        let sname_to_sref = vec![("a", SRef::Out(0))].into_iter().collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![("a", SRef::Out(0))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
         let direct_accesses = checking_map!(sname_to_sref, ["a", ("a")]);
         let transitive_accesses = checking_map!(sname_to_sref, ["a", ("a")]);
         let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("a")]);
@@ -739,7 +816,13 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("c")],);
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "d")],
+            ["c", ("b")],
+            ["d", ("c")],
+        );
         let transitive_accesses = checking_map!(
             sname_to_sref,
             ["a", ()],
@@ -747,7 +830,13 @@ mod tests {
             ["c", ("a", "b", "c", "d")],
             ["d", ("a", "b", "c", "d")],
         );
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ("b")],);
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b")],
+            ["b", ("c")],
+            ["c", ("d")],
+            ["d", ("b")],
+        );
         let transitive_accessed_by = checking_map!(
             sname_to_sref,
             ["a", ("b", "c", "d")],
@@ -781,7 +870,13 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("c")]);
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "d")],
+            ["c", ("b")],
+            ["d", ("c")]
+        );
         let transitive_accesses = checking_map!(
             sname_to_sref,
             ["a", ()],
@@ -789,7 +884,13 @@ mod tests {
             ["c", ("a", "b", "c", "d")],
             ["d", ("a", "b", "c", "d")]
         );
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ("d")], ["d", ("b")]);
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b")],
+            ["b", ("c")],
+            ["c", ("d")],
+            ["d", ("b")]
+        );
         let transitive_accessed_by = checking_map!(
             sname_to_sref,
             ["a", ("b", "c", "d")],
@@ -841,7 +942,13 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "d")], ["c", ("b")], ["d", ("b")]);
+        let direct_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "d")],
+            ["c", ("b")],
+            ["d", ("b")]
+        );
         let transitive_accesses = checking_map!(
             sname_to_sref,
             ["a", ()],
@@ -849,7 +956,13 @@ mod tests {
             ["c", ("a", "b", "d")],
             ["d", ("a", "b", "d")]
         );
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c", "d")], ["c", ()], ["d", ("b")]);
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b")],
+            ["b", ("c", "d")],
+            ["c", ()],
+            ["d", ("b")]
+        );
         let transitive_accessed_by = checking_map!(
             sname_to_sref,
             ["a", ("b", "c", "d")],
@@ -892,7 +1005,8 @@ mod tests {
 
     #[test]
     fn parallel_edges_in_a_loop() {
-        let spec = "input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c";
+        let spec =
+            "input a: Int8\noutput b: Int8 := a+d+d\noutput c: Int8 := b\noutput d: Int8 := c";
         check_graph_for_spec(spec, None);
     }
 
@@ -949,10 +1063,22 @@ mod tests {
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")], ["c", ("b")]);
-        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")], ["c", ("b", "a")]);
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
-        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let direct_accesses =
+            checking_map!(sname_to_sref, ["a", ()], ["b", ("a", "b")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("a", "b")],
+            ["c", ("b", "a")]
+        );
+        let direct_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c")],
+            ["b", ("b", "c")],
+            ["c", ()]
+        );
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
@@ -977,9 +1103,12 @@ mod tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("b")],);
-        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("a", "b")],);
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ()],);
-        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("c")], ["c", ()],);
+        let transitive_accesses =
+            checking_map!(sname_to_sref, ["a", ()], ["b", ("a")], ["c", ("a", "b")],);
+        let direct_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ("c")], ["c", ()],);
+        let transitive_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("c")], ["c", ()],);
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
@@ -1169,7 +1298,13 @@ mod tests {
             ["c", ("a", "b")],
             ["d", ("a", "b", "c")]
         );
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("c")], ["b", ("c", "d")], ["c", ("d")], ["d", ()]);
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("c")],
+            ["b", ("c", "d")],
+            ["c", ("d")],
+            ["d", ()]
+        );
         let transitive_accessed_by = checking_map!(
             sname_to_sref,
             ["a", ("c", "d")],
@@ -1291,7 +1426,8 @@ mod tests {
         let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
         let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("a")], ["x", ("a")]);
         let aggregates = checking_map!(sname_to_sref, ["a", (("x", WRef::Sliding(0)))], ["x", ()]);
-        let aggregated_by = checking_map!(sname_to_sref, ["a", ()], ["x", (("a", WRef::Sliding(0)))]);
+        let aggregated_by =
+            checking_map!(sname_to_sref, ["a", ()], ["x", (("a", WRef::Sliding(0)))]);
         check_graph_for_spec(
             spec,
             Some((
@@ -1313,10 +1449,22 @@ mod tests {
         let sname_to_sref = vec![("b", SRef::Out(0)), ("c", SRef::Out(1)), ("a", SRef::In(0))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
-        let direct_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b")]);
-        let transitive_accesses = checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b", "a")]);
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
-        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b", "c")], ["b", ("b", "c")], ["c", ()]);
+        let direct_accesses =
+            checking_map!(sname_to_sref, ["a", ()], ["b", ("b", "a")], ["c", ("b")]);
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ("b", "a")],
+            ["c", ("b", "a")]
+        );
+        let direct_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ("b", "c")], ["c", ()]);
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c")],
+            ["b", ("b", "c")],
+            ["c", ()]
+        );
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
@@ -1344,9 +1492,12 @@ mod tests {
             .collect::<HashMap<&str, SRef>>();
         let direct_accesses: HashMap<SRef, Vec<SRef>> =
             checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a")], ["x", ()]);
-        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
-        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
+        let transitive_accesses =
+            checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
+        let direct_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
+        let transitive_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(
@@ -1374,9 +1525,12 @@ mod tests {
             .collect::<HashMap<&str, SRef>>();
         let direct_accesses: HashMap<SRef, Vec<SRef>> =
             checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a")], ["x", ()]);
-        let transitive_accesses = checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
-        let direct_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
-        let transitive_accessed_by = checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
+        let transitive_accesses =
+            checking_map!(sname_to_sref, ["a", ("x")], ["b", ("a", "x")], ["x", ()]);
+        let direct_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
+        let transitive_accessed_by =
+            checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(

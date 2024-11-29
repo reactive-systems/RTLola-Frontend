@@ -29,8 +29,8 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, OutputReference, RtLolaHir,
-    StreamLayers, StreamReference, WindowReference,
+    InputReference, Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, OutputReference,
+    RtLolaHir, StreamLayers, StreamReference, WindowReference,
 };
 pub use rtlola_parser::ast::Tag;
 #[cfg(feature = "spanned")]
@@ -436,7 +436,9 @@ pub enum PacingLocality {
 impl TimeDrivenStream {
     /// Returns the evaluation period, i.e., the multiplicative inverse of [TimeDrivenStream::frequency].
     pub fn period(&self) -> UOM_Time {
-        UOM_Time::new::<uom::si::time::second>(self.frequency.get::<uom::si::frequency::hertz>().inv())
+        UOM_Time::new::<uom::si::time::second>(
+            self.frequency.get::<uom::si::frequency::hertz>().inv(),
+        )
     }
 
     /// Returns the evaluation frequency.
@@ -817,7 +819,9 @@ impl Stream for OutputStream {
     }
 
     fn is_spawned(&self) -> bool {
-        self.spawn.expression.is_some() || self.spawn.condition.is_some() || self.spawn.pacing != PacingType::Constant
+        self.spawn.expression.is_some()
+            || self.spawn.condition.is_some()
+            || self.spawn.pacing != PacingType::Constant
     }
 
     fn is_closed(&self) -> bool {
@@ -825,7 +829,10 @@ impl Stream for OutputStream {
     }
 
     fn is_eval_filtered(&self) -> bool {
-        self.eval.clauses.iter().any(|eval| eval.condition.is_some())
+        self.eval
+            .clauses
+            .iter()
+            .any(|eval| eval.condition.is_some())
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
@@ -991,7 +998,9 @@ impl RtLolaMir {
     pub fn input_mut(&mut self, reference: StreamReference) -> &mut InputStream {
         match reference {
             StreamReference::In(ix) => &mut self.inputs[ix],
-            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::Out(_) => {
+                unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`.")
+            }
         }
     }
 
@@ -1002,7 +1011,9 @@ impl RtLolaMir {
     pub fn input(&self, reference: StreamReference) -> &InputStream {
         match reference {
             StreamReference::In(ix) => &self.inputs[ix],
-            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::Out(_) => {
+                unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`.")
+            }
         }
     }
 
@@ -1012,7 +1023,9 @@ impl RtLolaMir {
     /// Panics if `reference` is a [StreamReference::In].
     pub fn output_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
         match reference {
-            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::In(_) => {
+                unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
+            }
             StreamReference::Out(ix) => &mut self.outputs[ix],
         }
     }
@@ -1023,7 +1036,9 @@ impl RtLolaMir {
     /// Panics if `reference` is a [StreamReference::In].
     pub fn output(&self, reference: StreamReference) -> &OutputStream {
         match reference {
-            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::In(_) => {
+                unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
+            }
             StreamReference::Out(ix) => &self.outputs[ix],
         }
     }
@@ -1045,12 +1060,18 @@ impl RtLolaMir {
 
     /// Provides a collection of all output streams representing a trigger.
     pub fn all_triggers(&self) -> Vec<&OutputStream> {
-        self.triggers.iter().map(|t| self.output(t.output_reference)).collect()
+        self.triggers
+            .iter()
+            .map(|t| self.output(t.output_reference))
+            .collect()
     }
 
     /// Provides a collection of all event-driven output streams.
     pub fn all_event_driven(&self) -> Vec<&OutputStream> {
-        self.event_driven.iter().map(|t| self.output(t.reference)).collect()
+        self.event_driven
+            .iter()
+            .map(|t| self.output(t.reference))
+            .collect()
     }
 
     /// Return true if the specification contains any time-driven features.
@@ -1067,12 +1088,18 @@ impl RtLolaMir {
 
     /// Provides a collection of all time-driven output streams.
     pub fn all_time_driven(&self) -> Vec<&OutputStream> {
-        self.time_driven.iter().map(|t| self.output(t.reference)).collect()
+        self.time_driven
+            .iter()
+            .map(|t| self.output(t.reference))
+            .collect()
     }
 
     /// Provides the activation contion of a event-driven stream and none if the stream is time-driven
     pub fn get_ac(&self, sref: StreamReference) -> Option<&ActivationCondition> {
-        self.event_driven.iter().find(|e| e.reference == sref).map(|e| &e.ac)
+        self.event_driven
+            .iter()
+            .find(|e| e.reference == sref)
+            .map(|e| &e.ac)
     }
 
     /// Provides immutable access to a discrete window.
@@ -1084,7 +1111,7 @@ impl RtLolaMir {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
             WindowReference::Sliding(_) | WindowReference::Instance(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1097,7 +1124,7 @@ impl RtLolaMir {
             WindowReference::Instance(x) => &self.instance_aggregations[x],
             WindowReference::Sliding(_) | WindowReference::Discrete(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1110,7 +1137,7 @@ impl RtLolaMir {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(_) | WindowReference::Instance(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1137,16 +1164,18 @@ impl RtLolaMir {
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers = self
-            .event_driven
-            .iter()
-            .map(|s| s.reference)
-            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())));
+        let streams_with_layers = self.event_driven.iter().map(|s| s.reference).map(|r| {
+            (
+                self.output(r).eval_layer().into(),
+                Task::Evaluate(r.out_ix()),
+            )
+        });
 
-        let spawns_with_layers =
-            event_driven_spawns.map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
+        let spawns_with_layers = event_driven_spawns
+            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
 
-        let tasks_with_layers: Vec<(usize, Task)> = streams_with_layers.chain(spawns_with_layers).collect();
+        let tasks_with_layers: Vec<(usize, Task)> =
+            streams_with_layers.chain(spawns_with_layers).collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
         // layers without entries and more layers than streams.
@@ -1158,7 +1187,11 @@ impl RtLolaMir {
         // e) If there are some, add them as layer.
 
         // a) Find the greatest layer. Maximum must exist because vec cannot be empty.
-        let max_layer = tasks_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
+        let max_layer = tasks_with_layers
+            .iter()
+            .max_by_key(|(layer, _)| layer)
+            .unwrap()
+            .0;
 
         let mut layers = Vec::new();
         // b) For each potential layer
@@ -1243,14 +1276,18 @@ impl Type {
             Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
             Type::Float(FloatTy::Float32) => Some(ValSize(4)),
             Type::Float(FloatTy::Float64) => Some(ValSize(8)),
-            Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => Some(ValSize(64)),
-            Type::Fixed(FixedTy::Fixed32_16) | Type::UFixed(FixedTy::Fixed32_16) => Some(ValSize(32)),
+            Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => {
+                Some(ValSize(64))
+            }
+            Type::Fixed(FixedTy::Fixed32_16) | Type::UFixed(FixedTy::Fixed32_16) => {
+                Some(ValSize(32))
+            }
             Type::Fixed(FixedTy::Fixed16_8) | Type::UFixed(FixedTy::Fixed16_8) => Some(ValSize(16)),
             Type::Option(_) => unimplemented!("Size of option not determined, yet."),
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
-            },
+            }
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function { .. } => None,
         }

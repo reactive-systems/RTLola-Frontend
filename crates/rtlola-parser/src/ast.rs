@@ -87,10 +87,19 @@ impl RtLolaAst {
 
         RtLolaAst {
             imports: imports.clone(),
-            constants: constants.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            constants: constants
+                .iter()
+                .map(|c| Rc::new(c.as_ref().clone()))
+                .collect(),
             inputs: inputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
-            outputs: outputs.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
-            mirrors: mirrors.iter().map(|c| Rc::new(c.as_ref().clone())).collect(),
+            outputs: outputs
+                .iter()
+                .map(|c| Rc::new(c.as_ref().clone()))
+                .collect(),
+            mirrors: mirrors
+                .iter()
+                .map(|c| Rc::new(c.as_ref().clone()))
+                .collect(),
             type_declarations: type_declarations.clone(),
             next_node_id: next_node_id.clone(),
             global_tags: global_tags.clone(),
@@ -513,7 +522,7 @@ impl TryFrom<WindowOperation> for InstanceOperation {
             WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
             WindowOperation::Integral | WindowOperation::Last => {
                 Err(format!("Operation {value} not supported over instances."))
-            },
+            }
         }
     }
 }
@@ -769,7 +778,9 @@ pub enum AnnotatedPacingType {
 
 /// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
 /// They are used in the later analysis phases to store information about Ast nodes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct NodeId {
     /// The actual unique id.
     pub id: u32,

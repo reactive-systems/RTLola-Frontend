@@ -70,7 +70,10 @@ impl<GlobalTags, LocalTags> ParseResult<GlobalTags, LocalTags> {
 
 impl RtLolaMir {
     /// Checks and applies the given parser to the specification to return a list of [ParseResult]'s.
-    pub fn parse_tags<T: TagParser>(&self, p: T) -> Result<ParseResult<T::GlobalTags, T::LocalTags>, RtLolaError> {
+    pub fn parse_tags<T: TagParser>(
+        &self,
+        p: T,
+    ) -> Result<ParseResult<T::GlobalTags, T::LocalTags>, RtLolaError> {
         let global_tags = p.parse_global(&self.global_tags, self)?;
         let local_tags_iter = self
             .all_streams()
@@ -85,20 +88,24 @@ impl RtLolaMir {
 
     /// Checks whether the specification contains tags that are not handled by any parser
     pub fn validate_tags(&self, parser: &[&dyn TagValidator]) -> Result<(), RtLolaError> {
-        let global_keys = self.global_tags.keys().map(|k| k.as_str()).collect::<HashSet<_>>();
+        let global_keys = self
+            .global_tags
+            .keys()
+            .map(|k| k.as_str())
+            .collect::<HashSet<_>>();
         let local_keys = self
             .all_streams()
             .flat_map(|sr| self.stream(sr).tags().keys().map(|k| k.as_str()))
             .collect::<HashSet<_>>();
-        let (unused_gt, unused_lt) =
-            parser
-                .iter()
-                .fold((global_keys.clone(), local_keys.clone()), |(mut gt, mut lt), p| {
-                    let (pgt, plt) = p.supported_tags(self);
-                    gt = &gt - &pgt;
-                    lt = &lt - &plt;
-                    (gt, lt)
-                });
+        let (unused_gt, unused_lt) = parser.iter().fold(
+            (global_keys.clone(), local_keys.clone()),
+            |(mut gt, mut lt), p| {
+                let (pgt, plt) = p.supported_tags(self);
+                gt = &gt - &pgt;
+                lt = &lt - &plt;
+                (gt, lt)
+            },
+        );
         if !unused_gt.is_empty() {
             return Err(Diagnostic::error(&format!("Unused global tags: {unused_gt:?}")).into());
         }
@@ -176,7 +183,8 @@ mod tests {
 		#[debug]
 		trigger b > 10";
         let mir = parse(&ParserConfig::for_string(spec.into())).unwrap();
-        mir.validate_tags(&[&VerbosityParser, &DebugParser]).unwrap();
+        mir.validate_tags(&[&VerbosityParser, &DebugParser])
+            .unwrap();
     }
 
     #[test]
@@ -188,6 +196,8 @@ mod tests {
 		#[debg] // <-- typo here
 		trigger b > 10";
         let mir = parse(&ParserConfig::for_string(spec.into())).unwrap();
-        assert!(mir.validate_tags(&[&VerbosityParser, &DebugParser]).is_err());
+        assert!(mir
+            .validate_tags(&[&VerbosityParser, &DebugParser])
+            .is_err());
     }
 }

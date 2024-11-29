@@ -25,14 +25,18 @@ impl Delta {
                 if arg_names[0].is_some() || arg_names[1].is_none() {
                     return ChangeSet::empty();
                 }
-                if !["dft", "default", "or"].contains(&arg_names[1].as_ref().unwrap().name.as_str()) {
+                if !["dft", "default", "or"].contains(&arg_names[1].as_ref().unwrap().name.as_str())
+                {
                     return ChangeSet::empty();
                 }
                 let target_stream = args[0].clone();
                 let new_id = expr.id.primed();
 
                 let sync = Expression {
-                    kind: ExpressionKind::StreamAccess(Box::new(target_stream.clone()), StreamAccessKind::Sync),
+                    kind: ExpressionKind::StreamAccess(
+                        Box::new(target_stream.clone()),
+                        StreamAccessKind::Sync,
+                    ),
                     id: ast.next_id(),
                     span: expr.span.to_indirect(),
                 };
@@ -53,7 +57,7 @@ impl Delta {
                     span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(res)
-            },
+            }
             _ => ChangeSet::empty(),
         }
     }

@@ -91,7 +91,10 @@ impl Variant for AbstractValueType {
         rhs: Partial<AbstractValueType>,
     ) -> Result<Partial<AbstractValueType>, Self::Err> {
         use ValueErrorKind::*;
-        fn tuple_meet(least_arity: usize, size: usize) -> Result<(AbstractValueType, usize), ValueErrorKind> {
+        fn tuple_meet(
+            least_arity: usize,
+            size: usize,
+        ) -> Result<(AbstractValueType, usize), ValueErrorKind> {
             if least_arity <= size {
                 Ok((Tuple(size), size))
             } else {
@@ -109,10 +112,14 @@ impl Variant for AbstractValueType {
             (UInteger, UInteger) => Ok((UInteger, 0)),
             (Float, Float) => Ok((Float, 0)),
             (FractionalNumeric, FractionalNumeric) => Ok((FractionalNumeric, 0)),
-            (SInteger, SizedSInteger(x)) | (SizedSInteger(x), SInteger) => Ok((SizedSInteger(x), 0)),
+            (SInteger, SizedSInteger(x)) | (SizedSInteger(x), SInteger) => {
+                Ok((SizedSInteger(x), 0))
+            }
             (SizedSInteger(l), SizedSInteger(r)) if l == r => Ok((SizedSInteger(l), 0)),
             (SizedSInteger(_), SizedSInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (UInteger, SizedUInteger(x)) | (SizedUInteger(x), UInteger) => Ok((SizedUInteger(x), 0)),
+            (UInteger, SizedUInteger(x)) | (SizedUInteger(x), UInteger) => {
+                Ok((SizedUInteger(x), 0))
+            }
             (SizedUInteger(l), SizedUInteger(r)) if l == r => Ok((SizedUInteger(l), 0)),
             (SizedUInteger(_), SizedUInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Float, SizedFloat(x)) | (SizedFloat(x), Float) => Ok((SizedFloat(x), 0)),
@@ -122,21 +129,21 @@ impl Variant for AbstractValueType {
             (UFixed, UFixed) => Ok((UFixed, 0)),
             (Fixed, SizedFixed(total, fractional)) | (SizedFixed(total, fractional), Fixed) => {
                 Ok((SizedFixed(total, fractional), 0))
-            },
+            }
             (SizedFixed(total1, fractional1), SizedFixed(total2, fractional2))
                 if total1 == total2 && fractional1 == fractional2 =>
             {
                 Ok((SizedFixed(total1, fractional1), 0))
-            },
+            }
             (SizedFixed(_, _), SizedFixed(_, _)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (UFixed, SizedUFixed(total, fractional)) | (SizedUFixed(total, fractional), UFixed) => {
                 Ok((SizedUFixed(total, fractional), 0))
-            },
+            }
             (SizedUFixed(total1, fractional1), SizedUFixed(total2, fractional2))
                 if total1 == total2 && fractional1 == fractional2 =>
             {
                 Ok((SizedUFixed(total1, fractional1), 0))
-            },
+            }
             (SizedUFixed(_, _), SizedUFixed(_, _)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Bool, Bool) => Ok((Bool, 0)),
             (Bool, _) | (_, Bool) => Err(TypeClash(lhs.variant, rhs.variant)),
@@ -148,44 +155,64 @@ impl Variant for AbstractValueType {
             (Numeric, Float) | (Float, Numeric) => Ok((Float, 0)),
             (Numeric, SizedFloat(i)) | (SizedFloat(i), Numeric) => Ok((SizedFloat(i), 0)),
             (Numeric, SignedNumeric) | (SignedNumeric, Numeric) => Ok((SignedNumeric, 0)),
-            (Numeric, FractionalNumeric) | (FractionalNumeric, Numeric) => Ok((FractionalNumeric, 0)),
+            (Numeric, FractionalNumeric) | (FractionalNumeric, Numeric) => {
+                Ok((FractionalNumeric, 0))
+            }
             (SignedNumeric, SInteger) | (SInteger, SignedNumeric) => Ok((SInteger, 0)),
-            (SignedNumeric, SizedSInteger(w)) | (SizedSInteger(w), SignedNumeric) => Ok((SizedSInteger(w), 0)),
+            (SignedNumeric, SizedSInteger(w)) | (SizedSInteger(w), SignedNumeric) => {
+                Ok((SizedSInteger(w), 0))
+            }
             (SignedNumeric, Float) | (Float, SignedNumeric) => Ok((Float, 0)),
-            (SignedNumeric, SizedFloat(w)) | (SizedFloat(w), SignedNumeric) => Ok((SizedFloat(w), 0)),
+            (SignedNumeric, SizedFloat(w)) | (SizedFloat(w), SignedNumeric) => {
+                Ok((SizedFloat(w), 0))
+            }
             (SignedNumeric | Numeric, Fixed) | (Fixed, SignedNumeric | Numeric) => Ok((Fixed, 0)),
             (SignedNumeric | Numeric, SizedFixed(total, fractional))
-            | (SizedFixed(total, fractional), SignedNumeric | Numeric) => Ok((SizedFixed(total, fractional), 0)),
-            (Numeric, UFixed) | (UFixed, Numeric) => Ok((UFixed, 0)),
-            (Numeric, SizedUFixed(total, fractional)) | (SizedUFixed(total, fractional), Numeric) => {
-                Ok((SizedUFixed(total, fractional), 0))
-            },
-            (FractionalNumeric, Float) | (Float, FractionalNumeric) => Ok((Float, 0)),
-            (FractionalNumeric, SizedFloat(w)) | (SizedFloat(w), FractionalNumeric) => Ok((SizedFloat(w), 0)),
-            (FractionalNumeric, Fixed) | (Fixed, FractionalNumeric) => Ok((Fixed, 0)),
-            (FractionalNumeric, SizedFixed(total, fractional)) | (SizedFixed(total, fractional), FractionalNumeric) => {
+            | (SizedFixed(total, fractional), SignedNumeric | Numeric) => {
                 Ok((SizedFixed(total, fractional), 0))
-            },
+            }
+            (Numeric, UFixed) | (UFixed, Numeric) => Ok((UFixed, 0)),
+            (Numeric, SizedUFixed(total, fractional))
+            | (SizedUFixed(total, fractional), Numeric) => Ok((SizedUFixed(total, fractional), 0)),
+            (FractionalNumeric, Float) | (Float, FractionalNumeric) => Ok((Float, 0)),
+            (FractionalNumeric, SizedFloat(w)) | (SizedFloat(w), FractionalNumeric) => {
+                Ok((SizedFloat(w), 0))
+            }
+            (FractionalNumeric, Fixed) | (Fixed, FractionalNumeric) => Ok((Fixed, 0)),
+            (FractionalNumeric, SizedFixed(total, fractional))
+            | (SizedFixed(total, fractional), FractionalNumeric) => {
+                Ok((SizedFixed(total, fractional), 0))
+            }
             (FractionalNumeric, UFixed) | (UFixed, FractionalNumeric) => Ok((UFixed, 0)),
             (FractionalNumeric, SizedUFixed(total, fractional))
-            | (SizedUFixed(total, fractional), FractionalNumeric) => Ok((SizedUFixed(total, fractional), 0)),
+            | (SizedUFixed(total, fractional), FractionalNumeric) => {
+                Ok((SizedUFixed(total, fractional), 0))
+            }
             (Float | SizedFloat(_), Fixed | SizedFixed(_, _) | UFixed | SizedUFixed(_, _))
             | (Fixed | SizedFixed(_, _) | UFixed | SizedUFixed(_, _), Float | SizedFloat(_)) => {
                 Err(TypeClash(lhs.variant, rhs.variant))
-            },
+            }
             (Integer, SInteger) | (SInteger, Integer) => Ok((SInteger, 0)),
             (Integer, UInteger) | (UInteger, Integer) => Ok((UInteger, 0)),
             (Integer, SizedSInteger(x)) | (SizedSInteger(x), Integer) => Ok((SizedSInteger(x), 0)),
             (Integer, SizedUInteger(x)) | (SizedUInteger(x), Integer) => Ok((SizedUInteger(x), 0)),
             (Integer, _) | (_, Integer) => Err(TypeClash(lhs.variant, rhs.variant)),
             (SInteger, _) | (_, SInteger) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (SizedSInteger(_), _) | (_, SizedSInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (SizedSInteger(_), _) | (_, SizedSInteger(_)) => {
+                Err(TypeClash(lhs.variant, rhs.variant))
+            }
             (UInteger, _) | (_, UInteger) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (SizedUInteger(_), _) | (_, SizedUInteger(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (SizedUInteger(_), _) | (_, SizedUInteger(_)) => {
+                Err(TypeClash(lhs.variant, rhs.variant))
+            }
             (Fixed, _) | (_, Fixed) => Err(TypeClash(lhs.variant, rhs.variant)),
             (UFixed, _) | (_, UFixed) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (SizedFixed(_, _), _) | (_, SizedFixed(_, _)) => Err(TypeClash(lhs.variant, rhs.variant)),
-            (SizedUFixed(_, _), _) | (_, SizedUFixed(_, _)) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (SizedFixed(_, _), _) | (_, SizedFixed(_, _)) => {
+                Err(TypeClash(lhs.variant, rhs.variant))
+            }
+            (SizedUFixed(_, _), _) | (_, SizedUFixed(_, _)) => {
+                Err(TypeClash(lhs.variant, rhs.variant))
+            }
             (AnyTuple, AnyTuple) => Ok((AnyTuple, max(lhs.least_arity, rhs.least_arity))),
             (AnyTuple, Tuple(size)) => tuple_meet(lhs.least_arity, size),
             (Tuple(size), AnyTuple) => tuple_meet(rhs.least_arity, size),
@@ -241,7 +268,10 @@ impl Variant for AbstractValueType {
 impl Constructable for AbstractValueType {
     type Type = ConcreteValueType;
 
-    fn construct(&self, children: &[ConcreteValueType]) -> Result<ConcreteValueType, ValueErrorKind> {
+    fn construct(
+        &self,
+        children: &[ConcreteValueType],
+    ) -> Result<ConcreteValueType, ValueErrorKind> {
         use ValueErrorKind::*;
         match self {
             AbstractValueType::Any => Err(CannotReify(*self)),
@@ -263,26 +293,38 @@ impl Constructable for AbstractValueType {
             AbstractValueType::SizedFloat(w) if *w <= 64 => Ok(ConcreteValueType::Float64),
             AbstractValueType::SizedFloat(_) => Err(ReificationTooWide(*self)),
             AbstractValueType::Fixed => Ok(ConcreteValueType::Fixed64_32),
-            AbstractValueType::SizedFixed(total, fractional) if *total <= 16 && *fractional <= 8 => {
+            AbstractValueType::SizedFixed(total, fractional)
+                if *total <= 16 && *fractional <= 8 =>
+            {
                 Ok(ConcreteValueType::Fixed16_8)
-            },
-            AbstractValueType::SizedFixed(total, fractional) if *total <= 32 && *fractional <= 16 => {
+            }
+            AbstractValueType::SizedFixed(total, fractional)
+                if *total <= 32 && *fractional <= 16 =>
+            {
                 Ok(ConcreteValueType::Fixed32_16)
-            },
-            AbstractValueType::SizedFixed(total, fractional) if *total <= 64 && *fractional <= 32 => {
+            }
+            AbstractValueType::SizedFixed(total, fractional)
+                if *total <= 64 && *fractional <= 32 =>
+            {
                 Ok(ConcreteValueType::Fixed64_32)
-            },
+            }
             AbstractValueType::SizedFixed(_, _) => Err(ReificationTooWide(*self)),
             AbstractValueType::UFixed => Ok(ConcreteValueType::UFixed64_32),
-            AbstractValueType::SizedUFixed(total, fractional) if *total <= 16 && *fractional <= 8 => {
+            AbstractValueType::SizedUFixed(total, fractional)
+                if *total <= 16 && *fractional <= 8 =>
+            {
                 Ok(ConcreteValueType::UFixed16_8)
-            },
-            AbstractValueType::SizedUFixed(total, fractional) if *total <= 32 && *fractional <= 16 => {
+            }
+            AbstractValueType::SizedUFixed(total, fractional)
+                if *total <= 32 && *fractional <= 16 =>
+            {
                 Ok(ConcreteValueType::UFixed32_16)
-            },
-            AbstractValueType::SizedUFixed(total, fractional) if *total <= 64 && *fractional <= 32 => {
+            }
+            AbstractValueType::SizedUFixed(total, fractional)
+                if *total <= 64 && *fractional <= 32 =>
+            {
                 Ok(ConcreteValueType::UFixed64_32)
-            },
+            }
             AbstractValueType::SizedUFixed(_, _) => Err(ReificationTooWide(*self)),
             AbstractValueType::Numeric => Err(CannotReify(*self)),
             AbstractValueType::SignedNumeric => Err(CannotReify(*self)),
@@ -294,7 +336,9 @@ impl Constructable for AbstractValueType {
             AbstractValueType::Sequence => Err(CannotReify(*self)),
             AbstractValueType::String => Ok(ConcreteValueType::TString),
             AbstractValueType::Bytes => Ok(ConcreteValueType::Byte),
-            AbstractValueType::Option => Ok(ConcreteValueType::Option(Box::new(children[0].clone()))),
+            AbstractValueType::Option => {
+                Ok(ConcreteValueType::Option(Box::new(children[0].clone())))
+            }
         }
     }
 }
@@ -322,34 +366,31 @@ impl ConcreteValueType {
             AnnotatedType::UInt(_) => Err(AnnotationTooWide(at.clone())),
             AnnotatedType::Fixed(total, fractional) if *total <= 16 && *fractional <= 8 => {
                 Ok(ConcreteValueType::Fixed16_8)
-            },
+            }
             AnnotatedType::Fixed(total, fractional) if *total <= 32 && *fractional <= 16 => {
                 Ok(ConcreteValueType::Fixed32_16)
-            },
+            }
             AnnotatedType::Fixed(total, fractional) if *total <= 64 && *fractional <= 32 => {
                 Ok(ConcreteValueType::Fixed64_32)
-            },
+            }
             AnnotatedType::Fixed(_, _) => Err(AnnotationTooWide(at.clone())),
             AnnotatedType::UFixed(total, fractional) if *total <= 16 && *fractional <= 8 => {
                 Ok(ConcreteValueType::UFixed16_8)
-            },
+            }
             AnnotatedType::UFixed(total, fractional) if *total <= 32 && *fractional <= 16 => {
                 Ok(ConcreteValueType::UFixed32_16)
-            },
+            }
             AnnotatedType::UFixed(total, fractional) if *total <= 64 && *fractional <= 32 => {
                 Ok(ConcreteValueType::UFixed64_32)
-            },
+            }
             AnnotatedType::UFixed(_, _) => Err(AnnotationTooWide(at.clone())),
-            AnnotatedType::Tuple(children) => {
-                children
-                    .iter()
-                    .map(ConcreteValueType::from_annotated_type)
-                    .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
-                    .map(ConcreteValueType::Tuple)
-            },
-            AnnotatedType::Option(child) => {
-                ConcreteValueType::from_annotated_type(child).map(|child| ConcreteValueType::Option(Box::new(child)))
-            },
+            AnnotatedType::Tuple(children) => children
+                .iter()
+                .map(ConcreteValueType::from_annotated_type)
+                .collect::<Result<Vec<ConcreteValueType>, ValueErrorKind>>()
+                .map(ConcreteValueType::Tuple),
+            AnnotatedType::Option(child) => ConcreteValueType::from_annotated_type(child)
+                .map(|child| ConcreteValueType::Option(Box::new(child))),
             AnnotatedType::Fractional => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Numeric => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Sequence => Err(AnnotationInvalid(at.clone())),
@@ -402,9 +443,13 @@ impl Display for AbstractValueType {
             AbstractValueType::Float => write!(f, "Float"),
             AbstractValueType::SizedFloat(w) => write!(f, "Float{}", *w),
             AbstractValueType::Fixed => write!(f, "Fixed"),
-            AbstractValueType::SizedFixed(total, fractional) => write!(f, "Fixed{}_{}", total, fractional),
+            AbstractValueType::SizedFixed(total, fractional) => {
+                write!(f, "Fixed{}_{}", total, fractional)
+            }
             AbstractValueType::UFixed => write!(f, "UFixed"),
-            AbstractValueType::SizedUFixed(total, fractional) => write!(f, "UFixed{}_{}", total, fractional),
+            AbstractValueType::SizedUFixed(total, fractional) => {
+                write!(f, "UFixed{}_{}", total, fractional)
+            }
             AbstractValueType::FractionalNumeric => write!(f, "FractionalNumeric"),
             AbstractValueType::Bool => write!(f, "Bool"),
             AbstractValueType::AnyTuple => write!(f, "AnyTuple"),
@@ -439,7 +484,7 @@ impl Display for ConcreteValueType {
             ConcreteValueType::UFixed16_8 => write!(f, "UFixed16_8"),
             ConcreteValueType::Tuple(children) => {
                 write!(f, "({})", children.iter().map(|c| c.to_string()).join(", "))
-            },
+            }
             ConcreteValueType::TString => write!(f, "String"),
             ConcreteValueType::Byte => write!(f, "Byte"),
             ConcreteValueType::Option(c) => write!(f, "Option<{c}>"),
@@ -450,56 +495,44 @@ impl Display for ConcreteValueType {
 impl From<TcErr<AbstractValueType>> for TypeError<ValueErrorKind> {
     fn from(err: TcErr<AbstractValueType>) -> Self {
         match err {
-            TcErr::KeyEquation(key1, key2, err) => {
-                TypeError {
-                    kind: err,
-                    key1: Some(key1),
-                    key2: Some(key2),
-                }
+            TcErr::KeyEquation(key1, key2, err) => TypeError {
+                kind: err,
+                key1: Some(key1),
+                key2: Some(key2),
             },
-            TcErr::Bound(key1, key2, err) => {
-                TypeError {
-                    kind: err,
-                    key1: Some(key1),
-                    key2,
-                }
+            TcErr::Bound(key1, key2, err) => TypeError {
+                kind: err,
+                key1: Some(key1),
+                key2,
             },
-            TcErr::ChildAccessOutOfBound(key, value_ty, index) => {
-                TypeError {
-                    kind: ValueErrorKind::AccessOutOfBound(value_ty, index),
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::ChildAccessOutOfBound(key, value_ty, index) => TypeError {
+                kind: ValueErrorKind::AccessOutOfBound(value_ty, index),
+                key1: Some(key),
+                key2: None,
             },
             TcErr::ArityMismatch {
                 key,
                 variant,
                 inferred_arity,
                 reported_arity,
-            } => {
-                TypeError {
-                    kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
-                    key1: Some(key),
-                    key2: None,
-                }
+            } => TypeError {
+                kind: ValueErrorKind::ArityMismatch(variant, inferred_arity, reported_arity),
+                key1: Some(key),
+                key2: None,
             },
-            TcErr::Construction(key, _, err) => {
-                TypeError {
-                    kind: err,
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::Construction(key, _, err) => TypeError {
+                kind: err,
+                key1: Some(key),
+                key2: None,
             },
-            TcErr::ChildConstruction(key, idx, parent, err) => {
-                TypeError {
-                    kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
-                    key1: Some(key),
-                    key2: None,
-                }
+            TcErr::ChildConstruction(key, idx, parent, err) => TypeError {
+                kind: ValueErrorKind::ChildConstruction(Box::new(err), parent.variant, idx),
+                key1: Some(key),
+                key2: None,
             },
             TcErr::CyclicGraph => {
                 panic!("Cyclic value type constraint system");
-            },
+            }
         }
     }
 }
