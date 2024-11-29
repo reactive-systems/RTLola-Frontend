@@ -5,8 +5,8 @@ use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
-    AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal, Offset, Output,
-    SpawnDef, StreamAccessKind, StreamReference, WidenExprKind, WindowReference,
+    AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal,
+    Offset, Output, SpawnDef, StreamAccessKind, StreamReference, WidenExprKind, WindowReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{NodeId, TypeError};
@@ -131,28 +131,31 @@ where
         Ok(result_map)
     }
 
-    fn match_const_literal(&mut self, lit: &Literal, target: TcKey) -> Result<(), TypeError<ValueErrorKind>> {
+    fn match_const_literal(
+        &mut self,
+        lit: &Literal,
+        target: TcKey,
+    ) -> Result<(), TypeError<ValueErrorKind>> {
         match lit {
-            Literal::Str(_) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::String))?
-            },
-            Literal::Bool(_) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
-            Literal::Integer(_) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Integer))?
-            },
-            Literal::SInt(_) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SInteger))?
-            },
-            Literal::Decimal(_) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
-            },
+            Literal::Str(_) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::String))?,
+            Literal::Bool(_) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Bool))?,
+            Literal::Integer(_) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Integer))?,
+            Literal::SInt(_) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SInteger))?,
+            Literal::Decimal(_) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?,
             Literal::Tuple(elements) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Tuple(elements.len())))?;
+                self.tyc.impose(
+                    target.concretizes_explicit(AbstractValueType::Tuple(elements.len())),
+                )?;
                 elements
                     .iter()
                     .enumerate()
@@ -162,7 +165,7 @@ where
                         Ok(())
                     })
                     .collect::<Result<Vec<()>, TypeError<ValueErrorKind>>>()?;
-            },
+            }
         }
         Ok(())
     }
@@ -173,14 +176,14 @@ where
         bound: &AnnotatedType,
         conflict_key: Option<TcKey>,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        let concrete_type = ConcreteValueType::from_annotated_type(bound).map_err(|reason| {
-            TypeError {
+        let concrete_type =
+            ConcreteValueType::from_annotated_type(bound).map_err(|reason| TypeError {
                 kind: reason,
                 key1: Some(target),
                 key2: None,
-            }
-        })?;
-        self.annotated_checks.insert(target, (concrete_type, conflict_key));
+            })?;
+        self.annotated_checks
+            .insert(target, (concrete_type, conflict_key));
         Ok(())
     }
 
@@ -190,14 +193,14 @@ where
         inner_expr_key: TcKey,
         ty: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
-        let concrete_type = ConcreteValueType::from_annotated_type(ty).map_err(|reason| {
-            TypeError {
+        let concrete_type =
+            ConcreteValueType::from_annotated_type(ty).map_err(|reason| TypeError {
                 kind: reason,
                 key1: Some(term_key),
                 key2: None,
-            }
-        })?;
-        self.widen_checks.insert(inner_expr_key, (concrete_type, term_key));
+            })?;
+        self.widen_checks
+            .insert(inner_expr_key, (concrete_type, term_key));
         Ok(())
     }
 
@@ -207,80 +210,78 @@ where
         annotated_type: &AnnotatedType,
     ) -> Result<(), TypeError<ValueErrorKind>> {
         match annotated_type {
-            AnnotatedType::String => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::String))?
-            },
-            AnnotatedType::Int(0) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SInteger))?
-            },
-            AnnotatedType::Int(x) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedSInteger(*x)))?
-            },
-            AnnotatedType::Float(0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Float))?,
-            AnnotatedType::Float(f) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedFloat(*f)))?
-            },
-            AnnotatedType::UInt(0) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::UInteger))?
-            },
-            AnnotatedType::UInt(u) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?
-            },
-            AnnotatedType::Fixed(0, 0) => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Fixed))?,
-            AnnotatedType::Fixed(total, fractional) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedFixed(*total, *fractional)))?
-            },
-            AnnotatedType::UFixed(0, 0) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::UFixed))?
-            },
-            AnnotatedType::UFixed(total, fractional) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SizedUFixed(*total, *fractional)))?
-            },
-            AnnotatedType::Bool => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bool))?,
-            AnnotatedType::Bytes => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
+            AnnotatedType::String => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::String))?,
+            AnnotatedType::Int(0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SInteger))?,
+            AnnotatedType::Int(x) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedSInteger(*x)))?,
+            AnnotatedType::Float(0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Float))?,
+            AnnotatedType::Float(f) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedFloat(*f)))?,
+            AnnotatedType::UInt(0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::UInteger))?,
+            AnnotatedType::UInt(u) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SizedUInteger(*u)))?,
+            AnnotatedType::Fixed(0, 0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Fixed))?,
+            AnnotatedType::Fixed(total, fractional) => self.tyc.impose(
+                target.concretizes_explicit(AbstractValueType::SizedFixed(*total, *fractional)),
+            )?,
+            AnnotatedType::UFixed(0, 0) => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::UFixed))?,
+            AnnotatedType::UFixed(total, fractional) => self.tyc.impose(
+                target.concretizes_explicit(AbstractValueType::SizedUFixed(*total, *fractional)),
+            )?,
+            AnnotatedType::Bool => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Bool))?,
+            AnnotatedType::Bytes => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Bytes))?,
             AnnotatedType::Option(op) => {
                 self.tyc
                     .impose(target.concretizes_explicit(AbstractValueType::Option))?;
                 let child_key = self.tyc.get_child_key(target, 0)?;
                 self.concretizes_annotated_type(child_key, op.as_ref())?
-            },
+            }
             AnnotatedType::Tuple(children) => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Tuple(children.len())))?;
+                self.tyc.impose(
+                    target.concretizes_explicit(AbstractValueType::Tuple(children.len())),
+                )?;
                 for (ix, child) in children.iter().enumerate() {
                     let child_key = self.tyc.get_child_key(target, ix)?;
                     self.concretizes_annotated_type(child_key, child)?;
                 }
-            },
-            AnnotatedType::Numeric => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Numeric))?
-            },
-            AnnotatedType::Signed => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?
-            },
-            AnnotatedType::Fractional => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?
-            },
-            AnnotatedType::Sequence => {
-                self.tyc
-                    .impose(target.concretizes_explicit(AbstractValueType::Sequence))?
-            },
-            AnnotatedType::Any => self.tyc.impose(target.concretizes_explicit(AbstractValueType::Any))?,
+            }
+            AnnotatedType::Numeric => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
+            AnnotatedType::Signed => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::SignedNumeric))?,
+            AnnotatedType::Fractional => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?,
+            AnnotatedType::Sequence => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Sequence))?,
+            AnnotatedType::Any => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Any))?,
             AnnotatedType::Param(_, _) => {
                 unreachable!("Param-Type only reachable in function calls and Param-Output calls")
-            },
+            }
         }
         Ok(())
     }
@@ -296,7 +297,10 @@ where
     }
 
     /// Handles the annotated type for given [Input] stream.
-    pub(crate) fn input_infer(&mut self, input: &Input) -> Result<TcKey, TypeError<ValueErrorKind>> {
+    pub(crate) fn input_infer(
+        &mut self,
+        input: &Input,
+    ) -> Result<TcKey, TypeError<ValueErrorKind>> {
         let term_key: TcKey = *self
             .node_key
             .get(&NodeId::SRef(input.sr))
@@ -313,16 +317,25 @@ where
     /// 2: Checks spawn condition and equates values with parameters
     /// 3: Analyses close and evaluation condition expressions
     /// 4: Check stream expression and sets expression type as stream value type
-    pub(crate) fn output_infer(&mut self, out: &Output) -> Result<TcKey, TypeError<ValueErrorKind>> {
-        let out_key = *self.node_key.get(&NodeId::SRef(out.sr)).expect("Added in constructor");
+    pub(crate) fn output_infer(
+        &mut self,
+        out: &Output,
+    ) -> Result<TcKey, TypeError<ValueErrorKind>> {
+        let out_key = *self
+            .node_key
+            .get(&NodeId::SRef(out.sr))
+            .expect("Added in constructor");
 
         let param_types: Vec<TcKey> = out
             .params
             .iter()
             .map(|param| {
-                let param_key = self.tyc.get_var_key(&Variable::for_parameter(out, param.idx));
+                let param_key = self
+                    .tyc
+                    .get_var_key(&Variable::for_parameter(out, param.idx));
 
-                self.node_key.insert(NodeId::Param(param.idx, out.sr), param_key);
+                self.node_key
+                    .insert(NodeId::Param(param.idx, out.sr), param_key);
                 self.key_span.insert(param_key, param.span);
 
                 if let Some(a_ty) = param.annotated_type.as_ref() {
@@ -334,7 +347,9 @@ where
 
         let opt_spawn = &self.hir.spawn(out.sr);
         if let Some(SpawnDef {
-            expression, condition, ..
+            expression,
+            condition,
+            ..
         }) = opt_spawn
         {
             //check target expression type matches parameter type
@@ -343,19 +358,22 @@ where
                 match param_types.len() {
                     0 => unreachable!("ensured by pacing type checker"),
                     1 => {
-                        self.tyc.impose(spawn_target_key.equate_with(param_types[0]))?;
-                    },
+                        self.tyc
+                            .impose(spawn_target_key.equate_with(param_types[0]))?;
+                    }
                     _ => {
-                        self.tyc.impose(
-                            spawn_target_key.concretizes_explicit(AbstractValueType::Tuple(param_types.len())),
-                        )?;
+                        self.tyc
+                            .impose(spawn_target_key.concretizes_explicit(
+                                AbstractValueType::Tuple(param_types.len()),
+                            ))?;
                         let parameter_tuple = self.tyc.new_term_key();
                         for (ix, p) in param_types.iter().enumerate() {
                             let child = self.tyc.get_child_key(parameter_tuple, ix)?;
                             self.tyc.impose(child.equate_with(*p))?;
                         }
-                        self.tyc.impose(parameter_tuple.equate_with(spawn_target_key))?;
-                    },
+                        self.tyc
+                            .impose(parameter_tuple.equate_with(spawn_target_key))?;
+                    }
                 }
             }
             if let Some(cond) = condition {
@@ -401,24 +419,31 @@ where
                     Constant::Inlined(Inlined { lit, ty: anno_ty }) => {
                         self.handle_annotated_type(term_key, anno_ty, None)?;
                         lit
-                    },
+                    }
                 };
                 self.match_const_literal(cons_lit, term_key)?;
-            },
+            }
 
             ExpressionKind::StreamAccess(sr, kind, args) => {
                 if sr.is_input() {
-                    assert!(args.is_empty(), "parametrized input streams are unsupported");
+                    assert!(
+                        args.is_empty(),
+                        "parametrized input streams are unsupported"
+                    );
                 }
 
                 if !args.is_empty() {
-                    let target_stream: &Output = self.hir.output(*sr).expect("unable to find referenced stream");
+                    let target_stream: &Output = self
+                        .hir
+                        .output(*sr)
+                        .expect("unable to find referenced stream");
                     let param_keys: Vec<_> = target_stream
                         .params
                         .iter()
                         .map(|p| {
                             // Todo: Move to own function in Variable
-                            self.tyc.get_var_key(&Variable::for_parameter(target_stream, p.idx))
+                            self.tyc
+                                .get_var_key(&Variable::for_parameter(target_stream, p.idx))
                         })
                         .collect();
 
@@ -434,12 +459,15 @@ where
                         .collect::<Result<Vec<()>, TcErr<AbstractValueType>>>()?;
                 }
 
-                let target_key = self.node_key.get(&NodeId::SRef(*sr)).expect("entered in constructor");
+                let target_key = self
+                    .node_key
+                    .get(&NodeId::SRef(*sr))
+                    .expect("entered in constructor");
 
                 match kind {
                     StreamAccessKind::Sync => {
                         self.tyc.impose(term_key.equate_with(*target_key))?;
-                    },
+                    }
                     StreamAccessKind::DiscreteWindow(wref)
                     | StreamAccessKind::SlidingWindow(wref)
                     | StreamAccessKind::InstanceAggregation(wref) => {
@@ -447,15 +475,15 @@ where
                             WindowReference::Sliding(_) => {
                                 let win = self.hir.single_sliding(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
-                            },
+                            }
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_discrete(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
-                            },
+                            }
                             WindowReference::Instance(_) => {
                                 let win = self.hir.single_instance_aggregation(*wref);
                                 (win.target, win.aggr.into(), false)
-                            },
+                            }
                         };
                         let target_key = *self
                             .node_key
@@ -470,133 +498,153 @@ where
                             | WindowOperation::Average
                             | WindowOperation::Last
                             | WindowOperation::NthPercentile(_) => {
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Option),
+                                )?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
-                            },
+                            }
                             //Count: Any -> uint
                             WindowOperation::Count => {
                                 if wait {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::Option),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                                    self.tyc
-                                        .impose(inner_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                    self.tyc.impose(
+                                        inner_key.concretizes_explicit(AbstractValueType::UInteger),
+                                    )?;
                                 } else {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::UInteger))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::UInteger),
+                                    )?;
                                 }
-                            },
+                            }
                             //integral :T <T:Num> -> T
                             //integral : T <T:Num> -> FractionalNumber   <-- currently used
                             WindowOperation::Integral => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Numeric),
+                                )?;
                                 if wait {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::Option),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                                    self.tyc
-                                        .impose(inner_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
+                                    self.tyc.impose(inner_key.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
                                 } else {
                                     //self.tyc.impose(term_key.concretizes(ex_key))?;
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
                                 }
-                            },
+                            }
                             //Σ and Π :T <T:Num> -> T
                             WindowOperation::Sum | WindowOperation::Product => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Numeric),
+                                )?;
                                 if wait {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::Option),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     self.tyc.impose(inner_key.concretizes(target_key))?;
                                 } else {
                                     self.tyc.impose(term_key.concretizes(target_key))?;
                                 }
-                            },
+                            }
                             //bool -> bool
                             WindowOperation::Conjunction | WindowOperation::Disjunction => {
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
                                 if wait {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::Option),
+                                    )?;
                                     let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                     //self.tyc.impose(inner_key.equate_with(ex_key))?;
-                                    self.tyc
-                                        .impose(inner_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                    self.tyc.impose(
+                                        inner_key.concretizes_explicit(AbstractValueType::Bool),
+                                    )?;
                                 } else {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                    self.tyc.impose(
+                                        term_key.concretizes_explicit(AbstractValueType::Bool),
+                                    )?;
                                 }
-                            },
+                            }
                             // <F: FractionalNumeric> F -> Option<F>
                             WindowOperation::Variance | WindowOperation::StandardDeviation => {
                                 self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::FractionalNumeric))?;
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    .impose(target_key.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Option),
+                                )?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
-                            },
+                            }
                             //<F:FractionalNumeric > (F,F) -> Option<F>
                             WindowOperation::Covariance => {
                                 //Origin stream hs to be a tuple of size 2
-                                self.tyc
-                                    .impose(target_key.concretizes_explicit(AbstractValueType::Tuple(2)))?;
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Tuple(2)),
+                                )?;
                                 // Origin stream has to be a (FractionalNumeric, FractionalNumeric) tuple
                                 let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
                                 let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
-                                self.tyc.impose(
-                                    target_child_1.concretizes_explicit(AbstractValueType::FractionalNumeric),
-                                )?;
-                                self.tyc.impose(
-                                    target_child_2.concretizes_explicit(AbstractValueType::FractionalNumeric),
-                                )?;
-                                //Result Key is option, window is failable (empty set)
                                 self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                                    .impose(target_child_1.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
+                                self.tyc
+                                    .impose(target_child_2.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
+                                //Result Key is option, window is failable (empty set)
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Option),
+                                )?;
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 //result inner key is float
-                                self.tyc.impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
-                            },
+                                self.tyc
+                                    .impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
+                            }
                         }
-                    },
+                    }
                     StreamAccessKind::Hold | StreamAccessKind::Get => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;
                         self.tyc.impose(target_key.equate_with(inner_key))?;
-                    },
-                    StreamAccessKind::Offset(off) => {
-                        match off {
-                            Offset::PastDiscrete(_) => {
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
-                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
-                                self.tyc.impose(target_key.equate_with(inner_key))?;
-                            },
-                            Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
-                                panic!("future offsets are not supported")
-                            },
+                    }
+                    StreamAccessKind::Offset(off) => match off {
+                        Offset::PastDiscrete(_) => {
+                            self.tyc
+                                .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
+                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                            self.tyc.impose(target_key.equate_with(inner_key))?;
+                        }
+                        Offset::FutureRealTime(_) | Offset::FutureDiscrete(_) => {
+                            panic!("future offsets are not supported")
+                        }
 
-                            Offset::PastRealTime(_) => {
-                                panic!("real-time offsets are not supported yet");
-                            },
+                        Offset::PastRealTime(_) => {
+                            panic!("real-time offsets are not supported yet");
                         }
                     },
                     StreamAccessKind::Fresh => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                    },
+                    }
                 };
-            },
+            }
             ExpressionKind::Default { expr, default } => {
                 let ex_key = if matches!(expr.kind, ExpressionKind::TupleAccess(_, _)) {
                     self.tuple_option_infer(expr.as_ref())?
@@ -608,12 +656,15 @@ where
                 self.tyc
                     .impose(ex_key.concretizes_explicit(AbstractValueType::Option))?;
                 let inner_key = self.tyc.get_child_key(ex_key, 0)?;
-                self.tyc.impose(term_key.is_sym_meet_of(def_key, inner_key))?;
-            },
+                self.tyc
+                    .impose(term_key.is_sym_meet_of(def_key, inner_key))?;
+            }
             ExpressionKind::ArithLog(op, expr_v) => {
                 use crate::hir::ArithLogOp;
-                let arg_keys: Result<Vec<TcKey>, TypeError<ValueErrorKind>> =
-                    expr_v.iter().map(|expr| self.expression_infer(expr, None)).collect();
+                let arg_keys: Result<Vec<TcKey>, TypeError<ValueErrorKind>> = expr_v
+                    .iter()
+                    .map(|expr| self.expression_infer(expr, None))
+                    .collect();
                 let arg_keys = arg_keys?;
                 match arg_keys.len() {
                     2 => {
@@ -627,40 +678,47 @@ where
                             | ArithLogOp::Div
                             | ArithLogOp::Rem
                             | ArithLogOp::Pow => {
-                                self.tyc
-                                    .impose(left_key.concretizes_explicit(AbstractValueType::Numeric))?;
-                                self.tyc
-                                    .impose(right_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc.impose(
+                                    left_key.concretizes_explicit(AbstractValueType::Numeric),
+                                )?;
+                                self.tyc.impose(
+                                    right_key.concretizes_explicit(AbstractValueType::Numeric),
+                                )?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
                                 self.tyc.impose(term_key.equate_with(right_key))?;
-                            },
+                            }
                             // <T:Integer> T x T -> T
                             ArithLogOp::Shl
                             | ArithLogOp::Shr
                             | ArithLogOp::BitAnd
                             | ArithLogOp::BitOr
                             | ArithLogOp::BitXor => {
-                                self.tyc
-                                    .impose(left_key.concretizes_explicit(AbstractValueType::Integer))?;
-                                self.tyc
-                                    .impose(right_key.concretizes_explicit(AbstractValueType::Integer))?;
+                                self.tyc.impose(
+                                    left_key.concretizes_explicit(AbstractValueType::Integer),
+                                )?;
+                                self.tyc.impose(
+                                    right_key.concretizes_explicit(AbstractValueType::Integer),
+                                )?;
 
                                 self.tyc.impose(term_key.is_meet_of(left_key, right_key))?;
                                 self.tyc.impose(term_key.equate_with(left_key))?;
                                 self.tyc.impose(term_key.equate_with(right_key))?;
-                            },
+                            }
                             // Bool x Bool -> Bool
                             ArithLogOp::And | ArithLogOp::Or => {
-                                self.tyc
-                                    .impose(left_key.concretizes_explicit(AbstractValueType::Bool))?;
-                                self.tyc
-                                    .impose(right_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc.impose(
+                                    left_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                self.tyc.impose(
+                                    right_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            },
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                            }
                             // Any x Any -> Bool COMPARATORS
                             ArithLogOp::Eq
                             | ArithLogOp::Lt
@@ -670,44 +728,50 @@ where
                             | ArithLogOp::Gt => {
                                 self.tyc.impose(left_key.equate_with(right_key))?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            },
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                            }
                             ArithLogOp::Not | ArithLogOp::Neg | ArithLogOp::BitNot => {
                                 unreachable!("unary operator cannot have 2 arguments")
-                            },
+                            }
                         }
-                    },
+                    }
                     1 => {
                         let arg_key = arg_keys[0];
                         match op {
                             // Bool -> Bool
                             ArithLogOp::Not => {
-                                self.tyc.impose(arg_key.concretizes_explicit(AbstractValueType::Bool))?;
+                                self.tyc.impose(
+                                    arg_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
 
-                                self.tyc
-                                    .impose(term_key.concretizes_explicit(AbstractValueType::Bool))?;
-                            },
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                            }
                             //Num -> Num
                             ArithLogOp::Neg => {
-                                self.tyc
-                                    .impose(arg_key.concretizes_explicit(AbstractValueType::Numeric))?;
+                                self.tyc.impose(
+                                    arg_key.concretizes_explicit(AbstractValueType::Numeric),
+                                )?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
-                            },
+                            }
                             //Integer -> Integer
                             ArithLogOp::BitNot => {
-                                self.tyc
-                                    .impose(arg_key.concretizes_explicit(AbstractValueType::Integer))?;
+                                self.tyc.impose(
+                                    arg_key.concretizes_explicit(AbstractValueType::Integer),
+                                )?;
 
                                 self.tyc.impose(term_key.equate_with(arg_key))?;
-                            },
+                            }
                             _ => unreachable!("All other operators have 2 given arguments"),
                         }
-                    },
+                    }
                     _ => unreachable!(),
                 }
-            },
+            }
             ExpressionKind::Ite {
                 condition,
                 consequence,
@@ -718,8 +782,9 @@ where
                 let cons_key = self.expression_infer(consequence, None)?; // X
                 let alt_key = self.expression_infer(alternative, None)?; // X
                                                                          //Bool x T x T -> T
-                self.tyc.impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
-            },
+                self.tyc
+                    .impose(term_key.is_sym_meet_of(cons_key, alt_key))?;
+            }
 
             ExpressionKind::Tuple(vec) => {
                 let key_vec = vec
@@ -730,9 +795,10 @@ where
                     .impose(term_key.concretizes_explicit(AbstractValueType::Tuple(vec.len())))?;
                 for (n, child_key_inferred) in key_vec.iter().enumerate() {
                     let n_key_given = self.tyc.get_child_key(term_key, n)?;
-                    self.tyc.impose(n_key_given.equate_with(*child_key_inferred))?;
+                    self.tyc
+                        .impose(n_key_given.equate_with(*child_key_inferred))?;
                 }
-            },
+            }
 
             ExpressionKind::TupleAccess(expr, idx) => {
                 let ex_key = self.expression_infer(expr, None)?;
@@ -741,7 +807,7 @@ where
 
                 let accessed_child = self.tyc.get_child_key(ex_key, *idx)?;
                 self.tyc.impose(term_key.equate_with(accessed_child))?;
-            },
+            }
 
             ExpressionKind::Widen(WidenExprKind { expr: inner, ty }) => {
                 let inner_expr_key = self.expression_infer(inner, None)?;
@@ -754,11 +820,16 @@ where
                     _ => unimplemented!("unsupported widening type"),
                 };
                 self.handle_annotated_type(term_key, ty, Some(inner_expr_key))?;
-                self.tyc.impose(inner_expr_key.concretizes_explicit(upper_bound))?;
+                self.tyc
+                    .impose(inner_expr_key.concretizes_explicit(upper_bound))?;
                 self.add_widen_check(term_key, inner_expr_key, ty)?;
                 //self.tyc.impose(term_key.concretizes(inner_expr_key))?;
-            },
-            ExpressionKind::Function(FnExprKind { name, type_param, args }) => {
+            }
+            ExpressionKind::Function(FnExprKind {
+                name,
+                type_param,
+                args,
+            }) => {
                 // type_param.len() <= generics.len()
                 // param.len() == args.len()
 
@@ -786,7 +857,8 @@ where
                     .iter()
                     .map(|gen| {
                         let gen_key: TcKey = self.tyc.new_term_key();
-                        self.concretizes_annotated_type(gen_key, gen).map(|_| gen_key)
+                        self.concretizes_annotated_type(gen_key, gen)
+                            .map(|_| gen_key)
                     })
                     .collect::<Result<Vec<TcKey>, TypeError<ValueErrorKind>>>()?;
 
@@ -811,7 +883,7 @@ where
                 let return_type = self.replace_type(&fun_decl.return_type, &generics)?;
 
                 self.tyc.impose(term_key.concretizes(return_type))?;
-            },
+            }
             ExpressionKind::ParameterAccess(current_stream, ix) => {
                 let output: &Output = self
                     .hir
@@ -821,7 +893,7 @@ where
                 let par_key = self.tyc.get_var_key(&Variable::for_parameter(output, *ix));
                 //dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
-            },
+            }
         };
 
         Ok(term_key)
@@ -858,7 +930,11 @@ where
         }
     }
 
-    fn replace_type(&mut self, at: &AnnotatedType, to: &[TcKey]) -> Result<TcKey, TypeError<ValueErrorKind>> {
+    fn replace_type(
+        &mut self,
+        at: &AnnotatedType,
+        to: &[TcKey],
+    ) -> Result<TcKey, TypeError<ValueErrorKind>> {
         match at {
             AnnotatedType::Param(idx, _) => Ok(to[*idx]),
             AnnotatedType::Numeric
@@ -879,7 +955,7 @@ where
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
-            },
+            }
         }
     }
 
@@ -919,7 +995,7 @@ where
                             key1: Some(parent),
                             key2: Some(inner_key),
                         })
-                    },
+                    }
                     _ => None,
                 }
             })
@@ -962,15 +1038,13 @@ where
                                 })
                             }
                         }
-                    },
-                    ConcreteValueType::Option(_) => {
-                        errors.push(TypeError {
-                            kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
-                            key1: Some(key),
-                            key2: None,
-                        })
-                    },
-                    _ => {},
+                    }
+                    ConcreteValueType::Option(_) => errors.push(TypeError {
+                        kind: ValueErrorKind::OptionNotAllowed(ty.clone()),
+                        key1: Some(key),
+                        key2: None,
+                    }),
+                    _ => {}
                 }
                 if matches!(ty, ConcreteValueType::Option(_)) {}
             }
@@ -1057,8 +1131,14 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let input_sr = tb.hir.get_input_with_name("i").unwrap().sr;
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(input_sr)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(input_sr)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(output_sr)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1067,8 +1147,14 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let input_sr = tb.hir.get_input_with_name("i").unwrap().sr;
         let output_sr = tb.hir.get_output_with_name("o").unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(input_sr)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer32);
+        assert_eq!(
+            result_map[&NodeId::SRef(input_sr)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(output_sr)],
+            ConcreteValueType::Integer32
+        );
     }
 
     #[test]
@@ -1079,9 +1165,18 @@ mod value_type_tests {
         let input_i_id = input_iter.next().unwrap().sr;
         let input_i1_id = input_iter.next().unwrap().sr;
         let output_id = tb.hir.outputs().next().unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(input_i_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(input_i1_id)], ConcreteValueType::Integer16);
-        assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer16);
+        assert_eq!(
+            result_map[&NodeId::SRef(input_i_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(input_i1_id)],
+            ConcreteValueType::Integer16
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(output_id)],
+            ConcreteValueType::Integer16
+        );
     }
 
     #[test]
@@ -1093,8 +1188,14 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let o2_sr = tb.output("i");
         let o1_id = tb.output("o");
-        assert_eq!(result_map[&NodeId::SRef(o1_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(o2_sr)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(o1_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(o2_sr)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1102,7 +1203,10 @@ mod value_type_tests {
         let spec = "output x(a: UInt8, b: Bool): Int8 spawn @1Hz with (5, true) eval @1Hz with 1";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
-        assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(output_sr)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1110,7 +1214,10 @@ mod value_type_tests {
         let spec = "output x(a: UInt8, b: Bool) spawn @1Hz with (5, true) eval @1Hz with a";
         let (tb, result_map) = check_value_type(spec);
         let output_sr = tb.output("x");
-        assert_eq!(result_map[&NodeId::SRef(output_sr)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(output_sr)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1119,8 +1226,14 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let output_id = tb.output("x");
         let output_2_id = tb.output("y");
-        assert_eq!(result_map[&NodeId::SRef(output_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(output_2_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(output_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(output_2_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1128,7 +1241,10 @@ mod value_type_tests {
         let spec = "output x (a, b) spawn @1Hz with (5, true) eval @1Hz with 42";
         let (tb, result_map) = check_value_type(spec);
         let x = tb.output("x");
-        assert_eq!(result_map[&NodeId::Param(0, x)], ConcreteValueType::Integer64);
+        assert_eq!(
+            result_map[&NodeId::Param(0, x)],
+            ConcreteValueType::Integer64
+        );
         assert_eq!(result_map[&NodeId::Param(1, x)], ConcreteValueType::Bool);
     }
 
@@ -1201,7 +1317,8 @@ mod value_type_tests {
 
     #[test]
     fn simple_explicit_widening() {
-        let spec = "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen<Int32>(d)";
+        let spec =
+            "constant c: Int32 := 1\n constant d: Int8 := 2\noutput o @1Hz := c + widen<Int32>(d)";
         let (tb, result_map) = check_value_type(spec);
         let sr = tb.output("o");
         assert_eq!(result_map[&NodeId::SRef(sr)], ConcreteValueType::Integer32);
@@ -1240,7 +1357,10 @@ mod value_type_tests {
         let spec = "output o: Int8 @1Hz := 3 + 5";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.hir.outputs().next().unwrap().sr;
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1249,8 +1369,14 @@ mod value_type_tests {
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
         let in_id = tb.input("i");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1307,7 +1433,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o: Int8 @1Hz := if false then 1 else 2";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1315,7 +1444,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output e :Int8 @1Hz := if 1 == 0 then 0 else -1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("e");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1323,7 +1455,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output o @1Hz := if !false then 1.3 else -2.0";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float64
+        );
     }
 
     #[test]
@@ -1355,7 +1490,9 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("o");
         let res_type = &result_map[&NodeId::SRef(out_id)];
-        assert!(*res_type == ConcreteValueType::Integer32 || *res_type == ConcreteValueType::Integer64);
+        assert!(
+            *res_type == ConcreteValueType::Integer32 || *res_type == ConcreteValueType::Integer64
+        );
     }
 
     #[test]
@@ -1364,8 +1501,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         let in_id = tb.input("a");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1380,8 +1523,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1396,8 +1545,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
         let in_id = tb.output("a");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1406,8 +1561,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("a");
         let out_id = tb.output("sum");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1422,7 +1583,10 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Bool);
     }
 
@@ -1439,7 +1603,10 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let in_id = tb.input("in");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Bool);
     }
 
@@ -1457,8 +1624,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1473,8 +1646,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
         let in_id = tb.input("i");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1538,7 +1717,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "input in: Int8\noutput out: Int8 := in.offset(by: -1).defaults(to: 0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
         assert_eq!(
             result_map[&NodeId::Expr(ExprId(1))],
             ConcreteValueType::Option(ConcreteValueType::Integer8.into())
@@ -1558,8 +1740,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("a");
         let out_id = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1573,7 +1761,10 @@ output o_9: Bool @i_0 := true  && true";
             ConcreteValueType::Tuple(vec![ConcreteValueType::UInteger8, ConcreteValueType::Bool]),
         ]);
         assert_eq!(result_map[&NodeId::SRef(in_id)], input_type);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer16
+        );
     }
 
     #[test]
@@ -1624,8 +1815,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer64);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer64
+        );
     }
 
     #[test]
@@ -1634,8 +1831,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1652,8 +1855,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer16
+        );
     }
 
     #[test]
@@ -1664,8 +1873,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1676,8 +1891,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1693,15 +1914,27 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float64
+        );
         let spec =
             "input in: Int8\n output out @5Hz := in.aggregate(over_exactly: 3s, using: integral).defaults(to: 5.0)";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float64
+        );
     }
 
     #[test]
@@ -1710,8 +1943,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1720,8 +1959,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1730,8 +1975,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("in");
         let out_id = tb.output("out");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1742,7 +1993,10 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1754,12 +2008,18 @@ output o_9: Bool @i_0 := true  && true";
         let t_id = tb.output("t");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
-        assert_eq!(result_map[&NodeId::SRef(in2_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in2_id)],
+            ConcreteValueType::Float32
+        );
         assert_eq!(
             result_map[&NodeId::SRef(t_id)],
             ConcreteValueType::Tuple(vec![ConcreteValueType::Float32, ConcreteValueType::Float32])
         );
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1781,12 +2041,16 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("in");
         let out_id = tb.output("out");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
     fn test_new_aggr_function_missing_default() {
-        let spec = "input in: Float32\n output out: Float64 @5Hz := in.aggregate(over: 3s, using: σ²)";
+        let spec =
+            "input in: Float32\n output out: Float64 @5Hz := in.aggregate(over: 3s, using: σ²)";
         assert_eq!(1, num_errors(spec));
     }
 
@@ -1797,7 +2061,10 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("velo");
         let out_id = tb.output("avg");
         assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Float32);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float64);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float64
+        );
     }
 
     #[test]
@@ -1807,8 +2074,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1817,7 +2090,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "output a @10Hz := a.offset(by: -100ms).defaults(to:0) + 1";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer32
+        );
     }
 
     #[test]
@@ -1830,8 +2106,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("x");
         let out_id2 = tb.output("x_diff");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer32);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer32
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::Integer32
+        );
     }
 
     #[test]
@@ -1841,8 +2123,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1852,8 +2140,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("a");
         let out_id2 = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
-        assert_eq!(result_map[&NodeId::SRef(out_id2)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id2)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]
@@ -1862,8 +2156,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1872,8 +2172,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger8);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger8
+        );
     }
 
     #[test]
@@ -1883,8 +2189,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::UInteger8);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::UInteger8
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1893,8 +2205,14 @@ output o_9: Bool @i_0 := true  && true";
         let (tb, result_map) = check_value_type(spec);
         let in_id = tb.input("x");
         let out_id = tb.output("y");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UInteger32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer32
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UInteger32
+        );
     }
 
     #[test]
@@ -1946,7 +2264,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\ninput s: Int16\ninput b: Int16\noutput c := max(s, b)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("c");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer16);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer16
+        );
     }
 
     #[test]
@@ -1972,7 +2293,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\ninput a: Float32\noutput b := sqrt(a)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -1980,7 +2304,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\ninput a: UFixed64_32\noutput b := sqrt(a)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::UFixed64_32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::UFixed64_32
+        );
     }
 
     #[test]
@@ -1988,7 +2315,10 @@ output o_9: Bool @i_0 := true  && true";
         let spec = "import math\nconstant x: Float32 := 5.0\noutput b @1Hz := abs(x)";
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("b");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Float32);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Float32
+        );
     }
 
     #[test]
@@ -2088,9 +2418,18 @@ output o_9: Bool @i_0 := true  && true";
         let in_id = tb.input("a");
         let b_id = tb.output("b");
         let c_id = tb.output("c");
-        assert_eq!(result_map[&NodeId::SRef(in_id)], ConcreteValueType::Integer32);
-        assert_eq!(result_map[&NodeId::SRef(b_id)], ConcreteValueType::Integer32);
-        assert_eq!(result_map[&NodeId::SRef(c_id)], ConcreteValueType::Integer32);
+        assert_eq!(
+            result_map[&NodeId::SRef(in_id)],
+            ConcreteValueType::Integer32
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(b_id)],
+            ConcreteValueType::Integer32
+        );
+        assert_eq!(
+            result_map[&NodeId::SRef(c_id)],
+            ConcreteValueType::Integer32
+        );
     }
 
     #[test]
@@ -2100,7 +2439,10 @@ output o_9: Bool @i_0 := true  && true";
         assert_eq!(0, num_errors(spec));
         let (tb, result_map) = check_value_type(spec);
         let out_id = tb.output("c");
-        assert_eq!(result_map[&NodeId::SRef(out_id)], ConcreteValueType::Integer8);
+        assert_eq!(
+            result_map[&NodeId::SRef(out_id)],
+            ConcreteValueType::Integer8
+        );
     }
 
     #[test]

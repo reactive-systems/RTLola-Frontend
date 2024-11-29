@@ -4,11 +4,12 @@ use itertools::Itertools;
 use rtlola_hir::hir::OutputKind;
 
 use super::{
-    FixedTy, FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
-    WindowOperation,
+    FixedTy, FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType,
+    Trigger, UIntTy, Window, WindowOperation,
 };
 use crate::mir::{
-    ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
+    ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset,
+    StreamAccessKind, Type,
 };
 
 impl Display for Constant {
@@ -63,7 +64,9 @@ impl Display for Type {
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
             Type::Fixed(ty) => write!(f, "Fixed{ty}"),
             Type::UFixed(ty) => write!(f, "UFixed{ty}"),
-            Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {ret}"), ","),
+            Type::Function { args, ret } => {
+                write_delim_list(f, args, "(", &format!(") -> {ret}"), ",")
+            }
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),
@@ -205,14 +208,14 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::And.to_string());
                 write!(f, "{rs}")
-            },
+            }
             ActivationCondition::Disjunction(s) => {
                 let rs = s
                     .iter()
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::Or.to_string());
                 write!(f, "{rs}")
-            },
+            }
             ActivationCondition::Stream(s) => write!(f, "{}", self.mir.stream(*s).name()),
             ActivationCondition::True => write!(f, "true"),
         }
@@ -224,16 +227,22 @@ impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
         match self.inner {
             PacingType::GlobalPeriodic(freq) => {
                 let s = freq
-                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .into_format_args(
+                        uom::si::frequency::hertz,
+                        uom::fmt::DisplayStyle::Abbreviation,
+                    )
                     .to_string();
                 write!(f, "Global({}Hz)", &s[..s.len() - 3])
-            },
+            }
             PacingType::LocalPeriodic(freq) => {
                 let s = freq
-                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .into_format_args(
+                        uom::si::frequency::hertz,
+                        uom::fmt::DisplayStyle::Abbreviation,
+                    )
                     .to_string();
                 write!(f, "Local({}Hz)", &s[..s.len() - 3])
-            },
+            }
             PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
             PacingType::Constant => write!(f, "true"),
         }
@@ -283,14 +292,15 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 2 => format!("{} {} {}", display_exprs[0], op, display_exprs[1]),
                 _ => unreachable!(),
             };
-            if (associative && current_level < op_level || !associative && current_level <= op_level)
+            if (associative && current_level < op_level
+                || !associative && current_level <= op_level)
                 && current_level != 0
             {
                 format!("({display})")
             } else {
                 display
             }
-        },
+        }
         ExpressionKind::StreamAccess {
             target,
             parameters,
@@ -316,28 +326,30 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                     let duration = window.duration;
                     let op = &window.op;
                     format!("{target_name}.aggregate(over_discrete: {duration}, using: {op})")
-                },
+                }
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
                     let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
-                },
+                }
                 StreamAccessKind::InstanceAggregation(w) => {
                     let window = mir.instance_aggregation(*w);
                     let target_name = mir.stream(window.target).name();
                     let duration = window.selection.to_string();
                     let op = &window.op().to_string();
                     format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
-                },
+                }
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
                 StreamAccessKind::Get => format!("{target_name}.get()"),
                 StreamAccessKind::Fresh => format!("{target_name}.fresh()"),
             }
-        },
-        ExpressionKind::ParameterAccess(sref, parameter) => mir.output(*sref).params[*parameter].name.to_string(),
+        }
+        ExpressionKind::ParameterAccess(sref, parameter) => {
+            mir.output(*sref).params[*parameter].name.to_string()
+        }
         ExpressionKind::Ite {
             condition,
             consequence,
@@ -347,7 +359,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             let display_consequence = display_expression(mir, consequence, 0);
             let display_alternative = display_expression(mir, alternative, 0);
             format!("if {display_condition} then {display_consequence} else {display_alternative}")
-        },
+        }
         ExpressionKind::Tuple(exprs) => {
             let display_exprs = exprs
                 .iter()
@@ -355,11 +367,11 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("({display_exprs})")
-        },
+        }
         ExpressionKind::TupleAccess(expr, i) => {
             let display_expr = display_expression(mir, expr, 20);
             format!("{display_expr}({i})")
-        },
+        }
         ExpressionKind::Function(name, args) => {
             let display_args = args
                 .iter()
@@ -367,16 +379,16 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{name}({display_args})")
-        },
+        }
         ExpressionKind::Convert { expr: inner_expr } => {
             let inner_display = display_expression(mir, inner_expr, 0);
             format!("Cast<{},{}>({inner_display})", expr.ty, inner_expr.ty)
-        },
+        }
         ExpressionKind::Default { expr, default } => {
             let display_expr = display_expression(mir, expr, 0);
             let display_default = display_expression(mir, default, 0);
             format!("{display_expr}.defaults(to: {display_default})")
-        },
+        }
     }
 }
 
@@ -422,7 +434,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
         }
 
-        if spawn.expression.is_some() || spawn.condition.is_some() || spawn.pacing != PacingType::Constant {
+        if spawn.expression.is_some()
+            || spawn.condition.is_some()
+            || spawn.pacing != PacingType::Constant
+        {
             let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
             write!(f, "\n  spawn @{display_pacing}")?;
             if let Some(spawn_expr) = &spawn.expression {
@@ -449,7 +464,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
         if let Some(close_condition) = &close.condition {
             let display_pacing = RtLolaMirPrinter::new(self.mir, &close.pacing).to_string();
             let display_close_condition = display_expression(self.mir, close_condition, 0);
-            write!(f, "\n  close @{display_pacing} when {display_close_condition}")?;
+            write!(
+                f,
+                "\n  close @{display_pacing} when {display_close_condition}"
+            )?;
         }
 
         Ok(())

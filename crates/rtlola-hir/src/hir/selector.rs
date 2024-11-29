@@ -80,22 +80,18 @@ impl Selectable for CloseSelector {
         match self {
             CloseSelector::Any => true,
             CloseSelector::Closed => close_ty.is_some(),
-            CloseSelector::EventBased => {
-                close_ty
-                    .map(|t| t.eval_pacing.is_event_based() || t.eval_pacing.is_constant())
-                    .unwrap_or(false)
-            },
-            CloseSelector::DynamicPeriodic => {
-                close_ty
-                    .map(|t| t.eval_pacing.is_periodic() && !t.spawn_pacing.is_constant())
-                    .unwrap_or(false)
-            },
-            CloseSelector::StaticPeriodic => {
-                close_ty
-                    .map(|t| t.eval_pacing.is_periodic() && t.spawn_pacing.is_constant())
-                    .unwrap_or(false)
-            },
-            CloseSelector::AnyPeriodic => close_ty.map(|t| t.eval_pacing.is_periodic()).unwrap_or(false),
+            CloseSelector::EventBased => close_ty
+                .map(|t| t.eval_pacing.is_event_based() || t.eval_pacing.is_constant())
+                .unwrap_or(false),
+            CloseSelector::DynamicPeriodic => close_ty
+                .map(|t| t.eval_pacing.is_periodic() && !t.spawn_pacing.is_constant())
+                .unwrap_or(false),
+            CloseSelector::StaticPeriodic => close_ty
+                .map(|t| t.eval_pacing.is_periodic() && t.spawn_pacing.is_constant())
+                .unwrap_or(false),
+            CloseSelector::AnyPeriodic => close_ty
+                .map(|t| t.eval_pacing.is_periodic())
+                .unwrap_or(false),
             CloseSelector::NotClosed => output.close().is_none(),
         }
     }
@@ -254,7 +250,9 @@ impl<'a, M: HirMode + TypedTrait, S: Selectable> StreamSelector<'a, M, S> {
 
     fn select(&self, sref: SRef) -> bool {
         assert!(sref.is_output());
-        self.filter.select(self.hir, sref) && self.eval.select_eval(self.hir, sref) && self.state.select(self.hir, sref)
+        self.filter.select(self.hir, sref)
+            && self.eval.select_eval(self.hir, sref)
+            && self.state.select(self.hir, sref)
     }
 
     /// Construct the represented subset of output streams matching the given selections.
@@ -383,11 +381,20 @@ mod tests {
     fn test_all() {
         let hir = get_hir();
 
-        assert_streams!(hir.select().build(), vec!["a", "b", "c", "d", "e", "f", "g"]);
+        assert_streams!(
+            hir.select().build(),
+            vec!["a", "b", "c", "d", "e", "f", "g"]
+        );
 
         assert_streams!(hir.select().periodic_eval().build(), vec!["a", "b", "e"]);
-        assert_streams!(hir.select().event_based_eval().build(), vec!["c", "d", "f", "g"]);
-        assert_streams!(hir.select().eval(PacingSelector::Periodic).build(), vec!["a", "b", "e"]);
+        assert_streams!(
+            hir.select().event_based_eval().build(),
+            vec!["c", "d", "f", "g"]
+        );
+        assert_streams!(
+            hir.select().eval(PacingSelector::Periodic).build(),
+            vec!["a", "b", "e"]
+        );
         assert_streams!(
             hir.select().eval(PacingSelector::EventBased).build(),
             vec!["c", "d", "f", "g"]
@@ -409,25 +416,46 @@ mod tests {
     fn test_dynamic() {
         let hir = get_hir();
 
-        assert_streams!(hir.select().dynamic_streams().build(), vec!["b", "c", "d", "e", "f"]);
-        assert_streams!(hir.select().dynamic_streams().periodic_eval().build(), vec!["b", "e"]);
+        assert_streams!(
+            hir.select().dynamic_streams().build(),
+            vec!["b", "c", "d", "e", "f"]
+        );
+        assert_streams!(
+            hir.select().dynamic_streams().periodic_eval().build(),
+            vec!["b", "e"]
+        );
         assert_streams!(
             hir.select().dynamic_streams().event_based_eval().build(),
             vec!["c", "d", "f"]
         );
         assert_streams!(
-            hir.select().dynamic_streams().eval(PacingSelector::Periodic).build(),
+            hir.select()
+                .dynamic_streams()
+                .eval(PacingSelector::Periodic)
+                .build(),
             vec!["b", "e"]
         );
         assert_streams!(
-            hir.select().dynamic_streams().eval(PacingSelector::EventBased).build(),
+            hir.select()
+                .dynamic_streams()
+                .eval(PacingSelector::EventBased)
+                .build(),
             vec!["c", "d", "f"]
         );
 
-        assert_streams!(hir.select().dynamic_streams().filtered().build(), vec!["b", "e"]);
-        assert_streams!(hir.select().dynamic_streams().unfiltered().build(), vec!["c", "d", "f"]);
         assert_streams!(
-            hir.select().dynamic_streams().filter(FilterSelector::Filtered).build(),
+            hir.select().dynamic_streams().filtered().build(),
+            vec!["b", "e"]
+        );
+        assert_streams!(
+            hir.select().dynamic_streams().unfiltered().build(),
+            vec!["c", "d", "f"]
+        );
+        assert_streams!(
+            hir.select()
+                .dynamic_streams()
+                .filter(FilterSelector::Filtered)
+                .build(),
             vec!["b", "e"]
         );
         assert_streams!(
@@ -438,21 +466,33 @@ mod tests {
             vec!["c", "d", "f"]
         );
 
-        assert_streams!(hir.select().dynamic_streams().periodic_spawn().build(), vec!["c", "f"]);
+        assert_streams!(
+            hir.select().dynamic_streams().periodic_spawn().build(),
+            vec!["c", "f"]
+        );
         assert_streams!(
             hir.select().dynamic_streams().event_based_spawn().build(),
             vec!["b", "d", "e"]
         );
         assert_streams!(
-            hir.select().dynamic_streams().spawn(PacingSelector::Periodic).build(),
+            hir.select()
+                .dynamic_streams()
+                .spawn(PacingSelector::Periodic)
+                .build(),
             vec!["c", "f"]
         );
         assert_streams!(
-            hir.select().dynamic_streams().spawn(PacingSelector::EventBased).build(),
+            hir.select()
+                .dynamic_streams()
+                .spawn(PacingSelector::EventBased)
+                .build(),
             vec!["b", "d", "e"]
         );
 
-        assert_streams!(hir.select().dynamic_streams().parameterized().build(), vec!["c", "f"]);
+        assert_streams!(
+            hir.select().dynamic_streams().parameterized().build(),
+            vec!["c", "f"]
+        );
         assert_streams!(
             hir.select().dynamic_streams().not_parameterized().build(),
             vec!["b", "d", "e"]
@@ -478,12 +518,18 @@ mod tests {
         let hir = get_hir();
 
         assert_streams!(
-            hir.select().dynamic_streams().close(CloseSelector::Closed).build(),
+            hir.select()
+                .dynamic_streams()
+                .close(CloseSelector::Closed)
+                .build(),
             vec!["d", "e", "f"]
         );
 
         assert_streams!(
-            hir.select().dynamic_streams().close(CloseSelector::AnyPeriodic).build(),
+            hir.select()
+                .dynamic_streams()
+                .close(CloseSelector::AnyPeriodic)
+                .build(),
             vec!["d", "e"]
         );
 
@@ -504,12 +550,18 @@ mod tests {
         );
 
         assert_streams!(
-            hir.select().dynamic_streams().close(CloseSelector::EventBased).build(),
+            hir.select()
+                .dynamic_streams()
+                .close(CloseSelector::EventBased)
+                .build(),
             vec!["f"]
         );
 
         assert_streams!(
-            hir.select().dynamic_streams().close(CloseSelector::NotClosed).build(),
+            hir.select()
+                .dynamic_streams()
+                .close(CloseSelector::NotClosed)
+                .build(),
             vec!["b", "c"]
         );
     }
@@ -519,25 +571,46 @@ mod tests {
         let hir = get_hir();
 
         assert_streams!(hir.select().static_streams().build(), vec!["a", "g"]);
-        assert_streams!(hir.select().static_streams().periodic_eval().build(), vec!["a"]);
-        assert_streams!(hir.select().static_streams().event_based_eval().build(), vec!["g"]);
         assert_streams!(
-            hir.select().static_streams().eval(PacingSelector::Periodic).build(),
+            hir.select().static_streams().periodic_eval().build(),
             vec!["a"]
         );
         assert_streams!(
-            hir.select().static_streams().eval(PacingSelector::EventBased).build(),
+            hir.select().static_streams().event_based_eval().build(),
+            vec!["g"]
+        );
+        assert_streams!(
+            hir.select()
+                .static_streams()
+                .eval(PacingSelector::Periodic)
+                .build(),
+            vec!["a"]
+        );
+        assert_streams!(
+            hir.select()
+                .static_streams()
+                .eval(PacingSelector::EventBased)
+                .build(),
             vec!["g"]
         );
 
         assert_streams!(hir.select().static_streams().filtered().build(), vec!["g"]);
-        assert_streams!(hir.select().static_streams().unfiltered().build(), vec!["a"]);
         assert_streams!(
-            hir.select().static_streams().filter(FilterSelector::Filtered).build(),
+            hir.select().static_streams().unfiltered().build(),
+            vec!["a"]
+        );
+        assert_streams!(
+            hir.select()
+                .static_streams()
+                .filter(FilterSelector::Filtered)
+                .build(),
             vec!["g"]
         );
         assert_streams!(
-            hir.select().static_streams().filter(FilterSelector::Unfiltered).build(),
+            hir.select()
+                .static_streams()
+                .filter(FilterSelector::Unfiltered)
+                .build(),
             vec!["a"]
         );
     }

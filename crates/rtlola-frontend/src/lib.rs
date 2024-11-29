@@ -70,7 +70,9 @@ pub fn parse<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<RtLolaMir, RtL
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_with_features<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<FeatureSelector, RtLolaError> {
+pub fn parse_with_features<'a>(
+    config: impl Into<FrontendConfig<'a>>,
+) -> Result<FeatureSelector, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(FeatureSelector::new(hir))
 }
@@ -82,7 +84,9 @@ pub fn parse_with_features<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_to_final_hir<'a>(cfg: impl Into<FrontendConfig<'a>>) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
+pub fn parse_to_final_hir<'a>(
+    cfg: impl Into<FrontendConfig<'a>>,
+) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
     let config: FrontendConfig = cfg.into();
     let spec = rtlola_parser::parse(config.parser_config())?;
     rtlola_hir::fully_analyzed(spec, &config)

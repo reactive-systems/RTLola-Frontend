@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 
-use crate::hir::{ConcretePacingType, DiscreteAggr, Feature, InstanceAggregation, Output, SlidingAggr, Window};
+use crate::hir::{
+    ConcretePacingType, DiscreteAggr, Feature, InstanceAggregation, Output, SlidingAggr, Window,
+};
 use crate::type_check::ConcreteValueType;
 
 #[derive(Debug, Clone)]
@@ -18,11 +20,15 @@ impl Feature for Parameterized {
         if output.params.is_empty() {
             Ok(())
         } else {
-            Err(
-                Diagnostic::error("Unsupported Feature: Parameters are not supported by the backend.")
-                    .add_span_with_label(output.span, Some("Found parameterized output stream here"), true)
-                    .into(),
+            Err(Diagnostic::error(
+                "Unsupported Feature: Parameters are not supported by the backend.",
             )
+            .add_span_with_label(
+                output.span,
+                Some("Found parameterized output stream here"),
+                true,
+            )
+            .into())
         }
     }
 }
@@ -98,11 +104,11 @@ impl Feature for Closed {
         if output.close.is_none() {
             Ok(())
         } else {
-            Err(
-                Diagnostic::error("Unsupported Feature: Dynamically closing streams is not supported by the backend.")
-                    .add_span_with_label(output.span, Some("Found closed stream here"), true)
-                    .into(),
+            Err(Diagnostic::error(
+                "Unsupported Feature: Dynamically closing streams is not supported by the backend.",
             )
+            .add_span_with_label(output.span, Some("Found closed stream here"), true)
+            .into())
         }
     }
 }
@@ -127,14 +133,18 @@ impl Feature for SlidingWindows {
         "Sliding Windows"
     }
 
-    fn exclude_sliding_window(&self, span: &Span, window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
+    fn exclude_sliding_window(
+        &self,
+        span: &Span,
+        window: &Window<SlidingAggr>,
+    ) -> Result<(), RtLolaError> {
         let op = &window.aggr.op;
         if self.unsupported.is_empty() {
-            Err(
-                Diagnostic::error("Unsupported Feature: Sliding windows are not supported by the backend.")
-                    .add_span_with_label(*span, Some("Found sliding window here"), true)
-                    .into(),
+            Err(Diagnostic::error(
+                "Unsupported Feature: Sliding windows are not supported by the backend.",
             )
+            .add_span_with_label(*span, Some("Found sliding window here"), true)
+            .into())
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Sliding window operation <{op}> is not supported by the backend."
@@ -167,14 +177,18 @@ impl Feature for DiscreteWindows {
         "Discrete Windows"
     }
 
-    fn exclude_discrete_window(&self, span: &Span, window: &Window<DiscreteAggr>) -> Result<(), RtLolaError> {
+    fn exclude_discrete_window(
+        &self,
+        span: &Span,
+        window: &Window<DiscreteAggr>,
+    ) -> Result<(), RtLolaError> {
         let op = &window.aggr.op;
         if self.unsupported.is_empty() {
-            Err(
-                Diagnostic::error("Unsupported Feature: Discrete windows are not supported by the backend.")
-                    .add_span_with_label(*span, Some("Found discrete window here"), true)
-                    .into(),
+            Err(Diagnostic::error(
+                "Unsupported Feature: Discrete windows are not supported by the backend.",
             )
+            .add_span_with_label(*span, Some("Found discrete window here"), true)
+            .into())
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Discrete window operation <{op}> is not supported by the backend."
@@ -207,14 +221,18 @@ impl Feature for InstanceAggregations {
         "Discrete Windows"
     }
 
-    fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
+    fn exclude_instance_aggregation(
+        &self,
+        span: &Span,
+        aggregation: &InstanceAggregation,
+    ) -> Result<(), RtLolaError> {
         let op = &aggregation.aggr;
         if self.unsupported.is_empty() {
-            Err(
-                Diagnostic::error("Unsupported Feature: Instance aggregations are not supported by the backend.")
-                    .add_span_with_label(*span, Some("Found instance aggregation here"), true)
-                    .into(),
+            Err(Diagnostic::error(
+                "Unsupported Feature: Instance aggregations are not supported by the backend.",
             )
+            .add_span_with_label(*span, Some("Found instance aggregation here"), true)
+            .into())
         } else if self.unsupported.contains(op) {
             Err(Diagnostic::error(&format!(
                 "Unsupported Feature: Instance aggregation operation <{op}> is not supported by the backend."
@@ -242,12 +260,16 @@ impl Feature for Periodics {
             | ConcretePacingType::FixedGlobalPeriodic(_)
             | ConcretePacingType::AnyPeriodic => {
                 let str_ty = ty.to_pretty_string(&HashMap::new());
-                Err(
-                    Diagnostic::error("Unsupported Feature: Periodic evaluation is not supported by the backend.")
-                        .add_span_with_label(*span, Some(&format!("Found periodic pacing <{str_ty}> here")), true)
-                        .into(),
+                Err(Diagnostic::error(
+                    "Unsupported Feature: Periodic evaluation is not supported by the backend.",
                 )
-            },
+                .add_span_with_label(
+                    *span,
+                    Some(&format!("Found periodic pacing <{str_ty}> here")),
+                    true,
+                )
+                .into())
+            }
             ConcretePacingType::Constant | ConcretePacingType::Event(_) => Ok(()),
         }
     }
@@ -274,9 +296,15 @@ impl Feature for ValueTypes {
 
     fn exclude_value_type(&self, span: &Span, ty: &ConcreteValueType) -> Result<(), RtLolaError> {
         if self.unsupported.contains(ty) {
-            Err(Diagnostic::error("Unsupported Feature: Value type not supported.")
-                .add_span_with_label(*span, Some(&format!("Found unsupported value type <{ty}> here")), true)
-                .into())
+            Err(
+                Diagnostic::error("Unsupported Feature: Value type not supported.")
+                    .add_span_with_label(
+                        *span,
+                        Some(&format!("Found unsupported value type <{ty}> here")),
+                        true,
+                    )
+                    .into(),
+            )
         } else {
             Ok(())
         }

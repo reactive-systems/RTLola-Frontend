@@ -58,7 +58,10 @@ pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
 /// - Memory analysis (see [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
 ///
 /// This function returns the fully analysed [RtLolaHir]  which can be lowered into the [Mir](rtlola-frontend::Mir).
-pub fn fully_analyzed(ast: RtLolaAst, cfg: &FrontendConfig) -> Result<Hir<CompleteMode>, RtLolaError> {
+pub fn fully_analyzed(
+    ast: RtLolaAst,
+    cfg: &FrontendConfig,
+) -> Result<Hir<CompleteMode>, RtLolaError> {
     Hir::<BaseMode>::from_ast(ast)?
         .check_types(cfg)?
         .analyze_dependencies(cfg)?

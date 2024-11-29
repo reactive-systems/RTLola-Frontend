@@ -16,55 +16,55 @@ variables:
 
 ####### Use cargo to check the source code formatting #######
 
-# Todo:
-#  Remove: - rustup default nightly-2021-02-11
-#  Change: cargo +nightly-2021-02-11 fmt -> cargo +nightly fmt
-# Once rustfmt ist available in current nighlty release
-
 format:reporting:
   tags:
     - docker
   stage: check-format
-  image: instrumentisto/rust:nightly-2021-02-11
+  image: rust:latest
   script:
+    - rustup component add rustfmt
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-reporting --verbose -- --check
+    - cargo fmt -p rtlola-reporting --verbose -- --check
 
 format:parser:
   tags:
     - docker
   stage: check-format
-  image: instrumentisto/rust:nightly-2021-02-11
+  image: rust:latest
   script:
+    - rustup component add rustfmt
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-parser --verbose -- --check
+    - cargo fmt -p rtlola-parser --verbose -- --check
 
 format:macros:
   tags:
     - docker
   stage: check-format
-  image: instrumentisto/rust:nightly-2021-02-11
+  image: rust:latest
   script:
+    - rustup component add rustfmt
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-macros --verbose -- --check
+    - cargo fmt -p rtlola-macros --verbose -- --check
 
 format:hir:
   tags:
     - docker
   stage: check-format
-  image: instrumentisto/rust:nightly-2021-02-11
+  image: rust:latest
   script:
+    - rustup component add rustfmt
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-hir --verbose -- --check
+    - cargo fmt -p rtlola-hir --verbose -- --check
 
 format:frontend:
   tags:
     - docker
   stage: check-format
-  image: instrumentisto/rust:nightly-2021-02-11
+  image: rust:latest
   script:
+    - rustup component add rustfmt
     - rustc --version && cargo --version
-    - cargo +nightly fmt -p rtlola-frontend --verbose -- --check
+    - cargo fmt -p rtlola-frontend --verbose -- --check
 
 
 ####### Use cargo to run clippy (Rust linter) #######

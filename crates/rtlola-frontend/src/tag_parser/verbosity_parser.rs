@@ -48,49 +48,39 @@ impl TagParser for VerbosityParser {
     ) -> Result<Self::LocalTags, RtLolaError> {
         let tags = tags
             .iter()
-            .filter_map(|(key, value)| {
-                match (key.as_str(), value) {
-                    ("verbosity", Some(name)) => {
-                        Some(match name.as_str() {
-                            "streams" => Ok(StreamVerbosity::Streams),
-                            "outputs" => Ok(StreamVerbosity::Outputs),
-                            "public" => Ok(StreamVerbosity::Public),
-                            "warnings" => Ok(StreamVerbosity::Warnings),
-                            "violations" => Ok(StreamVerbosity::Violations),
-                            other => {
-                                Err(Diagnostic::error(&format!(
-                                    "Annotated unexpected verbosity {other} on stream {}",
-                                    mir.stream(sr).name()
-                                )))
-                            },
-                        })
-                    },
-                    ("verbosity", None) => {
-                        Some(Err(Diagnostic::error(&format!(
-                            "Missing verbosity value on annotation on stream {}",
-                            mir.stream(sr).name()
-                        ))))
-                    },
-                    ("warning", None) => Some(Ok(StreamVerbosity::Warnings)),
-                    ("warning", Some(_)) => panic!(),
-                    ("violation", None) => Some(Ok(StreamVerbosity::Violations)),
-                    ("violation", Some(_)) => panic!(),
-                    ("public", None) => Some(Ok(StreamVerbosity::Public)),
-                    ("public", Some(_)) => panic!(),
-                    (_, _) => None,
-                }
+            .filter_map(|(key, value)| match (key.as_str(), value) {
+                ("verbosity", Some(name)) => Some(match name.as_str() {
+                    "streams" => Ok(StreamVerbosity::Streams),
+                    "outputs" => Ok(StreamVerbosity::Outputs),
+                    "public" => Ok(StreamVerbosity::Public),
+                    "warnings" => Ok(StreamVerbosity::Warnings),
+                    "violations" => Ok(StreamVerbosity::Violations),
+                    other => Err(Diagnostic::error(&format!(
+                        "Annotated unexpected verbosity {other} on stream {}",
+                        mir.stream(sr).name()
+                    ))),
+                }),
+                ("verbosity", None) => Some(Err(Diagnostic::error(&format!(
+                    "Missing verbosity value on annotation on stream {}",
+                    mir.stream(sr).name()
+                )))),
+                ("warning", None) => Some(Ok(StreamVerbosity::Warnings)),
+                ("warning", Some(_)) => panic!(),
+                ("violation", None) => Some(Ok(StreamVerbosity::Violations)),
+                ("violation", Some(_)) => panic!(),
+                ("public", None) => Some(Ok(StreamVerbosity::Public)),
+                ("public", Some(_)) => panic!(),
+                (_, _) => None,
             })
             .collect::<Result<Vec<_>, _>>()?;
         match tags.len() {
             0 => Ok(None),
             1 => Ok(Some(tags[0])),
-            2.. => {
-                Err(Diagnostic::error(&format!(
-                    "Specified multiple verbosities on stream {}",
-                    mir.stream(sr).name()
-                ))
-                .into())
-            },
+            2.. => Err(Diagnostic::error(&format!(
+                "Specified multiple verbosities on stream {}",
+                mir.stream(sr).name()
+            ))
+            .into()),
         }
     }
 }
@@ -131,13 +121,11 @@ impl TagParser for DebugParser {
         match tags.get("debug") {
             Some(None) => Ok(true),
             None => Ok(false),
-            Some(Some(_)) => {
-                Err(Diagnostic::error(&format!(
-                    "The debug tag on stream {} received an unexpected value",
-                    mir.stream(sr).name()
-                ))
-                .into())
-            },
+            Some(Some(_)) => Err(Diagnostic::error(&format!(
+                "The debug tag on stream {} received an unexpected value",
+                mir.stream(sr).name()
+            ))
+            .into()),
         }
     }
 }

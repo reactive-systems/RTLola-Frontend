@@ -180,7 +180,7 @@ impl<'a> Handler<'a> {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
-            _ => {},
+            _ => {}
         }
         term::emit(
             (*self.output.write().unwrap()).as_mut(),
@@ -300,7 +300,12 @@ impl Diagnostic {
     /// Adds a code span to the diagnostic if the span is available.
     /// The `label` is printed next to the code fragment the span refers to.
     /// If `primary` is set to true the span is treated as the primary code fragment.
-    pub fn maybe_add_span_with_label(mut self, span: Option<Span>, label: Option<&str>, primary: bool) -> Self {
+    pub fn maybe_add_span_with_label(
+        mut self,
+        span: Option<Span>,
+        label: Option<&str>,
+        primary: bool,
+    ) -> Self {
         let span = match span {
             None | Some(Span::Unknown) => return self,
             Some(s) => s,
@@ -416,7 +421,7 @@ impl RtLolaError {
             (Err(mut l), Err(r)) => {
                 l.join(r);
                 Err(l)
-            },
+            }
         }
     }
 }
@@ -465,19 +470,18 @@ impl RtLolaError {
     pub fn collect<T, Q: FromIterator<T> + Extend<T>>(
         iter: impl IntoIterator<Item = Result<T, Self>>,
     ) -> Result<Q, RtLolaError> {
-        iter.into_iter().fold(Ok(Q::from_iter(iter::empty())), |e, item| {
-            match (e, item) {
+        iter.into_iter()
+            .fold(Ok(Q::from_iter(iter::empty())), |e, item| match (e, item) {
                 (Ok(mut e), Ok(item)) => {
                     e.extend(iter::once(item));
                     Ok(e)
-                },
+                }
                 (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err(e),
                 (Err(mut e1), Err(e2)) => {
                     e1.join(e2);
                     Err(e1)
-                },
-            }
-        })
+                }
+            })
     }
 }
 

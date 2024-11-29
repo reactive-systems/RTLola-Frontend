@@ -40,7 +40,7 @@ impl AggrMethodToWindow {
                     span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
-            },
+            }
             _ => ChangeSet::empty(),
         }
     }

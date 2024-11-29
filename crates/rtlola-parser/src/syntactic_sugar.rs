@@ -17,7 +17,8 @@ use mirror::Mirror as SynSugMirror;
 use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
-    CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
+    CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output,
+    RtLolaAst, SpawnSpec,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -139,7 +140,9 @@ impl Desugarizer {
             for ix in 0..ast.outputs.len() {
                 let out = &ast.outputs[ix];
                 let out_clone: Output = Output::clone(out);
-                let Output { spawn, eval, close, .. } = out_clone;
+                let Output {
+                    spawn, eval, close, ..
+                } = out_clone;
                 let new_spawn_spec = if let Some(spawn_spec) = spawn {
                     let SpawnSpec {
                         expression,
@@ -149,12 +152,14 @@ impl Desugarizer {
                         span,
                     } = spawn_spec;
                     let expression = expression.map(|expr| {
-                        let (new_expr, spawn_cs) = Self::desugarize_expression(expr, &ast, current_sugar);
+                        let (new_expr, spawn_cs) =
+                            Self::desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cs;
                         new_expr
                     });
                     let condition = condition.map(|expr| {
-                        let (new_expr, spawn_cond_cs) = Self::desugarize_expression(expr, &ast, current_sugar);
+                        let (new_expr, spawn_cond_cs) =
+                            Self::desugarize_expression(expr, &ast, current_sugar);
                         change_set += spawn_cond_cs;
                         new_expr
                     });
@@ -180,12 +185,14 @@ impl Desugarizer {
                             span,
                         } = eval_spec;
                         let new_eval = eval_expression.map(|e| {
-                            let (res, eval_cs) = Self::desugarize_expression(e, &ast, current_sugar);
+                            let (res, eval_cs) =
+                                Self::desugarize_expression(e, &ast, current_sugar);
                             change_set += eval_cs;
                             res
                         });
                         let new_condition = condition.map(|e| {
-                            let (res, cond_cs) = Self::desugarize_expression(e, &ast, current_sugar);
+                            let (res, cond_cs) =
+                                Self::desugarize_expression(e, &ast, current_sugar);
                             change_set += cond_cs;
                             res
                         });
@@ -206,7 +213,8 @@ impl Desugarizer {
                         span,
                         annotated_pacing,
                     } = close_spec;
-                    let (new_condition, close_cs) = Self::desugarize_expression(condition, &ast, current_sugar);
+                    let (new_condition, close_cs) =
+                        Self::desugarize_expression(condition, &ast, current_sugar);
                     change_set += close_cs;
                     Some(CloseSpec {
                         condition: new_condition,
@@ -234,117 +242,125 @@ impl Desugarizer {
                 change_set += self.desugarize_output(output, &ast, current_sugar);
             }
 
-            change_flag |= change_set._local_applied_flag || !change_set.global_instructions.is_empty();
+            change_flag |=
+                change_set._local_applied_flag || !change_set.global_instructions.is_empty();
             ast = self.apply_global_changes(change_set, ast);
         }
         (ast, change_flag)
     }
 
     fn apply_global_changes(&self, c_s: ChangeSet, mut ast: RtLolaAst) -> RtLolaAst {
-        c_s.global_iter().for_each(|ci| {
-            match ci {
-                ChangeInstruction::AddOutput(o) => {
-                    ast.outputs.push(Rc::new(*o));
-                },
-                ChangeInstruction::RemoveStream(id) => {
-                    if let Some(idx) = ast.outputs.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
-                        ast.outputs.remove(idx);
-                    } else if let Some(idx) = ast.inputs.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.inputs[idx]), 1);
-                        ast.inputs.remove(idx);
-                    } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
-                        assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
-                        ast.mirrors.remove(idx);
+        c_s.global_iter().for_each(|ci| match ci {
+            ChangeInstruction::AddOutput(o) => {
+                ast.outputs.push(Rc::new(*o));
+            }
+            ChangeInstruction::RemoveStream(id) => {
+                if let Some(idx) = ast.outputs.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.outputs[idx]), 1);
+                    ast.outputs.remove(idx);
+                } else if let Some(idx) = ast.inputs.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.inputs[idx]), 1);
+                    ast.inputs.remove(idx);
+                } else if let Some(idx) = ast.mirrors.iter().position(|o| o.id == id) {
+                    assert_eq!(Rc::strong_count(&ast.mirrors[idx]), 1);
+                    ast.mirrors.remove(idx);
+                } else {
+                    debug_assert!(false, "id in changeset does not belong to any stream");
+                }
+            }
+            ChangeInstruction::ReplaceExpr(_, expr) => {
+                for ix in 0..ast.outputs.len() {
+                    let out = &ast.outputs[ix];
+                    let out_clone: Output = Output::clone(out);
+                    let Output {
+                        spawn, eval, close, ..
+                    } = out_clone;
+                    let new_spawn_spec = if let Some(spawn_spec) = spawn {
+                        let SpawnSpec {
+                            expression,
+                            condition,
+                            annotated_pacing,
+                            id,
+                            span,
+                        } = spawn_spec;
+                        let expression = expression.map(|tar_expression| {
+                            Self::apply_expr_global_change(id, &expr, &tar_expression)
+                        });
+                        let condition = condition.map(|cond_expression| {
+                            Self::apply_expr_global_change(id, &expr, &cond_expression)
+                        });
+                        Some(SpawnSpec {
+                            expression,
+                            condition,
+                            annotated_pacing,
+                            id,
+                            span,
+                        })
                     } else {
-                        debug_assert!(false, "id in changeset does not belong to any stream");
-                    }
-                },
-                ChangeInstruction::ReplaceExpr(_, expr) => {
-                    for ix in 0..ast.outputs.len() {
-                        let out = &ast.outputs[ix];
-                        let out_clone: Output = Output::clone(out);
-                        let Output { spawn, eval, close, .. } = out_clone;
-                        let new_spawn_spec = if let Some(spawn_spec) = spawn {
-                            let SpawnSpec {
-                                expression,
+                        None
+                    };
+
+                    let new_eval_spec = eval
+                        .into_iter()
+                        .flat_map(|eval_spec| {
+                            let EvalSpec {
+                                eval_expression,
                                 condition,
                                 annotated_pacing,
                                 id,
                                 span,
-                            } = spawn_spec;
-                            let expression = expression
-                                .map(|tar_expression| Self::apply_expr_global_change(id, &expr, &tar_expression));
-                            let condition = condition
-                                .map(|cond_expression| Self::apply_expr_global_change(id, &expr, &cond_expression));
-                            Some(SpawnSpec {
-                                expression,
+                            } = eval_spec;
+                            let eval_expression = eval_expression
+                                .map(|e| Self::apply_expr_global_change(id, &expr, &e));
+                            let condition =
+                                condition.map(|e| Self::apply_expr_global_change(id, &expr, &e));
+                            Some(EvalSpec {
+                                annotated_pacing,
                                 condition,
-                                annotated_pacing,
+                                eval_expression,
                                 id,
                                 span,
                             })
-                        } else {
-                            None
-                        };
+                        })
+                        .collect();
 
-                        let new_eval_spec = eval
-                            .into_iter()
-                            .flat_map(|eval_spec| {
-                                let EvalSpec {
-                                    eval_expression,
-                                    condition,
-                                    annotated_pacing,
-                                    id,
-                                    span,
-                                } = eval_spec;
-                                let eval_expression =
-                                    eval_expression.map(|e| Self::apply_expr_global_change(id, &expr, &e));
-                                let condition = condition.map(|e| Self::apply_expr_global_change(id, &expr, &e));
-                                Some(EvalSpec {
-                                    annotated_pacing,
-                                    condition,
-                                    eval_expression,
-                                    id,
-                                    span,
-                                })
-                            })
-                            .collect();
+                    let new_close_spec = if let Some(close_spec) = close {
+                        let CloseSpec {
+                            condition,
+                            id,
+                            span,
+                            annotated_pacing,
+                        } = close_spec;
+                        let new_condition = Self::apply_expr_global_change(id, &expr, &condition);
+                        Some(CloseSpec {
+                            condition: new_condition,
+                            id,
+                            span,
+                            annotated_pacing,
+                        })
+                    } else {
+                        None
+                    };
 
-                        let new_close_spec = if let Some(close_spec) = close {
-                            let CloseSpec {
-                                condition,
-                                id,
-                                span,
-                                annotated_pacing,
-                            } = close_spec;
-                            let new_condition = Self::apply_expr_global_change(id, &expr, &condition);
-                            Some(CloseSpec {
-                                condition: new_condition,
-                                id,
-                                span,
-                                annotated_pacing,
-                            })
-                        } else {
-                            None
-                        };
-
-                        let new_out = Output {
-                            spawn: new_spawn_spec,
-                            eval: new_eval_spec,
-                            close: new_close_spec,
-                            ..out_clone
-                        };
-                        ast.outputs[ix] = Rc::new(new_out);
-                    }
-                },
+                    let new_out = Output {
+                        spawn: new_spawn_spec,
+                        eval: new_eval_spec,
+                        close: new_close_spec,
+                        ..out_clone
+                    };
+                    ast.outputs[ix] = Rc::new(new_out);
+                }
             }
         });
 
         ast
     }
 
-    fn apply_expr_global_change(target_id: NodeId, new_expr: &Expression, ast_expr: &Expression) -> Expression {
+    fn apply_expr_global_change(
+        target_id: NodeId,
+        new_expr: &Expression,
+        ast_expr: &Expression,
+    ) -> Expression {
         if ast_expr.id == target_id {
             return new_expr.clone();
         }
@@ -353,73 +369,61 @@ impl Desugarizer {
         use ExpressionKind::*;
         match &ast_expr.kind {
             Lit(_) | Ident(_) | MissingExpression => ast_expr.clone(),
-            Unary(op, inner) => {
-                Expression {
-                    kind: Unary(
-                        *op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Unary(op, inner) => Expression {
+                kind: Unary(
+                    *op,
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                ),
+                span,
+                ..*ast_expr
             },
-            Field(inner, ident) => {
-                Expression {
-                    kind: Field(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        ident.clone(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Field(inner, ident) => Expression {
+                kind: Field(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    ident.clone(),
+                ),
+                span,
+                ..*ast_expr
             },
-            StreamAccess(inner, acc_kind) => {
-                Expression {
-                    kind: StreamAccess(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        *acc_kind,
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            StreamAccess(inner, acc_kind) => Expression {
+                kind: StreamAccess(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    *acc_kind,
+                ),
+                span,
+                ..*ast_expr
             },
-            Offset(inner, offset) => {
-                Expression {
-                    kind: Offset(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
-                        *offset,
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Offset(inner, offset) => Expression {
+                kind: Offset(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, inner)),
+                    *offset,
+                ),
+                span,
+                ..*ast_expr
             },
-            ParenthesizedExpression(inner) => {
-                Expression {
-                    kind: ParenthesizedExpression(Box::new(Self::apply_expr_global_change(target_id, new_expr, inner))),
-                    span,
-                    ..*ast_expr
-                }
+            ParenthesizedExpression(inner) => Expression {
+                kind: ParenthesizedExpression(Box::new(Self::apply_expr_global_change(
+                    target_id, new_expr, inner,
+                ))),
+                span,
+                ..*ast_expr
             },
-            Binary(bin_op, left, right) => {
-                Expression {
-                    kind: Binary(
-                        *bin_op,
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Binary(bin_op, left, right) => Expression {
+                kind: Binary(
+                    *bin_op,
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                ),
+                span,
+                ..*ast_expr
             },
-            Default(left, right) => {
-                Expression {
-                    kind: Default(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Default(left, right) => Expression {
+                kind: Default(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                ),
+                span,
+                ..*ast_expr
             },
             DiscreteWindowAggregation {
                 expr: left,
@@ -427,101 +431,93 @@ impl Desugarizer {
                 wait,
                 aggregation,
                 ..
-            } => {
-                Expression {
-                    kind: DiscreteWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                        wait: *wait,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: DiscreteWindowAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                    wait: *wait,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
             SlidingWindowAggregation {
                 expr: left,
                 duration: right,
                 wait,
                 aggregation,
-            } => {
-                Expression {
-                    kind: SlidingWindowAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
-                        duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
-                        wait: *wait,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: SlidingWindowAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, left)),
+                    duration: Box::new(Self::apply_expr_global_change(target_id, new_expr, right)),
+                    wait: *wait,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
             InstanceAggregation {
                 expr,
                 selection,
                 aggregation,
-            } => {
-                Expression {
-                    kind: InstanceAggregation {
-                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
-                        selection: *selection,
-                        aggregation: *aggregation,
-                    },
-                    span,
-                    ..*ast_expr
-                }
+            } => Expression {
+                kind: InstanceAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                    selection: *selection,
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
             },
-            Ite(condition, normal, alternative) => {
-                Expression {
-                    kind: Ite(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, condition)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, normal)),
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, alternative)),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Ite(condition, normal, alternative) => Expression {
+                kind: Ite(
+                    Box::new(Self::apply_expr_global_change(
+                        target_id, new_expr, condition,
+                    )),
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, normal)),
+                    Box::new(Self::apply_expr_global_change(
+                        target_id,
+                        new_expr,
+                        alternative,
+                    )),
+                ),
+                span,
+                ..*ast_expr
             },
-            Tuple(entries) => {
-                Expression {
-                    kind: Tuple(
-                        entries
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Tuple(entries) => Expression {
+                kind: Tuple(
+                    entries
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
-            Function(name, types, entries) => {
-                Expression {
-                    kind: Function(
-                        name.clone(),
-                        types.clone(),
-                        entries
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Function(name, types, entries) => Expression {
+                kind: Function(
+                    name.clone(),
+                    types.clone(),
+                    entries
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
-            Method(base, name, types, arguments) => {
-                Expression {
-                    kind: Method(
-                        Box::new(Self::apply_expr_global_change(target_id, new_expr, base)),
-                        name.clone(),
-                        types.clone(),
-                        arguments
-                            .iter()
-                            .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
-                            .collect(),
-                    ),
-                    span,
-                    ..*ast_expr
-                }
+            Method(base, name, types, arguments) => Expression {
+                kind: Method(
+                    Box::new(Self::apply_expr_global_change(target_id, new_expr, base)),
+                    name.clone(),
+                    types.clone(),
+                    arguments
+                        .iter()
+                        .map(|t_expr| Self::apply_expr_global_change(target_id, new_expr, t_expr))
+                        .collect(),
+                ),
+                span,
+                ..*ast_expr
             },
         }
     }
@@ -548,7 +544,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Field(inner, ident) => {
                 let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
@@ -557,7 +553,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             StreamAccess(inner, acc_kind) => {
                 let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
@@ -566,7 +562,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Offset(inner, offset) => {
                 let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
@@ -575,7 +571,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             ParenthesizedExpression(inner) => {
                 let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
                 return_cs += cs;
@@ -584,7 +580,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Binary(bin_op, left, right) => {
                 let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += lcs;
@@ -595,7 +591,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Default(left, right) => {
                 let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
                 return_cs += lcs;
@@ -606,7 +602,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             DiscreteWindowAggregation {
                 expr: left,
                 duration: right,
@@ -628,7 +624,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             SlidingWindowAggregation {
                 expr: left,
                 duration: right,
@@ -649,7 +645,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             InstanceAggregation {
                 expr,
                 selection,
@@ -666,20 +662,21 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Ite(condition, normal, alternative) => {
                 let (condition, ccs) = Self::desugarize_expression(*condition, ast, current_sugar);
                 return_cs += ccs;
                 let (normal, ncs) = Self::desugarize_expression(*normal, ast, current_sugar);
                 return_cs += ncs;
-                let (alternative, acs) = Self::desugarize_expression(*alternative, ast, current_sugar);
+                let (alternative, acs) =
+                    Self::desugarize_expression(*alternative, ast, current_sugar);
                 return_cs += acs;
                 Expression {
                     kind: Ite(Box::new(condition), Box::new(normal), Box::new(alternative)),
                     span,
                     id,
                 }
-            },
+            }
             Tuple(entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
@@ -691,7 +688,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Function(name, types, entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
@@ -703,7 +700,7 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
             Method(base, name, types, arguments) => {
                 let (base_expr, ecs) = Self::desugarize_expression(*base, ast, current_sugar);
                 return_cs += ecs;
@@ -717,34 +714,50 @@ impl Desugarizer {
                     span,
                     id,
                 }
-            },
+            }
         };
 
         // apply transformation on current expression and replace if local change needed
         let mut current_level_cs = current_sugar.desugarize_expr(&new_expr, ast);
-        let return_expr =
-            if let Some(LocalChangeInstruction::ReplaceExpr(replace_expr)) = current_level_cs.extract_local_change() {
-                replace_expr
-            } else {
-                new_expr
-            };
+        let return_expr = if let Some(LocalChangeInstruction::ReplaceExpr(replace_expr)) =
+            current_level_cs.extract_local_change()
+        {
+            replace_expr
+        } else {
+            new_expr
+        };
         let final_cs = current_level_cs + return_cs;
 
         (return_expr, final_cs)
     }
 
     #[allow(clippy::borrowed_box)]
-    fn desugarize_input(&self, input: &Input, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
+    fn desugarize_input(
+        &self,
+        input: &Input,
+        ast: &RtLolaAst,
+        current_sugar: &Box<dyn SynSugar>,
+    ) -> ChangeSet {
         current_sugar.desugarize_stream_in(input, ast)
     }
 
     #[allow(clippy::borrowed_box)]
-    fn desugarize_mirror(&self, mirror: &AstMirror, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
+    fn desugarize_mirror(
+        &self,
+        mirror: &AstMirror,
+        ast: &RtLolaAst,
+        current_sugar: &Box<dyn SynSugar>,
+    ) -> ChangeSet {
         current_sugar.desugarize_stream_mirror(mirror, ast)
     }
 
     #[allow(clippy::borrowed_box)]
-    fn desugarize_output(&self, output: &Output, ast: &RtLolaAst, current_sugar: &Box<dyn SynSugar>) -> ChangeSet {
+    fn desugarize_output(
+        &self,
+        output: &Output,
+        ast: &RtLolaAst,
+        current_sugar: &Box<dyn SynSugar>,
+    ) -> ChangeSet {
         current_sugar.desugarize_stream_out(output, ast)
     }
 }
@@ -869,7 +882,12 @@ mod tests {
     fn test_impl_simpl_replace() {
         let spec = "input a:Bool\ninput b:Bool\noutput c eval with a -> b".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         let inner_kind = if let ExpressionKind::Binary(op, lhs, _rhs) = out_kind {
             assert!(matches!(op, BinOp::Or));
             lhs.kind
@@ -881,9 +899,15 @@ mod tests {
 
     #[test]
     fn test_impl_nested_replace() {
-        let spec = "input a:Bool\ninput b:Bool\ninput c:Bool\noutput d eval with a -> b -> c".to_string();
+        let spec =
+            "input a:Bool\ninput b:Bool\ninput c:Bool\noutput d eval with a -> b -> c".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         let inner_kind = if let ExpressionKind::Binary(op, lhs, rhs) = out_kind {
             assert!(matches!(op, BinOp::Or));
             let inner = if let ExpressionKind::Unary(op, inner) = lhs.kind {
@@ -917,39 +941,60 @@ mod tests {
     fn test_offsetor_replace() {
         let spec = "output x eval @5Hz with x.offset(by: -4, or: 5.0)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         let inner_kind = if let ExpressionKind::Default(inner, default) = out_kind {
             assert!(matches!(default.kind, ExpressionKind::Lit(_)));
             inner.kind
         } else {
             unreachable!()
         };
-        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-4))));
+        assert!(matches!(
+            inner_kind,
+            ExpressionKind::Offset(_, Offset::Discrete(-4))
+        ));
     }
 
     #[test]
     fn test_offsetor_replace_nested() {
-        let spec = "output x eval @5Hz with -x.offset(by: -4, or: x.offset(by: -1, or: 5))".to_string();
+        let spec =
+            "output x eval @5Hz with -x.offset(by: -4, or: x.offset(by: -1, or: 5))".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
         } else {
             unreachable!()
         };
-        let (inner_kind, default_kind) = if let ExpressionKind::Default(inner, default) = inner_kind {
+        let (inner_kind, default_kind) = if let ExpressionKind::Default(inner, default) = inner_kind
+        {
             (inner.kind, default.kind)
         } else {
             unreachable!()
         };
-        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-4))));
+        assert!(matches!(
+            inner_kind,
+            ExpressionKind::Offset(_, Offset::Discrete(-4))
+        ));
         let inner_kind = if let ExpressionKind::Default(inner, default) = default_kind {
             assert!(matches!(default.kind, ExpressionKind::Lit(_)));
             inner.kind
         } else {
             unreachable!()
         };
-        assert!(matches!(inner_kind, ExpressionKind::Offset(_, Offset::Discrete(-1))));
+        assert!(matches!(
+            inner_kind,
+            ExpressionKind::Offset(_, Offset::Discrete(-1))
+        ));
     }
 
     #[test]
@@ -969,7 +1014,12 @@ mod tests {
     fn test_aggr_replace_nested() {
         let spec = "output x eval @ 5hz with -x.sum(6s)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         assert!(matches!(out_kind, ExpressionKind::Unary(UnOp::Neg, _)));
         let inner_kind = if let ExpressionKind::Unary(UnOp::Neg, inner) = out_kind {
             inner.kind
@@ -989,7 +1039,12 @@ mod tests {
     fn test_aggr_replace_multiple() {
         let spec = "output x eval @5hz with x.avg(5s) - x.integral(2.5s)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         assert!(matches!(out_kind, ExpressionKind::Binary(BinOp::Sub, _, _)));
         let (left, right) = if let ExpressionKind::Binary(BinOp::Sub, left, right) = out_kind {
             (left.kind, right.kind)
@@ -1016,7 +1071,12 @@ mod tests {
     fn test_last_replace() {
         let spec = "output x eval @5hz with x.last(or: 3)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        let out_kind = ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind.clone();
+        let out_kind = ast.outputs[0].eval[0]
+            .clone()
+            .eval_expression
+            .unwrap()
+            .kind
+            .clone();
         let (access, dft) = if let ExpressionKind::Default(access, dft) = out_kind {
             (access.kind, dft.kind)
         } else {

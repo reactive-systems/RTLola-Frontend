@@ -11,7 +11,9 @@ pub(crate) struct OffsetOr {}
 impl OffsetOr {
     fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
-            ExpressionKind::Method(base, name, _types, arguments) if "offset(by:or:)" == name.to_string() => {
+            ExpressionKind::Method(base, name, _types, arguments)
+                if "offset(by:or:)" == name.to_string() =>
+            {
                 let target_stream = base.clone();
                 assert_eq!(arguments.len(), 2);
                 let offset = arguments[0].clone();
@@ -31,7 +33,7 @@ impl OffsetOr {
                     span: expr.span.to_indirect(),
                 };
                 ChangeSet::replace_current_expression(new_expr)
-            },
+            }
             _ => ChangeSet::empty(),
         }
     }
