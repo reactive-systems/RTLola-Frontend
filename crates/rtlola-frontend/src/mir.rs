@@ -76,6 +76,9 @@ pub trait Stream {
     fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
     /// Returns the tags annotated to this stream.
     fn tags(&self) -> &HashMap<String, Option<String>>;
+    #[cfg(feature = "spanned")]
+    /// Returns the spans of all tags annotated to this stream.
+    fn tags_span(&self) -> &HashMap<String, Span>;
 }
 
 /// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
@@ -854,6 +857,11 @@ impl Stream for OutputStream {
     fn tags(&self) -> &HashMap<String, Option<String>> {
         &self.tags
     }
+
+    #[cfg(feature = "spanned")]
+    fn tags_span(&self) -> &HashMap<String, Span> {
+        &self.tags_span
+    }
 }
 
 impl Stream for InputStream {
@@ -911,6 +919,11 @@ impl Stream for InputStream {
 
     fn tags(&self) -> &HashMap<String, Option<String>> {
         &self.tags
+    }
+
+    #[cfg(feature = "spanned")]
+    fn tags_span(&self) -> &HashMap<String, Span> {
+        &self.tags_span
     }
 }
 
