@@ -4,7 +4,7 @@
 //! Each parser should implement the [TagParser] trait.
 //! The main entry points for applying the parser is the [RtLolaMir::parse_tags] method,
 //! which receives a list of parsers and returns a list of parse results.
-//! The [RtLolaMir::check_tags] method allows for validating that all annotated tags are
+//! The [RtLolaMir::validate_tags] method allows for validating that all annotated tags are
 //! validated by any parser. This allows for typos to be detected.
 
 pub mod all;
