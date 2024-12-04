@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validate stream tags with tag validator.
 - Tuple Literal to HIR
 
+### Changed
+- Missing Annotated pacing now also features a span
+
 ## [0.5.0] - 28.06.2024
 
 ### Added

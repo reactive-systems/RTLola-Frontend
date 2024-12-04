@@ -744,7 +744,7 @@ impl<'a> RtLolaParser<'a> {
             pair = pairs.next().expect("mismatch between grammar and AST");
             expr
         } else {
-            let pos = span.get_bounds().0 + "trigger ".len();
+            let pos = pair.as_span().start();
             AnnotatedPacingType::NotAnnotated(Span::Direct {
                 start: pos,
                 end: pos,
