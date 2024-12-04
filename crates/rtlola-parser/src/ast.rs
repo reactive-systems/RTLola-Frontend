@@ -767,7 +767,8 @@ pub enum InstanceSelection {
 /// Enum to indicate which annotated pacing type the stream has
 pub enum AnnotatedPacingType {
     /// No annotated Pacing
-    NotAnnotated,
+    /// Includes the span where the annotation would be.
+    NotAnnotated(Span),
     /// Annotated Pacing refers to the global clock
     Global(Expression),
     /// Annotated Pacing refers to the local clock

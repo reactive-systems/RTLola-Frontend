@@ -1245,12 +1245,12 @@ impl RtLolaMir {
 
     /// Returns the input stream with the given name if it exists.
     pub fn get_input_by_name(&self, name: &str) -> Option<&InputStream> {
-        self.inputs.iter().find(|input| &input.name == name)
+        self.inputs.iter().find(|input| input.name == name)
     }
 
     /// Returns the output stream with the given name if it exists.
     pub fn get_output_by_name(&self, name: &str) -> Option<&OutputStream> {
-        self.outputs.iter().find(|output| &output.name == name)
+        self.outputs.iter().find(|output| output.name == name)
     }
 
     /// Returns the stream with the given name if it exists.

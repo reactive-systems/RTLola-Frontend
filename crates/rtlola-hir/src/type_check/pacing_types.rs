@@ -919,7 +919,7 @@ impl AbstractPacingType {
             AnnotatedPacingType::LocalFrequency(f) => {
                 Some((AbstractPacingType::LocalPeriodic(Freq(f.value)), f.span))
             }
-            AnnotatedPacingType::NotAnnotated => None,
+            AnnotatedPacingType::NotAnnotated(_) => None,
         })
     }
 

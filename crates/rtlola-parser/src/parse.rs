@@ -444,7 +444,13 @@ impl<'a> RtLolaParser<'a> {
         } else {
             None
         }
-        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
+        .unwrap_or_else(|| {
+            let pos = span_inv.get_bounds().0 + "spawn ".len();
+            AnnotatedPacingType::NotAnnotated(Span::Direct {
+                start: pos,
+                end: pos,
+            })
+        });
 
         let mut condition: Option<Expression> = None;
         let mut expression: Option<Expression> = None;
@@ -512,7 +518,7 @@ impl<'a> RtLolaParser<'a> {
 
         if expression.is_none()
             && condition.is_none()
-            && annotated_pacing == AnnotatedPacingType::NotAnnotated
+            && matches!(annotated_pacing, AnnotatedPacingType::NotAnnotated(_))
         {
             error.add(
                 Diagnostic::error("Spawn clause needs a condition, expression or pacing")
@@ -537,17 +543,18 @@ impl<'a> RtLolaParser<'a> {
         let mut children = ext_pair.into_inner();
         let mut next_pair = children.next();
 
-        let annotated_pacing = if let Some(pair) = next_pair.clone() {
-            if let Rule::ActivationCondition = pair.as_rule() {
-                let annotated_pacing = self.parse_activation_condition(pair)?;
+        let annotated_pacing =
+            if let Some(Rule::ActivationCondition) = next_pair.as_ref().map(|p| p.as_rule()) {
+                let annotated_pacing = self.parse_activation_condition(next_pair.unwrap())?;
                 next_pair = children.next();
                 annotated_pacing
             } else {
-                AnnotatedPacingType::NotAnnotated
-            }
-        } else {
-            AnnotatedPacingType::NotAnnotated
-        };
+                let pos = span_ext.get_bounds().0;
+                AnnotatedPacingType::NotAnnotated(Span::Direct {
+                    start: pos,
+                    end: pos,
+                })
+            };
 
         let exp_res = self.build_expression_ast(
             next_pair
@@ -572,17 +579,16 @@ impl<'a> RtLolaParser<'a> {
 
         let mut error = RtLolaError::new();
 
-        let annotated_pacing = if let Some(pair) = next_pair {
-            if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.parse_activation_condition(children.next().unwrap())?;
-                Some(expr)
+        let annotated_pacing =
+            if let Some(Rule::ActivationCondition) = next_pair.map(|p| p.as_rule()) {
+                self.parse_activation_condition(children.next().unwrap())?
             } else {
-                None
-            }
-        } else {
-            None
-        }
-        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
+                let pos = span_ext.get_bounds().0 + "eval ".len();
+                AnnotatedPacingType::NotAnnotated(Span::Direct {
+                    start: pos,
+                    end: pos,
+                })
+            };
 
         let mut condition: Option<Expression> = None;
         let mut eval_expr: Option<Expression> = None;
@@ -646,7 +652,7 @@ impl<'a> RtLolaParser<'a> {
 
         if eval_expr.is_none()
             && condition.is_none()
-            && annotated_pacing == AnnotatedPacingType::NotAnnotated
+            && matches!(annotated_pacing, AnnotatedPacingType::NotAnnotated(_))
         {
             error.add(
                 Diagnostic::error("Eval clause needs either expression or condition")
@@ -672,18 +678,18 @@ impl<'a> RtLolaParser<'a> {
 
         let mut next_pair = children.next();
 
-        let annotated_pacing = if let Some(pair) = next_pair.clone() {
-            if let Rule::ActivationCondition = pair.as_rule() {
-                let expr = self.parse_activation_condition(pair)?;
+        let annotated_pacing =
+            if let Some(Rule::ActivationCondition) = next_pair.as_ref().map(|p| p.as_rule()) {
+                let expr = self.parse_activation_condition(next_pair.unwrap())?;
                 next_pair = children.next();
-                Some(expr)
+                expr
             } else {
-                None
-            }
-        } else {
-            None
-        }
-        .unwrap_or_else(|| AnnotatedPacingType::NotAnnotated);
+                let pos = span_close.get_bounds().0 + "close ".len();
+                AnnotatedPacingType::NotAnnotated(Span::Direct {
+                    start: pos,
+                    end: pos,
+                })
+            };
 
         let condition = if let Some(pair) = next_pair {
             assert_eq!(pair.as_rule(), Rule::Expr);
@@ -719,7 +725,7 @@ impl<'a> RtLolaParser<'a> {
      */
     fn parse_trigger(&self, pair: Pair<'_, Rule>) -> Result<Output, RtLolaError> {
         assert_eq!(pair.as_rule(), Rule::SimpleTrigger);
-        let span = pair.as_span().into();
+        let span: Span = pair.as_span().into();
         let mut pairs = pair.into_inner();
 
         let mut pair = pairs.next().expect("mismatch between grammar and AST");
@@ -738,7 +744,11 @@ impl<'a> RtLolaParser<'a> {
             pair = pairs.next().expect("mismatch between grammar and AST");
             expr
         } else {
-            AnnotatedPacingType::NotAnnotated
+            let pos = span.get_bounds().0 + "trigger ".len();
+            AnnotatedPacingType::NotAnnotated(Span::Direct {
+                start: pos,
+                end: pos,
+            })
         };
 
         let expression = self.build_expression_ast(pair.into_inner())?;

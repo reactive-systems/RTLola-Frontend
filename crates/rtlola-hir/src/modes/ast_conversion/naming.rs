@@ -294,7 +294,7 @@ impl NamingAnalysis {
                     }
                 }
                 if let Err(e) = match &spawn.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
@@ -312,7 +312,7 @@ impl NamingAnalysis {
                     error.join(e);
                 }
                 if let Err(e) = match &close.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
@@ -323,7 +323,7 @@ impl NamingAnalysis {
 
             for eval in &output.eval {
                 if let Err(e) = match &eval.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),

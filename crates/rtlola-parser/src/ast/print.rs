@@ -132,7 +132,7 @@ impl Display for Parameter {
 impl Display for AnnotatedPacingType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            AnnotatedPacingType::NotAnnotated => Ok(()),
+            AnnotatedPacingType::NotAnnotated(_) => Ok(()),
             AnnotatedPacingType::Global(freq) => write!(f, " @Global({freq})"),
             AnnotatedPacingType::Local(freq) => write!(f, " @Local({freq})"),
             AnnotatedPacingType::Unspecified(expr) => write!(f, " @{expr}"),
@@ -160,7 +160,7 @@ impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if self.condition.is_some()
             || self.eval_expression.is_some()
-            || self.annotated_pacing != AnnotatedPacingType::NotAnnotated
+            || !matches!(self.annotated_pacing, AnnotatedPacingType::NotAnnotated(_))
         {
             write!(f, "eval")?;
         }
