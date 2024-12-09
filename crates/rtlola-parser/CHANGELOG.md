@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Changed
 
+- Missing Annotated pacing now also features a span
 - exclude explicit parenthesis in AST
 - Identifiers are now based on Unicode identifiers. They must be valid window operations or start with (XID_START | "_") and continue with (XID_CONTINUE | "_" | "::")*
 

@@ -10,9 +10,9 @@ use crate::features::{
     Periodics, SlidingWindows, Spawned, ValueTypes,
 };
 use crate::hir::{
-    AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression,
-    ExpressionKind, FnExprKind, Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind,
-    StreamType, TypedTrait, WRef, WidenExprKind, Window,
+    ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
+    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, TypedTrait,
+    WRef, WidenExprKind, Window,
 };
 use crate::{CompleteMode, RtLolaHir};
 
@@ -348,12 +348,7 @@ impl FeatureSelector {
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .unwrap_or_else(|| match spawn.pacing {
-                            AnnotatedPacingType::GlobalFrequency(f) => f.span,
-                            AnnotatedPacingType::LocalFrequency(f) => f.span,
-                            AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
-                            AnnotatedPacingType::NotAnnotated => Span::Unknown,
-                        })
+                        .unwrap_or(spawn.pacing.span(&self.hir))
                 })
                 .unwrap_or(Span::Unknown);
 

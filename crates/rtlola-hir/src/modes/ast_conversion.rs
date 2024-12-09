@@ -666,7 +666,9 @@ impl ExpressionTransformer {
         defaults_to_global: bool,
     ) -> Result<AnnotatedPacingType, TransformationErr> {
         match pt {
-            ast::AnnotatedPacingType::NotAnnotated => Ok(AnnotatedPacingType::NotAnnotated),
+            ast::AnnotatedPacingType::NotAnnotated(span) => {
+                Ok(AnnotatedPacingType::NotAnnotated(span))
+            }
             ast::AnnotatedPacingType::Global(freq) => {
                 let freq = self
                     .try_transform_freq(&freq)?

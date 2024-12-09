@@ -888,7 +888,7 @@ where
                             AnnotatedPacingType::GlobalFrequency(f)
                             | AnnotatedPacingType::LocalFrequency(f) => Some(f.span),
                             AnnotatedPacingType::Event(id) => Some(hir.expression(id).span),
-                            AnnotatedPacingType::NotAnnotated => None,
+                            AnnotatedPacingType::NotAnnotated(_) => None,
                         })
                         .or_else(|| spawn.expression.map(|id| hir.expression(id).span))
                         .or_else(|| spawn.condition.map(|id| hir.expression(id).span))
@@ -976,7 +976,7 @@ where
                         pacing_tt[&nid_key[&NodeId::Expr(target_id)].eval_pacing].clone();
                     let spawn_pacing =
                         pacing_tt[&nid_key[&NodeId::SRef(output.sr)].spawn_pacing].clone();
-                    if spawn.pacing != AnnotatedPacingType::NotAnnotated
+                    if !matches!(spawn.pacing, AnnotatedPacingType::NotAnnotated(_))
                         && target_type != spawn_pacing
                     {
                         errors.push(
@@ -998,8 +998,10 @@ where
         {
             let exp_pacing = pacing_tt[&nid_key[&NodeId::Expr(eval.expr)].eval_pacing].clone();
             let stream_pacing = pacing_tt[&nid_key[&NodeId::SRef(output.sr)].eval_pacing].clone();
-            if eval.annotated_pacing_type != AnnotatedPacingType::NotAnnotated
-                && exp_pacing != stream_pacing
+            if !matches!(
+                eval.annotated_pacing_type,
+                AnnotatedPacingType::NotAnnotated(_)
+            ) && exp_pacing != stream_pacing
             {
                 errors.push(
                     PacingErrorKind::UnintuitivePacingWarning(output.span, stream_pacing).into(),

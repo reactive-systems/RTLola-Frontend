@@ -19,6 +19,7 @@ mod print;
 pub mod selector;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::Duration;
 
 pub use feature_selector::{Feature, FeatureSelector};
@@ -713,7 +714,7 @@ pub struct AnnotatedFrequency {
 }
 
 /// Pacing information for stream; contains either a frequency or a condition on input streams.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotatedPacingType {
     /// The global evaluation frequency
     GlobalFrequency(AnnotatedFrequency),
@@ -722,8 +723,13 @@ pub enum AnnotatedPacingType {
     /// The expression which constitutes the condition under which the stream should be evaluated.
     Event(ExprId),
     /// The stream is not annotated with a pacing
-    #[default]
-    NotAnnotated,
+    NotAnnotated(Span),
+}
+
+impl Default for AnnotatedPacingType {
+    fn default() -> Self {
+        AnnotatedPacingType::NotAnnotated(Span::default())
+    }
 }
 
 impl AnnotatedPacingType {
@@ -733,7 +739,7 @@ impl AnnotatedPacingType {
             AnnotatedPacingType::GlobalFrequency(freq)
             | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
             AnnotatedPacingType::Event(id) => hir.expression(*id).span,
-            AnnotatedPacingType::NotAnnotated => Span::Unknown,
+            AnnotatedPacingType::NotAnnotated(span) => *span,
         }
     }
 }

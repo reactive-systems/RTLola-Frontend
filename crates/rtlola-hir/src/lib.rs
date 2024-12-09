@@ -10,6 +10,7 @@
 //! * `RtLolaHir<OrderedMode>` orders the streams into layers of streams which can be evaluated at the same time.
 //! * `RtLolaHir<MemBoundMode>` enriches the streams with their memory requirements.
 //! * `RtLolaHir<CompleteMode>` finalizes the Hir to its fully analyzed state.
+//!
 //! Refer to [RtLolaHir] for more details.
 
 #![forbid(unused_must_use)] // disallow discarding errors

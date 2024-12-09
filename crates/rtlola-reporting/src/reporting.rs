@@ -71,7 +71,7 @@ impl Span {
 
     /// Returns the start and end position of the span.
     /// Note: If the span is unknown returns (usize::min, usize::max)
-    fn get_bounds(&self) -> (usize, usize) {
+    pub fn get_bounds(&self) -> (usize, usize) {
         match self {
             Span::Indirect { start, end } | Span::Direct { start, end } => (*start, *end),
             Span::Unknown => (usize::MIN, usize::MAX),
