@@ -738,13 +738,16 @@ impl<'a> RtLolaParser<'a> {
             Vec::new()
         };
 
+        let trigger_keyword = pair;
+        pair = pairs.next().expect("mistmatch between grammar and AST");
+
         // Parse the `@ [Expr]` part of output declaration
         let annotated_pacing_type = if let Rule::ActivationCondition = pair.as_rule() {
             let expr = self.parse_activation_condition(pair)?;
             pair = pairs.next().expect("mismatch between grammar and AST");
             expr
         } else {
-            let pos = pair.as_span().start();
+            let pos = trigger_keyword.as_span().end();
             AnnotatedPacingType::NotAnnotated(Span::Direct {
                 start: pos,
                 end: pos,
@@ -1756,6 +1759,7 @@ mod tests {
             rule:   Rule::SimpleTrigger,
             tokens: [
                 SimpleTrigger(0, 32, [
+                    SimpleTriggerDecl(0, 8),
                     Expr(8, 17, [
                         Ident(8, 10, []),
                         NotEqual(11, 13, []),
