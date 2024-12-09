@@ -83,7 +83,7 @@ impl Expression {
                         return Err(format!(
                             "parsing duration failed: rational {val}*{factor} does not fit into Rational64"
                         ))
-                    },
+                    }
                 };
                 Ok(UOM_Time::new::<second>(duration))
             }
@@ -127,7 +127,7 @@ impl Expression {
                         return Err(format!(
                             "parsing frequency failed: rational {val}*{factor} does not fit into Rational64",
                         ))
-                    },
+                    }
                 };
                 Ok(UOM_Frequency::new::<hertz>(freq))
             }
@@ -255,7 +255,7 @@ impl Expression {
 
     /// A recursive iterator over an `Expression` tree
     /// Inspired by https://amos.me/blog/2019/recursive-iterators-rust/
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &Expression> + 'a> {
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Expression> + 'a> {
         use ExpressionKind::*;
         match &self.kind {
             Lit(_) | Ident(_) | MissingExpression => Box::new(std::iter::once(self)),

@@ -249,6 +249,7 @@ impl<'a> RtLolaParser<'a> {
 
         let span = pair.as_span().into();
         let mut pairs = pair.into_inner().peekable();
+        let mut pacing_annotation_default_span = Span::default();
 
         let tags = if let Rule::TagLists = pairs.peek().unwrap().as_rule() {
             self.parse_tag_lists(pairs.next().unwrap())
@@ -259,14 +260,18 @@ impl<'a> RtLolaParser<'a> {
         let pair = pairs.next().unwrap();
         let kind = match pair.as_rule() {
             Rule::TriggerDecl => OutputKind::Trigger,
-            Rule::NamedOutputDecl => OutputKind::NamedOutput(
-                self.parse_ident(
-                    &pair
-                        .into_inner()
-                        .next()
-                        .expect("mismatch between grammar and AST"),
-                ),
-            ),
+            Rule::NamedOutputDecl => {
+                let next_pair = &pair
+                    .into_inner()
+                    .next()
+                    .expect("mismatch between grammar and AST");
+                let pos = next_pair.as_span().end();
+                pacing_annotation_default_span = Span::Direct {
+                    start: pos,
+                    end: pos,
+                };
+                OutputKind::NamedOutput(self.parse_ident(next_pair))
+            }
             _ => panic!("mismatch between grammar and AST"),
         };
 
@@ -278,9 +283,12 @@ impl<'a> RtLolaParser<'a> {
         let mut pair = pairs.peek().expect("mismatch between grammar and AST");
         let params = if let Rule::ParamList = pair.as_rule() {
             let local_pair = pairs.next().expect("mismatch between grammar and AST");
-            let res = self.parse_parameter_list(local_pair.into_inner());
-
-            res
+            let pos = local_pair.as_span().end();
+            pacing_annotation_default_span = Span::Direct {
+                start: pos,
+                end: pos,
+            };
+            self.parse_parameter_list(local_pair.into_inner())
         } else {
             Vec::new()
         };
@@ -288,8 +296,12 @@ impl<'a> RtLolaParser<'a> {
         pair = pairs.peek().expect("mismatch between grammar and AST");
         let annotated_type = if let Rule::Type = pair.as_rule() {
             let local_pair = pairs.next().expect("mismatch between grammar and AST");
+            let pos = local_pair.as_span().end();
+            pacing_annotation_default_span = Span::Direct {
+                start: pos,
+                end: pos,
+            };
             let ty = self.parse_type(local_pair);
-
             Some(ty)
         } else {
             None
@@ -344,7 +356,8 @@ impl<'a> RtLolaParser<'a> {
                 }
             }
             Rule::SimpleEvalDecl => {
-                let eval_spec = self.parse_eval_spec_simple(pair.clone());
+                let eval_spec =
+                    self.parse_eval_spec_simple(pair.clone(), pacing_annotation_default_span);
                 match eval_spec {
                     Ok(eval_spec) => {
                         debug_assert!(eval.is_empty(), "must be empty due to grammar restrictions");
@@ -537,7 +550,11 @@ impl<'a> RtLolaParser<'a> {
         })
     }
 
-    fn parse_eval_spec_simple(&self, ext_pair: Pair<'_, Rule>) -> Result<EvalSpec, RtLolaError> {
+    fn parse_eval_spec_simple(
+        &self,
+        ext_pair: Pair<'_, Rule>,
+        default_annotation_span: Span,
+    ) -> Result<EvalSpec, RtLolaError> {
         let span_ext: Span = ext_pair.as_span().into();
 
         let mut children = ext_pair.into_inner();
@@ -549,11 +566,7 @@ impl<'a> RtLolaParser<'a> {
                 next_pair = children.next();
                 annotated_pacing
             } else {
-                let pos = span_ext.get_bounds().0;
-                AnnotatedPacingType::NotAnnotated(Span::Direct {
-                    start: pos,
-                    end: pos,
-                })
+                AnnotatedPacingType::NotAnnotated(default_annotation_span)
             };
 
         let exp_res = self.build_expression_ast(
