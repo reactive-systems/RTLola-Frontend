@@ -55,7 +55,8 @@ NamedOutputDecl = { "output " ~ Ident }
 
 MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
-SimpleTrigger = { TagLists? ~ "trigger " ~ ActivationCondition? ~ Expr ~ StringLiteral? }
+SimpleTriggerDecl = { "trigger " }
+SimpleTrigger = { TagLists? ~ SimpleTriggerDecl ~ ActivationCondition? ~ Expr ~ StringLiteral? }
 
 IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
 
