@@ -1569,7 +1569,7 @@ impl ConcretePacingType {
 #[cfg(test)]
 mod tests {
     use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hash};
+    use std::hash::{BuildHasher, Hash, Hasher};
     use std::rc::Rc;
 
     use rtlola_parser::{ParserConfig, RtLolaAst};
@@ -1655,12 +1655,11 @@ mod tests {
             expression: c_exp.clone(),
         };
         let mut hasher_b = RandomState::new().build_hasher();
-        let mut hasher_c = RandomState::new().build_hasher();
+        let mut hasher_c = hasher_b.clone();
+        b_hash_expr.hash(&mut hasher_b);
+        c_hash_expr.hash(&mut hasher_c);
         assert_eq!(b_hash_expr, c_hash_expr);
-        assert_eq!(
-            b_hash_expr.hash(&mut hasher_b),
-            c_hash_expr.hash(&mut hasher_c)
-        );
+        assert_eq!(hasher_b.finish(), hasher_c.finish());
     }
 
     #[test]

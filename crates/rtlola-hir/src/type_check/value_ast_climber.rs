@@ -891,7 +891,6 @@ where
                     .find(|o| o.sr == *current_stream)
                     .expect("Expect valid stream reference");
                 let par_key = self.tyc.get_var_key(&Variable::for_parameter(output, *ix));
-                //dbg!(par_key);
                 self.tyc.impose(term_key.equate_with(par_key))?;
             }
         };
