@@ -229,11 +229,16 @@ impl PartialEq for Literal {
         use self::Literal::*;
         match (self, other) {
             (Decimal(f1), Decimal(f2)) => f1 == f2,
+            (Decimal(_), _) | (_, Decimal(_)) => false,
             (Str(s1), Str(s2)) => s1 == s2,
+            (Str(_), _) | (_, Str(_)) => false,
             (Bool(b1), Bool(b2)) => b1 == b2,
+            (Bool(_), _) | (_, Bool(_)) => false,
             (Integer(i1), Integer(i2)) => i1 == i2,
+            (Integer(_), _) | (_, Integer(_)) => false,
             (SInt(i1), SInt(i2)) => i1 == i2,
-            _ => false,
+            (SInt(_), _) | (_, SInt(_)) => false,
+            (Tuple(t1), Tuple(t2)) => t1 == t2,
         }
     }
 }
