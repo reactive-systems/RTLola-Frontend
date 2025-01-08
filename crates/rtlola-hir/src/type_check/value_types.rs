@@ -171,6 +171,9 @@ impl Variant for AbstractValueType {
             | (SizedFixed(total, fractional), SignedNumeric | Numeric) => {
                 Ok((SizedFixed(total, fractional), 0))
             }
+            (FractionalNumeric, SignedNumeric) | (SignedNumeric, FractionalNumeric) => {
+                Ok((FractionalNumeric, 0))
+            }
             (Numeric, UFixed) | (UFixed, Numeric) => Ok((UFixed, 0)),
             (Numeric, SizedUFixed(total, fractional))
             | (SizedUFixed(total, fractional), Numeric) => Ok((SizedUFixed(total, fractional), 0)),
