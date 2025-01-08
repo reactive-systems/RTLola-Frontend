@@ -2525,4 +2525,34 @@ output o_9: Bool @i_0 := true  && true";
             }
         }
     }
+
+    #[test]
+    fn float_abs() {
+        let spec = "import math\n\
+        output a @true := 1.0\n\
+        output b := abs(a)";
+        let (tb, result_map) = check_value_type(spec);
+        let a = tb.output("a");
+        let b = tb.output("b");
+        assert_eq!(&result_map[&NodeId::SRef(a)], &ConcreteValueType::Float64);
+        assert_eq!(&result_map[&NodeId::SRef(b)], &ConcreteValueType::Float64);
+    }
+
+    #[test]
+    fn decimal_abs() {
+        let spec = "import math\n\
+        output a : Fixed @true := 1.0\n\
+        output b := abs(a)";
+        let (tb, result_map) = check_value_type(spec);
+        let a = tb.output("a");
+        let b = tb.output("b");
+        assert_eq!(
+            &result_map[&NodeId::SRef(a)],
+            &ConcreteValueType::Fixed64_32
+        );
+        assert_eq!(
+            &result_map[&NodeId::SRef(b)],
+            &ConcreteValueType::Fixed64_32
+        );
+    }
 }
