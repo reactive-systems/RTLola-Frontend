@@ -17,8 +17,8 @@ use mirror::Mirror as SynSugMirror;
 use self::implication::Implication;
 use self::offset_or::OffsetOr;
 use crate::ast::{
-    CloseSpec, EvalSpec, Expression, ExpressionKind, Input, Mirror as AstMirror, NodeId, Output,
-    RtLolaAst, SpawnSpec,
+    CloseSpec, EvalSpec, Expression, ExpressionKind, Input, InstanceSelection, LambdaExpr,
+    Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -460,15 +460,35 @@ impl Desugarizer {
                 expr,
                 selection,
                 aggregation,
-            } => Expression {
-                kind: InstanceAggregation {
-                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
-                    selection: *selection,
-                    aggregation: *aggregation,
-                },
-                span,
-                ..*ast_expr
-            },
+            } => {
+                let selection = match selection {
+                    InstanceSelection::Fresh => InstanceSelection::Fresh,
+                    InstanceSelection::All => InstanceSelection::All,
+                    InstanceSelection::FilteredFresh(LambdaExpr {
+                        parameters,
+                        expr: cond,
+                    }) => InstanceSelection::FilteredFresh(LambdaExpr {
+                        parameters: parameters.clone(),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, cond)),
+                    }),
+                    InstanceSelection::FilteredAll(LambdaExpr {
+                        parameters,
+                        expr: cond,
+                    }) => InstanceSelection::FilteredAll(LambdaExpr {
+                        parameters: parameters.clone(),
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, cond)),
+                    }),
+                };
+                Expression {
+                    kind: InstanceAggregation {
+                        expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                        selection,
+                        aggregation: *aggregation,
+                    },
+                    span,
+                    ..*ast_expr
+                }
+            }
             Ite(condition, normal, alternative) => Expression {
                 kind: Ite(
                     Box::new(Self::apply_expr_global_change(
@@ -517,6 +537,16 @@ impl Desugarizer {
                         .collect(),
                 ),
                 span,
+                ..*ast_expr
+            },
+            Lambda(LambdaExpr {
+                parameters,
+                expr: cond,
+            }) => Expression {
+                kind: Lambda(LambdaExpr {
+                    parameters: parameters.clone(),
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, cond)),
+                }),
                 ..*ast_expr
             },
         }
@@ -652,7 +682,38 @@ impl Desugarizer {
                 aggregation,
             } => {
                 let (expr, ecs) = Self::desugarize_expression(*expr, ast, current_sugar);
-                return_cs += ecs;
+                let (selection, scs) = match selection {
+                    selection @ (InstanceSelection::Fresh | InstanceSelection::All) => {
+                        (selection, ChangeSet::empty())
+                    }
+                    InstanceSelection::FilteredFresh(LambdaExpr {
+                        parameters,
+                        expr: cond,
+                    }) => {
+                        let (cond, cs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                        (
+                            InstanceSelection::FilteredFresh(LambdaExpr {
+                                parameters,
+                                expr: Box::new(cond),
+                            }),
+                            cs,
+                        )
+                    }
+                    InstanceSelection::FilteredAll(LambdaExpr {
+                        parameters,
+                        expr: cond,
+                    }) => {
+                        let (cond, cs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                        (
+                            InstanceSelection::FilteredAll(LambdaExpr {
+                                parameters,
+                                expr: Box::new(cond),
+                            }),
+                            cs,
+                        )
+                    }
+                };
+                return_cs = return_cs + ecs + scs;
                 Expression {
                     kind: InstanceAggregation {
                         expr: Box::new(expr),
@@ -711,6 +772,21 @@ impl Desugarizer {
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
                     kind: Method(Box::new(base_expr), name, types, v_expr),
+                    span,
+                    id,
+                }
+            }
+            Lambda(LambdaExpr {
+                parameters,
+                expr: cond,
+            }) => {
+                let (cond, ecs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                return_cs += ecs;
+                Expression {
+                    kind: Lambda(LambdaExpr {
+                        parameters,
+                        expr: Box::new(cond),
+                    }),
                     span,
                     id,
                 }

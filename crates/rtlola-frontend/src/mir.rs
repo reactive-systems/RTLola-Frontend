@@ -521,6 +521,13 @@ pub enum ExpressionKind {
     /// Access to the parameter of a stream represented by a stream reference,
     /// referencing the target stream and the index of the parameter that should be accessed.
     ParameterAccess(StreamReference, usize),
+    /// Access to the lambda parameter in the filtered instance aggregation
+    LambdaParameterAccess {
+        /// Reference to the instance aggregation using the lambda function
+        wref: WindowReference,
+        /// Reference to the parameter
+        pref: usize,
+    },
     /// A conditional (if-then-else) expression
     Ite {
         /// The condition under which either `consequence` or `alternative` is selected.
@@ -671,7 +678,7 @@ pub struct SlidingWindow {
 }
 
 /// Represents an instance of an instance aggregation
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct InstanceAggregation {
     /// The stream whose values will be aggregated
     pub target: StreamReference,
@@ -687,13 +694,59 @@ pub struct InstanceAggregation {
     pub ty: Type,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// Enum to indicate which instances are part of the aggregation
 pub enum InstanceSelection {
     /// Only instances that are updated in this evaluation cycle are part of the aggregation
     Fresh,
     /// All instances are part of the aggregation
     All,
+    /// Only instances that are updated in this evaluation cycle and satisfy the condition are part of the aggregation
+    FilteredFresh {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+    /// All instances that satisfy the condition are part of the aggregation
+    FilteredAll {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+}
+
+impl InstanceSelection {
+    /// Accesses the condition to a filtered instance aggregation. Returns None if the instance aggregation is not filtered
+    pub fn condition(&self) -> Option<&Expression> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters: _,
+                cond,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters: _,
+                cond,
+            } => Some(cond),
+        }
+    }
+
+    /// Accesses the parameters to a filtered instance aggregation. Returns None if the instance aggregation is not filtered
+    pub fn parameters(&self) -> Option<&Vec<Parameter>> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters,
+                cond: _,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters,
+                cond: _,
+            } => Some(parameters),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]

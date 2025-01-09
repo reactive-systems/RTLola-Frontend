@@ -28,10 +28,13 @@ impl Expression {
                         StreamAccessKind::Offset(o) => format!(".offset(by: {o})"),
                         StreamAccessKind::Hold => ".hold()".into(),
                         StreamAccessKind::SlidingWindow(r)
-                        | StreamAccessKind::DiscreteWindow(r) => {
+                        | StreamAccessKind::DiscreteWindow(r)
+                        | StreamAccessKind::InstanceAggregation(r) => {
                             format!(".aggregate(ref: {r})")
                         }
-                        _ => "".into(),
+                        StreamAccessKind::Fresh => ".is_fresh()".into(),
+                        StreamAccessKind::Get => ".get()".into(),
+                        StreamAccessKind::Sync => "".into(),
                     }
                 )
             }
@@ -82,6 +85,9 @@ impl Expression {
             Widen(WidenExprKind { expr: e, ty }) => format!("{}({})", ty, e.pretty_string(names)),
             TupleAccess(e, idx) => format!("{}.{}", e.pretty_string(names), idx),
             ParameterAccess(sref, idx) => format!("Param({}, {})", names[sref], idx),
+            LambdaParameterAccess { wref, pref } => {
+                format!("LambdaParam{{wref:{wref}, pref:{pref}}}")
+            }
         }
     }
 }
@@ -123,6 +129,9 @@ impl Display for Expression {
             Widen(WidenExprKind { expr: e, ty }) => write!(f, "{ty}({e})"),
             TupleAccess(e, idx) => write!(f, "{e}.{idx}",),
             ParameterAccess(sref, idx) => write!(f, "Param(ref: {sref}, idx: {idx})"),
+            LambdaParameterAccess { wref, pref } => {
+                write!(f, "LambdaParam{{ wref: {wref}, pref: {pref}}}")
+            }
             StreamAccess(sref, kind, params) => {
                 write!(
                     f,
@@ -133,10 +142,14 @@ impl Display for Expression {
                 match kind {
                     StreamAccessKind::Offset(o) => write!(f, ".offset(by: {o})"),
                     StreamAccessKind::Hold => write!(f, ".hold()"),
-                    StreamAccessKind::SlidingWindow(r) | StreamAccessKind::DiscreteWindow(r) => {
+                    StreamAccessKind::SlidingWindow(r)
+                    | StreamAccessKind::DiscreteWindow(r)
+                    | StreamAccessKind::InstanceAggregation(r) => {
                         write!(f, ".aggregate(ref: {r})")
                     }
-                    _ => Ok(()),
+                    StreamAccessKind::Fresh => write!(f, ".is_fresh()"),
+                    StreamAccessKind::Get => write!(f, ".get()"),
+                    StreamAccessKind::Sync => Ok(()),
                 }
             }
         }

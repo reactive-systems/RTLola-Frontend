@@ -4,11 +4,11 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
-use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
+use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::Span;
 use rust_decimal::Decimal;
 
-use super::WindowReference;
+use super::{Parameter, WindowReference};
 use crate::hir::{AnnotatedType, Hir, Offset, SRef, StreamReference, WRef};
 use crate::modes::HirMode;
 
@@ -19,7 +19,7 @@ pub struct ExprId(pub(crate) u32);
 /// Representation of an expression in the [RtLolaHir](crate::hir::RtLolaHir).
 ///
 /// An expression contains its kind, its id and its position in the specification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
     /// The kind of the expression
     pub kind: ExpressionKind,
@@ -98,7 +98,7 @@ impl ValueEq for Expression {
 }
 
 /// The kinds of an [Expression] of the [RtLolaHir](crate::hir::RtLolaHir).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     /// Loading a [Constant]
     LoadConstant(Constant),
@@ -122,6 +122,13 @@ pub enum ExpressionKind {
     /// * the first argument contains the [StreamReference] of the parametrized stream that is accessed
     /// * the second argument contains the index of the parameter.
     ParameterAccess(SRef, usize),
+    /// This kind represents the access to a lambda parameter
+    LambdaParameterAccess {
+        /// Reference to the instance aggregation using the lambda function
+        wref: WRef,
+        /// Reference to the parameter
+        pref: usize,
+    },
     /// An if-then-else expression
     ///
     /// If the condition evaluates to true, the consequence is executed otherwise the alternative. All arguments are an [Expression].
@@ -155,7 +162,7 @@ pub enum ExpressionKind {
 /// Representation of an function call
 //
 /// The struction contains all information for a function call in the [ExpressionKind] enum.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FnExprKind {
     /// The name of the function.
     pub name: String,
@@ -169,7 +176,7 @@ pub struct FnExprKind {
 /// Representation of the function call to widen the type of an [Expression]
 ///
 /// The struction contains all information to widen an [Expression] in the [ExpressionKind] enum.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WidenExprKind {
     /// The [Expression] on which the function is called
     pub expr: Box<Expression>,
@@ -366,7 +373,7 @@ pub trait WindowAggregation: Debug + Copy {
 }
 
 /// Represents an instance of an instance aggregation
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstanceAggregation {
     /// The stream whose values will be aggregated
     pub target: SRef,
@@ -382,6 +389,45 @@ pub struct InstanceAggregation {
     ///
     /// This field contains the Id of the expression that uses the produced value. It is NOT the id of the window.
     pub(crate) eid: ExprId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum InstanceSelection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
+    /// Only instances that are updated in this evaluation cycle and satisfy the condition are part of the aggregation
+    FilteredFresh {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+    /// All instances that satisfy the condition are part of the aggregation
+    FilteredAll {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+}
+
+impl InstanceSelection {
+    pub(crate) fn condition(&self) -> Option<&Expression> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters: _,
+                cond,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters: _,
+                cond,
+            } => Some(cond),
+        }
+    }
 }
 
 /// Combines the functionality of Instance and Window Aggregations

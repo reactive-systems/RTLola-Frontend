@@ -13,7 +13,9 @@ BOM = _{"\u{FEFF}"}
 
 // ///////////////// Statements ///////////////////
 
-ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
+ParamListDecl = _{ "(" ~ ParamList ~")"}
+LambdaParamListDecl = _{ Ident | "(" ~ ParamList ~")"}
+ParamList = { (ParameterDecl ~("," ~ParameterDecl)*)? }
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
 SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
@@ -45,9 +47,9 @@ TypeDecl = { "type "  ~ Ident ~"{" ~Ident~ ":"~Type~ ("," ~Ident~ ":"~Type)* ~ "
 
 ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
 
-InputStream = { TagLists? ~ "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
+InputStream = { TagLists? ~ "input " ~ Ident ~ ParamListDecl? ~ ":" ~ Type ~(","~ Ident~ ParamListDecl? ~ ":" ~ Type)*}
 
-OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~
+OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamListDecl?~ (":" ~ Type)? ~
  (((SpawnDecl| CloseDecl)* ~ EvalDecl ~ (SpawnDecl | EvalDecl | CloseDecl)*)| SimpleEvalDecl)
 }
 TriggerDecl = { "trigger" }
@@ -99,7 +101,7 @@ UnaryOperation = _{ Add | Subtract | Neg | BitNot }
 
 Expr = { (Term ~ ( (Operation ~ Term) | (Dot ~ (IntegerLiteral | FunctionExpr | Ident)) | (OpeningBracket ~ Literal ~ ClosingBracket) )*) }
 // TODO Do we need Term to exist for the precedence climber?
-Term = _{ MissingExpression | Literal | ParenthesizedExpression | UnaryExpr | TernaryExpr | FunctionExpr | Ident | Tuple}
+Term = _{ LambdaExpr | MissingExpression | Literal | ParenthesizedExpression | UnaryExpr | TernaryExpr | FunctionExpr | Ident | Tuple }
 
 ParenthesizedExpression = {OpeningParenthesis ~ Expr ~ ClosingParenthesis | OpeningParenthesis ~ Expr ~ MissingClosingParenthesis}
 OpeningParenthesis = {"("}
@@ -119,6 +121,8 @@ UnaryExpr = { UnaryOperation~ Term }
 
 TernaryExpr = { "if"~ Expr~ "then"~ Expr~ "else"~ Expr }
 
+
+LambdaExpr = { LambdaParamListDecl ~ "=>" ~ Expr}
 Tuple = { "("~ (Expr~ (","~ Expr)+)?~ ")"}
 
 OpeningBracket = { "[" }

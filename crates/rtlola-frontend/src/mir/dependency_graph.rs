@@ -279,8 +279,8 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
         }
 
         WindowReference::Instance(_) => {
-            let selection = mir.instance_aggregation(wref).selection;
-            format!("{selection} instances")
+            let selection = &mir.instance_aggregation(wref).selection;
+            format!("{} instances", mir.display(selection))
         }
     };
     let caller = mir.output(window.caller());

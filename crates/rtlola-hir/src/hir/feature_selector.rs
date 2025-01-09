@@ -408,7 +408,11 @@ impl FeatureSelector {
 // Private interface
 impl FeatureSelector {
     fn find_window_span(&self, window: WRef) -> Span {
-        fn find_access_expr(expr: &Expression, window: WRef) -> Option<Span> {
+        fn find_access_expr(
+            hir: &RtLolaHir<CompleteMode>,
+            expr: &Expression,
+            window: WRef,
+        ) -> Option<Span> {
             match &expr.kind {
                 ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(w), _)
                     if *w == window =>
@@ -425,9 +429,19 @@ impl FeatureSelector {
                 {
                     Some(expr.span)
                 }
+                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _) => {
+                    if let Some(condition) =
+                        hir.single_instance_aggregation(*w).selection.condition()
+                    {
+                        find_access_expr(hir, condition, window)
+                    } else {
+                        None
+                    }
+                }
                 ExpressionKind::StreamAccess(_, _, _)
                 | ExpressionKind::LoadConstant(_)
-                | ExpressionKind::ParameterAccess(_, _) => None,
+                | ExpressionKind::ParameterAccess(_, _)
+                | ExpressionKind::LambdaParameterAccess { .. } => None,
                 ExpressionKind::Function(FnExprKind {
                     name: _,
                     args,
@@ -436,25 +450,25 @@ impl FeatureSelector {
                 | ExpressionKind::Tuple(args)
                 | ExpressionKind::ArithLog(_, args) => args
                     .iter()
-                    .filter_map(|e| find_access_expr(e, window))
+                    .filter_map(|e| find_access_expr(hir, e, window))
                     .next(),
                 ExpressionKind::Ite {
                     condition,
                     consequence,
                     alternative,
-                } => find_access_expr(condition.as_ref(), window)
-                    .or_else(|| find_access_expr(consequence.as_ref(), window))
-                    .or_else(|| find_access_expr(alternative.as_ref(), window)),
+                } => find_access_expr(hir, condition.as_ref(), window)
+                    .or_else(|| find_access_expr(hir, consequence.as_ref(), window))
+                    .or_else(|| find_access_expr(hir, alternative.as_ref(), window)),
                 ExpressionKind::Widen(WidenExprKind {
                     expr: target,
                     ty: _,
                 })
                 | ExpressionKind::TupleAccess(target, _) => {
-                    find_access_expr(target.as_ref(), window)
+                    find_access_expr(hir, target.as_ref(), window)
                 }
                 ExpressionKind::Default { expr, default } => {
-                    find_access_expr(expr.as_ref(), window)
-                        .or_else(|| find_access_expr(default.as_ref(), window))
+                    find_access_expr(hir, expr.as_ref(), window)
+                        .or_else(|| find_access_expr(hir, default.as_ref(), window))
                 }
             }
         }
@@ -472,28 +486,27 @@ impl FeatureSelector {
         let spawn = caller.spawn.as_ref().and_then(|spawn| {
             spawn
                 .condition
-                .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
+                .and_then(|expr| find_access_expr(&self.hir, self.hir.expression(expr), window))
                 .or_else(|| {
-                    spawn
-                        .expression
-                        .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
+                    spawn.expression.and_then(|expr| {
+                        find_access_expr(&self.hir, self.hir.expression(expr), window)
+                    })
                 })
         });
         let eval = caller
             .eval
             .iter()
-            .find_map(|eval| find_access_expr(self.hir.expression(eval.expr), window))
+            .find_map(|eval| find_access_expr(&self.hir, self.hir.expression(eval.expr), window))
             .or_else(|| {
                 caller
                     .eval
                     .iter()
                     .flat_map(|eval| eval.condition)
-                    .find_map(|expr| find_access_expr(self.hir.expression(expr), window))
+                    .find_map(|expr| find_access_expr(&self.hir, self.hir.expression(expr), window))
             });
-        let close = caller
-            .close
-            .as_ref()
-            .and_then(|close| find_access_expr(self.hir.expression(close.condition), window));
+        let close = caller.close.as_ref().and_then(|close| {
+            find_access_expr(&self.hir, self.hir.expression(close.condition), window)
+        });
 
         spawn.or(eval).or(close).unwrap_or(Span::Unknown)
     }
@@ -526,19 +539,39 @@ impl FeatureSelector {
             res.join(e);
         }
         match &exp.kind {
-            ExpressionKind::ParameterAccess(_, _) | ExpressionKind::LoadConstant(_) => {}
+            ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::LambdaParameterAccess { .. }
+            | ExpressionKind::LoadConstant(_) => {}
             ExpressionKind::Function(FnExprKind {
                 name: _,
                 args: sub_exps,
                 type_param: _,
             })
             | ExpressionKind::Tuple(sub_exps)
-            | ExpressionKind::StreamAccess(_, _, sub_exps)
             | ExpressionKind::ArithLog(_, sub_exps) => sub_exps.iter().for_each(|exp| {
                 if let Err(e) = self.exclude_expression(exp) {
                     res.join(e)
                 }
             }),
+            ExpressionKind::StreamAccess(_, kind, sub_exps) => {
+                sub_exps.iter().for_each(|exp| {
+                    if let Err(e) = self.exclude_expression(exp) {
+                        res.join(e)
+                    }
+                });
+                if let StreamAccessKind::InstanceAggregation(wref) = kind {
+                    if let Some(condition) = self
+                        .hir
+                        .single_instance_aggregation(*wref)
+                        .selection
+                        .condition()
+                    {
+                        if let Err(e) = self.exclude_expression(condition) {
+                            res.join(e)
+                        }
+                    }
+                }
+            }
             ExpressionKind::Ite {
                 condition,
                 consequence,
