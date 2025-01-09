@@ -145,6 +145,11 @@ fn hash_expr_kind<H: Hasher>(kind: &ExpressionKind, state: &mut H) {
             hash_expr_kind(&expr.kind, state);
             hash_expr_kind(&default.kind, state);
         }
+        ExpressionKind::LambdaParameterAccess { wref, pref } => {
+            11.hash(state);
+            wref.hash(state);
+            pref.hash(state);
+        }
     }
 }
 
@@ -1340,7 +1345,8 @@ impl AbstractSemanticType {
             | ExpressionKind::TupleAccess(_, _)
             | ExpressionKind::Function(_)
             | ExpressionKind::Widen(_)
-            | ExpressionKind::Default { .. } => false,
+            | ExpressionKind::Default { .. }
+            | ExpressionKind::LambdaParameterAccess { .. } => false,
         }
     }
 
@@ -1409,7 +1415,8 @@ impl AbstractSemanticType {
             | ExpressionKind::Tuple(_)
             | ExpressionKind::Ite { .. }
             | ExpressionKind::StreamAccess(_, _, _)
-            | ExpressionKind::ParameterAccess(_, _) => {
+            | ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::LambdaParameterAccess { .. } => {
                 Ok(SemanticTypeKind::Literal(HashableExpression {
                     context,
                     expression: exp.clone(),

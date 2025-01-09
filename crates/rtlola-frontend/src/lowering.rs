@@ -6,11 +6,12 @@ use num::ToPrimitive;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant,
     DepAnaTrait, DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined,
-    InstanceAggregation, Literal, MemBoundTrait, Offset, OrderedTrait, Origin, OutputKind,
-    SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
+    InstanceAggregation, InstanceSelection, Literal, MemBoundTrait, Offset, OrderedTrait, Origin,
+    OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
+    WindowReference,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
-use rtlola_parser::ast::{InstanceOperation, InstanceSelection, Tag, WindowOperation};
+use rtlola_parser::ast::{InstanceOperation, Tag, WindowOperation};
 use rtlola_reporting::Span;
 
 use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
@@ -86,7 +87,11 @@ impl Mir {
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
                 reference: sr_map[&sr],
-                params: Self::lower_parameters(&hir, sr),
+                params: Self::lower_parameters(
+                    hir.output(sr).expect("is output stream").params(),
+                    &hir,
+                    sr,
+                ),
                 tags: Self::lower_tags(&o.tags),
                 #[cfg(feature = "spanned")]
                 tags_span: o.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
@@ -417,7 +422,7 @@ impl Mir {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
             reference: win.reference(),
-            selection: Self::lower_instance_selection(win.selection),
+            selection: Self::lower_instance_selection(&win.selection, hir, win.reference(), sr_map),
             aggr: Self::lower_instance_operation(win.aggr),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
         }
@@ -497,6 +502,12 @@ impl Mir {
             },
             ExpressionKind::ParameterAccess(sr, para) => {
                 mir::ExpressionKind::ParameterAccess(sr_map[sr], *para)
+            }
+            ExpressionKind::LambdaParameterAccess { wref, pref } => {
+                mir::ExpressionKind::LambdaParameterAccess {
+                    wref: *wref,
+                    pref: *pref,
+                }
             }
             ExpressionKind::Ite {
                 condition,
@@ -662,10 +673,29 @@ impl Mir {
         }
     }
 
-    fn lower_instance_selection(sel: InstanceSelection) -> mir::InstanceSelection {
+    fn lower_instance_selection(
+        sel: &InstanceSelection,
+        hir: &RtLolaHir<CompleteMode>,
+        wref: WindowReference,
+        sr_map: &HashMap<StreamReference, StreamReference>,
+    ) -> mir::InstanceSelection {
         match sel {
             InstanceSelection::Fresh => mir::InstanceSelection::Fresh,
             InstanceSelection::All => mir::InstanceSelection::All,
+            InstanceSelection::FilteredFresh { parameters, cond } => {
+                let target = hir.single_instance_aggregation(wref).target;
+                mir::InstanceSelection::FilteredFresh {
+                    parameters: Self::lower_parameters(parameters.iter(), hir, target),
+                    cond: Box::new(Self::lower_expr(hir, sr_map, &**cond)),
+                }
+            }
+            InstanceSelection::FilteredAll { parameters, cond } => {
+                let target = hir.single_instance_aggregation(wref).target;
+                mir::InstanceSelection::FilteredAll {
+                    parameters: Self::lower_parameters(parameters.iter(), hir, target),
+                    cond: Box::new(Self::lower_expr(hir, sr_map, &**cond)),
+                }
+            }
         }
     }
 
@@ -712,8 +742,11 @@ impl Mir {
             .collect()
     }
 
-    fn lower_parameters(hir: &RtLolaHir<CompleteMode>, sr: StreamReference) -> Vec<mir::Parameter> {
-        let params = hir.output(sr).expect("is output stream").params();
+    fn lower_parameters<'a>(
+        params: impl Iterator<Item = &'a rtlola_hir::hir::Parameter>,
+        hir: &RtLolaHir<CompleteMode>,
+        sr: StreamReference,
+    ) -> Vec<mir::Parameter> {
         params
             .map(|parameter| mir::Parameter {
                 name: parameter.name.clone(),

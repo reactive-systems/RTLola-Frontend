@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include stream tags in HIR.
 - Validate stream tags with tag validator.
 - Tuple Literal to HIR
+- Instance aggregation filter conditions
 
 ### Changed
 - Missing Annotated pacing now also features a span

@@ -223,10 +223,9 @@ impl<M: HirMode> Hir<M> {
     ///
     /// # Panic
     /// Panics if no such aggregation exists.
-    pub fn single_instance_aggregation(&self, window: WRef) -> InstanceAggregation {
-        *self
-            .instance_aggregations()
-            .into_iter()
+    pub fn single_instance_aggregation(&self, window: WRef) -> &InstanceAggregation {
+        self.instance_aggregations()
+            .iter()
             .find(|w| w.reference == window)
             .unwrap()
     }

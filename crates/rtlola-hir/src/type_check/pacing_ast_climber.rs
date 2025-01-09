@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rtlola_parser::ast::InstanceSelection;
 use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{Constructable, PreliminaryTypeTable, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
     self, AnnotatedPacingType, CloseDef, EvalDef, ExprId, Expression, ExpressionContext,
-    ExpressionKind, FnExprKind, Hir, Input, Output, SRef, SpawnDef, StreamAccessKind,
-    StreamReference,
+    ExpressionKind, FnExprKind, Hir, Input, InstanceSelection, Output, SRef, SpawnDef,
+    StreamAccessKind, StreamReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::pacing_types::{
@@ -478,7 +477,9 @@ where
         let term_keys: StreamTypeKeys = self.new_stream_key();
         use AbstractPacingType::*;
         match &exp.kind {
-            ExpressionKind::LoadConstant(_) | ExpressionKind::ParameterAccess(_, _) => {
+            ExpressionKind::LoadConstant(_)
+            | ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::LambdaParameterAccess { .. } => {
                 //constants have arbitrary pacing type
             }
             ExpressionKind::StreamAccess(sref, kind, args) => {
@@ -561,7 +562,7 @@ where
                     StreamAccessKind::InstanceAggregation(w) => {
                         let aggregation = self.hir.single_instance_aggregation(*w);
                         match aggregation.selection {
-                            InstanceSelection::Fresh => {
+                            InstanceSelection::Fresh | InstanceSelection::FilteredFresh { .. } => {
                                 self.pacing_tyc.impose(
                                     term_keys.eval_pacing.concretizes(stream_key.eval_pacing),
                                 )?;
@@ -572,7 +573,22 @@ where
                                         .concretizes_explicit(Event(ActivationCondition::True)),
                                 )?;
                             }
-                            InstanceSelection::All => {}
+                            InstanceSelection::All | InstanceSelection::FilteredAll { .. } => {}
+                        }
+                        match &aggregation.selection {
+                            InstanceSelection::Fresh | InstanceSelection::All => {}
+                            InstanceSelection::FilteredFresh { parameters, cond }
+                            | InstanceSelection::FilteredAll { parameters, cond } => {
+                                // Create Parameters Key
+                                for (idx, parameter) in parameters.iter().enumerate() {
+                                    let key = self.new_stream_key();
+                                    self.node_key.insert(NodeId::LambdaParameter(idx, *w), key);
+                                    self.add_span_to_stream_key(key, parameter.span);
+                                }
+                                // Impose condition
+                                let condition_key = self.expression_infer(cond.as_ref())?;
+                                self.impose_more_concrete(term_keys, condition_key)?;
+                            }
                         }
                     }
                 };
@@ -701,53 +717,62 @@ where
             || close != &negative_top
     }
 
-    fn get_or_fresh_targets(expr: &Expression) -> Vec<(bool, Span, StreamReference)> {
+    fn get_or_fresh_targets(hir: &Hir<M>, expr: &Expression) -> Vec<(bool, Span, StreamReference)> {
         match &expr.kind {
             ExpressionKind::LoadConstant(_) => vec![],
             ExpressionKind::ArithLog(_, children) => children
                 .iter()
-                .flat_map(|e| Self::get_or_fresh_targets(e))
+                .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                 .collect(),
             ExpressionKind::StreamAccess(target, kind, arguments) => {
                 let mut res: Vec<_> = arguments
                     .iter()
-                    .flat_map(|e| Self::get_or_fresh_targets(e))
+                    .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                     .collect();
                 match kind {
                     StreamAccessKind::Get => res.push((true, expr.span, *target)),
                     StreamAccessKind::Fresh => res.push((false, expr.span, *target)),
+                    StreamAccessKind::InstanceAggregation(wref) => {
+                        if let Some(condition) =
+                            hir.single_instance_aggregation(*wref).selection.condition()
+                        {
+                            let inner = Self::get_or_fresh_targets(hir, condition);
+                            res.extend(inner);
+                        }
+                    }
                     _ => {}
                 };
                 res
             }
             ExpressionKind::ParameterAccess(_, _) => vec![],
+            ExpressionKind::LambdaParameterAccess { .. } => vec![],
             ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
             } => {
-                let mut cond = Self::get_or_fresh_targets(condition);
+                let mut cond = Self::get_or_fresh_targets(hir, condition);
 
-                cond.append(&mut Self::get_or_fresh_targets(consequence));
-                cond.append(&mut Self::get_or_fresh_targets(alternative));
+                cond.append(&mut Self::get_or_fresh_targets(hir, consequence));
+                cond.append(&mut Self::get_or_fresh_targets(hir, alternative));
 
                 cond
             }
             ExpressionKind::Tuple(children) => children
                 .iter()
-                .flat_map(|e| Self::get_or_fresh_targets(e))
+                .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                 .collect(),
-            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(target),
+            ExpressionKind::TupleAccess(target, _) => Self::get_or_fresh_targets(hir, target),
             ExpressionKind::Function(def) => def
                 .args
                 .iter()
-                .flat_map(|e| Self::get_or_fresh_targets(e))
+                .flat_map(|e| Self::get_or_fresh_targets(hir, e))
                 .collect(),
-            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(def.expr.as_ref()),
+            ExpressionKind::Widen(def) => Self::get_or_fresh_targets(hir, def.expr.as_ref()),
             ExpressionKind::Default { expr, default } => {
-                let mut expr = Self::get_or_fresh_targets(expr);
+                let mut expr = Self::get_or_fresh_targets(hir, expr);
 
-                expr.append(&mut Self::get_or_fresh_targets(default));
+                expr.append(&mut Self::get_or_fresh_targets(hir, default));
 
                 expr
             }
@@ -762,12 +787,12 @@ where
         condition: Option<ExprId>,
         own_pacing: &ConcretePacingType,
     ) -> Vec<TypeError<PacingErrorKind>> {
-        expr.map(|e| Self::get_or_fresh_targets(hir.expression(e)))
+        expr.map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
             .unwrap_or_default()
             .iter()
             .chain(
                 condition
-                    .map(|e| Self::get_or_fresh_targets(hir.expression(e)))
+                    .map(|e| Self::get_or_fresh_targets(hir, hir.expression(e)))
                     .unwrap_or_default()
                     .iter(),
             )
@@ -1239,6 +1264,7 @@ where
 
 #[cfg(test)]
 mod tests {
+
     use num::rational::Rational64 as Rational;
     use num::FromPrimitive;
     use rtlola_parser::ast::RtLolaAst;
@@ -3304,5 +3330,75 @@ mod tests {
           eval @a when a == 1 with b.last(or: 0) + 1
         ";
         assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_inferred() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1,p2) => p2 = a), using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let p = &tt[&NodeId::SRef(hir.outputs[1].sr)];
+        assert_eq!(
+            p.eval_pacing,
+            ConcretePacingType::Event(ActivationCondition::with_stream(StreamReference::In(0)))
+        );
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_annotation_required() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1,p2) => p2 = 5), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_fresh_inferred() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: fresh(where: (p1,p2) => p2 = a), using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_fresh_two_inputsinferred() {
+        let spec = "input a: Int32\n\
+        input a2: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: fresh(where: (p1,p2) => p2 = a2), using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+        let (hir, _) = setup_ast(spec);
+        let mut ltc = LolaTypeChecker::new(&hir);
+        let tt = ltc.pacing_type_infer().unwrap();
+
+        let p = &tt[&NodeId::SRef(hir.outputs[1].sr)];
+        assert_eq!(
+            p.eval_pacing,
+            ConcretePacingType::Event(
+                ActivationCondition::with_stream(StreamReference::In(0))
+                    & ActivationCondition::with_stream(StreamReference::In(1))
+            )
+        );
     }
 }

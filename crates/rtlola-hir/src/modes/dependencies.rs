@@ -304,7 +304,7 @@ impl DepAna {
                     .iter()
                     .enumerate()
                     .flat_map(|(i, eval)| {
-                        Self::collect_edges(sr, eval.expression)
+                        Self::collect_edges(spec, sr, eval.expression)
                             .into_iter()
                             .map(move |a| (i, a))
                     })
@@ -322,10 +322,12 @@ impl DepAna {
                          ..
                      }| {
                         expression
-                            .map_or(Vec::new(), |spawn_expr| Self::collect_edges(sr, spawn_expr))
+                            .map_or(Vec::new(), |spawn_expr| {
+                                Self::collect_edges(spec, sr, spawn_expr)
+                            })
                             .into_iter()
                             .chain(condition.map_or(Vec::new(), |spawn_cond| {
-                                Self::collect_edges(sr, spawn_cond)
+                                Self::collect_edges(spec, sr, spawn_cond)
                             }))
                     },
                 )
@@ -341,7 +343,7 @@ impl DepAna {
                     .enumerate()
                     .flat_map(|(i, eval)| eval.condition.map(|cond| (i, cond)))
                     .flat_map(|(i, filter)| {
-                        Self::collect_edges(sr, filter)
+                        Self::collect_edges(spec, sr, filter)
                             .into_iter()
                             .map(move |a| (i, a))
                     })
@@ -354,7 +356,7 @@ impl DepAna {
             .flat_map(|sr| {
                 spec.close(sr)
                     .and_then(|cd| cd.condition)
-                    .map(|close| Self::collect_edges(sr, close))
+                    .map(|close| Self::collect_edges(spec, sr, close))
             })
             .flatten()
             .map(|(src, w, tar)| (src, EdgeWeight::new(w, Origin::Close), tar));
@@ -534,46 +536,62 @@ impl DepAna {
         })
     }
 
-    fn collect_edges(src: SRef, expr: &Expression) -> Vec<(SRef, StreamAccessKind, SRef)> {
+    fn collect_edges<M>(
+        hir: &Hir<M>,
+        src: SRef,
+        expr: &Expression,
+    ) -> Vec<(SRef, StreamAccessKind, SRef)>
+    where
+        M: HirMode,
+    {
         match &expr.kind {
             ExpressionKind::StreamAccess(target, stream_access_kind, args) => {
                 let mut args = args
                     .iter()
-                    .flat_map(|arg| Self::collect_edges(src, arg))
+                    .flat_map(|arg| Self::collect_edges(hir, src, arg))
                     .collect::<Vec<(SRef, StreamAccessKind, SRef)>>();
                 args.push((src, *stream_access_kind, *target));
+                if let StreamAccessKind::InstanceAggregation(wref) = stream_access_kind {
+                    if let Some(condition) =
+                        hir.single_instance_aggregation(*wref).selection.condition()
+                    {
+                        let edges = Self::collect_edges(hir, src, condition);
+                        args.extend(edges);
+                    }
+                }
                 args
             }
-            ExpressionKind::ParameterAccess(_, _) => Vec::new(),
+            ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::LambdaParameterAccess { .. } => Vec::new(),
             ExpressionKind::LoadConstant(_) => Vec::new(),
             ExpressionKind::ArithLog(_op, args) => args
                 .iter()
-                .flat_map(|a| Self::collect_edges(src, a).into_iter())
+                .flat_map(|a| Self::collect_edges(hir, src, a).into_iter())
                 .collect(),
             ExpressionKind::Tuple(content) => content
                 .iter()
-                .flat_map(|a| Self::collect_edges(src, a))
+                .flat_map(|a| Self::collect_edges(hir, src, a))
                 .collect(),
             ExpressionKind::Function(FnExprKind { args, .. }) => args
                 .iter()
-                .flat_map(|a| Self::collect_edges(src, a))
+                .flat_map(|a| Self::collect_edges(hir, src, a))
                 .collect(),
             ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
-            } => Self::collect_edges(src, condition)
+            } => Self::collect_edges(hir, src, condition)
                 .into_iter()
-                .chain(Self::collect_edges(src, consequence))
-                .chain(Self::collect_edges(src, alternative))
+                .chain(Self::collect_edges(hir, src, consequence))
+                .chain(Self::collect_edges(hir, src, alternative))
                 .collect(),
-            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(src, content),
+            ExpressionKind::TupleAccess(content, _n) => Self::collect_edges(hir, src, content),
             ExpressionKind::Widen(WidenExprKind { expr: inner, .. }) => {
-                Self::collect_edges(src, inner)
+                Self::collect_edges(hir, src, inner)
             }
-            ExpressionKind::Default { expr, default } => Self::collect_edges(src, expr)
+            ExpressionKind::Default { expr, default } => Self::collect_edges(hir, src, expr)
                 .into_iter()
-                .chain(Self::collect_edges(src, default))
+                .chain(Self::collect_edges(hir, src, default))
                 .collect(),
         }
     }
@@ -1531,6 +1549,67 @@ mod tests {
             checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a")]);
         let transitive_accessed_by =
             checking_map!(sname_to_sref, ["a", ("b")], ["b", ()], ["x", ("a", "b")]);
+        let aggregates = empty_vec_for_map!(sname_to_sref);
+        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        check_graph_for_spec(
+            spec,
+            Some((
+                direct_accesses,
+                transitive_accesses,
+                direct_accessed_by,
+                transitive_accessed_by,
+                aggregates,
+                aggregated_by,
+            )),
+        );
+    }
+
+    #[test]
+    fn test_filtered_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        input a2: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1,p2) => p2 = a2), using: Σ)\n";
+        let sname_to_sref = vec![
+            ("a", SRef::In(0)),
+            ("a2", SRef::In(1)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let direct_accesses: HashMap<SRef, Vec<SRef>> = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", ("a")],
+            ["c", ("a", "a2", "b")]
+        );
+        let transitive_accesses = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", ("a")],
+            ["c", ("a", "a2", "b")]
+        );
+        let direct_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c")],
+            ["a2", ("c")],
+            ["b", ("c")],
+            ["c", ()]
+        );
+        let transitive_accessed_by = checking_map!(
+            sname_to_sref,
+            ["a", ("b", "c")],
+            ["a2", ("c")],
+            ["b", ("c")],
+            ["c", ()]
+        );
         let aggregates = empty_vec_for_map!(sname_to_sref);
         let aggregated_by = empty_vec_for_map!(sname_to_sref);
         check_graph_for_spec(

@@ -41,6 +41,8 @@ pub(crate) enum ValueErrorKind {
     OptionNotAllowed(ConcreteValueType),
     /// The message of a trigger is not of type string
     WrongTriggerMsg(ConcreteValueType),
+    /// The lambda parameter call has the wrong number of parameters
+    InvalidLambdaParameters(Span),
 }
 
 /// The [AbstractValueType] is used during inference and represents a value within the type lattice
@@ -666,6 +668,9 @@ impl Resolvable for ValueErrorKind {
             }
             ValueErrorKind::WrongTriggerMsg(ty) => {
                 Diagnostic::error("In value type analysis:\nAn trigger message has to be of type string.").maybe_add_span_with_label(key1.and_then(|k| spans.get(&k).cloned()), Some(&format!("Found {ty} here.")), true)
+            }
+            ValueErrorKind::InvalidLambdaParameters(span) => {
+                Diagnostic::error("In value type analysis:\nNumber of parameters in filtered instance mismatches the number of parameters in the target stream").add_span_with_label(span, None, true)
             }
         }
     }

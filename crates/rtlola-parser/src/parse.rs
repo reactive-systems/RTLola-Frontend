@@ -1259,7 +1259,23 @@ impl<'a> RtLolaParser<'a> {
                                                     "fresh" | "Fresh" => InstanceSelection::Fresh,
                                                     "all" | "All" => InstanceSelection::All,
                                                     sel => {
-                                                        return Err(Diagnostic::error(&format!("unknown instance selection {sel}")).add_span_with_label(i.span, Some("available: fresh, all"), true).into());
+                                                        return Err(Diagnostic::error(&format!("unknown instance selection {sel}")).add_span_with_label(i.span, Some("available: fresh, all, fresh(where: ...), all(where: ...)"), true).into());
+                                                    }
+                                                }
+                                                ExpressionKind::Function(name, _ty, expr) => {
+                                                    let signature = name.to_string();
+                                                    if expr.len() != 1 {
+                                                        return Err(Diagnostic::error(&format!("filtered instance selection can only have one argument")).add_span_with_label(args[0].span, None, true).into());
+                                                    }
+                                                    let Expression { kind: ExpressionKind::Lambda(lambda), id:_ , span:_  } = expr[0].clone() else {
+                                                        return Err(Diagnostic::error("expect lambda expression in filtered instance aggregation").add_span_with_label(expr[0].span, None, true).into());
+                                                    };
+                                                    match signature.as_str() {
+                                                        "fresh(where:)" | "Fresh(where:)" => InstanceSelection::FilteredFresh(lambda),
+                                                        "all(where:)" | "All(where:)" => InstanceSelection::FilteredAll (lambda),
+                                                        sel => {
+                                                            return Err(Diagnostic::error(&format!("unknown instance selection {sel}")).add_span_with_label(args[0].span, Some("available: fresh, all, fresh(where: ...), all(where: ...)"), true).into());
+                                                        }
                                                     }
                                                 }
                                                 _ => {
@@ -1460,6 +1476,34 @@ impl<'a> RtLolaParser<'a> {
                 Ok(Expression::new(
                     self.spec.next_id(),
                     ExpressionKind::MissingExpression,
+                    span,
+                ))
+            }
+            Rule::LambdaExpr => {
+                let span = span.into();
+                let mut inner = pair.into_inner();
+                let parameter_pair = inner.next().unwrap();
+                let parameters = match parameter_pair.as_rule() {
+                    Rule::ParamList => self.parse_parameter_list(parameter_pair.into_inner()),
+                    Rule::Ident => vec![Parameter {
+                        name: self.parse_ident(&parameter_pair),
+                        ty: None,
+                        param_idx: 0,
+                        id: self.spec.next_id(),
+                        span: parameter_pair.as_span().into(),
+                    }],
+                    _ => unreachable!("mismatch between AST and grammar"),
+                };
+                let expr_pair = inner.next().expect("mismatch between grammar and AST");
+                assert_eq!(expr_pair.as_rule(), Rule::Expr);
+                let expr = self.build_expression_ast(expr_pair.into_inner())?;
+                let lambda = LambdaExpr {
+                    parameters: parameters.into_iter().map(Rc::new).collect(),
+                    expr: Box::new(expr),
+                };
+                Ok(Expression::new(
+                    self.spec.next_id(),
+                    ExpressionKind::Lambda(lambda),
                     span,
                 ))
             }
@@ -2559,5 +2603,49 @@ mod tests {
         let ident1 = parser.parse_ident(&pair1);
         let ident2 = parser.parse_ident(&pair2);
         assert_eq!(ident1, ident2)
+    }
+
+    #[test]
+    fn filtered_all_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1,p2) => p2 = a), using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn filtered_fresh_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: fresh(where: (p1,p2) => p2 = a), using: Σ)\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn lambda_expr() {
+        let spec = "input a: Int32\n\
+        output b eval with (p1,p2) => a = 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn lambda_single_parameter() {
+        let spec = "input a: Int32\n\
+        output b eval with p1 => a = 5\n";
+        let r = "input a: Int32\n\
+        output b eval with (p1) => a = 5\n";
+        let ast = parse(spec);
+        cmp_ast_spec(&ast, r);
     }
 }

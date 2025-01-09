@@ -439,6 +439,8 @@ pub enum ExpressionKind {
     Method(Box<Expression>, FunctionName, Vec<Type>, Vec<Expression>),
     /// A function call
     Function(FunctionName, Vec<Type>, Vec<Expression>),
+    /// A lambda expression used in filtered instance aggregations
+    Lambda(LambdaExpr),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -754,13 +756,27 @@ impl Hash for Ident {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+/// Struct to represent a lambda expression in the specification
+/// Can currently only occur inside instance aggregation conditions
+pub struct LambdaExpr {
+    /// The names of the parameters of the stream instance
+    pub parameters: Vec<Rc<Parameter>>,
+    /// The condition that needs to be satisfied
+    pub expr: Box<Expression>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 /// Enum to indicate which instances are part of the aggregation
 pub enum InstanceSelection {
     /// Only instances that are updated in this evaluation cycle are part of the aggregation
     Fresh,
     /// All instances are part of the aggregation
     All,
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation and satisfy the condition
+    FilteredFresh(LambdaExpr),
+    /// All instances that satisfy the condition are part of the aggregation
+    FilteredAll(LambdaExpr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

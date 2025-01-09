@@ -310,7 +310,18 @@ impl Display for Expression {
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
             }
+            ExpressionKind::Lambda(lambda) => {
+                write!(f, "{lambda}")
+            }
         }
+    }
+}
+
+impl Display for LambdaExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let LambdaExpr { parameters, expr } = self;
+        let parameters = parameters.iter().map(|p| p.to_string()).join(",");
+        write!(f, "({parameters}) => {expr}")
     }
 }
 
@@ -424,6 +435,8 @@ impl Display for InstanceSelection {
         match self {
             InstanceSelection::Fresh => write!(f, "fresh"),
             InstanceSelection::All => write!(f, "all"),
+            InstanceSelection::FilteredFresh(lambda) => write!(f, "fresh(where: {lambda})",),
+            InstanceSelection::FilteredAll(lambda) => write!(f, "all(where: {lambda})"),
         }
     }
 }

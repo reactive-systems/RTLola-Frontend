@@ -5,8 +5,9 @@ use rtlola_reporting::{RtLolaError, Span};
 use rusttyc::{TcErr, TcKey, TypeChecker, TypeTable};
 
 use crate::hir::{
-    AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input, Literal,
-    Offset, Output, SpawnDef, StreamAccessKind, StreamReference, WidenExprKind, WindowReference,
+    AnnotatedType, Constant, Expression, ExpressionKind, FnExprKind, Hir, Inlined, Input,
+    InstanceSelection, Literal, Offset, Output, SpawnDef, StreamAccessKind, StreamReference,
+    WidenExprKind, WindowReference,
 };
 use crate::modes::HirMode;
 use crate::type_check::rtltc::{NodeId, TypeError};
@@ -482,6 +483,40 @@ where
                             }
                             WindowReference::Instance(_) => {
                                 let win = self.hir.single_instance_aggregation(*wref);
+                                if let InstanceSelection::FilteredAll { parameters, cond }
+                                | InstanceSelection::FilteredFresh { parameters, cond } =
+                                    &win.selection
+                                {
+                                    if parameters.len()
+                                        != self
+                                            .hir
+                                            .output(win.target)
+                                            .expect("Only output streams are parameterized")
+                                            .params
+                                            .len()
+                                    {
+                                        let kind =
+                                            ValueErrorKind::InvalidLambdaParameters(exp.span);
+                                        return Err(kind.into());
+                                    }
+                                    for p in parameters {
+                                        let idx = p.idx;
+                                        let target_key = *self
+                                            .node_key
+                                            .get(&NodeId::Param(idx, win.target))
+                                            .unwrap();
+                                        let lambda_key = self.tyc.new_term_key();
+                                        self.node_key.insert(
+                                            NodeId::LambdaParameter(idx, *wref),
+                                            lambda_key,
+                                        );
+                                        self.tyc.impose(lambda_key.concretizes(target_key))?;
+                                        if let Some(a_ty) = p.annotated_type.as_ref() {
+                                            self.handle_annotated_type(lambda_key, a_ty, None)?;
+                                        }
+                                    }
+                                    self.expression_infer(cond, Some(AbstractValueType::Bool))?;
+                                }
                                 (win.target, win.aggr.into(), false)
                             }
                         };
@@ -892,6 +927,13 @@ where
                     .expect("Expect valid stream reference");
                 let par_key = self.tyc.get_var_key(&Variable::for_parameter(output, *ix));
                 self.tyc.impose(term_key.equate_with(par_key))?;
+            }
+            ExpressionKind::LambdaParameterAccess { wref, pref } => {
+                let parameter_key = self
+                    .node_key
+                    .get(&NodeId::LambdaParameter(*pref, *wref))
+                    .unwrap();
+                self.tyc.impose(term_key.equate_with(*parameter_key))?;
             }
         };
 
@@ -2554,5 +2596,87 @@ output o_9: Bool @i_0 := true  && true";
             &result_map[&NodeId::SRef(b)],
             &ConcreteValueType::Fixed64_32
         );
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_inferred() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1,p2) => p2 = a), using: Σ)\n";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_wrong_annotation() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1:Int32, p2:UInt32) => p2 = 5), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_missing_parameter() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1:Int32) => p1 = 5), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_additional_parameter() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1:Int32, p2, p3) => p3 = 5), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_wrong_type() {
+        let spec = "input a: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + 1\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: all(where: (p1:Int32, p2) => p1 + p2), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_inferred_type_mismatch() {
+        let spec = "input a: Int32\n\
+        input b : Int16
+        output c (p1, p2) \
+            spawn with (a, b) \
+            eval with p1 + p2\n\
+        output d := c.aggregate(over_instances: fresh(where: (p1, p2:Int32) => true), using: Σ)\n";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn filtered_instance_aggregation_inference() {
+        let spec = "input a: Int32\n\
+        input i: Int64\n\
+        output b(p)\n\
+            spawn with a\n\
+            eval with a+p\n\
+        output c := b.aggregate(over_instances: All(where: (x) => x + i > 5), using: sum)";
+        assert_eq!(1, num_errors(spec));
     }
 }

@@ -117,15 +117,6 @@ impl Display for FixedTy {
     }
 }
 
-impl Display for InstanceSelection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        match self {
-            InstanceSelection::Fresh => write!(f, "Fresh"),
-            InstanceSelection::All => write!(f, "All"),
-        }
-    }
-}
-
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
 /// Uses the formatter.
 pub(crate) fn write_delim_list<T: Display>(
@@ -337,7 +328,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 StreamAccessKind::InstanceAggregation(w) => {
                     let window = mir.instance_aggregation(*w);
                     let target_name = mir.stream(window.target).name();
-                    let duration = window.selection.to_string();
+                    let duration = mir.display(&window.selection);
                     let op = &window.op().to_string();
                     format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
                 }
@@ -350,6 +341,16 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
         ExpressionKind::ParameterAccess(sref, parameter) => {
             mir.output(*sref).params[*parameter].name.to_string()
         }
+        ExpressionKind::LambdaParameterAccess { wref, pref } => mir
+            .instance_aggregation(*wref)
+            .selection
+            .parameters()
+            .unwrap()
+            .iter()
+            .find(|p| p.idx == *pref)
+            .unwrap()
+            .name
+            .to_string(),
         ExpressionKind::Ite {
             condition,
             consequence,
@@ -388,6 +389,31 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             let display_expr = display_expression(mir, expr, 0);
             let display_default = display_expression(mir, default, 0);
             format!("{display_expr}.defaults(to: {display_default})")
+        }
+    }
+}
+
+impl<'a> Display for RtLolaMirPrinter<'a, InstanceSelection> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match &self.inner {
+            InstanceSelection::Fresh => write!(f, "fresh"),
+            InstanceSelection::All => write!(f, "all"),
+            InstanceSelection::FilteredFresh { parameters, cond } => {
+                let parameters = parameters
+                    .iter()
+                    .map(|p| format!("{}: {}", &p.name, p.ty))
+                    .join(", ");
+                let cond = display_expression(self.mir, cond, 0);
+                write!(f, "fresh(where: ({parameters}) => {cond})")
+            }
+            InstanceSelection::FilteredAll { parameters, cond } => {
+                let parameters = parameters
+                    .iter()
+                    .map(|p| format!("{}: {}", &p.name, p.ty))
+                    .join(", ");
+                let cond = display_expression(self.mir, cond, 0);
+                write!(f, "all(where: ({parameters}) => {cond})")
+            }
         }
     }
 }
@@ -567,6 +593,23 @@ mod tests {
 
         let config = ParserConfig::for_string(example.into());
         let mir = parse(&config).expect("should parse");
+        let config = ParserConfig::for_string(mir.to_string());
+        parse(&config).expect("should also parse");
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        input a2: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: fresh(where: (p1, p2) => p2 = a2), using: Σ)";
+        let config = ParserConfig::for_string(spec.into());
+        let mir = parse(&config).expect("should parse");
+        println!("{mir}");
         let config = ParserConfig::for_string(mir.to_string());
         parse(&config).expect("should also parse");
     }

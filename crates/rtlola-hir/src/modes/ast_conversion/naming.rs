@@ -84,6 +84,11 @@ impl NamingAnalysis {
             );
         }
 
+        // discard underscore declarations
+        if lower == "_" {
+            return Ok(());
+        }
+
         let decl_name = if let Declaration::Func(rcfunc) = &decl {
             DeclName::Func(rcfunc.name.clone())
         } else {
@@ -421,7 +426,16 @@ impl NamingAnalysis {
                 self.check_expression(duration),
                 |_, _| {},
             ),
-            InstanceAggregation { expr, .. } => self.check_expression(expr),
+            InstanceAggregation {
+                expr, selection, ..
+            } => {
+                self.check_expression(expr)?;
+                match selection {
+                    InstanceSelection::Fresh | InstanceSelection::All => Ok(()),
+                    InstanceSelection::FilteredFresh(lambda)
+                    | InstanceSelection::FilteredAll(lambda) => self.check_lambda(lambda),
+                }
+            }
             Binary(_, left, right) => RtLolaError::combine(
                 self.check_expression(left),
                 self.check_expression(right),
@@ -507,7 +521,23 @@ impl NamingAnalysis {
                     .collect::<RtLolaError>()
                     .into()
             }
+            Lambda { .. } => unreachable!(
+                "lambda expression only appear in instance aggregattions and are converted"
+            ),
         }
+    }
+
+    fn check_lambda(
+        &mut self,
+        LambdaExpr { parameters, expr }: &LambdaExpr,
+    ) -> Result<(), RtLolaError> {
+        self.declarations.push();
+        for p in parameters {
+            self.add_decl_for(Declaration::LambdaParameter(p.clone()))?;
+        }
+        self.check_expression(&**expr)?;
+        self.declarations.pop();
+        Ok(())
     }
 }
 
@@ -589,6 +619,7 @@ pub(crate) enum Declaration {
     Type,
     Param(Rc<Parameter>),
     Func(Rc<FuncDecl>),
+    LambdaParameter(Rc<Parameter>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -605,7 +636,7 @@ impl Declaration {
             Declaration::Out(output) | Declaration::ParamOut(output) => {
                 output.name().map(|name| name.span)
             }
-            Declaration::Param(p) => Some(p.name.span),
+            Declaration::Param(p) | Declaration::LambdaParameter(p) => Some(p.name.span),
             Declaration::Type | Declaration::Func(_) => None,
         }
     }
@@ -617,7 +648,7 @@ impl Declaration {
             Declaration::Out(output) | Declaration::ParamOut(output) => {
                 output.name().map(|name| name.name.as_str())
             }
-            Declaration::Param(p) => Some(&p.name.name),
+            Declaration::Param(p) | Declaration::LambdaParameter(p) => Some(&p.name.name),
             Declaration::Type | Declaration::Func(_) => None,
         }
     }
@@ -630,6 +661,7 @@ impl Declaration {
             | Declaration::Out(_)
             | Declaration::ParamOut(_)
             | Declaration::Param(_)
+            | Declaration::LambdaParameter(_)
             | Declaration::Func(_) => false,
         }
     }
@@ -821,5 +853,18 @@ mod tests {
         let param = ast.outputs[0].params[0].clone();
         let decl = table.get(&param.id).unwrap();
         assert!(matches!(decl, Declaration::Param(_)));
+    }
+
+    #[test]
+    fn test_underscore() {
+        let spec = "output a(b,c) := b.aggregate(over_instances: all(where: (_,_,c,_) => c > 5), using: count)";
+
+        let ast = parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap_or_else(|e| panic!("{:?}", e));
+        let mut naming_analyzer = NamingAnalysis::new();
+        let table = naming_analyzer.check(&ast).unwrap();
+        table
+            .iter()
+            .any(|(_, v)| matches!(v, Declaration::LambdaParameter(_)));
     }
 }

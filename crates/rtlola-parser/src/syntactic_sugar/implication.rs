@@ -41,7 +41,9 @@ impl Implication {
                     | ExpressionKind::Field(_, _)
                     | ExpressionKind::ParenthesizedExpression(_)
                     | ExpressionKind::MissingExpression => lhs,
-                    ExpressionKind::Binary(_, _, _) | ExpressionKind::Ite(_, _, _) => {
+                    ExpressionKind::Binary(_, _, _)
+                    | ExpressionKind::Ite(_, _, _)
+                    | ExpressionKind::Lambda { .. } => {
                         let lhs = Expression {
                             kind: ExpressionKind::ParenthesizedExpression(lhs),
                             id: new_id,

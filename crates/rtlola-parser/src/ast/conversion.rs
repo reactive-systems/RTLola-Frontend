@@ -10,7 +10,7 @@ use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::second;
 
 use super::{Expression, ExpressionKind, LitKind, Offset, TimeUnit};
-use crate::ast::Literal;
+use crate::ast::{LambdaExpr, Literal};
 use crate::parse::RtLolaParser;
 
 pub(crate) type RationalType = i64;
@@ -291,6 +291,10 @@ impl Expression {
                     .chain(base.iter())
                     .chain(arguments.iter().flat_map(|entry| entry.iter())),
             ),
+            Lambda(LambdaExpr {
+                parameters: _,
+                expr,
+            }) => Box::new(std::iter::once(self).chain(expr.iter())),
         }
     }
 }

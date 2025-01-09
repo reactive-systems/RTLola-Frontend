@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
 
-use crate::hir::{ExprId, Hir, StreamReference};
+use crate::hir::{ExprId, Hir, StreamReference, WRef};
 use crate::modes::{HirMode, Typed};
 use crate::type_check::pacing_ast_climber::PacingTypeChecker;
 use crate::type_check::value_ast_climber::ValueTypeChecker;
@@ -30,6 +30,7 @@ pub enum NodeId {
     Eval(usize, StreamReference),
     Expr(ExprId),
     Param(usize, StreamReference),
+    LambdaParameter(usize, WRef),
 }
 
 /// Resolvable is implemented for all type checker errors and is used for generic error printing.
@@ -115,6 +116,9 @@ where
                 }
                 NodeId::Eval(_, _) => {
                     unreachable!("no value type for eval clauses")
+                }
+                NodeId::LambdaParameter(_, _) => {
+                    // equal with parameter type
                 }
             }
         });
