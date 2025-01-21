@@ -15,10 +15,9 @@ use serde::{Deserialize, Serialize};
 use super::BaseMode;
 use crate::hir::{
     AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant,
-    Constant, DiscreteAggr, Eval, ExprId, Expression, ExpressionKind, ExpressionMaps, FnExprKind,
-    Hir, Inlined, Input, InstanceAggregation, InstanceSelection, Literal, Offset, Output,
-    OutputKind, Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef,
-    WidenExprKind, Window,
+    DiscreteAggr, Eval, ExprId, Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir,
+    Inlined, Input, InstanceAggregation, InstanceSelection, Literal, Offset, Output, OutputKind,
+    Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -330,11 +329,6 @@ impl ExpressionTransformer {
                 // check that they are equal length
                 let num_spawn_expr = match &spawn_expr.kind {
                     ExpressionKind::Tuple(elements) => elements.len(),
-                    ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(elements)))
-                    | ExpressionKind::LoadConstant(Constant::Inlined(Inlined {
-                        lit: Literal::Tuple(elements),
-                        ..
-                    })) => elements.len(),
                     _ => 1,
                 };
                 if num_spawn_expr != params.len() {
@@ -595,12 +589,9 @@ impl ExpressionTransformer {
         Ok(match &lit.kind {
             ast::LitKind::Bool(b) => Literal::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => Literal::Str(s.clone()),
-            ast::LitKind::Tuple(elements) => Literal::Tuple(
-                elements
-                    .iter()
-                    .map(|lit| self.transform_literal(lit))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
+            ast::LitKind::Tuple(_) => {
+                unreachable!("only allowed in constant's, which are inlined in syntactic sugar")
+            }
             ast::LitKind::Numeric(num_str, postfix) => {
                 match postfix {
                     Some(s) if !s.is_empty() => {
@@ -720,10 +711,8 @@ impl ExpressionTransformer {
                     let annotated_type = Self::annotated_type(ty).map_err(|reason| {
                         TransformationErr::InvalidType(ty.clone(), reason, span)
                     })?;
-                    ExpressionKind::LoadConstant(HirConstant::Inlined(Inlined {
-                        lit: self.transform_literal(&c.literal)?,
-                        ty: annotated_type,
-                    }))
+                    let lit = c.literal.clone();
+                    self.transform_const_declaration(lit, annotated_type)?
                 }
 
                 Declaration::Param(p) => {
@@ -1067,6 +1056,42 @@ impl ExpressionTransformer {
         })
     }
 
+    fn transform_const_declaration(
+        &mut self,
+        lit: AstLiteral,
+        ty: AnnotatedType,
+    ) -> Result<ExpressionKind, TransformationErr> {
+        match (lit, ty) {
+            (
+                AstLiteral {
+                    kind: ast::LitKind::Tuple(xs),
+                    span,
+                    ..
+                },
+                AnnotatedType::Tuple(tys),
+            ) => {
+                let inner = xs
+                    .into_iter()
+                    .zip(tys)
+                    .map(|(x, ty)| {
+                        Ok(Expression {
+                            kind: self.transform_const_declaration(x, ty)?,
+                            eid: self.next_exp_id(),
+                            span,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, TransformationErr>>()?;
+                Ok(ExpressionKind::Tuple(inner))
+            }
+            (lit, ty) => Ok(ExpressionKind::LoadConstant(HirConstant::Inlined(
+                Inlined {
+                    lit: self.transform_literal(&lit)?,
+                    ty,
+                },
+            ))),
+        }
+    }
+
     /// Unifies the transformation of function and method applications to the internal representation
     fn transfrom_function(
         &mut self,
@@ -1314,7 +1339,9 @@ mod tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
-    use crate::hir::{ArithLogOp, ExpressionContext, SpawnDef, StreamAccessKind, WindowReference};
+    use crate::hir::{
+        ArithLogOp, Constant, ExpressionContext, SpawnDef, StreamAccessKind, WindowReference,
+    };
 
     fn obtain_expressions(spec: &str) -> Hir<BaseMode> {
         let ast = parse(&ParserConfig::for_string(spec.to_string()))
@@ -1510,18 +1537,26 @@ mod tests {
 
     #[test]
     fn tuple_lit() {
-        let spec = "output o := (1,2,3)";
+        let spec = "
+        constant C : (UInt64,UInt64,UInt64) := (1,2,3)\n\
+        output o := C";
         let ir = obtain_expressions(spec);
         let output_expr_id = ir.outputs[0].eval()[0].expr;
         let expr = &ir.expression(output_expr_id);
-        assert!(matches!(
-            expr.kind,
-            ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(_)))
-        ));
-        if let ExpressionKind::LoadConstant(Constant::Basic(Literal::Tuple(v))) = &expr.kind {
+        assert!(matches!(expr.kind, ExpressionKind::Tuple(_)));
+        if let ExpressionKind::Tuple(v) = &expr.kind {
             assert_eq!(v.len(), 3);
             for atom in v.iter() {
-                assert!(matches!(atom, Literal::Integer(_)));
+                assert!(matches!(
+                    atom,
+                    Expression {
+                        kind: ExpressionKind::LoadConstant(Constant::Inlined(Inlined {
+                            lit: Literal::Integer(_),
+                            ty: _
+                        })),
+                        ..
+                    }
+                ));
             }
         } else {
             unreachable!()

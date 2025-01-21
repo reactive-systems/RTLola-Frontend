@@ -989,7 +989,10 @@ impl<'a> RtLolaParser<'a> {
      * Panics if input is not `Rule::Literal`.
      */
     fn parse_literal(&self, pair: Pair<'_, Rule>) -> Literal {
-        assert_eq!(pair.as_rule(), Rule::Literal);
+        assert!(matches!(
+            pair.as_rule(),
+            Rule::Literal | Rule::ConstantLiteral
+        ));
         let inner = pair
             .into_inner()
             .next()
@@ -1676,7 +1679,7 @@ mod tests {
                     Type(16, 19, [
                         Ident(16, 19, []),
                     ]),
-                    Literal(23, 24, [
+                    ConstantLiteral(23, 24, [
                         NumberLiteral(23, 24, [
                             NumberLiteralValue(23, 24, [])
                         ]),

@@ -21,7 +21,6 @@ impl Display for Constant {
             Constant::Float(fl) => write!(f, "{fl:?}"),
             Constant::Str(s) => write!(f, "\"{s}\""),
             Constant::Decimal(i) => write!(f, "{i}"),
-            Constant::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
         }
     }
 }

@@ -153,20 +153,6 @@ where
             Literal::Decimal(_) => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::FractionalNumeric))?,
-            Literal::Tuple(elements) => {
-                self.tyc.impose(
-                    target.concretizes_explicit(AbstractValueType::Tuple(elements.len())),
-                )?;
-                elements
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, el)| {
-                        let child = self.tyc.get_child_key(target, idx)?;
-                        self.match_const_literal(el, child)?;
-                        Ok(())
-                    })
-                    .collect::<Result<Vec<()>, TypeError<ValueErrorKind>>>()?;
-            }
         }
         Ok(())
     }
