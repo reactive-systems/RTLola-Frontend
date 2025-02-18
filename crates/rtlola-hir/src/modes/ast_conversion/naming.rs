@@ -535,7 +535,7 @@ impl NamingAnalysis {
         for p in parameters {
             self.add_decl_for(Declaration::LambdaParameter(p.clone()))?;
         }
-        self.check_expression(&**expr)?;
+        self.check_expression(expr)?;
         self.declarations.pop();
         Ok(())
     }

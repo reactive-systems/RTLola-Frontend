@@ -124,7 +124,7 @@ pub struct Handler<'a> {
     /// The config for the error formatting
     config: Config,
 }
-impl<'a> Debug for Handler<'a> {
+impl Debug for Handler<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Handler")
             .field("error_count", &self.error_count)

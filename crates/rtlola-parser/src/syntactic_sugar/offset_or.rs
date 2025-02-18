@@ -1,5 +1,8 @@
 use super::{ChangeSet, SynSugar};
-use crate::ast::{Expression, ExpressionKind, Offset, RtLolaAst};
+use crate::{
+    ast::{Expression, ExpressionKind, RtLolaAst},
+    syntactic_sugar::builder::Builder,
+};
 
 /// Allows for using a offset(by: off, or: dft) function to assign an offset access a default value directly.
 ///
@@ -18,20 +21,9 @@ impl OffsetOr {
                 assert_eq!(arguments.len(), 2);
                 let offset = arguments[0].clone();
                 let default = arguments[1].clone();
-                let new_id = expr.id.primed();
-                let new_access = Expression {
-                    kind: ExpressionKind::Offset(
-                        target_stream,
-                        Offset::Discrete(offset.to_string().parse::<i16>().unwrap()),
-                    ),
-                    id: new_id,
-                    span: expr.span,
-                };
-                let new_expr = Expression {
-                    kind: ExpressionKind::Default(Box::new(new_access), Box::new(default)),
-                    id: ast.next_id(),
-                    span: expr.span.to_indirect(),
-                };
+                let builder = Builder::new(expr.span, ast);
+                let new_expr =
+                    builder.default(builder.discrete_offset(*target_stream, offset), default);
                 ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),
