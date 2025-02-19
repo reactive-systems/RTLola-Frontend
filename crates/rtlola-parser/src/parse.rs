@@ -1265,7 +1265,7 @@ impl<'a> RtLolaParser<'a> {
                                                 ExpressionKind::Function(name, _ty, expr) => {
                                                     let signature = name.to_string();
                                                     if expr.len() != 1 {
-                                                        return Err(Diagnostic::error(&format!("filtered instance selection can only have one argument")).add_span_with_label(args[0].span, None, true).into());
+                                                        return Err(Diagnostic::error("filtered instance selection can only have one argument").add_span_with_label(args[0].span, None, true).into());
                                                     }
                                                     let Expression { kind: ExpressionKind::Lambda(lambda), id:_ , span:_  } = expr[0].clone() else {
                                                         return Err(Diagnostic::error("expect lambda expression in filtered instance aggregation").add_span_with_label(expr[0].span, None, true).into());

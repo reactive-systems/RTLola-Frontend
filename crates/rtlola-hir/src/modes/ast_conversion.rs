@@ -591,14 +591,14 @@ impl ExpressionTransformer {
         ExprId(ret)
     }
 
-    fn transform_literal(&self, lit: &AstLiteral) -> Result<Literal, TransformationErr> {
+    fn transform_literal(lit: &AstLiteral) -> Result<Literal, TransformationErr> {
         Ok(match &lit.kind {
             ast::LitKind::Bool(b) => Literal::Bool(*b),
             ast::LitKind::Str(s) | ast::LitKind::RawStr(s) => Literal::Str(s.clone()),
             ast::LitKind::Tuple(elements) => Literal::Tuple(
                 elements
                     .iter()
-                    .map(|lit| self.transform_literal(lit))
+                    .map(Self::transform_literal)
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             ast::LitKind::Numeric(num_str, postfix) => {
@@ -665,13 +665,13 @@ impl ExpressionTransformer {
             ast::AnnotatedPacingType::Global(freq) => {
                 let freq = self
                     .try_transform_freq(&freq)?
-                    .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
+                    .ok_or(TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::GlobalFrequency(freq))
             }
             ast::AnnotatedPacingType::Local(freq) => {
                 let freq = self
                     .try_transform_freq(&freq)?
-                    .ok_or_else(|| TransformationErr::ExpectedFrequency(freq.span))?;
+                    .ok_or(TransformationErr::ExpectedFrequency(freq.span))?;
                 Ok(AnnotatedPacingType::LocalFrequency(freq))
             }
             ast::AnnotatedPacingType::Unspecified(pt_expr) => {
@@ -701,7 +701,7 @@ impl ExpressionTransformer {
         let span = ast_expression.span;
         let kind: ExpressionKind = match ast_expression.kind {
             ast::ExpressionKind::Lit(lit) => {
-                let constant = self.transform_literal(&lit)?;
+                let constant = Self::transform_literal(&lit)?;
                 ExpressionKind::LoadConstant(HirConstant::Basic(constant))
             }
             ast::ExpressionKind::Ident(_) => match &self.decl_table[&ast_expression.id] {
@@ -716,12 +716,12 @@ impl ExpressionTransformer {
                 Declaration::Const(c) => {
                     let ty =
                         c.ty.as_ref()
-                            .ok_or_else(|| TransformationErr::ConstantWithoutType(span))?;
+                            .ok_or(TransformationErr::ConstantWithoutType(span))?;
                     let annotated_type = Self::annotated_type(ty).map_err(|reason| {
                         TransformationErr::InvalidType(ty.clone(), reason, span)
                     })?;
                     ExpressionKind::LoadConstant(HirConstant::Inlined(Inlined {
-                        lit: self.transform_literal(&c.literal)?,
+                        lit: Self::transform_literal(&c.literal)?,
                         ty: annotated_type,
                     }))
                 }
@@ -779,7 +779,7 @@ impl ExpressionTransformer {
                     ast::Offset::RealTime(_, _) => {
                         let offset_uom_time = offset
                             .to_uom_time()
-                            .ok_or_else(|| TransformationErr::InvalidRealtimeOffset(span))?;
+                            .ok_or(TransformationErr::InvalidRealtimeOffset(span))?;
                         let dur = offset_uom_time.get::<nanosecond>().to_integer();
                         //TODO FIXME check potential loss of precision
                         let time = offset_uom_time.get::<nanosecond>();
@@ -1086,7 +1086,7 @@ impl ExpressionTransformer {
         let decl = self
             .decl_table
             .get(&id)
-            .ok_or_else(|| TransformationErr::UnknownFunction(*span))?;
+            .ok_or(TransformationErr::UnknownFunction(*span))?;
         match decl {
             Declaration::Func(_) => {
                 let name = name.name.name;
@@ -1100,7 +1100,7 @@ impl ExpressionTransformer {
                 if name.starts_with("widen") {
                     let widen_arg = args
                         .first()
-                        .ok_or_else(|| TransformationErr::MissingWidenArg(*span))?;
+                        .ok_or(TransformationErr::MissingWidenArg(*span))?;
                     Ok(ExpressionKind::Widen(WidenExprKind {
                         expr: Box::new(widen_arg.clone()),
                         ty: match type_param.first() {

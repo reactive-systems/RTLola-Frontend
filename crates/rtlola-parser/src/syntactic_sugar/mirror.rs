@@ -1,5 +1,5 @@
-use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, EvalSpec, Expression, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
+use super::{builder::Builder, ChangeSet, SynSugar};
+use crate::ast::{EvalSpec, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
 
 /// Enables usage of mirror streams
 ///
@@ -14,56 +14,55 @@ impl Mirror {
             name,
             target,
             filter,
-            span,
+            span: _,
             id: mirror_id,
         } = stream.clone();
         let target = ast
             .outputs
             .iter()
-            .find(|o| o.name().is_some_and(|name| name.name == target.name));
-        let target = target.expect("mirror stream refers to a stream that does not exist");
-        let target = (**target).clone();
+            .find(|o| o.name().is_some_and(|name| name.name == target.name))
+            .expect("mirror stream refers to a stream that does not exist");
+        let Output {
+            kind: _,
+            annotated_type,
+            params,
+            spawn,
+            eval,
+            close,
+            tags,
+            id,
+            span,
+        } = target.next_id(ast);
 
-        let target_eval_specs = target.eval.clone();
-        let filter_span = &filter.span;
-        let new_eval_specs = target_eval_specs
+        let eval = eval
             .into_iter()
             .map(|e| {
                 let EvalSpec {
-                    annotated_pacing: t_annotated_pacing,
-                    condition: t_filter,
-                    eval_expression: t_eval,
-                    id: t_id,
-                    span: t_span,
+                    annotated_pacing,
+                    condition,
+                    eval_expression,
+                    id: _,
+                    span,
                 } = e;
+                let builder = Builder::new(span, ast);
 
-                let new_filter = match t_filter {
-                    Some(old_f) => Expression {
-                        id: ast.next_id(),
-                        span: filter_span.to_indirect(),
-                        kind: crate::ast::ExpressionKind::Binary(
-                            BinOp::And,
-                            Box::new(old_f),
-                            Box::new(filter.clone()),
-                        ),
-                    },
-                    None => filter.clone(),
+                let condition = match condition {
+                    Some(condition) => builder.and(condition, filter.next_id(ast)),
+                    None => filter.next_id(ast),
                 };
-                EvalSpec {
-                    condition: Some(new_filter),
-                    id: t_id.primed(),
-                    span: t_span.to_indirect(),
-                    annotated_pacing: t_annotated_pacing,
-                    eval_expression: t_eval,
-                }
+                builder.eval_spec(Some(condition), annotated_pacing, eval_expression)
             })
             .collect();
         let output = Output {
             kind: OutputKind::NamedOutput(name),
-            eval: new_eval_specs,
-            id: ast.next_id(),
-            span: span.to_indirect(),
-            ..target
+            eval,
+            id,
+            span,
+            annotated_type,
+            params,
+            spawn,
+            close,
+            tags,
         };
         ChangeSet::replace_stream(mirror_id, output)
     }

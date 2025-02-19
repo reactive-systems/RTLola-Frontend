@@ -67,8 +67,7 @@ impl RtLolaAst {
 
     pub(crate) fn next_id(&self) -> NodeId {
         let res = *self.next_node_id.borrow();
-        self.next_node_id.borrow_mut().id += 1;
-        self.next_node_id.borrow_mut().prime_counter = 0;
+        self.next_node_id.borrow_mut().0 += 1;
         res
     }
 
@@ -798,29 +797,13 @@ pub enum AnnotatedPacingType {
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
-pub struct NodeId {
-    /// The actual unique id.
-    pub id: u32,
-    /// Counter to track transformations on this node. Increased during syntactic sugar removal.
-    pub prime_counter: u32,
-}
+/// The actual unique id.
+pub struct NodeId(u32);
 
 impl NodeId {
     /// Creates a new NodeId
     pub fn new(x: usize) -> NodeId {
         assert!(x < (u32::MAX as usize));
-        NodeId {
-            id: x as u32,
-            prime_counter: 0u32,
-        }
-    }
-
-    /// Creates a copy NodeId with incremented prime counter, which indicates a applied transformation for desugarization.
-    pub fn primed(&self) -> Self {
-        let NodeId { id, prime_counter } = *self;
-        NodeId {
-            id,
-            prime_counter: prime_counter + 1,
-        }
+        NodeId(x as u32)
     }
 }

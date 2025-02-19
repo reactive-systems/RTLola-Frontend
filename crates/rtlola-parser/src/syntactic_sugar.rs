@@ -4,10 +4,12 @@ use std::rc::Rc;
 
 // List for all syntactic sugar transformer
 mod aggregation_method;
+mod builder;
 mod delta;
 mod implication;
 mod last;
 mod mirror;
+mod next_id;
 mod offset_or;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
@@ -1193,38 +1195,6 @@ mod tests {
         let expected = "output y eval with x - x.offset(by: -1).defaults(to: 0.0)";
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
-    }
-
-    #[test]
-    fn test_mirror_replace() {
-        let spec = "output x eval with 3 \noutput y mirrors x when x > 5".to_string();
-        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
-        assert_eq!(ast.outputs.len(), 2);
-        assert!(ast.mirrors.is_empty());
-        let new = &ast.outputs[1];
-        let target = &ast.outputs[0];
-        assert_eq!(target.name().unwrap().name, "x");
-        assert_eq!(new.name().unwrap().name, "y");
-        assert_eq!(new.annotated_type, target.annotated_type);
-        assert_eq!(
-            new.eval[0].clone().annotated_pacing,
-            target.eval[0].clone().annotated_pacing
-        );
-        assert_eq!(new.close, target.close);
-        assert_eq!(
-            new.eval[0].eval_expression.clone(),
-            target.eval[0].eval_expression.clone()
-        );
-        assert!(new.eval[0].clone().condition.is_some());
-        assert!(matches!(
-            new.eval[0].clone().condition.as_ref().unwrap(),
-            Expression {
-                kind: ExpressionKind::Binary(..),
-                ..
-            }
-        ));
-        assert_eq!(new.params, target.params);
-        assert_eq!(new.spawn, target.spawn);
     }
 
     #[test]

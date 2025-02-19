@@ -686,14 +686,14 @@ impl Mir {
                 let target = hir.single_instance_aggregation(wref).target;
                 mir::InstanceSelection::FilteredFresh {
                     parameters: Self::lower_parameters(parameters.iter(), hir, target),
-                    cond: Box::new(Self::lower_expr(hir, sr_map, &**cond)),
+                    cond: Box::new(Self::lower_expr(hir, sr_map, cond)),
                 }
             }
             InstanceSelection::FilteredAll { parameters, cond } => {
                 let target = hir.single_instance_aggregation(wref).target;
                 mir::InstanceSelection::FilteredAll {
                     parameters: Self::lower_parameters(parameters.iter(), hir, target),
-                    cond: Box::new(Self::lower_expr(hir, sr_map, &**cond)),
+                    cond: Box::new(Self::lower_expr(hir, sr_map, cond)),
                 }
             }
         }

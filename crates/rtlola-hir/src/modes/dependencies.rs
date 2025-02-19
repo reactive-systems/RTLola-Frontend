@@ -453,6 +453,7 @@ impl DepAna {
         })
     }
 
+    #[allow(clippy::type_complexity)]
     fn group_access_kinds(
         accesses: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>>,
     ) -> HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>> {

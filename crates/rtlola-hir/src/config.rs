@@ -66,7 +66,7 @@ impl<'a> FrontendConfig<'a> {
     }
 }
 
-impl<'a> FrontendConfig<'a> {
+impl FrontendConfig<'_> {
     pub(crate) fn memory_bound_mode(&self) -> MemoryBoundMode {
         self.memory_bound_mode
     }

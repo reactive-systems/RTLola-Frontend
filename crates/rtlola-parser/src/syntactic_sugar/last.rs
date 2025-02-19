@@ -1,5 +1,8 @@
 use super::{ChangeSet, SynSugar};
-use crate::ast::{Expression, ExpressionKind, Offset, RtLolaAst};
+use crate::{
+    ast::{Expression, ExpressionKind, Offset, RtLolaAst},
+    syntactic_sugar::builder::Builder,
+};
 
 /// Allows for using a last(or:) function to access an element with offset -1.
 ///
@@ -18,17 +21,11 @@ impl Last {
                 let target_stream = base.clone();
                 assert_eq!(arguments.len(), 1);
                 let default = arguments[0].clone();
-                let new_id = expr.id.primed();
-                let new_access = Expression {
-                    kind: ExpressionKind::Offset(target_stream, Offset::Discrete(-1)),
-                    id: new_id,
-                    span: expr.span.to_indirect(),
-                };
-                let new_expr = Expression {
-                    kind: ExpressionKind::Default(Box::new(new_access), Box::new(default)),
-                    id: ast.next_id(),
-                    span: expr.span.to_indirect(),
-                };
+                let builder = Builder::new(expr.span, ast);
+                let new_expr = builder.default(
+                    builder.offset(*target_stream, Offset::Discrete(-1)),
+                    default,
+                );
                 ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),

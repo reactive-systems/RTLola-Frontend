@@ -124,7 +124,7 @@ pub struct Handler<'a> {
     /// The config for the error formatting
     config: Config,
 }
-impl<'a> Debug for Handler<'a> {
+impl Debug for Handler<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Handler")
             .field("error_count", &self.error_count)
@@ -467,6 +467,7 @@ impl From<Result<(), RtLolaError>> for RtLolaError {
 impl RtLolaError {
     /// Collects the iterator of Result's into a Result of a collection, while
     /// concatenating all RTLola errors together
+    #[allow(clippy::manual_try_fold)]
     pub fn collect<T, Q: FromIterator<T> + Extend<T>>(
         iter: impl IntoIterator<Item = Result<T, Self>>,
     ) -> Result<Q, RtLolaError> {

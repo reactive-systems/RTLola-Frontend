@@ -1418,20 +1418,20 @@ pub enum Offset {
 
 impl PartialOrd for Offset {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-
-        use Offset::*;
-        match (self, other) {
-            (Past(_), Future(_)) => Some(Ordering::Less),
-            (Future(_), Past(_)) => Some(Ordering::Greater),
-            (Future(a), Future(b)) => Some(a.cmp(b)),
-            (Past(a), Past(b)) => Some(b.cmp(a)),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        use std::cmp::Ordering;
+
+        use Offset::*;
+        match (self, other) {
+            (Past(_), Future(_)) => Ordering::Less,
+            (Future(_), Past(_)) => Ordering::Greater,
+            (Future(a), Future(b)) => a.cmp(b),
+            (Past(a), Past(b)) => b.cmp(a),
+        }
     }
 }
