@@ -467,6 +467,7 @@ impl From<Result<(), RtLolaError>> for RtLolaError {
 impl RtLolaError {
     /// Collects the iterator of Result's into a Result of a collection, while
     /// concatenating all RTLola errors together
+    #[allow(clippy::manual_try_fold)]
     pub fn collect<T, Q: FromIterator<T> + Extend<T>>(
         iter: impl IntoIterator<Item = Result<T, Self>>,
     ) -> Result<Q, RtLolaError> {

@@ -38,13 +38,6 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub(crate) fn discrete_offset(&self, stream: Expression, offset: Expression) -> Expression {
-        self.offset(
-            stream,
-            Offset::Discrete(offset.to_string().parse::<i16>().unwrap()),
-        )
-    }
-
     pub(crate) fn default(&self, expr: Expression, dft: Expression) -> Expression {
         Expression {
             kind: ExpressionKind::Default(Box::new(expr), Box::new(dft)),

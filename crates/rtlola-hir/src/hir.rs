@@ -1013,13 +1013,7 @@ impl StreamReference {
 
 impl PartialOrd for StreamReference {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-        match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(i2)),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(o2)),
-            (StreamReference::In(_), StreamReference::Out(_)) => Some(Ordering::Less),
-            (StreamReference::Out(_), StreamReference::In(_)) => Some(Ordering::Greater),
-        }
+        Some(self.cmp(other))
     }
 }
 
@@ -1072,30 +1066,29 @@ impl Offset {
 
 impl PartialOrd for Offset {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-
-        use Offset::*;
-        match (self, other) {
-            (PastDiscrete(_), FutureDiscrete(_))
-            | (PastRealTime(_), FutureRealTime(_))
-            | (PastDiscrete(_), FutureRealTime(_))
-            | (PastRealTime(_), FutureDiscrete(_)) => Some(Ordering::Less),
-
-            (FutureDiscrete(_), PastDiscrete(_))
-            | (FutureDiscrete(_), PastRealTime(_))
-            | (FutureRealTime(_), PastDiscrete(_))
-            | (FutureRealTime(_), PastRealTime(_)) => Some(Ordering::Greater),
-
-            (FutureDiscrete(a), FutureDiscrete(b)) => Some(a.cmp(b)),
-            (PastDiscrete(a), PastDiscrete(b)) => Some(b.cmp(a)),
-
-            (_, _) => unimplemented!(),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        use std::cmp::Ordering;
+        use Offset::*;
+        match (self, other) {
+            (PastDiscrete(_), FutureDiscrete(_))
+            | (PastRealTime(_), FutureRealTime(_))
+            | (PastDiscrete(_), FutureRealTime(_))
+            | (PastRealTime(_), FutureDiscrete(_)) => Ordering::Less,
+
+            (FutureDiscrete(_), PastDiscrete(_))
+            | (FutureDiscrete(_), PastRealTime(_))
+            | (FutureRealTime(_), PastDiscrete(_))
+            | (FutureRealTime(_), PastRealTime(_)) => Ordering::Greater,
+
+            (FutureDiscrete(a), FutureDiscrete(b)) => a.cmp(b),
+            (PastDiscrete(a), PastDiscrete(b)) => b.cmp(a),
+
+            (_, _) => unimplemented!(),
+        }
     }
 }

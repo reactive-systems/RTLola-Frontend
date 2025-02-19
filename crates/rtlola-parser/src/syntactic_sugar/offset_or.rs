@@ -1,6 +1,6 @@
 use super::{ChangeSet, SynSugar};
 use crate::{
-    ast::{Expression, ExpressionKind, RtLolaAst},
+    ast::{Expression, ExpressionKind, Offset, RtLolaAst},
     syntactic_sugar::builder::Builder,
 };
 
@@ -19,11 +19,10 @@ impl OffsetOr {
             {
                 let target_stream = base.clone();
                 assert_eq!(arguments.len(), 2);
-                let offset = arguments[0].clone();
+                let offset = Offset::Discrete(arguments[0].to_string().parse::<i16>().unwrap());
                 let default = arguments[1].clone();
                 let builder = Builder::new(expr.span, ast);
-                let new_expr =
-                    builder.default(builder.discrete_offset(*target_stream, offset), default);
+                let new_expr = builder.default(builder.offset(*target_stream, offset), default);
                 ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),

@@ -3,7 +3,8 @@ use std::rc::Rc;
 use crate::{
     ast::{
         AnnotatedPacingType, CloseSpec, EvalSpec, Expression, ExpressionKind, FunctionName, Ident,
-        InstanceSelection, LambdaExpr, Literal, Output, Parameter, SpawnSpec, Tag, Type, TypeKind,
+        InstanceSelection, LambdaExpr, Literal, Output, OutputKind, Parameter, SpawnSpec, Tag,
+        Type, TypeKind,
     },
     RtLolaAst,
 };
@@ -272,11 +273,21 @@ impl Tag {
     }
 }
 
+impl OutputKind {
+    /// Creates a copy with a new id and sets the span to indirect
+    pub(crate) fn next_id(&self, ast: &RtLolaAst) -> Self {
+        match self {
+            OutputKind::NamedOutput(ident) => OutputKind::NamedOutput(ident.next_id(ast)),
+            OutputKind::Trigger => OutputKind::Trigger,
+        }
+    }
+}
+
 impl Output {
     /// Creates a copy with a new id and sets the span to indirect
     pub(crate) fn next_id(&self, ast: &RtLolaAst) -> Self {
         Self {
-            kind: self.kind.clone(),
+            kind: self.kind.next_id(ast),
             annotated_type: self.annotated_type.as_ref().map(|ty| ty.next_id(ast)),
             params: self
                 .params
