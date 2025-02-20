@@ -11,10 +11,12 @@ mod last;
 mod mirror;
 mod next_id;
 mod offset_or;
+mod true_positive;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
+use true_positive::TruePositive;
 
 use self::implication::Implication;
 use self::offset_or::OffsetOr;
@@ -110,6 +112,7 @@ impl Desugarizer {
             Box::new(SynSugMirror {}),
             Box::new(Delta {}),
             Box::new(OffsetOr {}),
+            Box::new(TruePositive {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -1209,6 +1212,90 @@ mod tests {
     fn test_mirror_replace_multiple_eval() {
         let spec = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y mirrors x when x > 5".to_string();
         let expected = "output x eval when a > 0 with 3 eval when a < 0 with -3\noutput y eval when a > 0 ∧ x > 5 with 3 eval when a < 0 ∧ x > 5 with -3";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_aggregation() {
+        let spec = "input a: Bool\n\
+        output b eval @1Hz with a.aggregate(over: 1s, using: true_positive)\n"
+            .to_string();
+        let expected = "input a: Bool\n\
+            output b eval @1Hz with a'.aggregate(over: 1s, using: avg)\n\
+            output a' eval with if a then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_aggregation_from_output() {
+        let spec = "input a: Bool\n\
+        output b eval with a\n\
+        output c eval @1Hz with b.aggregate(over: 1s, using: true_positive)\n"
+            .to_string();
+        let expected = "input a: Bool\n\
+            output b eval with a\n\
+            output c eval @1Hz with b'.aggregate(over: 1s, using: avg)\n\
+            output b' eval with if b then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_parameterized() {
+        let spec = "input a: Bool\n\
+        output b (p) spawn with a eval @1Hz with a.aggregate(over: 1s, using: true_positive)\n"
+            .to_string();
+        let expected = "input a: Bool\n\
+            output b (p) spawn with a eval @1Hz with a'.aggregate(over: 1s, using: avg)\n\
+            output a' eval with if a then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_parameterized_2() {
+        let spec = "input a: Bool\n\
+        output b (p) spawn with a eval when a = p with a\n\
+        output c (p) spawn with a eval @1Hz with b(p).aggregate(over: 1s, using: true_positive)\n"
+            .to_string();
+        let expected = "input a: Bool\n\
+            output b (p) spawn with a eval when a = p with a\n\
+            output c (p) spawn with a eval @1Hz with b'(p).aggregate(over: 1s, using: avg)\n\
+            output b' (p) spawn with a eval when a = p with if b(p) then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_instances() {
+        let spec = "input a: UInt8\n\
+        output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
+        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_positive)\n"
+            .to_string();
+        let expected = "input a: UInt8\n\
+            output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
+            output b eval @1Hz with a''.aggregate(over_instances: all, using: avg)\n\
+            output a'' (p) spawn @a with a eval @a when a = p with if a'(p) then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_true_positive_name() {
+        let spec = "input a: Boolean\n\
+        input a': Boolean\n\
+        input a'': Boolean\n\
+        input a''': Boolean\n\
+        output b eval @1Hz with a'.aggregate(over: 1s, using: true_positive)"
+            .to_string();
+        let expected = "input a: Boolean\n\
+        input a': Boolean\n\
+        input a'': Boolean\n\
+        input a''': Boolean\n\
+        output b eval @1Hz with a''''.aggregate(over: 1s, using: avg)\n\
+            output a'''' eval with if a' then 1.0 else 0.0";
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }

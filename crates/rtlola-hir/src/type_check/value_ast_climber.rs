@@ -651,6 +651,9 @@ where
                                 self.tyc
                                     .impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
                             }
+                            WindowOperation::TruePositive => {
+                                unreachable!("True Postive is Syntactic sugar")
+                            }
                         }
                     }
                     StreamAccessKind::Hold | StreamAccessKind::Get => {
