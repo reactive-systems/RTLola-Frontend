@@ -11,12 +11,12 @@ mod last;
 mod mirror;
 mod next_id;
 mod offset_or;
-mod true_positive;
+mod true_ratio;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
-use true_positive::TruePositive;
+use true_ratio::TrueRatio;
 
 use self::implication::Implication;
 use self::offset_or::OffsetOr;
@@ -112,7 +112,7 @@ impl Desugarizer {
             Box::new(SynSugMirror {}),
             Box::new(Delta {}),
             Box::new(OffsetOr {}),
-            Box::new(TruePositive {}),
+            Box::new(TrueRatio {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -1217,9 +1217,9 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_aggregation() {
+    fn test_true_ratio_aggregation() {
         let spec = "input a: Bool\n\
-        output b eval @1Hz with a.aggregate(over: 1s, using: true_positive)\n"
+        output b eval @1Hz with a.aggregate(over: 1s, using: true_ratio)\n"
             .to_string();
         let expected = "input a: Bool\n\
             output b eval @1Hz with a'.aggregate(over: 1s, using: avg)\n\
@@ -1229,10 +1229,10 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_aggregation_from_output() {
+    fn test_true_ratio_aggregation_from_output() {
         let spec = "input a: Bool\n\
         output b eval with a\n\
-        output c eval @1Hz with b.aggregate(over: 1s, using: true_positive)\n"
+        output c eval @1Hz with b.aggregate(over: 1s, using: true_ratio)\n"
             .to_string();
         let expected = "input a: Bool\n\
             output b eval with a\n\
@@ -1243,9 +1243,9 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_parameterized() {
+    fn test_true_ratio_parameterized() {
         let spec = "input a: Bool\n\
-        output b (p) spawn with a eval @1Hz with a.aggregate(over: 1s, using: true_positive)\n"
+        output b (p) spawn with a eval @1Hz with a.aggregate(over: 1s, using: true_ratio)\n"
             .to_string();
         let expected = "input a: Bool\n\
             output b (p) spawn with a eval @1Hz with a'.aggregate(over: 1s, using: avg)\n\
@@ -1255,10 +1255,10 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_parameterized_2() {
+    fn test_true_ratio_parameterized_2() {
         let spec = "input a: Bool\n\
         output b (p) spawn with a eval when a = p with a\n\
-        output c (p) spawn with a eval @1Hz with b(p).aggregate(over: 1s, using: true_positive)\n"
+        output c (p) spawn with a eval @1Hz with b(p).aggregate(over: 1s, using: true_ratio)\n"
             .to_string();
         let expected = "input a: Bool\n\
             output b (p) spawn with a eval when a = p with a\n\
@@ -1269,10 +1269,10 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_instances() {
+    fn test_true_ratio_instances() {
         let spec = "input a: UInt8\n\
         output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
-        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_positive)\n"
+        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_ratio)\n"
             .to_string();
         let expected = "input a: UInt8\n\
             output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
@@ -1283,12 +1283,12 @@ mod tests {
     }
 
     #[test]
-    fn test_true_positive_name() {
+    fn test_true_ratio_name() {
         let spec = "input a: Boolean\n\
         input a': Boolean\n\
         input a'': Boolean\n\
         input a''': Boolean\n\
-        output b eval @1Hz with a'.aggregate(over: 1s, using: true_positive)"
+        output b eval @1Hz with a'.aggregate(over: 1s, using: true_ratio)"
             .to_string();
         let expected = "input a: Boolean\n\
         input a': Boolean\n\

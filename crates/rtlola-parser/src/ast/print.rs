@@ -386,7 +386,7 @@ impl Display for WindowOperation {
             WindowOperation::Covariance => "cov",
             WindowOperation::StandardDeviation => "σ",
             WindowOperation::NthPercentile(p) => return write!(f, "pctl{p}"),
-            WindowOperation::TruePositive => "true_positive",
+            WindowOperation::TrueRatio => "true_ratio",
         };
         write!(f, "{op_str}")
     }

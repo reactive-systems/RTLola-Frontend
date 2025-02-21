@@ -489,8 +489,8 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
-    /// Aggregation function to return the true positive ratio
-    TruePositive,
+    /// Aggregation function to return the true ratio
+    TrueRatio,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -520,8 +520,8 @@ pub enum InstanceOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
-    /// Aggregation function to return the true positive ratio
-    TruePositive,
+    /// Aggregation function to return the true ratio
+    TrueRatio,
 }
 
 impl TryFrom<WindowOperation> for InstanceOperation {
@@ -541,7 +541,7 @@ impl TryFrom<WindowOperation> for InstanceOperation {
             WindowOperation::Covariance => Ok(InstanceOperation::Covariance),
             WindowOperation::StandardDeviation => Ok(InstanceOperation::StandardDeviation),
             WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
-            WindowOperation::TruePositive => Ok(InstanceOperation::TruePositive),
+            WindowOperation::TrueRatio => Ok(InstanceOperation::TrueRatio),
             WindowOperation::Integral | WindowOperation::Last => {
                 Err(format!("Operation {value} not supported over instances."))
             }
@@ -564,7 +564,7 @@ impl From<InstanceOperation> for WindowOperation {
             InstanceOperation::Covariance => WindowOperation::Covariance,
             InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
-            InstanceOperation::TruePositive => WindowOperation::TruePositive,
+            InstanceOperation::TrueRatio => WindowOperation::TrueRatio,
         }
     }
 }

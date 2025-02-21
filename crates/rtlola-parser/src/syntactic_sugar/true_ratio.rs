@@ -11,25 +11,25 @@ use crate::{
 
 use super::{ChangeSet, SynSugar};
 
-/// Allows for using the method 'true_positive' in an aggregation method.
+/// Allows for using the method 'true_ratio' in an aggregation method.
 ///
 /// Transforms:
-/// a.aggregate(over:x, using: tp) => output a' := if a then 1.0 else 0.0
+/// a.aggregate(over:x, using: true_ratio) => output a' := if a then 1.0 else 0.0
 ///                                    a'.aggregate(over:x, using: avg)
 #[derive(Debug, Clone)]
-pub(crate) struct TruePositive {}
+pub(crate) struct TrueRatio {}
 
-impl TruePositive {
+impl TrueRatio {
     fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         let target_stream = match &expr.kind {
             ExpressionKind::SlidingWindowAggregation {
                 expr: target_stream,
-                aggregation: WindowOperation::TruePositive,
+                aggregation: WindowOperation::TrueRatio,
                 ..
             }
             | ExpressionKind::InstanceAggregation {
                 expr: target_stream,
-                aggregation: InstanceOperation::TruePositive,
+                aggregation: InstanceOperation::TrueRatio,
                 ..
             } => target_stream,
             _ => return ChangeSet::empty(),
@@ -158,13 +158,13 @@ impl TruePositive {
                 span: output.span.to_indirect(),
             }
         } else {
-            unimplemented!("True positive ratio over an input or output stream")
+            unimplemented!("True ratio over an input or output stream")
         };
         ChangeSet::add_output(new_output) + ChangeSet::replace_current_expression(new_expr)
     }
 }
 
-impl SynSugar for TruePositive {
+impl SynSugar for TrueRatio {
     fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
         self.apply(exp, ast)
     }

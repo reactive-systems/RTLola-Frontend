@@ -653,7 +653,7 @@ impl Mir {
             WindowOperation::Covariance => mir::WindowOperation::Covariance,
             WindowOperation::StandardDeviation => mir::WindowOperation::StandardDeviation,
             WindowOperation::NthPercentile(x) => mir::WindowOperation::NthPercentile(x),
-            WindowOperation::TruePositive => unreachable!("True Positive is Syntactic Sugar"),
+            WindowOperation::TrueRatio => unreachable!("True Ratio is Syntactic Sugar"),
         }
     }
 
@@ -671,7 +671,7 @@ impl Mir {
             InstanceOperation::Covariance => mir::InstanceOperation::Covariance,
             InstanceOperation::StandardDeviation => mir::InstanceOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => mir::InstanceOperation::NthPercentile(x),
-            InstanceOperation::TruePositive => unreachable!("True Positive is Syntactic Sugar"),
+            InstanceOperation::TrueRatio => unreachable!("True Ratio is Syntactic Sugar"),
         }
     }
 
@@ -1075,18 +1075,18 @@ mod tests {
     }
 
     #[test]
-    fn lower_true_positive_aggregation() {
+    fn lower_true_ratio_aggregation() {
         let spec = "input a: Bool\n\
         output b (p) spawn with a eval when a = p with a\n\
-        output c (p) spawn with a eval @1Hz with b(p).aggregate(over: 1s, using: true_positive).defaults(to: 0.0)\n";
+        output c (p) spawn with a eval @1Hz with b(p).aggregate(over: 1s, using: true_ratio).defaults(to: 0.0)\n";
         let (_, _) = lower_spec(spec);
     }
 
     #[test]
-    fn lower_true_positive_instance_aggregation() {
+    fn lower_true_ratio_instance_aggregation() {
         let spec = "input a: UInt8\n\
         output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
-        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_positive).defaults(to: 0.0)";
+        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_ratio).defaults(to: 0.0)";
         let (_, _) = lower_spec(spec);
     }
 }
