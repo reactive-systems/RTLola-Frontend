@@ -104,6 +104,22 @@ impl RtLolaAst {
             global_tags: global_tags.clone(),
         }
     }
+
+    pub(crate) fn primed_name(&self, name: &str) -> String {
+        let streams = self
+            .inputs
+            .iter()
+            .map(|i| &i.name)
+            .chain(self.outputs.iter().filter_map(|o| o.name()))
+            .collect::<Vec<_>>();
+        let mut name = format!("{name}\'");
+        loop {
+            if !streams.iter().any(|s| s.name == name) {
+                return name;
+            }
+            name = format!("{name}\'")
+        }
+    }
 }
 
 /// An Ast node representing the import of a module, which brings additional implemented functionality to a specification.
@@ -473,6 +489,8 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+    /// Aggregation function to return the true ratio
+    TrueRatio,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -502,6 +520,8 @@ pub enum InstanceOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+    /// Aggregation function to return the true ratio
+    TrueRatio,
 }
 
 impl TryFrom<WindowOperation> for InstanceOperation {
@@ -521,6 +541,7 @@ impl TryFrom<WindowOperation> for InstanceOperation {
             WindowOperation::Covariance => Ok(InstanceOperation::Covariance),
             WindowOperation::StandardDeviation => Ok(InstanceOperation::StandardDeviation),
             WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
+            WindowOperation::TrueRatio => Ok(InstanceOperation::TrueRatio),
             WindowOperation::Integral | WindowOperation::Last => {
                 Err(format!("Operation {value} not supported over instances."))
             }
@@ -543,6 +564,7 @@ impl From<InstanceOperation> for WindowOperation {
             InstanceOperation::Covariance => WindowOperation::Covariance,
             InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+            InstanceOperation::TrueRatio => WindowOperation::TrueRatio,
         }
     }
 }
@@ -792,11 +814,11 @@ pub enum AnnotatedPacingType {
     Unspecified(Expression),
 }
 
-/// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
-/// They are used in the later analysis phases to store information about Ast nodes.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
+/// Every node in the Ast gets a unique id, represented by a 32bit unsigned integer.
+/// They are used in the later analysis phases to store information about Ast nodes.
 /// The actual unique id.
 pub struct NodeId(u32);
 

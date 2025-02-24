@@ -2,21 +2,42 @@ use rtlola_reporting::Span;
 
 use crate::{
     ast::{
-        AnnotatedPacingType, BinOp, EvalSpec, Expression, ExpressionKind, Offset, UnOp,
-        WindowOperation,
+        AnnotatedPacingType, BinOp, EvalSpec, Expression, ExpressionKind, FunctionName, Ident,
+        InstanceOperation, InstanceSelection, Literal, Offset, Type, UnOp, WindowOperation,
     },
     RtLolaAst,
 };
 
 #[derive(Debug)]
 pub(crate) struct Builder<'a> {
-    span: Span,
-    ast: &'a RtLolaAst,
+    pub(crate) span: Span,
+    pub(crate) ast: &'a RtLolaAst,
 }
 
 impl<'a> Builder<'a> {
     pub(crate) fn new(span: Span, ast: &'a RtLolaAst) -> Self {
         Self { span, ast }
+    }
+
+    pub(crate) fn ident(&self, ident: Ident) -> Expression {
+        Expression {
+            kind: ExpressionKind::Ident(ident),
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn function(
+        &self,
+        func_name: FunctionName,
+        ty: Vec<Type>,
+        parameters: Vec<Expression>,
+    ) -> Expression {
+        Expression {
+            kind: ExpressionKind::Function(func_name, ty, parameters),
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
     }
 
     pub(crate) fn sync(&self, stream: Expression) -> Expression {
@@ -100,6 +121,44 @@ impl<'a> Builder<'a> {
                 wait,
                 aggregation,
             },
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn instance_aggregation(
+        &self,
+        stream: Expression,
+        selection: InstanceSelection,
+        aggregation: InstanceOperation,
+    ) -> Expression {
+        Expression {
+            kind: ExpressionKind::InstanceAggregation {
+                expr: Box::new(stream),
+                selection,
+                aggregation,
+            },
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn literal(&self, v: Literal) -> Expression {
+        Expression {
+            kind: ExpressionKind::Lit(v),
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn if_then_else(
+        &self,
+        cond: Expression,
+        cons: Expression,
+        alt: Expression,
+    ) -> Expression {
+        Expression {
+            kind: ExpressionKind::Ite(Box::new(cond), Box::new(cons), Box::new(alt)),
             id: self.ast.next_id(),
             span: self.span.to_indirect(),
         }
