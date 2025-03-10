@@ -1,4 +1,6 @@
-use super::{builder::Builder, ChangeSet, SynSugar};
+use rtlola_reporting::RtLolaError;
+
+use super::{builder::Builder, ChangeSet, ExprOrigin, SynSugar};
 use crate::ast::{Expression, ExpressionKind, Offset, RtLolaAst};
 
 /// Allows for using a delta(x,dft: 0)  function to compute the difference between the current and last value of x; defaults to 0.
@@ -47,7 +49,13 @@ impl Delta {
 }
 
 impl SynSugar for Delta {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        self.apply(exp, ast)
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(self.apply(exp, ast))
     }
 }

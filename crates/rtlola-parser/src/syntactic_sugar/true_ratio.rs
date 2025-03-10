@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use rtlola_reporting::{Diagnostic, RtLolaError};
+
 use crate::{
     ast::{
         AnnotatedPacingType, Expression, ExpressionKind, FunctionName, Ident, InstanceOperation,
@@ -9,7 +11,7 @@ use crate::{
     RtLolaAst,
 };
 
-use super::{ChangeSet, SynSugar};
+use super::{ChangeSet, ExprOrigin, SynSugar};
 
 /// Allows for using the method 'true_ratio' in an aggregation method.
 ///
@@ -20,7 +22,7 @@ use super::{ChangeSet, SynSugar};
 pub(crate) struct TrueRatio {}
 
 impl TrueRatio {
-    fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
+    fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> Result<ChangeSet, RtLolaError> {
         let target_stream = match &expr.kind {
             ExpressionKind::SlidingWindowAggregation {
                 expr: target_stream,
@@ -32,13 +34,23 @@ impl TrueRatio {
                 aggregation: InstanceOperation::TrueRatio,
                 ..
             } => target_stream,
-            _ => return ChangeSet::empty(),
+            _ => return Ok(ChangeSet::empty()),
         };
         let builder = Builder::new(expr.span, ast);
         let ident_of_target_stream = match &target_stream.kind {
             ExpressionKind::Ident(ident) => ident,
             ExpressionKind::Function(name, ty, _para) if ty.is_empty() => &name.name,
-            _ => unimplemented!("aggregation over non-identifier!"),
+            k => {
+                return Err(Diagnostic::error(&format!(
+                    "Found aggregation over unsupported expression kind: {k:?}"
+                ))
+                .add_span_with_label(
+                    target_stream.span,
+                    Some("found unsupported expression here"),
+                    true,
+                )
+                .into())
+            }
         };
         let primed_ident = Ident::new(
             ast.primed_name(&ident_of_target_stream.name),
@@ -58,7 +70,7 @@ impl TrueRatio {
                 ty.iter().map(|ty| ty.next_id(ast)).collect(),
                 para.iter().map(|p| p.next_id(ast)).collect(),
             ),
-            _ => unimplemented!("aggregation over non-identifier!"),
+            _ => unreachable!("would have aborted above"),
         };
         let new_expr = match &expr.kind {
             ExpressionKind::SlidingWindowAggregation {
@@ -160,12 +172,18 @@ impl TrueRatio {
         } else {
             unimplemented!("True ratio over an input or output stream")
         };
-        ChangeSet::add_output(new_output) + ChangeSet::replace_current_expression(new_expr)
+        Ok(ChangeSet::add_output(new_output) + ChangeSet::replace_current_expression(new_expr))
     }
 }
 
 impl SynSugar for TrueRatio {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
         self.apply(exp, ast)
     }
 }

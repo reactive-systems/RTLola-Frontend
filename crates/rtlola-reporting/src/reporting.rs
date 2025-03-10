@@ -14,7 +14,9 @@ use codespan_reporting::term::Config;
 use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default, PartialOrd, Ord,
+)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {

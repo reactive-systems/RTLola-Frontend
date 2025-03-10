@@ -30,7 +30,7 @@ use rtlola_reporting::Span;
 /// # Related Data Structures
 /// * A [NodeId] is a unique identifier given to every node of the [RtLolaAst]
 /// * A [Span] links an Ast node to its code location.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RtLolaAst {
     /// The imports of additional modules
     pub imports: Vec<Import>,
@@ -124,7 +124,7 @@ impl RtLolaAst {
 
 /// An Ast node representing the import of a module, which brings additional implemented functionality to a specification.
 /// The 'math' module, for example, adds pre-defined mathematical functions as the sine or cosine function.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Import {
     /// The name of the module
     pub name: Ident,
@@ -135,7 +135,7 @@ pub struct Import {
 }
 
 /// An Ast node representing the declaration of a constant.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Constant {
     /// The name of the constant stream
     pub name: Ident,
@@ -150,7 +150,7 @@ pub struct Constant {
 }
 
 /// An Ast node representing the declaration of an input stream.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Input {
     /// The name of the input stream
     pub name: Ident,
@@ -168,7 +168,7 @@ pub struct Input {
 
 /// The kind of an output stream
 /// Can be either a regular output stream with a name or a trigger
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum OutputKind {
     /// The output stream represents a regular named output stream
     NamedOutput(Ident),
@@ -177,7 +177,7 @@ pub enum OutputKind {
 }
 
 /// An Ast node representing the declaration of an output stream.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Output {
     /// The kind of the output stream
     pub kind: OutputKind,
@@ -210,7 +210,7 @@ impl Output {
 }
 
 /// Represents an output stream that mirrors another but filters them.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Mirror {
     /// The name of the mirror stream.
     pub name: Ident,
@@ -225,7 +225,7 @@ pub struct Mirror {
 }
 
 /// An Ast node representing the declaration of a parameter of a parametrized stream.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Parameter {
     /// The name of the parameter
     pub name: Ident,
@@ -240,7 +240,7 @@ pub struct Parameter {
 }
 
 /// An Ast node representing the declaration of a spawn condition and expression of a stream.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct SpawnSpec {
     /// The expression defining the parameter instances. If the stream has more than one parameter, the expression needs to return a tuple, with one element for each parameter
     pub expression: Option<Expression>,
@@ -255,7 +255,7 @@ pub struct SpawnSpec {
 }
 
 /// An Ast node representing the evaluation condition and expression of a stream
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct EvalSpec {
     /// The pacing type describing when a new value is computed.
     pub annotated_pacing: AnnotatedPacingType,
@@ -270,7 +270,7 @@ pub struct EvalSpec {
 }
 
 /// An Ast node representing the declaration of a close condition of a stream
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct CloseSpec {
     /// The boolean expression defining the condition, if a stream instance is closed.
     pub condition: Expression,
@@ -284,7 +284,7 @@ pub struct CloseSpec {
 
 /// An Ast node representing the declaration of a user-defined type.
 #[allow(clippy::vec_box)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeDeclaration {
     /// The name of the new type.
     pub name: Option<Ident>,
@@ -299,7 +299,7 @@ pub struct TypeDeclaration {
 type TagList = Vec<Tag>;
 
 /// An annotation of a stream.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Tag {
     /// The key of the annotation.
     pub key: String,
@@ -310,7 +310,7 @@ pub struct Tag {
 }
 
 /// An Ast node representing the declaration of a field of a user-defined type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeDeclField {
     /// The type of a field of a user-defined type
     pub ty: Type,
@@ -323,7 +323,7 @@ pub struct TypeDeclField {
 }
 
 /// An Ast node representing the declaration of a value type
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Type {
     /// The kind of the type, e.g., a tuple
     pub kind: TypeKind,
@@ -363,7 +363,7 @@ impl Type {
 }
 
 /// Ast representation of the value type of a stream
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum TypeKind {
     /// A simple type, e.g., `Int`
     Simple(String),
@@ -374,7 +374,7 @@ pub enum TypeKind {
 }
 
 /// The Ast representation of a stream expression
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Expression {
     /// The kind of the root expression, e.g., stream access
     pub kind: ExpressionKind,
@@ -392,7 +392,7 @@ impl Expression {
 }
 
 #[allow(clippy::large_enum_variant, clippy::vec_box)]
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 /// The Ast representation of a single expression
 pub enum ExpressionKind {
     /// A literal, e.g., `1`, `"foo"`
@@ -458,7 +458,7 @@ pub enum ExpressionKind {
     Lambda(LambdaExpr),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 /// The Ast representation of the different aggregation functions
 pub enum WindowOperation {
     /// Aggregation function to count the number of updated values on the accessed stream
@@ -493,7 +493,7 @@ pub enum WindowOperation {
     TrueRatio,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 /// A subset of the window operations that are suitable to be performed over a set of instances.
 pub enum InstanceOperation {
     /// Aggregation function to count the number of instances of the accessed stream
@@ -570,7 +570,7 @@ impl From<InstanceOperation> for WindowOperation {
 }
 
 /// Describes the operation used to access a stream
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 pub enum StreamAccessKind {
     /// Synchronous access
     Sync,
@@ -583,7 +583,7 @@ pub enum StreamAccessKind {
 }
 
 /// Describes the operation used to access a stream with a offset
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Offset {
     /// Discrete offset
     Discrete(i16),
@@ -593,7 +593,7 @@ pub enum Offset {
 
 /// Supported time unit for real time expressions
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TimeUnit {
     Nanosecond,
     Microsecond,
@@ -608,7 +608,7 @@ pub enum TimeUnit {
 }
 
 /// An Ast node representing the declaration of a literal
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Literal {
     /// The kind of the literal, e.g., boolean, string, numeric, ...
     pub kind: LitKind,
@@ -665,7 +665,7 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 /// The Ast representation of literals
 pub enum LitKind {
     /// A string literal (`"foo"`)
@@ -682,7 +682,7 @@ pub enum LitKind {
 }
 
 /// An Ast node representing a binary operator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BinOp {
     /// The `+` operator (addition)
     Add,
@@ -727,7 +727,7 @@ pub enum BinOp {
 }
 
 /// An Ast node representing an unary operator.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum UnOp {
     /// The `!` operator for logical inversion
     Not,
@@ -738,7 +738,7 @@ pub enum UnOp {
 }
 
 /// An Ast node representing the name of a called function and also the names of the arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub struct FunctionName {
     /// The name of the function
     pub name: Ident,
@@ -746,7 +746,7 @@ pub struct FunctionName {
     pub arg_names: Vec<Option<Ident>>,
 }
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 /// This struct represents an identifier in the specification.
 /// For example the name of an [Output] or [Input].
 pub struct Ident {
@@ -777,7 +777,7 @@ impl Hash for Ident {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 /// Struct to represent a lambda expression in the specification
 /// Can currently only occur inside instance aggregation conditions
 pub struct LambdaExpr {
@@ -787,7 +787,7 @@ pub struct LambdaExpr {
     pub expr: Box<Expression>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 /// Enum to indicate which instances are part of the aggregation
 pub enum InstanceSelection {
     /// Only instances that are updated in this evaluation cycle are part of the aggregation
@@ -800,7 +800,7 @@ pub enum InstanceSelection {
     FilteredAll(LambdaExpr),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Enum to indicate which annotated pacing type the stream has
 pub enum AnnotatedPacingType {
     /// No annotated Pacing

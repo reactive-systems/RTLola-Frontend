@@ -1089,4 +1089,11 @@ mod tests {
         output b eval @1Hz with a'.aggregate(over_instances: all, using: true_ratio).defaults(to: 0.0)";
         let (_, _) = lower_spec(spec);
     }
+
+    #[test]
+    fn test_probability() {
+        let spec = "input a : UInt64\n\
+        output c := prob(of: a > 10, given: a < 5)";
+        let (_, _) = lower_spec(spec);
+    }
 }
