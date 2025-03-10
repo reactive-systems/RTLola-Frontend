@@ -11,11 +11,15 @@ mod last;
 mod mirror;
 mod next_id;
 mod offset_or;
+mod probability;
 mod true_ratio;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
+use itertools::Itertools;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
+use probability::Probability;
+use rtlola_reporting::RtLolaError;
 use true_ratio::TrueRatio;
 
 use self::implication::Implication;
@@ -25,7 +29,7 @@ use crate::ast::{
     Mirror as AstMirror, NodeId, Output, RtLolaAst, SpawnSpec,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 enum ChangeInstruction {
     #[allow(dead_code)] // currently unused
     ReplaceExpr(NodeId, Expression),
@@ -48,6 +52,16 @@ struct ChangeSet {
     global_instructions: HashSet<ChangeInstruction>,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum ExprOrigin {
+    SpawnWhen,
+    SpawnWith,
+    #[allow(dead_code)]
+    EvalWhen(usize),
+    EvalWith(usize),
+    CloseWhen,
+}
+
 /// Syntactic Sugar has to implement this trait and override methods if needed.
 ///
 /// The transformer gets every single expression passed once, in an bottom up order. Afterwards every top level stream object is passed once.
@@ -60,8 +74,14 @@ trait SynSugar {
     /// # Requirements
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        stream: usize,
+        origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(ChangeSet::empty())
     }
 
     /// Desugars a single output stream.  Provided [RtLolaAst] and [Output] are for reference, not modification.
@@ -69,24 +89,36 @@ trait SynSugar {
     /// # Requirements
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_out<'a>(&self, stream: &'a Output, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
+    fn desugarize_stream_out<'a>(
+        &self,
+        stream: &'a Output,
+        ast: &'a RtLolaAst,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(ChangeSet::empty())
     }
     /// Desugars a single input stream.  Provided [RtLolaAst] and [Input] are for reference, not modification.
     ///
     /// # Requirements
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_in<'a>(&self, stream: &'a Input, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
+    fn desugarize_stream_in<'a>(
+        &self,
+        stream: &'a Input,
+        ast: &'a RtLolaAst,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(ChangeSet::empty())
     }
     /// Desugars a single mirror stream.  Provided [RtLolaAst] and [AstMirror] are for reference, not modification.
     ///
     /// # Requirements
     /// * Ids may NEVER be re-used.  Always generate new ones with ast.next_id() or increase the prime-counter of an existing [NodeId].
     /// * When creating new nodes with a span, do not re-use the span of the old node.  Instead, create an indirect span refering to the old one.
-    fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
-        ChangeSet::empty()
+    fn desugarize_stream_mirror<'a>(
+        &self,
+        stream: &'a AstMirror,
+        ast: &'a RtLolaAst,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(ChangeSet::empty())
     }
 }
 
@@ -113,6 +145,7 @@ impl Desugarizer {
             Box::new(Delta {}),
             Box::new(OffsetOr {}),
             Box::new(TrueRatio {}),
+            Box::new(Probability {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -123,23 +156,23 @@ impl Desugarizer {
     ///
     /// # panics
     /// If an Rc has a strong count greater than one.
-    pub fn remove_syn_sugar(&self, mut ast: RtLolaAst) -> RtLolaAst {
+    pub fn remove_syn_sugar(&self, mut ast: RtLolaAst) -> Result<RtLolaAst, RtLolaError> {
         while {
             // magic rust do-while loop
-            let (new_ast, change_flag) = self.desugarize_fix_point(ast);
+            let (new_ast, change_flag) = self.desugarize_fix_point(ast)?;
             ast = new_ast;
             change_flag
         } {} // do not remove! magic rust do-while loop
-        ast
+        Ok(ast)
     }
 
-    fn desugarize_fix_point(&self, mut ast: RtLolaAst) -> (RtLolaAst, bool) {
+    fn desugarize_fix_point(&self, mut ast: RtLolaAst) -> Result<(RtLolaAst, bool), RtLolaError> {
         let mut change_flag = false;
         for current_sugar in self.sugar_transformers.iter() {
             let mut change_set = ChangeSet::empty();
 
             for mirror in ast.mirrors.iter() {
-                change_set += self.desugarize_mirror(mirror, &ast, current_sugar);
+                change_set += self.desugarize_mirror(mirror, &ast, current_sugar)?;
             }
 
             for ix in 0..ast.outputs.len() {
@@ -156,18 +189,32 @@ impl Desugarizer {
                         id,
                         span,
                     } = spawn_spec;
-                    let expression = expression.map(|expr| {
-                        let (new_expr, spawn_cs) =
-                            Self::desugarize_expression(expr, &ast, current_sugar);
-                        change_set += spawn_cs;
-                        new_expr
-                    });
-                    let condition = condition.map(|expr| {
-                        let (new_expr, spawn_cond_cs) =
-                            Self::desugarize_expression(expr, &ast, current_sugar);
-                        change_set += spawn_cond_cs;
-                        new_expr
-                    });
+                    let expression = expression
+                        .map(|expr| {
+                            let (new_expr, spawn_cs) = Self::desugarize_expression(
+                                expr,
+                                &ast,
+                                current_sugar,
+                                ix,
+                                ExprOrigin::SpawnWith,
+                            )?;
+                            change_set += spawn_cs;
+                            Ok::<_, RtLolaError>(new_expr)
+                        })
+                        .transpose()?;
+                    let condition = condition
+                        .map(|expr| {
+                            let (new_expr, spawn_cond_cs) = Self::desugarize_expression(
+                                expr,
+                                &ast,
+                                current_sugar,
+                                ix,
+                                ExprOrigin::SpawnWhen,
+                            )?;
+                            change_set += spawn_cond_cs;
+                            Ok::<_, RtLolaError>(new_expr)
+                        })
+                        .transpose()?;
                     Some(SpawnSpec {
                         expression,
                         condition,
@@ -181,7 +228,8 @@ impl Desugarizer {
 
                 let transformed_eval = eval
                     .into_iter()
-                    .flat_map(|eval_spec| {
+                    .enumerate()
+                    .map(|(i, eval_spec)| {
                         let EvalSpec {
                             annotated_pacing,
                             condition,
@@ -189,27 +237,42 @@ impl Desugarizer {
                             id,
                             span,
                         } = eval_spec;
-                        let new_eval = eval_expression.map(|e| {
-                            let (res, eval_cs) =
-                                Self::desugarize_expression(e, &ast, current_sugar);
-                            change_set += eval_cs;
-                            res
-                        });
-                        let new_condition = condition.map(|e| {
-                            let (res, cond_cs) =
-                                Self::desugarize_expression(e, &ast, current_sugar);
-                            change_set += cond_cs;
-                            res
-                        });
-                        Some(EvalSpec {
+                        let new_eval = eval_expression
+                            .map(|e| {
+                                let (res, eval_cs) = Self::desugarize_expression(
+                                    e,
+                                    &ast,
+                                    current_sugar,
+                                    ix,
+                                    ExprOrigin::EvalWith(i),
+                                )?;
+                                change_set += eval_cs;
+                                Ok::<_, RtLolaError>(res)
+                            })
+                            .transpose()?;
+                        let new_condition = condition
+                            .map(|e| {
+                                let (res, cond_cs) = Self::desugarize_expression(
+                                    e,
+                                    &ast,
+                                    current_sugar,
+                                    ix,
+                                    ExprOrigin::EvalWhen(i),
+                                )?;
+                                change_set += cond_cs;
+                                Ok::<_, RtLolaError>(res)
+                            })
+                            .transpose()?;
+                        Ok::<_, RtLolaError>(Some(EvalSpec {
                             annotated_pacing,
                             condition: new_condition,
                             eval_expression: new_eval,
                             id,
                             span,
-                        })
+                        }))
                     })
-                    .collect();
+                    .flatten_ok()
+                    .collect::<Result<_, _>>()?;
 
                 let new_close_spec = if let Some(close_spec) = close {
                     let CloseSpec {
@@ -218,8 +281,13 @@ impl Desugarizer {
                         span,
                         annotated_pacing,
                     } = close_spec;
-                    let (new_condition, close_cs) =
-                        Self::desugarize_expression(condition, &ast, current_sugar);
+                    let (new_condition, close_cs) = Self::desugarize_expression(
+                        condition,
+                        &ast,
+                        current_sugar,
+                        ix,
+                        ExprOrigin::CloseWhen,
+                    )?;
                     change_set += close_cs;
                     Some(CloseSpec {
                         condition: new_condition,
@@ -240,18 +308,18 @@ impl Desugarizer {
                 ast.outputs[ix] = Rc::new(new_out);
             }
             for input in ast.inputs.iter() {
-                change_set += self.desugarize_input(input, &ast, current_sugar);
+                change_set += self.desugarize_input(input, &ast, current_sugar)?;
             }
 
             for output in ast.outputs.iter() {
-                change_set += self.desugarize_output(output, &ast, current_sugar);
+                change_set += self.desugarize_output(output, &ast, current_sugar)?;
             }
 
             change_flag |=
                 change_set._local_applied_flag || !change_set.global_instructions.is_empty();
             ast = self.apply_global_changes(change_set, ast);
         }
-        (ast, change_flag)
+        Ok((ast, change_flag))
     }
 
     fn apply_global_changes(&self, c_s: ChangeSet, mut ast: RtLolaAst) -> RtLolaAst {
@@ -565,14 +633,17 @@ impl Desugarizer {
         ast_expr: Expression,
         ast: &RtLolaAst,
         current_sugar: &Box<dyn SynSugar>,
-    ) -> (Expression, ChangeSet) {
+        stream: usize,
+        origin: ExprOrigin,
+    ) -> Result<(Expression, ChangeSet), RtLolaError> {
         let mut return_cs = ChangeSet::empty();
         use ExpressionKind::*;
         let Expression { kind, id, span } = ast_expr;
         let new_expr = match kind {
             Lit(_) | Ident(_) | MissingExpression => Expression { kind, id, span },
             Unary(op, inner) => {
-                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) =
+                    Self::desugarize_expression(*inner, ast, current_sugar, stream, origin)?;
                 return_cs += cs;
                 Expression {
                     kind: Unary(op, Box::new(inner)),
@@ -581,7 +652,8 @@ impl Desugarizer {
                 }
             }
             Field(inner, ident) => {
-                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) =
+                    Self::desugarize_expression(*inner, ast, current_sugar, stream, origin)?;
                 return_cs += cs;
                 Expression {
                     kind: Field(Box::new(inner), ident),
@@ -590,7 +662,8 @@ impl Desugarizer {
                 }
             }
             StreamAccess(inner, acc_kind) => {
-                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) =
+                    Self::desugarize_expression(*inner, ast, current_sugar, stream, origin)?;
                 return_cs += cs;
                 Expression {
                     kind: StreamAccess(Box::new(inner), acc_kind),
@@ -599,7 +672,8 @@ impl Desugarizer {
                 }
             }
             Offset(inner, offset) => {
-                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) =
+                    Self::desugarize_expression(*inner, ast, current_sugar, stream, origin)?;
                 return_cs += cs;
                 Expression {
                     kind: Offset(Box::new(inner), offset),
@@ -608,7 +682,8 @@ impl Desugarizer {
                 }
             }
             ParenthesizedExpression(inner) => {
-                let (inner, cs) = Self::desugarize_expression(*inner, ast, current_sugar);
+                let (inner, cs) =
+                    Self::desugarize_expression(*inner, ast, current_sugar, stream, origin)?;
                 return_cs += cs;
                 Expression {
                     kind: ParenthesizedExpression(Box::new(inner)),
@@ -617,9 +692,11 @@ impl Desugarizer {
                 }
             }
             Binary(bin_op, left, right) => {
-                let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
+                let (left, lcs) =
+                    Self::desugarize_expression(*left, ast, current_sugar, stream, origin)?;
                 return_cs += lcs;
-                let (right, rcs) = Self::desugarize_expression(*right, ast, current_sugar);
+                let (right, rcs) =
+                    Self::desugarize_expression(*right, ast, current_sugar, stream, origin)?;
                 return_cs += rcs;
                 Expression {
                     kind: Binary(bin_op, Box::new(left), Box::new(right)),
@@ -628,9 +705,11 @@ impl Desugarizer {
                 }
             }
             Default(left, right) => {
-                let (left, lcs) = Self::desugarize_expression(*left, ast, current_sugar);
+                let (left, lcs) =
+                    Self::desugarize_expression(*left, ast, current_sugar, stream, origin)?;
                 return_cs += lcs;
-                let (right, rcs) = Self::desugarize_expression(*right, ast, current_sugar);
+                let (right, rcs) =
+                    Self::desugarize_expression(*right, ast, current_sugar, stream, origin)?;
                 return_cs += rcs;
                 Expression {
                     kind: Default(Box::new(left), Box::new(right)),
@@ -645,9 +724,11 @@ impl Desugarizer {
                 aggregation,
                 ..
             } => {
-                let (expr, ecs) = Self::desugarize_expression(*left, ast, current_sugar);
+                let (expr, ecs) =
+                    Self::desugarize_expression(*left, ast, current_sugar, stream, origin)?;
                 return_cs += ecs;
-                let (dur, dcs) = Self::desugarize_expression(*right, ast, current_sugar);
+                let (dur, dcs) =
+                    Self::desugarize_expression(*right, ast, current_sugar, stream, origin)?;
                 return_cs += dcs;
                 Expression {
                     kind: DiscreteWindowAggregation {
@@ -666,9 +747,11 @@ impl Desugarizer {
                 wait,
                 aggregation,
             } => {
-                let (expr, ecs) = Self::desugarize_expression(*left, ast, current_sugar);
+                let (expr, ecs) =
+                    Self::desugarize_expression(*left, ast, current_sugar, stream, origin)?;
                 return_cs += ecs;
-                let (dur, dcs) = Self::desugarize_expression(*right, ast, current_sugar);
+                let (dur, dcs) =
+                    Self::desugarize_expression(*right, ast, current_sugar, stream, origin)?;
                 return_cs += dcs;
                 Expression {
                     kind: SlidingWindowAggregation {
@@ -686,7 +769,8 @@ impl Desugarizer {
                 selection,
                 aggregation,
             } => {
-                let (expr, ecs) = Self::desugarize_expression(*expr, ast, current_sugar);
+                let (expr, ecs) =
+                    Self::desugarize_expression(*expr, ast, current_sugar, stream, origin)?;
                 let (selection, scs) = match selection {
                     selection @ (InstanceSelection::Fresh | InstanceSelection::All) => {
                         (selection, ChangeSet::empty())
@@ -695,7 +779,8 @@ impl Desugarizer {
                         parameters,
                         expr: cond,
                     }) => {
-                        let (cond, cs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                        let (cond, cs) =
+                            Self::desugarize_expression(*cond, ast, current_sugar, stream, origin)?;
                         (
                             InstanceSelection::FilteredFresh(LambdaExpr {
                                 parameters,
@@ -708,7 +793,8 @@ impl Desugarizer {
                         parameters,
                         expr: cond,
                     }) => {
-                        let (cond, cs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                        let (cond, cs) =
+                            Self::desugarize_expression(*cond, ast, current_sugar, stream, origin)?;
                         (
                             InstanceSelection::FilteredAll(LambdaExpr {
                                 parameters,
@@ -730,12 +816,14 @@ impl Desugarizer {
                 }
             }
             Ite(condition, normal, alternative) => {
-                let (condition, ccs) = Self::desugarize_expression(*condition, ast, current_sugar);
+                let (condition, ccs) =
+                    Self::desugarize_expression(*condition, ast, current_sugar, stream, origin)?;
                 return_cs += ccs;
-                let (normal, ncs) = Self::desugarize_expression(*normal, ast, current_sugar);
+                let (normal, ncs) =
+                    Self::desugarize_expression(*normal, ast, current_sugar, stream, origin)?;
                 return_cs += ncs;
                 let (alternative, acs) =
-                    Self::desugarize_expression(*alternative, ast, current_sugar);
+                    Self::desugarize_expression(*alternative, ast, current_sugar, stream, origin)?;
                 return_cs += acs;
                 Expression {
                     kind: Ite(Box::new(condition), Box::new(normal), Box::new(alternative)),
@@ -746,8 +834,10 @@ impl Desugarizer {
             Tuple(entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
-                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
-                    .unzip();
+                    .map(|t_expr| {
+                        Self::desugarize_expression(t_expr, ast, current_sugar, stream, origin)
+                    })
+                    .collect::<Result<_, _>>()?;
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
                     kind: Tuple(v_expr),
@@ -758,8 +848,10 @@ impl Desugarizer {
             Function(name, types, entries) => {
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = entries
                     .into_iter()
-                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
-                    .unzip();
+                    .map(|t_expr| {
+                        Self::desugarize_expression(t_expr, ast, current_sugar, stream, origin)
+                    })
+                    .collect::<Result<_, _>>()?;
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
                     kind: Function(name, types, v_expr),
@@ -768,12 +860,15 @@ impl Desugarizer {
                 }
             }
             Method(base, name, types, arguments) => {
-                let (base_expr, ecs) = Self::desugarize_expression(*base, ast, current_sugar);
+                let (base_expr, ecs) =
+                    Self::desugarize_expression(*base, ast, current_sugar, stream, origin)?;
                 return_cs += ecs;
                 let (v_expr, v_cs): (Vec<Expression>, Vec<ChangeSet>) = arguments
                     .into_iter()
-                    .map(|t_expr| Self::desugarize_expression(t_expr, ast, current_sugar))
-                    .unzip();
+                    .map(|t_expr| {
+                        Self::desugarize_expression(t_expr, ast, current_sugar, stream, origin)
+                    })
+                    .collect::<Result<_, _>>()?;
                 return_cs += v_cs.into_iter().fold(ChangeSet::empty(), |acc, x| acc + x);
                 Expression {
                     kind: Method(Box::new(base_expr), name, types, v_expr),
@@ -785,7 +880,8 @@ impl Desugarizer {
                 parameters,
                 expr: cond,
             }) => {
-                let (cond, ecs) = Self::desugarize_expression(*cond, ast, current_sugar);
+                let (cond, ecs) =
+                    Self::desugarize_expression(*cond, ast, current_sugar, stream, origin)?;
                 return_cs += ecs;
                 Expression {
                     kind: Lambda(LambdaExpr {
@@ -799,7 +895,7 @@ impl Desugarizer {
         };
 
         // apply transformation on current expression and replace if local change needed
-        let mut current_level_cs = current_sugar.desugarize_expr(&new_expr, ast);
+        let mut current_level_cs = current_sugar.desugarize_expr(&new_expr, ast, stream, origin)?;
         let return_expr = if let Some(LocalChangeInstruction::ReplaceExpr(replace_expr)) =
             current_level_cs.extract_local_change()
         {
@@ -809,7 +905,7 @@ impl Desugarizer {
         };
         let final_cs = current_level_cs + return_cs;
 
-        (return_expr, final_cs)
+        Ok((return_expr, final_cs))
     }
 
     #[allow(clippy::borrowed_box)]
@@ -818,7 +914,7 @@ impl Desugarizer {
         input: &Input,
         ast: &RtLolaAst,
         current_sugar: &Box<dyn SynSugar>,
-    ) -> ChangeSet {
+    ) -> Result<ChangeSet, RtLolaError> {
         current_sugar.desugarize_stream_in(input, ast)
     }
 
@@ -828,7 +924,7 @@ impl Desugarizer {
         mirror: &AstMirror,
         ast: &RtLolaAst,
         current_sugar: &Box<dyn SynSugar>,
-    ) -> ChangeSet {
+    ) -> Result<ChangeSet, RtLolaError> {
         current_sugar.desugarize_stream_mirror(mirror, ast)
     }
 
@@ -838,7 +934,7 @@ impl Desugarizer {
         output: &Output,
         ast: &RtLolaAst,
         current_sugar: &Box<dyn SynSugar>,
-    ) -> ChangeSet {
+    ) -> Result<ChangeSet, RtLolaError> {
         current_sugar.desugarize_stream_out(output, ast)
     }
 }
@@ -892,6 +988,7 @@ impl ChangeSet {
     pub(crate) fn replace_current_expression(expr: Expression) -> Self {
         let mut cs = Self::empty();
         cs.local_instructions = Some(LocalChangeInstruction::ReplaceExpr(expr));
+        cs._local_applied_flag = true;
         cs
     }
 
@@ -907,7 +1004,7 @@ impl ChangeSet {
 
     /// Provides an [Iterator] over all global changes.
     fn global_iter<'a>(self) -> Box<dyn Iterator<Item = ChangeInstruction> + 'a> {
-        Box::new(self.global_instructions.into_iter())
+        Box::new(self.global_instructions.into_iter().sorted())
     }
 
     /// Internal use: extracts the wanted local change and removes it from the struct.
@@ -1296,6 +1393,67 @@ mod tests {
         input a''': Boolean\n\
         output b eval @1Hz with a''''.aggregate(over: 1s, using: avg)\n\
             output a'''' eval with if a' then 1.0 else 0.0";
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_probability() {
+        let spec = "input a : Bool\n\
+        input b : Bool\n\
+        output c := prob(of: a, given: b)"
+            .to_string();
+        let expected = "input a: Bool
+input b: Bool
+output c eval with if count_of' = 0.0 then 0.0 else count_both' / count_of'
+output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a ∧ b then 1.0 else 0.0
+output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b ∧ a = a then 1.0 else 0.0".to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_probability2() {
+        let spec = "input a : UInt64\n\
+        input b : UInt64\n\
+        output c := prob(of: a > 5, given: b < 10, prior: 0.5, confidence: 2.0)"
+            .to_string();
+        let expected = "input a: UInt64
+input b: UInt64
+output c eval with if (count_of' + 2.0) = 0.0 then 0.0 else (count_both' + 0.5 * 2.0) / (count_of' + 2.0)
+output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a > 5 ∧ b < 10 then 1.0 else 0.0
+output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b < 10 ∧ a > 5 = a > 5 then 1.0 else 0.0".to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_probability3() {
+        let spec = "input a : Bool\n\
+        output c := prob(of: a)"
+            .to_string();
+        let expected = "input a: Bool
+output c eval with if count_of' = 0.0 then 0.0 else count_both' / count_of'
+output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a then 1.0 else 0.0
+output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0"
+            .to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_probability_spawn_close() {
+        let spec = "input a : Bool\n\
+        output c 
+            spawn when a
+            eval when a == 0 with prob(of: a)
+            close when a"
+            .to_string();
+        let expected = "input a: Bool
+output c spawn when a eval when a = 0 with if count_of' = 0.0 then 0.0 else count_both' / count_of' close when a
+output count_both' spawn when a eval when a = 0 with count_both'.offset(by: -1).defaults(to: 0.0) + if a then 1.0 else 0.0 close when a
+output count_of' spawn when a eval when a = 0 with count_of'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0 close when a"
+            .to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }

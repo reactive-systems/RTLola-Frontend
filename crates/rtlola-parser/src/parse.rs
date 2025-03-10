@@ -69,7 +69,7 @@ impl<'a> RtLolaParser<'a> {
     pub(crate) fn parse(config: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
         RtLolaParser::new(config)
             .parse_spec()
-            .map(|ast| Desugarizer::all().remove_syn_sugar(ast))
+            .and_then(|ast| Desugarizer::all().remove_syn_sugar(ast))
     }
 
     /// Runs the parser on the give spec.

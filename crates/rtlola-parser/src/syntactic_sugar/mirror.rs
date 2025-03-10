@@ -1,3 +1,5 @@
+use rtlola_reporting::{Diagnostic, RtLolaError};
+
 use super::{builder::Builder, ChangeSet, SynSugar};
 use crate::ast::{EvalSpec, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
 
@@ -9,7 +11,11 @@ use crate::ast::{EvalSpec, Mirror as AstMirror, Output, OutputKind, RtLolaAst};
 pub(crate) struct Mirror {}
 
 impl Mirror {
-    fn apply<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
+    fn apply<'a>(
+        &self,
+        stream: &'a AstMirror,
+        ast: &'a RtLolaAst,
+    ) -> Result<ChangeSet, RtLolaError> {
         let AstMirror {
             name,
             target,
@@ -17,11 +23,21 @@ impl Mirror {
             span: _,
             id: mirror_id,
         } = stream.clone();
-        let target = ast
+        let Some(target) = ast
             .outputs
             .iter()
             .find(|o| o.name().is_some_and(|name| name.name == target.name))
-            .expect("mirror stream refers to a stream that does not exist");
+        else {
+            return Err(Diagnostic::error(
+                "Mirror stream refers to a stream name that does not exist.",
+            )
+            .add_span_with_label(
+                target.span,
+                Some("Found non-existing stream name here."),
+                true,
+            )
+            .into());
+        };
         let Output {
             kind: _,
             annotated_type,
@@ -64,12 +80,16 @@ impl Mirror {
             close,
             tags,
         };
-        ChangeSet::replace_stream(mirror_id, output)
+        Ok(ChangeSet::replace_stream(mirror_id, output))
     }
 }
 
 impl SynSugar for Mirror {
-    fn desugarize_stream_mirror<'a>(&self, stream: &'a AstMirror, ast: &'a RtLolaAst) -> ChangeSet {
+    fn desugarize_stream_mirror<'a>(
+        &self,
+        stream: &'a AstMirror,
+        ast: &'a RtLolaAst,
+    ) -> Result<ChangeSet, RtLolaError> {
         self.apply(stream, ast)
     }
 }

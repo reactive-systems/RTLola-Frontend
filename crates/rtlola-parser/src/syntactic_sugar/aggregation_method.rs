@@ -1,4 +1,6 @@
-use super::{builder::Builder, ChangeSet, SynSugar};
+use rtlola_reporting::RtLolaError;
+
+use super::{builder::Builder, ChangeSet, ExprOrigin, SynSugar};
 use crate::ast::{Expression, ExpressionKind, RtLolaAst, WindowOperation};
 
 /// Allows shorthand writing of aggregation windows as methods.
@@ -38,7 +40,13 @@ impl AggrMethodToWindow {
 }
 
 impl SynSugar for AggrMethodToWindow {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        self.apply(exp, ast)
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(self.apply(exp, ast))
     }
 }

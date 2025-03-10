@@ -40,6 +40,32 @@ impl<'a> Builder<'a> {
         }
     }
 
+    pub(crate) fn method(
+        &self,
+        base: Expression,
+        func_name: FunctionName,
+        ty: Vec<Type>,
+        parameters: Vec<Expression>,
+    ) -> Expression {
+        Expression {
+            kind: ExpressionKind::Method(Box::new(base), func_name, ty, parameters),
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn last(&self, stream: Ident, or: Expression) -> Expression {
+        self.method(
+            self.ident(stream),
+            FunctionName {
+                name: Ident::new("last".into(), self.span.to_indirect()),
+                arg_names: vec![Some(Ident::new("or".into(), self.span.to_indirect()))],
+            },
+            Vec::new(),
+            vec![or],
+        )
+    }
+
     pub(crate) fn sync(&self, stream: Expression) -> Expression {
         Expression {
             kind: ExpressionKind::StreamAccess(
@@ -103,8 +129,24 @@ impl<'a> Builder<'a> {
         self.binary(BinOp::And, lhs, rhs)
     }
 
+    pub(crate) fn eq(&self, lhs: Expression, rhs: Expression) -> Expression {
+        self.binary(BinOp::Eq, lhs, rhs)
+    }
+
+    pub(crate) fn add(&self, lhs: Expression, rhs: Expression) -> Expression {
+        self.binary(BinOp::Add, lhs, rhs)
+    }
+
     pub(crate) fn sub(&self, lhs: Expression, rhs: Expression) -> Expression {
         self.binary(BinOp::Sub, lhs, rhs)
+    }
+
+    pub(crate) fn mul(&self, lhs: Expression, rhs: Expression) -> Expression {
+        self.binary(BinOp::Mul, lhs, rhs)
+    }
+
+    pub(crate) fn div(&self, lhs: Expression, rhs: Expression) -> Expression {
+        self.binary(BinOp::Div, lhs, rhs)
     }
 
     pub(crate) fn sliding_window(

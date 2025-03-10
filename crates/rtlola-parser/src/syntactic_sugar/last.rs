@@ -1,4 +1,6 @@
-use super::{ChangeSet, SynSugar};
+use rtlola_reporting::RtLolaError;
+
+use super::{ChangeSet, ExprOrigin, SynSugar};
 use crate::{
     ast::{Expression, ExpressionKind, Offset, RtLolaAst},
     syntactic_sugar::builder::Builder,
@@ -34,7 +36,13 @@ impl Last {
 }
 
 impl SynSugar for Last {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        self.apply(exp, ast)
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(self.apply(exp, ast))
     }
 }
