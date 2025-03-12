@@ -229,10 +229,7 @@ impl Ordered {
             graph.node_indices().for_each(|node| {
                 let sref = graph.node_weight(node).unwrap();
                 // if we dont know the evaluation layer, but the spawn layer is known
-                if !evaluation_layers.contains_key(sref)
-                    && spawn_layers.contains_key(sref)
-                    && (!cfg!(feature = "shift_layer") || previous_layers.contains_key(sref))
-                {
+                if !evaluation_layers.contains_key(sref) && previous_layers.contains_key(sref) {
                     // Get evaluation layer of successors
                     let neighbor_layers: Vec<_> = graph
                         .neighbors_directed(node, Outgoing)
@@ -311,6 +308,8 @@ fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>
         let ref_layers = &ref_layers[sr];
         assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
         assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
+        #[cfg(feature = "shift_layer")]
+        assert_eq!(ref_layers.shift_layer(), layers.shift_layer());
     });
 }
 
@@ -1055,11 +1054,11 @@ mod tests {
             ),
             (
                 sname_to_sref["b"],
-                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(2)),
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
             ),
             (
                 sname_to_sref["c"],
-                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(3)),
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(3)),
             ),
         ]
         .into_iter()
@@ -1088,7 +1087,7 @@ mod tests {
             ),
             (
                 sname_to_sref["b"],
-                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(2)),
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
             ),
             (
                 sname_to_sref["c"],

@@ -136,6 +136,7 @@ clippy:hir:
     - rustup component add clippy
     - rustc --version && cargo --version
     - cargo clippy -p rtlola-hir
+    - cargo clippy -p rtlola-hir --features shift_layer
 
 clippy:frontend:
   tags:
@@ -277,6 +278,7 @@ test:hir:
     - apt-get install -yqq --no-install-recommends libpcap-dev
     - rustc --version && cargo --version
     - cargo test -p rtlola-hir --verbose
+    - cargo test --package rtlola-hir modes::ordering::tests --features shift_layer
 
 test:frontend:
   tags:
