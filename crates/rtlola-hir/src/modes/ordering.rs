@@ -1102,4 +1102,41 @@ mod tests {
         .collect();
         check_eval_order_for_spec(spec, event_layers)
     }
+
+    #[test]
+    fn filtered_spec_offset() {
+        let spec = "input a: UInt8
+        output b := a + 1
+        output c eval when b == 0 with a
+        output d eval when b == 0 with c.last(or: 0)";
+        let sname_to_sref = vec![
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(3), Layer::new(4)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(3), Layer::new(4)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
+    }
 }
