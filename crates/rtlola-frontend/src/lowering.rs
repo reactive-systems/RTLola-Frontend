@@ -1096,4 +1096,31 @@ mod tests {
         output c := prob(of: a > 10, given: a < 5)";
         let (_, _) = lower_spec(spec);
     }
+
+    #[test]
+    fn test_probability_parameterized() {
+        let spec = r#"import math
+
+input id : Int64
+input sensible_feature: String
+input associated_feature: Int64
+input decision: Bool
+input idDec: Int64
+
+/// Database
+output sensible_feature_per(user)
+  spawn with id
+  eval when id == user  with sensible_feature
+  close @(decision & idDec) when user == idDec
+
+output relation_per(f)
+    spawn with sensible_feature
+    eval with prob(of: decision, given: sensible_feature_per(idDec).hold(or: "D") == f)
+
+output statParity
+    eval @true with abs(relation_per("M").hold(or: 1.0) - relation_per("F").hold(or: 1.0))
+
+trigger statParity > 0.1"#;
+        let (_, _) = lower_spec(spec);
+    }
 }

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use rtlola_reporting::{Diagnostic, RtLolaError};
 
 use super::{ChangeSet, ExprOrigin, SynSugar};
@@ -12,10 +14,10 @@ use crate::{
 /// Allows for using prob(of: x, given: y) for calculating (conditional) probabilities.
 ///
 /// Transforms:
-/// `prob(of: a, given: b, prior: p, confidence: c)` => `if (count_of' + 2.0) = 0.0 then 0.0 else (count_both' + 0.5 * 2.0) / (count_of' + 2.0)` and adds streams
+/// `prob(of: a, given: b, prior: p, confidence: c)` => `if (count_given' + 2.0) = 0.0 then 0.0 else (count_both' + 0.5 * 2.0) / (count_given' + 2.0)` and adds streams
 /// ```lola
-/// output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a > 5 ∧ b < 10 then 1.0 else 0.0
-/// output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b < 10 ∧ a > 5 = a > 5 then 1.0 else 0.0
+/// output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a ∧ b then 1.0 else 0.0
+/// output count_given' eval with count_given'.offset(by: -1).defaults(to: 0.0) + if b ∧ a = a then 1.0 else 0.0
 /// ```
 #[derive(Debug, Clone)]
 pub(crate) struct Probability {}
@@ -84,11 +86,19 @@ impl Probability {
                 let spawn = stream.spawn.as_ref();
                 let filter = stream.eval[eval_clause].condition.as_ref();
                 let close = stream.close.as_ref();
+                let params = &stream.params;
+                let param_exprs = params
+                    .iter()
+                    .map(|p| builder.ident(p.name.next_id(ast)))
+                    .collect::<Vec<_>>();
 
                 let count_both_ident =
                     Ident::new(ast.primed_name("count_both"), expr.span.to_indirect());
-                let last_count_both =
-                    builder.last(count_both_ident.next_id(ast), const_0.next_id(ast));
+                let last_count_both = builder.last(
+                    count_both_ident.next_id(ast),
+                    param_exprs.iter().map(|e| e.next_id(ast)).collect(),
+                    const_0.next_id(ast),
+                );
 
                 let count_both = if let Some(given_expr) = given_expr {
                     builder.if_then_else(
@@ -107,7 +117,7 @@ impl Probability {
                 let count_both_stream = Output {
                     kind: OutputKind::NamedOutput(count_both_ident.next_id(ast)),
                     annotated_type: None,
-                    params: Vec::new(),
+                    params: params.iter().map(|p| Rc::new(p.next_id(ast))).collect(),
                     spawn: spawn.map(|s| s.next_id(ast)),
                     eval: vec![builder.eval_spec(
                         filter.map(|f| f.next_id(ast)),
@@ -120,9 +130,9 @@ impl Probability {
                     span: expr.span.to_indirect(),
                 };
 
-                let count_of_ident =
-                    Ident::new(ast.primed_name("count_of"), expr.span.to_indirect());
-                let count_of_cond = if let Some(given_expr) = given_expr {
+                let count_given_ident =
+                    Ident::new(ast.primed_name("count_given"), expr.span.to_indirect());
+                let count_given_cond = if let Some(given_expr) = given_expr {
                     builder.and(
                         given_expr.next_id(ast),
                         builder.eq(of_expr.next_id(ast), of_expr.next_id(ast)),
@@ -130,19 +140,29 @@ impl Probability {
                 } else {
                     builder.eq(of_expr.next_id(ast), of_expr.next_id(ast))
                 };
-                let count_of =
-                    builder.if_then_else(count_of_cond, const_1.next_id(ast), const_0.next_id(ast));
-                let last_count_of = builder.last(count_of_ident.next_id(ast), const_0.next_id(ast));
-                let count_of_expr = builder.add(last_count_of, count_of);
-                let count_of_stream = Output {
-                    kind: OutputKind::NamedOutput(count_of_ident.next_id(ast)),
+                let count_given = builder.if_then_else(
+                    count_given_cond,
+                    const_1.next_id(ast),
+                    const_0.next_id(ast),
+                );
+                let last_count_given = builder.last(
+                    count_given_ident.next_id(ast),
+                    param_exprs
+                        .iter()
+                        .map(|p| p.next_id(ast))
+                        .collect::<Vec<_>>(),
+                    const_0.next_id(ast),
+                );
+                let count_given_expr = builder.add(last_count_given, count_given);
+                let count_given_stream = Output {
+                    kind: OutputKind::NamedOutput(count_given_ident.next_id(ast)),
                     annotated_type: None,
-                    params: Vec::new(),
+                    params: params.iter().map(|p| Rc::new(p.next_id(ast))).collect(),
                     spawn: spawn.map(|s| s.next_id(ast)),
                     eval: vec![builder.eval_spec(
                         filter.map(|f| f.next_id(ast)),
                         AnnotatedPacingType::NotAnnotated(builder.span.to_indirect()),
-                        Some(count_of_expr),
+                        Some(count_given_expr),
                     )],
                     close: close.map(|c| c.next_id(ast)),
                     tags: Vec::new(),
@@ -152,20 +172,32 @@ impl Probability {
 
                 let denom = if let Some(confidence) = confidence_expr {
                     builder.parentesized(builder.add(
-                        builder.sync(builder.ident(count_of_ident)),
+                        builder.sync(
+                            count_given_ident,
+                            param_exprs.iter().map(|p| p.next_id(ast)).collect(),
+                        ),
                         confidence.next_id(ast),
                     ))
                 } else {
-                    builder.sync(builder.ident(count_of_ident))
+                    builder.sync(
+                        count_given_ident,
+                        param_exprs.iter().map(|p| p.next_id(ast)).collect(),
+                    )
                 };
 
                 let numerator = if let Some(prior) = prior_expr {
                     builder.parentesized(builder.add(
-                        builder.sync(builder.ident(count_both_ident)),
+                        builder.sync(
+                            count_both_ident,
+                            param_exprs.iter().map(|p| p.next_id(ast)).collect(),
+                        ),
                         builder.mul(prior.next_id(ast), confidence_expr.unwrap().next_id(ast)),
                     ))
                 } else {
-                    builder.sync(builder.ident(count_both_ident))
+                    builder.sync(
+                        count_both_ident,
+                        param_exprs.iter().map(|p| p.next_id(ast)).collect(),
+                    )
                 };
 
                 let prob_stream_access = builder.div(numerator, denom.next_id(ast));
@@ -175,7 +207,7 @@ impl Probability {
                     const_0.next_id(ast),
                     prob_stream_access,
                 );
-                ChangeSet::add_output(count_of_stream)
+                ChangeSet::add_output(count_given_stream)
                     + ChangeSet::add_output(count_both_stream)
                     + ChangeSet::replace_current_expression(prob_stream_access)
             }

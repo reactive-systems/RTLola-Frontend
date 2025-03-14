@@ -35,7 +35,7 @@ impl Delta {
                 let default_expr = args[1].clone();
                 let builder = Builder::new(expr.span, ast);
                 let new_expr = builder.sub(
-                    builder.sync(target_stream.clone()),
+                    target_stream.clone(),
                     builder.default(
                         builder.offset(target_stream, Offset::Discrete(-1)),
                         default_expr,
