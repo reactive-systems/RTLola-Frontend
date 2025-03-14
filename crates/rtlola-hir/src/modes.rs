@@ -272,13 +272,13 @@ pub trait DepAnaTrait {
     ///
     /// The function returns all windows that aggregate `who` and the stream that uses the window.
     /// The result contains only the windows that are direct.
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, Origin, WRef)>; // (non-transitive)
 
     /// Returns all windows that are used in `who` and the corresponding stream that is aggregated
     ///
     /// The function returns all windows that are used in `who` and the corresponding stream that is aggregated.
     /// The result contains only the windows that are direct.
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+    fn aggregates(&self, who: SRef) -> Vec<(SRef, Origin, WRef)>; // (non-transitive)
 
     /// Returns the (Dependency Graph)[DependencyGraph] of the specification
     fn graph(&self) -> &DependencyGraph;

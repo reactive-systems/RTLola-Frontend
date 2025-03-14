@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added frontend config
 - Tuple Literal to MIR
 - Added `InstanceSelection::FilteredAll` and `InstanceSelection::FilteredFresh` variants for filtered instance aggregation.
+- Added `aggregates` field to mir
 
 ## [0.7.0] - 28.06.2024
 

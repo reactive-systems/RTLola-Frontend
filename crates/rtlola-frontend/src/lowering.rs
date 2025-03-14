@@ -47,7 +47,12 @@ impl Mir {
                     aggregated_by: hir
                         .aggregated_by(sr)
                         .into_iter()
-                        .map(|(sr, wr)| (sr_map[&sr], wr))
+                        .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
+                        .collect(),
+                    aggregates: hir
+                        .aggregates(sr)
+                        .into_iter()
+                        .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
                         .collect(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
@@ -82,7 +87,12 @@ impl Mir {
                 aggregated_by: hir
                     .aggregated_by(sr)
                     .into_iter()
-                    .map(|(sr, wr)| (sr_map[&sr], wr))
+                    .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
+                    .collect(),
+                aggregates: hir
+                    .aggregates(sr)
+                    .into_iter()
+                    .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
                     .collect(),
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),

@@ -73,7 +73,10 @@ pub trait Stream {
     fn accessed_by(&self) -> &Accesses;
     /// Returns the collection of sliding windows that access the stream non-transitively.
     /// This includes both sliding and discrete windows.
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)];
+    /// Returns the collection of sliding windows that are accessed by the stream non-transitively.
+    /// This includes both sliding and discrete windows.
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)];
     /// Returns the tags annotated to this stream.
     fn tags(&self) -> &HashMap<String, Option<String>>;
     #[cfg(feature = "spanned")]
@@ -249,7 +252,9 @@ pub struct InputStream {
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -287,8 +292,10 @@ pub struct OutputStream {
     pub accesses: Accesses,
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
-    /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    /// The collection of windows that access this stream non-transitively.  This includes both sliding and discrete windows.
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
     /// Provides the evaluation of layer of this stream.
@@ -903,8 +910,12 @@ impl Stream for OutputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
     }
 
     fn tags(&self) -> &HashMap<String, Option<String>> {
@@ -966,8 +977,12 @@ impl Stream for InputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
     }
 
     fn tags(&self) -> &HashMap<String, Option<String>> {
