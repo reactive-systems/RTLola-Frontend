@@ -120,6 +120,10 @@ pub(crate) trait ExtendedDepGraph {
 
     /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the spawn condition
     fn only_spawn(self) -> Self;
+
+    #[cfg(feature = "shift_layer")]
+    /// Returns a new [dependency graph](DependencyGraph), which only contains edges representing a lookup in the eval when condition
+    fn only_filter(self) -> Self;
 }
 
 impl ExtendedDepGraph for DependencyGraph {
@@ -176,6 +180,12 @@ impl ExtendedDepGraph for DependencyGraph {
 
     fn only_spawn(mut self) -> Self {
         self.retain_edges(|g, e_i| g.edge_weight(e_i).unwrap().origin == Origin::Spawn);
+        self
+    }
+
+    #[cfg(feature = "shift_layer")]
+    fn only_filter(mut self) -> Self {
+        self.retain_edges(|g, e_i| matches!(g.edge_weight(e_i).unwrap().origin, Origin::Filter(_)));
         self
     }
 }
