@@ -54,9 +54,15 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub(crate) fn last(&self, stream: Ident, or: Expression) -> Expression {
+    pub(crate) fn last(
+        &self,
+        stream: Ident,
+        params: Vec<Expression>,
+        or: Expression,
+    ) -> Expression {
+        let stream_expr = self.parameter_use(stream, params);
         self.method(
-            self.ident(stream),
+            stream_expr,
             FunctionName {
                 name: Ident::new("last".into(), self.span.to_indirect()),
                 arg_names: vec![Some(Ident::new("or".into(), self.span.to_indirect()))],
@@ -66,10 +72,25 @@ impl<'a> Builder<'a> {
         )
     }
 
-    pub(crate) fn sync(&self, stream: Expression) -> Expression {
+    pub(crate) fn parameter_use(&self, stream: Ident, params: Vec<Expression>) -> Expression {
+        if params.is_empty() {
+            self.ident(stream)
+        } else {
+            self.function(
+                FunctionName {
+                    name: stream,
+                    arg_names: vec![None; params.len()],
+                },
+                vec![],
+                params,
+            )
+        }
+    }
+
+    pub(crate) fn sync(&self, stream: Ident, params: Vec<Expression>) -> Expression {
         Expression {
             kind: ExpressionKind::StreamAccess(
-                Box::new(stream),
+                Box::new(self.parameter_use(stream, params)),
                 crate::ast::StreamAccessKind::Sync,
             ),
             id: self.ast.next_id(),

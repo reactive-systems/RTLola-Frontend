@@ -1405,9 +1405,9 @@ mod tests {
             .to_string();
         let expected = "input a: Bool
 input b: Bool
-output c eval with if count_of' = 0.0 then 0.0 else count_both' / count_of'
+output c eval with if count_given' = 0.0 then 0.0 else count_both' / count_given'
 output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a ∧ b then 1.0 else 0.0
-output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b ∧ a = a then 1.0 else 0.0".to_string();
+output count_given' eval with count_given'.offset(by: -1).defaults(to: 0.0) + if b ∧ a = a then 1.0 else 0.0".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
@@ -1420,9 +1420,9 @@ output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b ∧
             .to_string();
         let expected = "input a: UInt64
 input b: UInt64
-output c eval with if (count_of' + 2.0) = 0.0 then 0.0 else (count_both' + 0.5 * 2.0) / (count_of' + 2.0)
+output c eval with if (count_given' + 2.0) = 0.0 then 0.0 else (count_both' + 0.5 * 2.0) / (count_given' + 2.0)
 output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a > 5 ∧ b < 10 then 1.0 else 0.0
-output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b < 10 ∧ a > 5 = a > 5 then 1.0 else 0.0".to_string();
+output count_given' eval with count_given'.offset(by: -1).defaults(to: 0.0) + if b < 10 ∧ a > 5 = a > 5 then 1.0 else 0.0".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
@@ -1433,9 +1433,9 @@ output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if b < 1
         output c := prob(of: a)"
             .to_string();
         let expected = "input a: Bool
-output c eval with if count_of' = 0.0 then 0.0 else count_both' / count_of'
+output c eval with if count_given' = 0.0 then 0.0 else count_both' / count_given'
 output count_both' eval with count_both'.offset(by: -1).defaults(to: 0.0) + if a then 1.0 else 0.0
-output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0"
+output count_given' eval with count_given'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0"
             .to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
@@ -1450,9 +1450,26 @@ output count_of' eval with count_of'.offset(by: -1).defaults(to: 0.0) + if a = a
             close when a"
             .to_string();
         let expected = "input a: Bool
-output c spawn when a eval when a = 0 with if count_of' = 0.0 then 0.0 else count_both' / count_of' close when a
+output c spawn when a eval when a = 0 with if count_given' = 0.0 then 0.0 else count_both' / count_given' close when a
 output count_both' spawn when a eval when a = 0 with count_both'.offset(by: -1).defaults(to: 0.0) + if a then 1.0 else 0.0 close when a
-output count_of' spawn when a eval when a = 0 with count_of'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0 close when a"
+output count_given' spawn when a eval when a = 0 with count_given'.offset(by: -1).defaults(to: 0.0) + if a = a then 1.0 else 0.0 close when a"
+            .to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn test_probability_parameterized() {
+        let spec = "input a: Bool\ninput i: UInt64
+output c(p)
+    spawn with i
+    eval with prob(of: a, given: p == i)"
+            .to_string();
+        let expected = "input a: Bool
+input i: UInt64
+output c (p) spawn with i eval with if count_given'(p) = 0.0 then 0.0 else count_both'(p) / count_given'(p)
+output count_both' (p) spawn with i eval with count_both'(p).offset(by: -1).defaults(to: 0.0) + if a ∧ p = i then 1.0 else 0.0
+output count_given' (p) spawn with i eval with count_given'(p).offset(by: -1).defaults(to: 0.0) + if p = i ∧ a = a then 1.0 else 0.0"
             .to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
