@@ -659,6 +659,8 @@ pub struct DiscreteWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the discrete window expression
+    pub origin: Origin,
 }
 
 /// Represents an instance of a sliding window
@@ -682,6 +684,8 @@ pub struct SlidingWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the sliding window expression
+    pub origin: Origin,
 }
 
 /// Represents an instance of an instance aggregation
@@ -699,6 +703,8 @@ pub struct InstanceAggregation {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the instance window expression
+    pub origin: Origin,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

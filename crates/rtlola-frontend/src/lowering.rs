@@ -404,6 +404,11 @@ impl Mir {
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            origin: hir
+                .aggregates(win.caller)
+                .iter()
+                .find_map(|(_sr, origin, wref)| (*wref == win.reference()).then_some(*origin))
+                .unwrap(),
         }
     }
 
@@ -420,6 +425,11 @@ impl Mir {
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            origin: hir
+                .aggregates(win.caller)
+                .iter()
+                .find_map(|(_sr, origin, wref)| (*wref == win.reference()).then_some(*origin))
+                .unwrap(),
         }
     }
 
@@ -435,6 +445,11 @@ impl Mir {
             selection: Self::lower_instance_selection(&win.selection, hir, win.reference(), sr_map),
             aggr: Self::lower_instance_operation(win.aggr),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            origin: hir
+                .aggregates(win.caller)
+                .iter()
+                .find_map(|(_sr, origin, wref)| (*wref == win.reference()).then_some(*origin))
+                .unwrap(),
         }
     }
 
