@@ -661,6 +661,8 @@ pub struct DiscreteWindow {
     pub ty: Type,
     /// The origin of the discrete window expression
     pub origin: Origin,
+    /// The pacing of the discrete window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of a sliding window
@@ -686,6 +688,8 @@ pub struct SlidingWindow {
     pub ty: Type,
     /// The origin of the sliding window expression
     pub origin: Origin,
+    /// The pacing of the sliding window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of an instance aggregation
@@ -705,6 +709,8 @@ pub struct InstanceAggregation {
     pub ty: Type,
     /// The origin of the instance window expression
     pub origin: Origin,
+    /// The pacing of the instance aggregation expression
+    pub pacing: PacingType,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
