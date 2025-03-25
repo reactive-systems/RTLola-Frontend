@@ -60,11 +60,10 @@ impl EdgeWeight {
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
-            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
-            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
-                Some(wref)
-            }
+            StreamAccessKind::DiscreteWindow(wref)
+            | StreamAccessKind::SlidingWindow(wref)
+            | StreamAccessKind::InstanceAggregation(wref) => Some(wref),
         }
     }
 
@@ -1494,8 +1493,18 @@ mod tests {
             ["b", ("b", "c")],
             ["c", ()]
         );
-        let aggregates = empty_vec_for_map!(sname_to_sref);
-        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        let aggregates = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", (("b", WRef::Instance(0)))],
+        );
+        let aggregated_by = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", (("c", WRef::Instance(0)))],
+            ["c", ()],
+        );
         check_graph_for_spec(
             spec,
             Some((
@@ -1621,8 +1630,20 @@ mod tests {
             ["b", ("c")],
             ["c", ()]
         );
-        let aggregates = empty_vec_for_map!(sname_to_sref);
-        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        let aggregates = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", ()],
+            ["c", (("b", WRef::Instance(0)))],
+        );
+        let aggregated_by = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", (("c", WRef::Instance(0)))],
+            ["c", ()],
+        );
         check_graph_for_spec(
             spec,
             Some((
