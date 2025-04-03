@@ -211,7 +211,7 @@ impl Display for ArithLogOp {
 impl Display for Offset {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Offset::PastDiscrete(u) => write!(f, "{u}"),
+            Offset::PastDiscrete(u) => write!(f, "-{u}"),
             _ => unimplemented!(),
         }
     }

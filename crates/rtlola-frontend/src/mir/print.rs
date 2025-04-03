@@ -183,13 +183,13 @@ impl<'a, T> RtLolaMirPrinter<'a, T> {
     }
 }
 
-impl<'a, T: Display> Display for RtLolaMirPrinter<'a, T> {
+impl<T: Display> Display for RtLolaMirPrinter<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         self.inner.fmt(f)
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
+impl Display for RtLolaMirPrinter<'_, ActivationCondition> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             ActivationCondition::Conjunction(s) => {
@@ -212,7 +212,7 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
+impl Display for RtLolaMirPrinter<'_, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             PacingType::GlobalPeriodic(freq) => {
@@ -392,7 +392,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, InstanceSelection> {
+impl Display for RtLolaMirPrinter<'_, InstanceSelection> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.inner {
             InstanceSelection::Fresh => write!(f, "fresh"),
@@ -417,7 +417,7 @@ impl<'a> Display for RtLolaMirPrinter<'a, InstanceSelection> {
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, Expression> {
+impl Display for RtLolaMirPrinter<'_, Expression> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", display_expression(self.mir, self.inner, 0))
     }
@@ -431,7 +431,7 @@ impl Display for InputStream {
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
+impl Display for RtLolaMirPrinter<'_, OutputStream> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let OutputStream {
             name: _,
@@ -499,7 +499,7 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, Trigger> {
+impl Display for RtLolaMirPrinter<'_, Trigger> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let output = self.mir.output(self.inner.output_reference);
         RtLolaMirPrinter::new(self.mir, output).fmt(f)

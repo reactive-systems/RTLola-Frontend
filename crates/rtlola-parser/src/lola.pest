@@ -152,8 +152,8 @@ RawStringLiteral = _{ "r" ~ PUSH("#"*) ~ "\"" ~ RawString ~ "\"" ~ POP }
 RawString = @{ (!("\"" ~ PEEK) ~ ANY)* }
 
 BooleanLiteral = _{ True | False}
-True = @{"true"| "⊤"}
-False = @{"false"  | "⊥"}
+True = @{("true"| "⊤")  ~ !(Ident)}
+False = @{("false"  | "⊥")  ~ !(Ident)}
 Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral }
 ConstantLiteral = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral | TupleLiteral }
 TupleLiteral = {"(" ~ ConstantLiteral ~(","~ ConstantLiteral)+ ~ ")"}
@@ -168,7 +168,7 @@ Optional = { Ident ~ "?" }  // Optional types are written `Int32?`
 // /////////////////// Names //////////////////////
 
 // look at https://www.unicode.org/reports/tr31/#R1 and  https://www.unicode.org/reports/tr31/#D1
-Ident = @{ VarianceAggregation | (XID_START | "_") ~ (XID_CONTINUE | "_" | "::")* }
+Ident = @{ VarianceAggregation | (XID_START | "_") ~ (XID_CONTINUE | "_" | "::" | "'")* }
 VarianceAggregation = _{ "σ²" }
 Parameter = { Ident } // Semantic Category
 

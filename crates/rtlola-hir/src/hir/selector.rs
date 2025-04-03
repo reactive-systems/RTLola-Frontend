@@ -299,7 +299,7 @@ impl<'a, M: HirMode + TypedTrait> StreamSelector<'a, M, All> {
     }
 }
 
-impl<'a, M: HirMode + TypedTrait> StreamSelector<'a, M, Dynamic> {
+impl<M: HirMode + TypedTrait> StreamSelector<'_, M, Dynamic> {
     /// Selects streams with a periodic spawn pacing.
     pub fn periodic_spawn(mut self) -> Self {
         self.state.spawn = PacingSelector::Periodic;

@@ -1,4 +1,6 @@
-use super::{ChangeSet, SynSugar};
+use rtlola_reporting::RtLolaError;
+
+use super::{builder::Builder, ChangeSet, ExprOrigin, SynSugar};
 use crate::ast::{Expression, ExpressionKind, RtLolaAst, WindowOperation};
 
 /// Allows shorthand writing of aggregation windows as methods.
@@ -9,10 +11,10 @@ use crate::ast::{Expression, ExpressionKind, RtLolaAst, WindowOperation};
 pub(crate) struct AggrMethodToWindow {}
 
 impl AggrMethodToWindow {
-    fn apply(&self, expr: &Expression) -> ChangeSet {
+    fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
             ExpressionKind::Method(base, name, _types, arguments) => {
-                let op = match name.name.name.as_ref() {
+                let aggregation = match name.name.name.as_ref() {
                     "count" => WindowOperation::Count,
                     "min" => WindowOperation::Min,
                     "max" => WindowOperation::Max,
@@ -25,20 +27,11 @@ impl AggrMethodToWindow {
                     "med" => WindowOperation::NthPercentile(50),
                     _ => return ChangeSet::empty(),
                 };
+                let builder = Builder::new(expr.span, ast);
                 let target_stream = base.clone();
                 let wait = false;
-                let duration = Box::new(arguments[0].clone());
-                let new_id = expr.id.primed();
-                let new_expr = Expression {
-                    kind: ExpressionKind::SlidingWindowAggregation {
-                        expr: target_stream,
-                        duration,
-                        wait,
-                        aggregation: op,
-                    },
-                    id: new_id,
-                    span: expr.span.to_indirect(),
-                };
+                let duration = arguments[0].clone();
+                let new_expr = builder.sliding_window(*target_stream, duration, wait, aggregation);
                 ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),
@@ -47,7 +40,13 @@ impl AggrMethodToWindow {
 }
 
 impl SynSugar for AggrMethodToWindow {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, _ast: &'a RtLolaAst) -> ChangeSet {
-        self.apply(exp)
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(self.apply(exp, ast))
     }
 }

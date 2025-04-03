@@ -69,7 +69,7 @@ impl<'a> RtLolaParser<'a> {
     pub(crate) fn parse(config: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
         RtLolaParser::new(config)
             .parse_spec()
-            .map(|ast| Desugarizer::all().remove_syn_sugar(ast))
+            .and_then(|ast| Desugarizer::all().remove_syn_sugar(ast))
     }
 
     /// Runs the parser on the give spec.
@@ -1248,12 +1248,13 @@ impl<'a> RtLolaParser<'a> {
                                                     }
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
+                                                "true_ratio" | "trueRatio" | "ratio" => WindowOperation::TrueRatio,
                                                 fun => {
                                                     return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
                                                 }
                                             },
                                             _ => {
-                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25), ratio"), true).into());
                                             }
                                         };
                                         if signature.contains("instances") {
@@ -1268,7 +1269,7 @@ impl<'a> RtLolaParser<'a> {
                                                 ExpressionKind::Function(name, _ty, expr) => {
                                                     let signature = name.to_string();
                                                     if expr.len() != 1 {
-                                                        return Err(Diagnostic::error(&format!("filtered instance selection can only have one argument")).add_span_with_label(args[0].span, None, true).into());
+                                                        return Err(Diagnostic::error("filtered instance selection can only have one argument").add_span_with_label(args[0].span, None, true).into());
                                                     }
                                                     let Expression { kind: ExpressionKind::Lambda(lambda), id:_ , span:_  } = expr[0].clone() else {
                                                         return Err(Diagnostic::error("expect lambda expression in filtered instance aggregation").add_span_with_label(expr[0].span, None, true).into());
@@ -2650,5 +2651,50 @@ mod tests {
         output b eval with (p1) => a = 5\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, r);
+    }
+
+    #[test]
+    fn true_ratio_check() {
+        let spec = "input a: Bool\n\
+        output b eval @1Hz with a.aggregate(over: 1s, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn true_ratio_check_parameterized() {
+        let spec = "input a: Bool\n\
+        output b (p) spawn with a eval @1Hz with (a).aggregate(over: 1s, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn true_ratio_check_parameterized_2() {
+        let spec = "input a: Bool\n\
+        output b (p) spawn with a eval when a = p with a\n\
+        output c (p) spawn with a eval @1Hz with c(p).aggregate(over: 1s, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn true_ratio_check_instances() {
+        let spec = "input a: UInt8\n\
+        output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\
+        output b eval @1Hz with a'.aggregate(over_instances: all, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn true_ratio_check_name() {
+        let spec = "input a: Bool\n\
+        input a': Boolean\n\
+        input a'': Boolean\n\
+        input a''': Boolean\n\
+        output b eval @1Hz with (a').aggregate(over: 1s, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
     }
 }

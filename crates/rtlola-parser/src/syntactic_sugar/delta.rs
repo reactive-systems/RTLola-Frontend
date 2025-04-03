@@ -1,5 +1,7 @@
-use super::{ChangeSet, SynSugar};
-use crate::ast::{BinOp, Expression, ExpressionKind, Offset, RtLolaAst, StreamAccessKind};
+use rtlola_reporting::RtLolaError;
+
+use super::{builder::Builder, ChangeSet, ExprOrigin, SynSugar};
+use crate::ast::{Expression, ExpressionKind, Offset, RtLolaAst};
 
 /// Allows for using a delta(x,dft: 0)  function to compute the difference between the current and last value of x; defaults to 0.
 ///
@@ -30,33 +32,16 @@ impl Delta {
                     return ChangeSet::empty();
                 }
                 let target_stream = args[0].clone();
-                let new_id = expr.id.primed();
-
-                let sync = Expression {
-                    kind: ExpressionKind::StreamAccess(
-                        Box::new(target_stream.clone()),
-                        StreamAccessKind::Sync,
-                    ),
-                    id: ast.next_id(),
-                    span: expr.span.to_indirect(),
-                };
-                let offset = Expression {
-                    kind: ExpressionKind::Offset(Box::new(target_stream), Offset::Discrete(-1)),
-                    id: new_id,
-                    span: expr.span.to_indirect(),
-                };
                 let default_expr = args[1].clone();
-                let default = Expression {
-                    kind: ExpressionKind::Default(Box::new(offset), Box::new(default_expr)),
-                    id: ast.next_id(),
-                    span: expr.span.to_indirect(),
-                };
-                let res = Expression {
-                    kind: ExpressionKind::Binary(BinOp::Sub, Box::new(sync), Box::new(default)),
-                    id: new_id,
-                    span: expr.span.to_indirect(),
-                };
-                ChangeSet::replace_current_expression(res)
+                let builder = Builder::new(expr.span, ast);
+                let new_expr = builder.sub(
+                    target_stream.clone(),
+                    builder.default(
+                        builder.offset(target_stream, Offset::Discrete(-1)),
+                        default_expr,
+                    ),
+                );
+                ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),
         }
@@ -64,7 +49,13 @@ impl Delta {
 }
 
 impl SynSugar for Delta {
-    fn desugarize_expr<'a>(&self, exp: &'a Expression, ast: &'a RtLolaAst) -> ChangeSet {
-        self.apply(exp, ast)
+    fn desugarize_expr<'a>(
+        &self,
+        exp: &'a Expression,
+        ast: &'a RtLolaAst,
+        _stream: usize,
+        _origin: ExprOrigin,
+    ) -> Result<ChangeSet, RtLolaError> {
+        Ok(self.apply(exp, ast))
     }
 }
