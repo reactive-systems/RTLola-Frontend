@@ -44,7 +44,7 @@ use rtlola_parser::RtLolaAst;
 #[cfg(test)]
 mod tests;
 
-pub use rtlola_hir::config::{FrontendConfig, ParserConfigExt};
+pub use rtlola_hir::config::{FrontendConfig, MemoryBoundMode, ParserConfigExt};
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
 pub use rtlola_reporting::{Diagnostic, Handler, RawDiagnostic, RtLolaError, Span};
