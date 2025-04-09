@@ -83,6 +83,8 @@ impl Display for IntTy {
             IntTy::Int16 => write!(f, "16"),
             IntTy::Int32 => write!(f, "32"),
             IntTy::Int64 => write!(f, "64"),
+            IntTy::Int128 => write!(f, "128"),
+            IntTy::Int256 => write!(f, "256"),
         }
     }
 }
@@ -94,6 +96,8 @@ impl Display for UIntTy {
             UIntTy::UInt16 => write!(f, "16"),
             UIntTy::UInt32 => write!(f, "32"),
             UIntTy::UInt64 => write!(f, "64"),
+            UIntTy::UInt128 => write!(f, "128"),
+            UIntTy::UInt256 => write!(f, "256"),
         }
     }
 }

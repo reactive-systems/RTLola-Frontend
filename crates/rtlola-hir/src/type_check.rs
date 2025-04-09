@@ -71,6 +71,10 @@ pub enum ConcreteValueType {
     Integer32,
     /// 64-bit signed integer
     Integer64,
+    /// 128-bit signed integer
+    Integer128,
+    /// 256-bit signed integer
+    Integer256,
     /// 8-bit unsigned integer
     UInteger8,
     /// 16-bit unsigned integer
@@ -79,6 +83,10 @@ pub enum ConcreteValueType {
     UInteger32,
     /// 64-bit unsigned integer
     UInteger64,
+    /// 128-bit unsigned integer
+    UInteger128,
+    /// 256-bit unsigned integer
+    UInteger256,
     /// 32-bit floating point value
     Float32,
     /// 64-bit floating point value

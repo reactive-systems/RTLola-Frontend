@@ -183,6 +183,10 @@ pub enum IntTy {
     Int32,
     /// Represents a 64-bit integer.
     Int64,
+    /// Represents a 128-bit integer.
+    Int128,
+    /// Represents a 256-bit integer.
+    Int256,
 }
 
 #[allow(missing_docs)]
@@ -196,6 +200,10 @@ pub enum UIntTy {
     UInt32,
     /// Represents a 64-bit unsigned integer.
     UInt64,
+    /// Represents a 128-bit unsigned integer.
+    UInt128,
+    /// Represents a 256-bit unsigned integer.
+    UInt256,
 }
 
 #[allow(missing_docs)]
@@ -1363,10 +1371,14 @@ impl Type {
             Type::Int(IntTy::Int16) => Some(ValSize(2)),
             Type::Int(IntTy::Int32) => Some(ValSize(4)),
             Type::Int(IntTy::Int64) => Some(ValSize(8)),
+            Type::Int(IntTy::Int128) => Some(ValSize(16)),
+            Type::Int(IntTy::Int256) => Some(ValSize(32)),
             Type::UInt(UIntTy::UInt8) => Some(ValSize(1)),
             Type::UInt(UIntTy::UInt16) => Some(ValSize(2)),
             Type::UInt(UIntTy::UInt32) => Some(ValSize(4)),
             Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
+            Type::UInt(UIntTy::UInt128) => Some(ValSize(16)),
+            Type::UInt(UIntTy::UInt256) => Some(ValSize(32)),
             Type::Float(FloatTy::Float32) => Some(ValSize(4)),
             Type::Float(FloatTy::Float64) => Some(ValSize(8)),
             Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => {
