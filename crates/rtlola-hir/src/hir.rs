@@ -28,7 +28,6 @@ use rtlola_reporting::Span;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
 
-use crate::config::MemoryBoundMode;
 pub use crate::hir::expression::*;
 pub use crate::modes::ast_conversion::TransformationErr;
 pub use crate::modes::dependencies::{DependencyErr, DependencyGraph, EdgeWeight, Origin};
@@ -1052,10 +1051,10 @@ impl Offset {
         }
     }
 
-    pub(crate) fn as_memory_bound(&self, memory_bound_mode: MemoryBoundMode) -> MemorizationBound {
+    pub(crate) fn as_memory_bound(&self) -> MemorizationBound {
         match self {
             Offset::PastDiscrete(o) => {
-                MemorizationBound::Bounded(*o) + MemorizationBound::default_value(memory_bound_mode)
+                MemorizationBound::Bounded(*o) + MemorizationBound::Bounded(1)
             }
             Offset::FutureDiscrete(_) => unimplemented!(),
             Offset::FutureRealTime(_) => unimplemented!(),

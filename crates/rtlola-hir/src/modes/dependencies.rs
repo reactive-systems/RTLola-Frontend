@@ -79,7 +79,7 @@ impl EdgeWeight {
                 MemorizationBound::default_value(memory_bound_mode)
             }
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
-            StreamAccessKind::Offset(o) => o.as_memory_bound(memory_bound_mode),
+            StreamAccessKind::Offset(o) => o.as_memory_bound(),
         }
     }
 }
