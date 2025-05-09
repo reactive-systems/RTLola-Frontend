@@ -116,120 +116,123 @@ pub enum TransformationErr {
     DuplicatedTag(String, Span, Span),
     /// A lambda expression occured outside of the filtered aggregation
     UnsupportedLambda(Span),
+    /// The number of elements of a constant tuple mismatches the annotated type
+    ConstantTupleAnnotationMismatch(Span, usize, usize),
 }
 
 impl TransformationErr {
     pub(crate) fn into_diagnostic(self) -> Diagnostic {
         match self {
             TransformationErr::InvalidIdentRef(span, name) => {
-                Diagnostic::error("Expected a stream reference, but found a function.").add_span_with_label(
-                    span,
-                    Some(&format!("Found function {name} here")),
-                    true,
-                )
-            }
+                        Diagnostic::error("Expected a stream reference, but found a function.").add_span_with_label(
+                            span,
+                            Some(&format!("Found function {name} here")),
+                            true,
+                        )
+                    }
             TransformationErr::InvalidRefExpr(span, reason) => {
-                Diagnostic::error(&format!("Invalid stream identifier: {reason}")).add_span_with_label(
-                    span,
-                    Some("Found here"),
-                    true,
-                )
-            }
+                        Diagnostic::error(&format!("Invalid stream identifier: {reason}")).add_span_with_label(
+                            span,
+                            Some("Found here"),
+                            true,
+                        )
+                    }
             TransformationErr::ConstantWithoutType(span) => {
-                Diagnostic::error("Missing type annotation of constant stream.").add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error("Missing type annotation of constant stream.").add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::NonNumericInLiteral(span) => {
-                Diagnostic::error("Invalid numeric literal.").add_span_with_label(span, Some("here"), true)
-            }
+                        Diagnostic::error("Invalid numeric literal.").add_span_with_label(span, Some("here"), true)
+                    }
             TransformationErr::InvalidAc(span, reason) => {
-                Diagnostic::error(&format!("Invalid frequency annotation: {reason}")).add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error(&format!("Invalid frequency annotation: {reason}")).add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::InvalidRealtimeOffset(span) => {
-                Diagnostic::error("Invalid time format.").add_span_with_label(span, Some("here"), true)
-            }
+                        Diagnostic::error("Invalid time format.").add_span_with_label(span, Some("here"), true)
+                    }
             TransformationErr::InvalidDuration(reason, span) => {
-                Diagnostic::error("Invalid window duration.").add_span_with_label(span, Some(&reason), true)
-            }
+                        Diagnostic::error("Invalid window duration.").add_span_with_label(span, Some(&reason), true)
+                    }
             TransformationErr::MissingExpr(span) => {
-                Diagnostic::error("Expected an expression.").add_span_with_label(span, Some("here"), true)
-            }
+                        Diagnostic::error("Expected an expression.").add_span_with_label(span, Some("here"), true)
+                    }
             TransformationErr::MissingWidenArg(span) => {
-                Diagnostic::error("The widen expression expects an argument.").add_span_with_label(
-                    span,
-                    Some("missing argument here"),
-                    true,
-                )
-            }
+                        Diagnostic::error("The widen expression expects an argument.").add_span_with_label(
+                            span,
+                            Some("missing argument here"),
+                            true,
+                        )
+                    }
             TransformationErr::InvalidType(ty, reason, span) => {
-                Diagnostic::error(&format!("Unknown type {ty}.")).add_span_with_label(span, Some(&reason), true)
-            }
+                        Diagnostic::error(&format!("Unknown type {ty}.")).add_span_with_label(span, Some(&reason), true)
+                    }
             TransformationErr::UnknownFunction(span) => {
-                Diagnostic::error("Unknown function.").add_span_with_label(span, Some("Found here"), true)
-            }
+                        Diagnostic::error("Unknown function.").add_span_with_label(span, Some("Found here"), true)
+                    }
             TransformationErr::InvalidLiteral(span) => {
-                Diagnostic::error("Unit declarations are not allowed on non-time literals.").add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error("Unit declarations are not allowed on non-time literals.").add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::MissingArguments(span) => {
-                Diagnostic::error("An access to a parameterized output stream is missing its arguments.").add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error("An access to a parameterized output stream is missing its arguments.").add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::MissingSpawn(span) => {
-                Diagnostic::error("The following stream has parameters but no spawn expression.").add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-                    .add_note("Help: Add a spawn declaration of the form: spawn with (exp1, ..., exp_n) if ...")
-            }
+                        Diagnostic::error("The following stream has parameters but no spawn expression.").add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                            .add_note("Help: Add a spawn declaration of the form: spawn with (exp1, ..., exp_n) if ...")
+                    }
             TransformationErr::MissingParameters(span) => {
-                Diagnostic::error("The following stream has a spawn declaration but no parameters.").add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error("The following stream has a spawn declaration but no parameters.").add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::SpawnParameterMismatch(span, paras, targets) => {
-                Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {paras} parameters and {targets} spawn expressions", )).add_span_with_label(
-                    span,
-                    Some("here"),
-                    true,
-                )
-            }
+                        Diagnostic::error(&format!("The number of parameters of the stream differs from the number of spawn expressions. Found {paras} parameters and {targets} spawn expressions", )).add_span_with_label(
+                            span,
+                            Some("here"),
+                            true,
+                        )
+                    }
             TransformationErr::InstanceAggregationPara(span) => {
-                Diagnostic::error("Instance aggregations can only be applied to all instances of a stream.").add_span_with_label(
-                    span,
-                    Some("Remove the parameters here."),
-                    true,
-                )
-            }
+                        Diagnostic::error("Instance aggregations can only be applied to all instances of a stream.").add_span_with_label(
+                            span,
+                            Some("Remove the parameters here."),
+                            true,
+                        )
+                    }
             TransformationErr::InstanceAggregationNonPara(span) => {
-                Diagnostic::error("Instance aggregations can only be computed over parameterized streams.").add_span_with_label(
-                    span,
-                    Some("Found non-parameterized stream here."),
-                    true,
-                )
-            }
+                        Diagnostic::error("Instance aggregations can only be computed over parameterized streams.").add_span_with_label(
+                            span,
+                            Some("Found non-parameterized stream here."),
+                            true,
+                        )
+                    }
             TransformationErr::MissingTriggerCondition(span) => Diagnostic::error("Trigger definitions need to include an eval-when clause.").add_span_with_label(span, Some("Found trigger with missing eval-with here."), true),
             TransformationErr::ExpectedFrequency(span) => Diagnostic::error("Local and Global annotated pacings must be frequencies").add_span_with_label(span, Some("Found Expression here"), true),
             TransformationErr::LocalPeriodicUnspawned(span) => Diagnostic::error("In pacing type analysis:\nstream is annotated with local frequency, but is not spawned.").add_span_with_label(span, None, false),
             TransformationErr::LocalPeriodicInSpawn(span) => Diagnostic::error("In pacing type analysis:\nspawn condition can not be local periodic.").add_span_with_label(span, Some("Found local periodic pacing here."), true),
             TransformationErr::DuplicatedTag(key, first, second) => Diagnostic::error(&format!("The stream is tagged with \"{key}\" more than once.")).add_span_with_label(first, Some("First occurance found here."), false).add_span_with_label(second, Some("Second occurance found here."), true),
-            TransformationErr::UnsupportedLambda(span) => Diagnostic::error("Lambda expressions are not supported.").add_span_with_label(span, Some("Found lambda expression here"), true)
+            TransformationErr::UnsupportedLambda(span) => Diagnostic::error("Lambda expressions are not supported.").add_span_with_label(span, Some("Found lambda expression here"), true),
+            TransformationErr::ConstantTupleAnnotationMismatch(span, expr_len, ty_len) => Diagnostic::error(&format!("Constant tuple expression of length {expr_len} is annotated with tuple type of length {ty_len}")).add_span_with_label(span, Some("Found tuple expression here"), true)
         }
     }
 }
@@ -1070,6 +1073,13 @@ impl ExpressionTransformer {
                 },
                 AnnotatedType::Tuple(tys),
             ) => {
+                if xs.len() != tys.len() {
+                    return Err(TransformationErr::ConstantTupleAnnotationMismatch(
+                        span,
+                        xs.len(),
+                        tys.len(),
+                    ));
+                }
                 let inner = xs
                     .into_iter()
                     .zip(tys)
@@ -1561,6 +1571,15 @@ mod tests {
         } else {
             unreachable!()
         }
+    }
+
+    #[test]
+    fn tuple_lit_mismatch() {
+        let spec = "
+        constant C : (UInt64,UInt64) := (1,2,3)\n\
+        output o := C";
+        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap();
+        assert!(crate::from_ast(ast).is_err());
     }
 
     #[test]
