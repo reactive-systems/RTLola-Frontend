@@ -205,7 +205,7 @@ impl MemBound {
 }
 
 #[cfg(test)]
-mod dynaminc_memory_bound_tests {
+mod dynamic_memory_bound_tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
@@ -274,7 +274,7 @@ mod dynaminc_memory_bound_tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(2)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
@@ -325,7 +325,7 @@ mod dynaminc_memory_bound_tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(5)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
             (sname_to_sref["c"], MemorizationBound::Bounded(0)),
             (sname_to_sref["d"], MemorizationBound::Bounded(0)),
@@ -347,10 +347,10 @@ mod dynaminc_memory_bound_tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
-            (sname_to_sref["b"], MemorizationBound::Bounded(3)),
-            (sname_to_sref["c"], MemorizationBound::Bounded(4)),
-            (sname_to_sref["d"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(5)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(3)),
         ]
         .into_iter()
         .collect();

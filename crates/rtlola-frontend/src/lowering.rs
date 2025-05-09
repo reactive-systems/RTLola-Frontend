@@ -49,11 +49,7 @@ impl Mir {
                         .into_iter()
                         .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
                         .collect(),
-                    aggregates: hir
-                        .aggregates(sr)
-                        .into_iter()
-                        .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
-                        .collect(),
+                    aggregates: Vec::new(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
                     reference: sr_map[&sr],

@@ -53,7 +53,6 @@ impl EdgeWeight {
     }
 
     /// Returns the window reference if the [EdgeWeight] contains a sliding or discrete Aggregation or None otherwise.
-    /// Note: This functions returns None for Instance Aggregations as they are not sliding windows in the traditional sense.
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
             StreamAccessKind::Get
@@ -85,11 +84,11 @@ impl EdgeWeight {
 }
 
 /// Represents all direct dependencies between streams
-pub(crate) type Streamdependencies = HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>>;
+pub(crate) type StreamDependencies = HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>>;
 /// Represents all transitive dependencies between streams
-pub(crate) type Transitivedependencies = HashMap<SRef, Vec<SRef>>;
+pub(crate) type TransitiveDependencies = HashMap<SRef, Vec<SRef>>;
 /// Represents all dependencies between streams in which a window lookup is used
-pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, Origin, WRef)>>;
+pub(crate) type WindowDependencies = HashMap<SRef, Vec<(SRef, Origin, WRef)>>;
 
 pub(crate) trait ExtendedDepGraph {
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
@@ -395,9 +394,9 @@ impl DepAna {
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregates: HashMap<SRef, Vec<(SRef, Origin, WRef)>> =
+        let mut aggregates: WindowDependencies =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregated_by: HashMap<SRef, Vec<(SRef, Origin, WRef)>> =
+        let mut aggregated_by: WindowDependencies =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `InstanceSelection::FilteredAll` and `InstanceSelection::FilteredFresh` variants for filtered instance aggregation.
 - Added `aggregates` field to mir
 - Added `origin` to windows
+- Add 128 and 256 bit variants for signed and unsigned integers
 
 ## [0.7.0] - 28.06.2024
 

@@ -10,7 +10,7 @@ use std::time::Duration;
 use rtlola_reporting::RtLolaError;
 
 use self::dependencies::{
-    DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies,
+    DependencyGraph, Origin, StreamDependencies, TransitiveDependencies, WindowDependencies,
 };
 use self::types::HirType;
 use crate::config::FrontendConfig;
@@ -199,12 +199,12 @@ impl Hir<TypedMode> {
 /// Represents the results of the dependency analysis
 #[derive(Debug, Clone)]
 pub struct DepAna {
-    direct_accesses: Streamdependencies,
-    transitive_accesses: Transitivedependencies,
-    direct_accessed_by: Streamdependencies,
-    transitive_accessed_by: Transitivedependencies,
-    aggregated_by: Windowdependencies,
-    aggregates: Windowdependencies,
+    direct_accesses: StreamDependencies,
+    transitive_accesses: TransitiveDependencies,
+    direct_accessed_by: StreamDependencies,
+    transitive_accessed_by: TransitiveDependencies,
+    aggregated_by: WindowDependencies,
+    aggregates: WindowDependencies,
     graph: DependencyGraph,
 }
 

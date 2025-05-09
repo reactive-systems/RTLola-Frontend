@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tuple Literal to HIR
 - Instance aggregation filter conditions
 - Add `Origin` to `aggregates_by` and `aggregates`
+- Add 128 and 256 bit variants for signed and unsigned integers
 
 ### Changed
 - Missing Annotated pacing now also features a span
