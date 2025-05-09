@@ -383,7 +383,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
         }
         ExpressionKind::Convert { expr: inner_expr } => {
             let inner_display = display_expression(mir, inner_expr, 0);
-            format!("Cast<{},{}>({inner_display})", expr.ty, inner_expr.ty)
+            format!("cast<{},{}>({inner_display})", inner_expr.ty, expr.ty)
         }
         ExpressionKind::Default { expr, default } => {
             let display_expr = display_expression(mir, expr, 0);
@@ -609,7 +609,16 @@ mod tests {
             eval with b.aggregate(over_instances: fresh(where: (p1, p2) => p2 = a2), using: Σ)";
         let config = ParserConfig::for_string(spec.into());
         let mir = parse(&config).expect("should parse");
-        println!("{mir}");
+        let config = ParserConfig::for_string(mir.to_string());
+        parse(&config).expect("should also parse");
+    }
+
+    #[test]
+    fn test_cast() {
+        let spec = "input a: Int32\n\
+        output b : UInt32 := cast<Int32,UInt32>(a)";
+        let config = ParserConfig::for_string(spec.into());
+        let mir = parse(&config).expect("should parse");
         let config = ParserConfig::for_string(mir.to_string());
         parse(&config).expect("should also parse");
     }
