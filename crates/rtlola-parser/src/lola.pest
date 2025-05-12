@@ -45,7 +45,7 @@ IncludeStatement = { "include"~ StringLiteral}
 
 TypeDecl = { "type "  ~ Ident ~"{" ~Ident~ ":"~Type~ ("," ~Ident~ ":"~Type)* ~ "}"}
 
-ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
+ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~ ConstantLiteral }
 
 InputStream = { TagLists? ~ "input " ~ Ident ~ ParamListDecl? ~ ":" ~ Type ~(","~ Ident~ ParamListDecl? ~ ":" ~ Type)*}
 
@@ -151,11 +151,12 @@ String = @{("\\\""|!("\"") ~ ANY)*}
 RawStringLiteral = _{ "r" ~ PUSH("#"*) ~ "\"" ~ RawString ~ "\"" ~ POP }
 RawString = @{ (!("\"" ~ PEEK) ~ ANY)* }
 
-BooleanLiteral = _{ True | False }
+BooleanLiteral = _{ True | False}
 True = @{("true"| "⊤")  ~ !(Ident)}
 False = @{("false"  | "⊥")  ~ !(Ident)}
-Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral | TupleLiteral}
-TupleLiteral = {"(" ~ Literal ~(","~Literal)+ ~ ")"}
+Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral }
+ConstantLiteral = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral | TupleLiteral }
+TupleLiteral = {"(" ~ ConstantLiteral ~(","~ ConstantLiteral)+ ~ ")"}
 
 IntegerLiteral = @{ Digit+ }
 SignedIntegerLiteral = @{ ("+" | "-")?~IntegerLiteral }

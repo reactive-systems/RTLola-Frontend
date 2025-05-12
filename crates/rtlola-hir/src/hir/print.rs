@@ -164,11 +164,6 @@ impl Display for Literal {
             Literal::Decimal(v) => write!(f, "{v}"),
             Literal::Bool(v) => write!(f, "{v}"),
             Literal::Str(v) => write!(f, "{v}"),
-            Literal::Tuple(elements) => write!(
-                f,
-                "({})",
-                elements.iter().map(|l| format!("{l}")).join(", ")
-            ),
         }
     }
 }

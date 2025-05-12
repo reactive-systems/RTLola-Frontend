@@ -197,8 +197,6 @@ pub enum Literal {
     SInt(i128),
     /// Decimal constant
     Decimal(Decimal),
-    /// A tuple of literals
-    Tuple(Vec<Literal>),
 }
 
 impl Hash for Literal {
@@ -223,10 +221,6 @@ impl Hash for Literal {
             Literal::Decimal(_) => {
                 5.hash(state);
             }
-            Literal::Tuple(elements) => {
-                6.hash(state);
-                elements.hash(state);
-            }
         }
     }
 }
@@ -244,8 +238,6 @@ impl PartialEq for Literal {
             (Integer(i1), Integer(i2)) => i1 == i2,
             (Integer(_), _) | (_, Integer(_)) => false,
             (SInt(i1), SInt(i2)) => i1 == i2,
-            (SInt(_), _) | (_, SInt(_)) => false,
-            (Tuple(t1), Tuple(t2)) => t1 == t2,
         }
     }
 }

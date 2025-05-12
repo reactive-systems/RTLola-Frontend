@@ -594,19 +594,6 @@ impl Mir {
                 mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
                 _ => unreachable!(),
             },
-            Literal::Tuple(elements) => {
-                let mir::Type::Tuple(tuple_types) = ty else {
-                    unreachable!("type checking is broken")
-                };
-                debug_assert_eq!(elements.len(), tuple_types.len());
-                mir::Constant::Tuple(
-                    elements
-                        .iter()
-                        .zip(tuple_types)
-                        .map(|(lit, ty)| Self::lower_constant_literal(lit, ty))
-                        .collect(),
-                )
-            }
         }
     }
 
