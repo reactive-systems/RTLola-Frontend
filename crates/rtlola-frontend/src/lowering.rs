@@ -14,7 +14,7 @@ use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, Tag, WindowOperation};
 use rtlola_reporting::Span;
 
-use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, Spawn, Trigger};
+use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, PacingType, Spawn, Trigger};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
@@ -47,8 +47,9 @@ impl Mir {
                     aggregated_by: hir
                         .aggregated_by(sr)
                         .into_iter()
-                        .map(|(sr, wr)| (sr_map[&sr], wr))
+                        .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
                         .collect(),
+                    aggregates: Vec::new(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
                     reference: sr_map[&sr],
@@ -82,7 +83,12 @@ impl Mir {
                 aggregated_by: hir
                     .aggregated_by(sr)
                     .into_iter()
-                    .map(|(sr, wr)| (sr_map[&sr], wr))
+                    .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
+                    .collect(),
+                aggregates: hir
+                    .aggregates(sr)
+                    .into_iter()
+                    .map(|(sr, origin, wr)| (sr_map[&sr], origin, wr))
                     .collect(),
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
@@ -269,14 +275,14 @@ impl Mir {
     fn lower_pacing_type(
         cpt: ConcretePacingType,
         sr_map: &HashMap<StreamReference, StreamReference>,
-    ) -> mir::PacingType {
+    ) -> PacingType {
         match cpt {
             ConcretePacingType::Event(ac) => {
-                mir::PacingType::Event(Self::lower_activation_condition(&ac, sr_map))
+                PacingType::Event(Self::lower_activation_condition(&ac, sr_map))
             }
-            ConcretePacingType::FixedLocalPeriodic(freq) => mir::PacingType::LocalPeriodic(freq),
-            ConcretePacingType::FixedGlobalPeriodic(freq) => mir::PacingType::GlobalPeriodic(freq),
-            ConcretePacingType::Constant => mir::PacingType::Constant,
+            ConcretePacingType::FixedLocalPeriodic(freq) => PacingType::LocalPeriodic(freq),
+            ConcretePacingType::FixedGlobalPeriodic(freq) => PacingType::GlobalPeriodic(freq),
+            ConcretePacingType::Constant => PacingType::Constant,
             other => {
                 unreachable!("Ensured by pacing type checker: {:?}", other)
             }
@@ -363,7 +369,7 @@ impl Mir {
                     close_span,
                 )
             })
-            .unwrap_or((None, mir::PacingType::Constant, false, Span::Unknown));
+            .unwrap_or((None, PacingType::Constant, false, Span::Unknown));
         Close {
             condition: close,
             pacing: close_pacing,
@@ -384,6 +390,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         win: &Window<SlidingAggr>,
     ) -> mir::SlidingWindow {
+        let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
         mir::SlidingWindow {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
@@ -394,6 +401,8 @@ impl Mir {
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            pacing: Self::lower_origin_pacing(hir, win.caller, &origin, sr_map),
+            origin,
         }
     }
 
@@ -402,6 +411,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         win: &Window<DiscreteAggr>,
     ) -> mir::DiscreteWindow {
+        let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
         mir::DiscreteWindow {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
@@ -410,6 +420,8 @@ impl Mir {
             op: Self::lower_window_operation(win.aggr.op),
             reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            pacing: Self::lower_origin_pacing(hir, win.caller, &origin, sr_map),
+            origin,
         }
     }
 
@@ -418,6 +430,7 @@ impl Mir {
         sr_map: &HashMap<StreamReference, StreamReference>,
         win: &InstanceAggregation,
     ) -> mir::InstanceAggregation {
+        let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
         mir::InstanceAggregation {
             target: sr_map[&win.target],
             caller: sr_map[&win.caller],
@@ -425,7 +438,35 @@ impl Mir {
             selection: Self::lower_instance_selection(&win.selection, hir, win.reference(), sr_map),
             aggr: Self::lower_instance_operation(win.aggr),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            pacing: Self::lower_origin_pacing(hir, win.caller, &origin, sr_map),
+            origin,
         }
+    }
+
+    fn lower_window_origin(
+        hir: &RtLolaHir<CompleteMode>,
+        window: WindowReference,
+        caller: StreamReference,
+    ) -> Origin {
+        hir.aggregates(caller)
+            .iter()
+            .find_map(|(_sr, origin, wref)| (*wref == window).then_some(*origin))
+            .unwrap()
+    }
+
+    fn lower_origin_pacing(
+        hir: &RtLolaHir<CompleteMode>,
+        sr: StreamReference,
+        origin: &Origin,
+        sr_map: &HashMap<StreamReference, StreamReference>,
+    ) -> PacingType {
+        let ty = hir.stream_type(sr);
+        let pacing = match origin {
+            Origin::Spawn => ty.spawn_pacing,
+            Origin::Filter(i) | Origin::Eval(i) => hir.eval_pacing_type(sr, *i),
+            Origin::Close => ty.close_pacing,
+        };
+        Self::lower_pacing_type(pacing, sr_map)
     }
 
     fn lower_value_type(ty: &ConcreteValueType) -> mir::Type {
@@ -435,10 +476,14 @@ impl Mir {
             ConcreteValueType::Integer16 => mir::Type::Int(mir::IntTy::Int16),
             ConcreteValueType::Integer32 => mir::Type::Int(mir::IntTy::Int32),
             ConcreteValueType::Integer64 => mir::Type::Int(mir::IntTy::Int64),
+            ConcreteValueType::Integer128 => mir::Type::Int(mir::IntTy::Int128),
+            ConcreteValueType::Integer256 => mir::Type::Int(mir::IntTy::Int256),
             ConcreteValueType::UInteger8 => mir::Type::UInt(mir::UIntTy::UInt8),
             ConcreteValueType::UInteger16 => mir::Type::UInt(mir::UIntTy::UInt16),
             ConcreteValueType::UInteger32 => mir::Type::UInt(mir::UIntTy::UInt32),
             ConcreteValueType::UInteger64 => mir::Type::UInt(mir::UIntTy::UInt64),
+            ConcreteValueType::UInteger128 => mir::Type::UInt(mir::UIntTy::UInt128),
+            ConcreteValueType::UInteger256 => mir::Type::UInt(mir::UIntTy::UInt256),
             ConcreteValueType::Float32 => mir::Type::Float(mir::FloatTy::Float32),
             ConcreteValueType::Float64 => mir::Type::Float(mir::FloatTy::Float64),
             ConcreteValueType::Fixed64_32 => mir::Type::Fixed(mir::FixedTy::Fixed64_32),

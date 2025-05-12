@@ -161,10 +161,14 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Integer16
             | ConcreteValueType::Integer32
             | ConcreteValueType::Integer64
+            | ConcreteValueType::Integer128
+            | ConcreteValueType::Integer256
             | ConcreteValueType::UInteger8
             | ConcreteValueType::UInteger16
             | ConcreteValueType::UInteger32
             | ConcreteValueType::UInteger64
+            | ConcreteValueType::UInteger128
+            | ConcreteValueType::UInteger256
             | ConcreteValueType::Float32
             | ConcreteValueType::Float64
             | ConcreteValueType::Fixed64_32

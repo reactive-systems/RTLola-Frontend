@@ -53,18 +53,16 @@ impl EdgeWeight {
     }
 
     /// Returns the window reference if the [EdgeWeight] contains a sliding or discrete Aggregation or None otherwise.
-    /// Note: This functions returns None for Instance Aggregations as they are not sliding windows in the traditional sense.
     pub(crate) fn window(&self) -> Option<WRef> {
         match self.kind {
             StreamAccessKind::Get
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
-            | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::Offset(_) => None,
-            StreamAccessKind::DiscreteWindow(wref) | StreamAccessKind::SlidingWindow(wref) => {
-                Some(wref)
-            }
+            StreamAccessKind::DiscreteWindow(wref)
+            | StreamAccessKind::SlidingWindow(wref)
+            | StreamAccessKind::InstanceAggregation(wref) => Some(wref),
         }
     }
 
@@ -80,17 +78,17 @@ impl EdgeWeight {
                 MemorizationBound::default_value(memory_bound_mode)
             }
             StreamAccessKind::Hold => MemorizationBound::Bounded(1),
-            StreamAccessKind::Offset(o) => o.as_memory_bound(memory_bound_mode),
+            StreamAccessKind::Offset(o) => o.as_memory_bound(),
         }
     }
 }
 
 /// Represents all direct dependencies between streams
-pub(crate) type Streamdependencies = HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>>;
+pub(crate) type StreamDependencies = HashMap<SRef, Vec<(SRef, Vec<(Origin, StreamAccessKind)>)>>;
 /// Represents all transitive dependencies between streams
-pub(crate) type Transitivedependencies = HashMap<SRef, Vec<SRef>>;
+pub(crate) type TransitiveDependencies = HashMap<SRef, Vec<SRef>>;
 /// Represents all dependencies between streams in which a window lookup is used
-pub(crate) type Windowdependencies = HashMap<SRef, Vec<(SRef, WRef)>>;
+pub(crate) type WindowDependencies = HashMap<SRef, Vec<(SRef, Origin, WRef)>>;
 
 pub(crate) trait ExtendedDepGraph {
     /// Returns a new [dependency graph](DependencyGraph), in which all edges representing a negative offset lookup are deleted
@@ -231,23 +229,23 @@ impl DepAnaTrait for DepAna {
             .map_or(Vec::new(), |accesses| accesses.to_vec())
     }
 
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)> {
+    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, Origin, WRef)> {
         self.aggregated_by
             .get(&who)
             .map_or(Vec::new(), |aggregated_by| {
                 aggregated_by
                     .iter()
-                    .map(|(sref, wref)| (*sref, *wref))
-                    .collect::<Vec<(SRef, WRef)>>()
+                    .map(|(sref, origin, wref)| (*sref, *origin, *wref))
+                    .collect::<Vec<_>>()
             })
     }
 
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)> {
+    fn aggregates(&self, who: SRef) -> Vec<(SRef, Origin, WRef)> {
         self.aggregates.get(&who).map_or(Vec::new(), |aggregates| {
             aggregates
                 .iter()
-                .map(|(sref, wref)| (*sref, *wref))
-                .collect::<Vec<(SRef, WRef)>>()
+                .map(|(sref, origin, wref)| (*sref, *origin, *wref))
+                .collect::<Vec<_>>()
         })
     }
 
@@ -396,9 +394,9 @@ impl DepAna {
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         let mut direct_accessed_by: HashMap<SRef, Vec<(SRef, Origin, StreamAccessKind)>> =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregates: HashMap<SRef, Vec<(SRef, WRef)>> =
+        let mut aggregates: WindowDependencies =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
-        let mut aggregated_by: HashMap<SRef, Vec<(SRef, WRef)>> =
+        let mut aggregated_by: WindowDependencies =
             spec.all_streams().map(|sr| (sr, Vec::new())).collect();
         edges.iter().for_each(|(src, w, tar)| {
             let cur_accesses = direct_accesses.get_mut(src).unwrap();
@@ -413,12 +411,12 @@ impl DepAna {
             }
             if let Some(wref) = w.window() {
                 let cur_aggregates = aggregates.get_mut(src).unwrap();
-                if !cur_aggregates.contains(&(*tar, wref)) {
-                    cur_aggregates.push((*tar, wref));
+                if !cur_aggregates.contains(&(*tar, w.origin, wref)) {
+                    cur_aggregates.push((*tar, w.origin, wref));
                 }
                 let cur_aggregates_by = aggregated_by.get_mut(tar).unwrap();
-                if !cur_aggregates_by.contains(&(*src, wref)) {
-                    cur_aggregates_by.push((*src, wref));
+                if !cur_aggregates_by.contains(&(*src, w.origin, wref)) {
+                    cur_aggregates_by.push((*src, w.origin, wref));
                 }
             }
         });
@@ -711,9 +709,9 @@ mod tests {
             deps.aggregates.iter().for_each(|(sr, aggregates_hir)| {
                 let aggregates_reference = aggregates.get(sr).unwrap();
                 assert_eq!(aggregates_hir.len(), aggregates_reference.len(), "test");
-                aggregates_hir
-                    .iter()
-                    .for_each(|lookup| assert!(aggregates_reference.contains(lookup)));
+                aggregates_hir.iter().for_each(|(sr, _, wref)| {
+                    assert!(aggregates_reference.contains(&(*sr, *wref)))
+                });
             });
             deps.aggregated_by
                 .iter()
@@ -724,9 +722,9 @@ mod tests {
                         aggregated_by_reference.len(),
                         "test"
                     );
-                    aggregated_by_hir
-                        .iter()
-                        .for_each(|lookup| assert!(aggregated_by_reference.contains(lookup)));
+                    aggregated_by_hir.iter().for_each(|(sr, _, wref)| {
+                        assert!(aggregated_by_reference.contains(&(*sr, *wref)))
+                    });
                 });
         } else {
             assert!(dependencies.is_none())
@@ -1494,8 +1492,18 @@ mod tests {
             ["b", ("b", "c")],
             ["c", ()]
         );
-        let aggregates = empty_vec_for_map!(sname_to_sref);
-        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        let aggregates = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", ()],
+            ["c", (("b", WRef::Instance(0)))],
+        );
+        let aggregated_by = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["b", (("c", WRef::Instance(0)))],
+            ["c", ()],
+        );
         check_graph_for_spec(
             spec,
             Some((
@@ -1621,8 +1629,20 @@ mod tests {
             ["b", ("c")],
             ["c", ()]
         );
-        let aggregates = empty_vec_for_map!(sname_to_sref);
-        let aggregated_by = empty_vec_for_map!(sname_to_sref);
+        let aggregates = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", ()],
+            ["c", (("b", WRef::Instance(0)))],
+        );
+        let aggregated_by = checking_map!(
+            sname_to_sref,
+            ["a", ()],
+            ["a2", ()],
+            ["b", (("c", WRef::Instance(0)))],
+            ["c", ()],
+        );
         check_graph_for_spec(
             spec,
             Some((

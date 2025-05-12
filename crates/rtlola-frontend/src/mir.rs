@@ -73,7 +73,10 @@ pub trait Stream {
     fn accessed_by(&self) -> &Accesses;
     /// Returns the collection of sliding windows that access the stream non-transitively.
     /// This includes both sliding and discrete windows.
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)];
+    /// Returns the collection of sliding windows that are accessed by the stream non-transitively.
+    /// This includes both sliding and discrete windows.
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)];
     /// Returns the tags annotated to this stream.
     fn tags(&self) -> &HashMap<String, Option<String>>;
     #[cfg(feature = "spanned")]
@@ -180,6 +183,10 @@ pub enum IntTy {
     Int32,
     /// Represents a 64-bit integer.
     Int64,
+    /// Represents a 128-bit integer.
+    Int128,
+    /// Represents a 256-bit integer.
+    Int256,
 }
 
 #[allow(missing_docs)]
@@ -193,6 +200,10 @@ pub enum UIntTy {
     UInt32,
     /// Represents a 64-bit unsigned integer.
     UInt64,
+    /// Represents a 128-bit unsigned integer.
+    UInt128,
+    /// Represents a 256-bit unsigned integer.
+    UInt256,
 }
 
 #[allow(missing_docs)]
@@ -249,7 +260,9 @@ pub struct InputStream {
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
@@ -287,8 +300,10 @@ pub struct OutputStream {
     pub accesses: Accesses,
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
-    /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    /// The collection of windows that access this stream non-transitively.  This includes both sliding and discrete windows.
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
     /// Provides the evaluation of layer of this stream.
@@ -650,6 +665,10 @@ pub struct DiscreteWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the discrete window expression
+    pub origin: Origin,
+    /// The pacing of the discrete window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of a sliding window
@@ -673,6 +692,10 @@ pub struct SlidingWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the sliding window expression
+    pub origin: Origin,
+    /// The pacing of the sliding window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of an instance aggregation
@@ -690,6 +713,10 @@ pub struct InstanceAggregation {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the instance window expression
+    pub origin: Origin,
+    /// The pacing of the instance aggregation expression
+    pub pacing: PacingType,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -901,8 +928,12 @@ impl Stream for OutputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
     }
 
     fn tags(&self) -> &HashMap<String, Option<String>> {
@@ -964,8 +995,12 @@ impl Stream for InputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
     }
 
     fn tags(&self) -> &HashMap<String, Option<String>> {
@@ -1334,10 +1369,14 @@ impl Type {
             Type::Int(IntTy::Int16) => Some(ValSize(2)),
             Type::Int(IntTy::Int32) => Some(ValSize(4)),
             Type::Int(IntTy::Int64) => Some(ValSize(8)),
+            Type::Int(IntTy::Int128) => Some(ValSize(16)),
+            Type::Int(IntTy::Int256) => Some(ValSize(32)),
             Type::UInt(UIntTy::UInt8) => Some(ValSize(1)),
             Type::UInt(UIntTy::UInt16) => Some(ValSize(2)),
             Type::UInt(UIntTy::UInt32) => Some(ValSize(4)),
             Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
+            Type::UInt(UIntTy::UInt128) => Some(ValSize(16)),
+            Type::UInt(UIntTy::UInt256) => Some(ValSize(32)),
             Type::Float(FloatTy::Float32) => Some(ValSize(4)),
             Type::Float(FloatTy::Float64) => Some(ValSize(8)),
             Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => {
