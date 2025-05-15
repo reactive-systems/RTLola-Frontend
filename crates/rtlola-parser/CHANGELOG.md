@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tuple Literal to Ast
 - parse stream tags on input and output streams and global tags
 - Parse lambda expressions in instance aggregation filter
-
+- Add syntactic sugar for conditional probabilities as sliding window and instance aggregation function
 
 ### Fix
 

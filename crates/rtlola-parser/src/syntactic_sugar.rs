@@ -12,6 +12,7 @@ mod mirror;
 mod next_id;
 mod offset_or;
 mod probability;
+mod probability_aggregation;
 mod true_ratio;
 use aggregation_method::AggrMethodToWindow;
 use delta::Delta;
@@ -19,6 +20,7 @@ use itertools::Itertools;
 use last::Last;
 use mirror::Mirror as SynSugMirror;
 use probability::Probability;
+use probability_aggregation::ProbabilityAggregation;
 use rtlola_reporting::RtLolaError;
 use true_ratio::TrueRatio;
 
@@ -146,6 +148,7 @@ impl Desugarizer {
             Box::new(OffsetOr {}),
             Box::new(TrueRatio {}),
             Box::new(Probability {}),
+            Box::new(ProbabilityAggregation {}),
         ];
         Self {
             sugar_transformers: all_transformers,
@@ -1471,6 +1474,54 @@ output c (p) spawn with i eval with if count_given'(p) = 0.0 then 0.0 else count
 output count_both' (p) spawn with i eval with count_both'(p).offset(by: -1).defaults(to: 0.0) + if a ∧ p = i then 1.0 else 0.0
 output count_given' (p) spawn with i eval with count_given'(p).offset(by: -1).defaults(to: 0.0) + if p = i ∧ a = a then 1.0 else 0.0"
             .to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn probability_instance_aggregation_of() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval when p == a with b(p).last(or: 0) + 1 
+        output c := b.prob(of: p => p > 5)
+        "
+        .to_string();
+        let expected = "input a: UInt64
+output b (p) spawn with a eval when p = a with b(p).offset(by: -1).defaults(to: 0) + 1
+output c eval with if b.aggregate(over_instances: all, using: #) = 0.0 then 0.0 else b.aggregate(over_instances: all(where: (p) => p > 5), using: #) / b.aggregate(over_instances: all, using: #)".to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn probability_instance_aggregation_of_given() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval when p == a with b(p).last(or: 0) + 1 
+        output c := b.prob(of: p => p > 5, given: p => p < 10)
+        "
+        .to_string();
+        let expected = "input a: UInt64
+output b (p) spawn with a eval when p = a with b(p).offset(by: -1).defaults(to: 0) + 1
+output c eval with if b.aggregate(over_instances: all(where: (p) => p < 10), using: #) = 0.0 then 0.0 else b.aggregate(over_instances: all(where: (p) => p > 5 ∧ p < 10), using: #) / b.aggregate(over_instances: all(where: (p) => p < 10), using: #)".to_string();
+        let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
+        assert_eq!(expected, format!("{}", ast).trim());
+    }
+
+    #[test]
+    fn probability_instance_aggregation_of_given_prior() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval when p == a with b(p).last(or: 0) + 1 
+        output c := b.prob(of: p => p > 5, given: p => p < 10, prior: 5.0, confidence: 10.0)
+        "
+        .to_string();
+        let expected = "input a: UInt64
+output b (p) spawn with a eval when p = a with b(p).offset(by: -1).defaults(to: 0) + 1
+output c eval with if (b.aggregate(over_instances: all(where: (p) => p < 10), using: #) + 10.0) = 0.0 then 0.0 else (b.aggregate(over_instances: all(where: (p) => p > 5 ∧ p < 10), using: #) + 5.0 * 10.0) / (b.aggregate(over_instances: all(where: (p) => p < 10), using: #) + 10.0)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
