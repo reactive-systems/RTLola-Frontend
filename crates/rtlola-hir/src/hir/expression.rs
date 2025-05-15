@@ -4,10 +4,11 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use itertools::{iproduct, Either};
-use rtlola_parser::ast::{InstanceOperation, InstanceSelection, WindowOperation};
+use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::Span;
+use rust_decimal::Decimal;
 
-use super::WindowReference;
+use super::{Parameter, WindowReference};
 use crate::hir::{AnnotatedType, Hir, Offset, SRef, StreamReference, WRef};
 use crate::modes::HirMode;
 
@@ -18,7 +19,7 @@ pub struct ExprId(pub(crate) u32);
 /// Representation of an expression in the [RtLolaHir](crate::hir::RtLolaHir).
 ///
 /// An expression contains its kind, its id and its position in the specification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expression {
     /// The kind of the expression
     pub kind: ExpressionKind,
@@ -46,43 +47,41 @@ impl Expression {
         match &self.kind {
             ExpressionKind::ArithLog(_, children)
             | ExpressionKind::Tuple(children)
-            | ExpressionKind::Function(FnExprKind { args: children, .. }) => {
-                children.iter().flat_map(|c| c.get_sync_accesses()).collect()
-            },
-            ExpressionKind::StreamAccess(target, kind, children) => {
-                match kind {
-                    StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => {
-                        vec![*target]
-                            .into_iter()
-                            .chain(children.iter().flat_map(|c| c.get_sync_accesses()))
-                            .collect()
-                    },
-                    _ => children.iter().flat_map(|c| c.get_sync_accesses()).collect(),
-                }
+            | ExpressionKind::Function(FnExprKind { args: children, .. }) => children
+                .iter()
+                .flat_map(|c| c.get_sync_accesses())
+                .collect(),
+            ExpressionKind::StreamAccess(target, kind, children) => match kind {
+                StreamAccessKind::Sync | StreamAccessKind::DiscreteWindow(_) => vec![*target]
+                    .into_iter()
+                    .chain(children.iter().flat_map(|c| c.get_sync_accesses()))
+                    .collect(),
+                _ => children
+                    .iter()
+                    .flat_map(|c| c.get_sync_accesses())
+                    .collect(),
             },
             ExpressionKind::Ite {
                 condition,
                 consequence,
                 alternative,
-            } => {
-                condition
-                    .as_ref()
-                    .get_sync_accesses()
-                    .into_iter()
-                    .chain(consequence.as_ref().get_sync_accesses())
-                    .chain(alternative.as_ref().get_sync_accesses())
-                    .collect()
-            },
-            ExpressionKind::TupleAccess(child, _) | ExpressionKind::Widen(WidenExprKind { expr: child, .. }) => {
+            } => condition
+                .as_ref()
+                .get_sync_accesses()
+                .into_iter()
+                .chain(consequence.as_ref().get_sync_accesses())
+                .chain(alternative.as_ref().get_sync_accesses())
+                .collect(),
+            ExpressionKind::TupleAccess(child, _)
+            | ExpressionKind::Widen(WidenExprKind { expr: child, .. }) => {
                 child.as_ref().get_sync_accesses()
-            },
-            ExpressionKind::Default { expr, default } => {
-                expr.as_ref()
-                    .get_sync_accesses()
-                    .into_iter()
-                    .chain(default.as_ref().get_sync_accesses())
-                    .collect()
-            },
+            }
+            ExpressionKind::Default { expr, default } => expr
+                .as_ref()
+                .get_sync_accesses()
+                .into_iter()
+                .chain(default.as_ref().get_sync_accesses())
+                .collect(),
             _ => vec![],
         }
     }
@@ -99,7 +98,7 @@ impl ValueEq for Expression {
 }
 
 /// The kinds of an [Expression] of the [RtLolaHir](crate::hir::RtLolaHir).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     /// Loading a [Constant]
     LoadConstant(Constant),
@@ -123,6 +122,13 @@ pub enum ExpressionKind {
     /// * the first argument contains the [StreamReference] of the parametrized stream that is accessed
     /// * the second argument contains the index of the parameter.
     ParameterAccess(SRef, usize),
+    /// This kind represents the access to a lambda parameter
+    LambdaParameterAccess {
+        /// Reference to the instance aggregation using the lambda function
+        wref: WRef,
+        /// Reference to the parameter
+        pref: usize,
+    },
     /// An if-then-else expression
     ///
     /// If the condition evaluates to true, the consequence is executed otherwise the alternative. All arguments are an [Expression].
@@ -156,7 +162,7 @@ pub enum ExpressionKind {
 /// Representation of an function call
 //
 /// The struction contains all information for a function call in the [ExpressionKind] enum.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FnExprKind {
     /// The name of the function.
     pub name: String,
@@ -170,13 +176,14 @@ pub struct FnExprKind {
 /// Representation of the function call to widen the type of an [Expression]
 ///
 /// The struction contains all information to widen an [Expression] in the [ExpressionKind] enum.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WidenExprKind {
     /// The [Expression] on which the function is called
     pub expr: Box<Expression>,
     /// The new type of `expr`
     pub(crate) ty: AnnotatedType,
 }
+
 /// Represents a constant value of a certain kind.
 #[derive(Debug, Clone)]
 pub enum Literal {
@@ -188,8 +195,8 @@ pub enum Literal {
     Integer(i64),
     /// Integer constant known to be signed
     SInt(i128),
-    /// Floating point constant
-    Float(f64),
+    /// Decimal constant
+    Decimal(Decimal),
 }
 
 impl Hash for Literal {
@@ -198,22 +205,22 @@ impl Hash for Literal {
             Literal::Str(str) => {
                 1.hash(state);
                 str.hash(state);
-            },
+            }
             Literal::Bool(b) => {
                 2.hash(state);
                 b.hash(state);
-            },
+            }
             Literal::Integer(i) => {
                 3.hash(state);
                 i.hash(state);
-            },
+            }
             Literal::SInt(si) => {
                 4.hash(state);
                 si.hash(state);
-            },
-            Literal::Float(_) => {
+            }
+            Literal::Decimal(_) => {
                 5.hash(state);
-            },
+            }
         }
     }
 }
@@ -222,12 +229,15 @@ impl PartialEq for Literal {
     fn eq(&self, other: &Self) -> bool {
         use self::Literal::*;
         match (self, other) {
-            (Float(f1), Float(f2)) => f64::abs(f1 - f2) < 0.00001f64,
+            (Decimal(f1), Decimal(f2)) => f1 == f2,
+            (Decimal(_), _) | (_, Decimal(_)) => false,
             (Str(s1), Str(s2)) => s1 == s2,
+            (Str(_), _) | (_, Str(_)) => false,
             (Bool(b1), Bool(b2)) => b1 == b2,
+            (Bool(_), _) | (_, Bool(_)) => false,
             (Integer(i1), Integer(i2)) => i1 == i2,
+            (Integer(_), _) | (_, Integer(_)) => false,
             (SInt(i1), SInt(i2)) => i1 == i2,
-            _ => false,
         }
     }
 }
@@ -355,7 +365,7 @@ pub trait WindowAggregation: Debug + Copy {
 }
 
 /// Represents an instance of an instance aggregation
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstanceAggregation {
     /// The stream whose values will be aggregated
     pub target: SRef,
@@ -371,6 +381,45 @@ pub struct InstanceAggregation {
     ///
     /// This field contains the Id of the expression that uses the produced value. It is NOT the id of the window.
     pub(crate) eid: ExprId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// Enum to indicate which instances are part of the aggregation
+pub enum InstanceSelection {
+    /// Only instances that are updated in this evaluation cycle are part of the aggregation
+    Fresh,
+    /// All instances are part of the aggregation
+    All,
+    /// Only instances that are updated in this evaluation cycle and satisfy the condition are part of the aggregation
+    FilteredFresh {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+    /// All instances that satisfy the condition are part of the aggregation
+    FilteredAll {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+}
+
+impl InstanceSelection {
+    pub(crate) fn condition(&self) -> Option<&Expression> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters: _,
+                cond,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters: _,
+                cond,
+            } => Some(cond),
+        }
+    }
 }
 
 /// Combines the functionality of Instance and Window Aggregations
@@ -519,7 +568,10 @@ impl ExpressionContext {
 
             let cur_spawn_cond = current.spawn().and_then(|st| st.spawn_cond(hir));
 
-            let current_spawn_args = current.spawn().map(|st| st.spawn_args(hir)).unwrap_or_default();
+            let current_spawn_args = current
+                .spawn()
+                .map(|st| st.spawn_args(hir))
+                .unwrap_or_default();
 
             assert_eq!(current.params.len(), current_spawn_args.len());
 
@@ -533,7 +585,10 @@ impl ExpressionContext {
                         _ => false,
                     };
                     if !target.params.is_empty() && cond_match {
-                        let target_spawn_args = target.spawn().map(|st| st.spawn_args(hir)).unwrap_or_default();
+                        let target_spawn_args = target
+                            .spawn()
+                            .map(|st| st.spawn_args(hir))
+                            .unwrap_or_default();
 
                         assert_eq!(target.params.len(), target_spawn_args.len());
 
@@ -552,7 +607,8 @@ impl ExpressionContext {
                             if let Some(paras) = para_mapping.get_mut(&k) {
                                 paras.insert(v);
                             } else {
-                                para_mapping.insert(k, vec![v].into_iter().collect::<HashSet<usize>>());
+                                para_mapping
+                                    .insert(k, vec![v].into_iter().collect::<HashSet<usize>>());
                             }
                         });
                     }
@@ -565,7 +621,13 @@ impl ExpressionContext {
     }
 
     /// Checks if the parameter of source matches the parameter of target
-    pub(crate) fn matches(&self, source: SRef, source_parameter: usize, target: SRef, target_parameter: usize) -> bool {
+    pub(crate) fn matches(
+        &self,
+        source: SRef,
+        source_parameter: usize,
+        target: SRef,
+        target_parameter: usize,
+    ) -> bool {
         self.0
             .get(&source)
             .and_then(|para_map| para_map.get(&(target, target_parameter)))
@@ -585,11 +647,13 @@ impl ExpressionContext {
 
 pub(crate) trait ValueEq {
     fn value_eq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool;
+    #[cfg(test)]
     fn value_neq(&self, other: &Self, parameter_map: &ExpressionContext) -> bool {
         !self.value_eq(other, parameter_map)
     }
 
     fn value_eq_ignore_parameters(&self, other: &Self) -> bool;
+    #[cfg(test)]
     fn value_neq_ignore_parameters(&self, other: &Self) -> bool {
         !self.value_eq_ignore_parameters(other)
     }
@@ -601,7 +665,7 @@ impl ValueEq for ExpressionKind {
         match (self, other) {
             (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => {
                 parameter_map.matches(*sref, *idx, *sref2, *idx2)
-            },
+            }
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2
@@ -610,7 +674,7 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
-            },
+            }
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
                     && kind == kind2
@@ -619,7 +683,7 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
-            },
+            }
             (
                 Ite {
                     condition: c1,
@@ -631,17 +695,27 @@ impl ValueEq for ExpressionKind {
                     consequence: b2,
                     alternative: b3,
                 },
-            ) => c1.value_eq(b1, parameter_map) && c2.value_eq(b2, parameter_map) && c3.value_eq(b3, parameter_map),
+            ) => {
+                c1.value_eq(b1, parameter_map)
+                    && c2.value_eq(b2, parameter_map)
+                    && c3.value_eq(b3, parameter_map)
+            }
             (Tuple(args), Tuple(args2)) => {
                 args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
-            },
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq(inner2, parameter_map),
+            }
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => {
+                i1 == i2 && inner.value_eq(inner2, parameter_map)
+            }
             (
-                Function(FnExprKind { name, args, type_param }),
+                Function(FnExprKind {
+                    name,
+                    args,
+                    type_param,
+                }),
                 Function(FnExprKind {
                     name: name2,
                     args: args2,
@@ -655,10 +729,17 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq(a2, parameter_map))
-            },
-            (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
-                t1 == t2 && inner.value_eq(inner2, parameter_map)
-            },
+            }
+            (
+                Widen(WidenExprKind {
+                    expr: inner,
+                    ty: t1,
+                }),
+                Widen(WidenExprKind {
+                    expr: inner2,
+                    ty: t2,
+                }),
+            ) => t1 == t2 && inner.value_eq(inner2, parameter_map),
             (
                 Default { expr, default },
                 Default {
@@ -673,7 +754,9 @@ impl ValueEq for ExpressionKind {
     fn value_eq_ignore_parameters(&self, other: &Self) -> bool {
         use ExpressionKind::*;
         match (self, other) {
-            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => sref == sref2 && idx == idx2,
+            (ParameterAccess(sref, idx), ParameterAccess(sref2, idx2)) => {
+                sref == sref2 && idx == idx2
+            }
             (LoadConstant(c1), LoadConstant(c2)) => c1 == c2,
             (ArithLog(op, args), ArithLog(op2, args2)) => {
                 op == op2
@@ -682,7 +765,7 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
-            },
+            }
             (StreamAccess(sref, kind, args), StreamAccess(sref2, kind2, args2)) => {
                 sref == sref2
                     && kind == kind2
@@ -691,7 +774,7 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
-            },
+            }
             (
                 Ite {
                     condition: c1,
@@ -707,17 +790,23 @@ impl ValueEq for ExpressionKind {
                 c1.value_eq_ignore_parameters(b1)
                     && c2.value_eq_ignore_parameters(b2)
                     && c3.value_eq_ignore_parameters(b3)
-            },
+            }
             (Tuple(args), Tuple(args2)) => {
                 args.len() == args2.len()
                     && args
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
-            },
-            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => i1 == i2 && inner.value_eq_ignore_parameters(inner2),
+            }
+            (TupleAccess(inner, i1), TupleAccess(inner2, i2)) => {
+                i1 == i2 && inner.value_eq_ignore_parameters(inner2)
+            }
             (
-                Function(FnExprKind { name, args, type_param }),
+                Function(FnExprKind {
+                    name,
+                    args,
+                    type_param,
+                }),
                 Function(FnExprKind {
                     name: name2,
                     args: args2,
@@ -731,17 +820,27 @@ impl ValueEq for ExpressionKind {
                         .iter()
                         .zip(args2.iter())
                         .all(|(a1, a2)| a1.value_eq_ignore_parameters(a2))
-            },
-            (Widen(WidenExprKind { expr: inner, ty: t1 }), Widen(WidenExprKind { expr: inner2, ty: t2 })) => {
-                t1 == t2 && inner.value_eq_ignore_parameters(inner2)
-            },
+            }
+            (
+                Widen(WidenExprKind {
+                    expr: inner,
+                    ty: t1,
+                }),
+                Widen(WidenExprKind {
+                    expr: inner2,
+                    ty: t2,
+                }),
+            ) => t1 == t2 && inner.value_eq_ignore_parameters(inner2),
             (
                 Default { expr, default },
                 Default {
                     expr: expr2,
                     default: default2,
                 },
-            ) => expr.value_eq_ignore_parameters(expr2) && default.value_eq_ignore_parameters(default2),
+            ) => {
+                expr.value_eq_ignore_parameters(expr2)
+                    && default.value_eq_ignore_parameters(default2)
+            }
             _ => false,
         }
     }

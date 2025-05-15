@@ -12,8 +12,9 @@ use crate::stdlib::FuncDecl;
 /// Static vec of all Lola keywords, used to check for name conflicts. These MUST all be lowercase.
 // TODO add an static assertion for this
 pub(crate) const KEYWORDS: [&str; 24] = [
-    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "when", "close", "with", "unless",
-    "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true", "false", "error",
+    "input", "output", "trigger", "import", "type", "self", "include", "spawn", "when", "close",
+    "with", "unless", "if", "then", "else", "and", "or", "not", "forall", "exists", "any", "true",
+    "false", "error",
 ];
 
 /// The [DeclarationTable] maps a NodeId of an AST node to a [Declaration],
@@ -67,7 +68,9 @@ impl NamingAnalysis {
             .get_name()
             .expect("added declarations are guaranteed to have a name");
 
-        let span = decl.get_span().expect("all user defined declarations have a `Span`");
+        let span = decl
+            .get_span()
+            .expect("all user defined declarations have a `Span`");
 
         // check for keyword
         let lower = name.to_lowercase();
@@ -79,6 +82,11 @@ impl NamingAnalysis {
                     true,
                 ),
             );
+        }
+
+        // discard underscore declarations
+        if lower == "_" {
+            return Ok(());
         }
 
         let decl_name = if let Declaration::Func(rcfunc) = &decl {
@@ -108,32 +116,30 @@ impl NamingAnalysis {
         let mut error = RtLolaError::new();
         match &ty.kind {
             TypeKind::Simple(name) => {
-                if let Some(decl) = self.type_declarations.get_decl_for(&DeclName::Ident(name.to_string())) {
+                if let Some(decl) = self
+                    .type_declarations
+                    .get_decl_for(&DeclName::Ident(name.to_string()))
+                {
                     assert!(decl.is_type());
                     self.result.insert(ty.id, decl);
                 } else {
                     // it does not exist
                     error.add(
-                        Diagnostic::error(&format!("cannot find type `{name}` in this scope")).add_span_with_label(
-                            ty.span,
-                            Some("not found in this scope"),
-                            true,
-                        ),
+                        Diagnostic::error(&format!("cannot find type `{name}` in this scope"))
+                            .add_span_with_label(ty.span, Some("not found in this scope"), true),
                     );
                 }
-            },
-            TypeKind::Tuple(elements) => {
-                elements.iter().for_each(|ty| {
-                    if let Err(e) = self.check_type(ty) {
-                        error.join(e);
-                    }
-                })
-            },
+            }
+            TypeKind::Tuple(elements) => elements.iter().for_each(|ty| {
+                if let Err(e) = self.check_type(ty) {
+                    error.join(e);
+                }
+            }),
             TypeKind::Optional(ty) => {
                 if let Err(e) = self.check_type(ty) {
                     error.join(e);
                 }
-            },
+            }
         }
         Result::from(error)?;
         Ok(())
@@ -142,40 +148,42 @@ impl NamingAnalysis {
     /// Checks that the parameter name and type are both valid
     fn check_param(&mut self, param: &Rc<Parameter>) -> Result<(), RtLolaError> {
         let mut error = RtLolaError::new();
-        // check the name
+
+        // check if there is a parameter with the same name
         if let Some(decl) = self
             .declarations
-            .get_decl_for(&DeclName::Ident(param.name.name.clone()))
+            .get_decl_in_current_scope_for(&DeclName::Ident(param.name.name.clone()))
         {
-            assert!(!decl.is_type());
-
-            // check if there is a parameter with the same name
-            if let Some(decl) = self
-                .declarations
-                .get_decl_in_current_scope_for(&DeclName::Ident(param.name.name.clone()))
-            {
-                error.add(
-                    Diagnostic::error(&format!(
-                        "identifier `{}` is use more than once in this paramater list",
+            error.add(
+                Diagnostic::error(&format!(
+                    "identifier `{}` is use more than once in this parameter list",
+                    param.name.name
+                ))
+                .add_span_with_label(
+                    param.name.span,
+                    Some(&format!(
+                        "`{}` used as a parameter more than once",
                         param.name.name
-                    ))
-                    .add_span_with_label(
-                        param.name.span,
-                        Some(&format!("`{}` used as a parameter more than once", param.name.name)),
-                        true,
-                    )
-                    .add_span_with_label(
-                        decl.get_span().expect("as it is in parameter list, it has a span"),
-                        Some(&format!("previous use of the parameter `{}` here", param.name.name)),
-                        false,
-                    ),
-                );
-            }
+                    )),
+                    true,
+                )
+                .add_span_with_label(
+                    decl.get_span()
+                        .expect("as it is in parameter list, it has a span"),
+                    Some(&format!(
+                        "previous use of the parameter `{}` here",
+                        param.name.name
+                    )),
+                    false,
+                ),
+            );
         } else {
+            let decl = Declaration::Param(param.clone());
             // it does not exist
-            if let Err(e) = self.add_decl_for(Declaration::Param(param.clone())) {
+            if let Err(e) = self.add_decl_for(decl.clone()) {
                 error.join(e);
             }
+            self.result.insert(param.id, decl);
         }
 
         // check the type is there exists a parameter type
@@ -192,11 +200,16 @@ impl NamingAnalysis {
     pub(crate) fn check(&mut self, spec: &RtLolaAst) -> Result<DeclarationTable, RtLolaError> {
         use crate::stdlib;
         let mut error = RtLolaError::new();
-        self.fun_declarations.add_all_fun_decl(stdlib::implicit_module());
+        self.fun_declarations
+            .add_all_fun_decl(stdlib::implicit_module());
         for import in &spec.imports {
             match import.name.name.as_str() {
-                "math" => self.fun_declarations.add_all_fun_decl(stdlib::math_module()),
-                "regex" => self.fun_declarations.add_all_fun_decl(stdlib::regex_module()),
+                "math" => self
+                    .fun_declarations
+                    .add_all_fun_decl(stdlib::math_module()),
+                "regex" => self
+                    .fun_declarations
+                    .add_all_fun_decl(stdlib::regex_module()),
                 n => {
                     error.add(
                         Diagnostic::error(&format!("unresolved import `{n}`")).add_span_with_label(
@@ -205,7 +218,7 @@ impl NamingAnalysis {
                             true,
                         ),
                     );
-                },
+                }
             }
         }
 
@@ -286,7 +299,7 @@ impl NamingAnalysis {
                     }
                 }
                 if let Err(e) = match &spawn.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
@@ -304,7 +317,7 @@ impl NamingAnalysis {
                     error.join(e);
                 }
                 if let Err(e) = match &close.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
@@ -315,7 +328,7 @@ impl NamingAnalysis {
 
             for eval in &output.eval {
                 if let Err(e) = match &eval.annotated_pacing {
-                    AnnotatedPacingType::NotAnnotated => Ok(()),
+                    AnnotatedPacingType::NotAnnotated(_) => Ok(()),
                     AnnotatedPacingType::Global(e)
                     | AnnotatedPacingType::Local(e)
                     | AnnotatedPacingType::Unspecified(e) => self.check_expression(e),
@@ -330,7 +343,8 @@ impl NamingAnalysis {
             }
 
             if output.kind != OutputKind::Trigger {
-                self.declarations.add_decl_for("self", Declaration::Out(output.clone()));
+                self.declarations
+                    .add_decl_for("self", Declaration::Out(output.clone()));
             }
 
             for eval in &output.eval {
@@ -347,35 +361,48 @@ impl NamingAnalysis {
 
     /// Checks that each used identifiers has a declaration in the current or higher scope.
     fn check_ident(&mut self, expression: &Expression, ident: &Ident) -> Result<(), Diagnostic> {
-        if let Some(decl) = self.declarations.get_decl_for(&DeclName::Ident(ident.name.clone())) {
+        if let Some(decl) = self
+            .declarations
+            .get_decl_for(&DeclName::Ident(ident.name.clone()))
+        {
             assert!(!decl.is_type());
             self.result.insert(expression.id, decl);
             Ok(())
         } else {
-            Err(
-                Diagnostic::error(&format!("name `{}` does not exist in current scope", &ident.name))
-                    .add_span_with_label(ident.span, Some("does not exist"), true),
-            )
+            Err(Diagnostic::error(&format!(
+                "name `{}` does not exist in current scope",
+                &ident.name
+            ))
+            .add_span_with_label(ident.span, Some("does not exist"), true))
         }
     }
 
     /// Checks that each used function identifier has a declaration in the current scope or higher scope.
-    fn check_function(&mut self, expression: &Expression, name: &FunctionName) -> Result<(), Diagnostic> {
+    fn check_function(
+        &mut self,
+        expression: &Expression,
+        name: &FunctionName,
+    ) -> Result<(), Diagnostic> {
         let str_repr = name.to_string();
-        if let Some(decl) = self.fun_declarations.get_decl_for(&DeclName::Func(name.clone().into())) {
+        if let Some(decl) = self
+            .fun_declarations
+            .get_decl_for(&DeclName::Func(name.clone().into()))
+        {
             assert!(decl.is_function());
 
             self.result.insert(expression.id, decl);
-        } else if let Some(Declaration::ParamOut(out)) =
-            self.declarations.get_decl_for(&DeclName::Ident(name.name.name.clone()))
+        } else if let Some(Declaration::ParamOut(out)) = self
+            .declarations
+            .get_decl_for(&DeclName::Ident(name.name.name.clone()))
         {
             // parametric outputs are represented as functions
-            self.result.insert(expression.id, Declaration::ParamOut(out));
+            self.result
+                .insert(expression.id, Declaration::ParamOut(out));
         } else {
-            return Err(
-                Diagnostic::error(&format!("function name `{str_repr}` does not exist in current scope"))
-                    .add_span_with_label(name.name.span, Some("does not exist"), true),
-            );
+            return Err(Diagnostic::error(&format!(
+                "function name `{str_repr}` does not exist in current scope"
+            ))
+            .add_span_with_label(name.name.span, Some("does not exist"), true));
         }
         Ok(())
     }
@@ -384,19 +411,36 @@ impl NamingAnalysis {
         use self::ExpressionKind::*;
 
         match &expression.kind {
-            Ident(ident) => self.check_ident(expression, ident).map_err(RtLolaError::from),
+            Ident(ident) => self
+                .check_ident(expression, ident)
+                .map_err(RtLolaError::from),
             StreamAccess(expr, _) => self.check_expression(expr),
             Offset(expr, _) => self.check_expression(expr),
-            DiscreteWindowAggregation { expr, duration, .. } => {
-                RtLolaError::combine(self.check_expression(expr), self.check_expression(duration), |_, _| {})
-            },
-            SlidingWindowAggregation { expr, duration, .. } => {
-                RtLolaError::combine(self.check_expression(expr), self.check_expression(duration), |_, _| {})
-            },
-            InstanceAggregation { expr, .. } => self.check_expression(expr),
-            Binary(_, left, right) => {
-                RtLolaError::combine(self.check_expression(left), self.check_expression(right), |_, _| {})
-            },
+            DiscreteWindowAggregation { expr, duration, .. } => RtLolaError::combine(
+                self.check_expression(expr),
+                self.check_expression(duration),
+                |_, _| {},
+            ),
+            SlidingWindowAggregation { expr, duration, .. } => RtLolaError::combine(
+                self.check_expression(expr),
+                self.check_expression(duration),
+                |_, _| {},
+            ),
+            InstanceAggregation {
+                expr, selection, ..
+            } => {
+                self.check_expression(expr)?;
+                match selection {
+                    InstanceSelection::Fresh | InstanceSelection::All => Ok(()),
+                    InstanceSelection::FilteredFresh(lambda)
+                    | InstanceSelection::FilteredAll(lambda) => self.check_lambda(lambda),
+                }
+            }
+            Binary(_, left, right) => RtLolaError::combine(
+                self.check_expression(left),
+                self.check_expression(right),
+                |_, _| {},
+            ),
             Lit(_) | MissingExpression => Ok(()),
             Ite(condition, if_case, else_case) => {
                 let cond_errs: RtLolaError = self.check_expression(condition).into();
@@ -408,18 +452,21 @@ impl NamingAnalysis {
                     .chain(alt_errs)
                     .collect::<RtLolaError>()
                     .into()
-            },
-            ParenthesizedExpression(_, expr, _) | Unary(_, expr) | Field(expr, _) => self.check_expression(expr),
-            Tuple(exprs) => {
-                exprs
-                    .iter()
-                    .flat_map(|expr| self.check_expression(expr).err())
-                    .flatten()
-                    .collect::<RtLolaError>()
-                    .into()
-            },
+            }
+            ParenthesizedExpression(expr) | Unary(_, expr) | Field(expr, _) => {
+                self.check_expression(expr)
+            }
+            Tuple(exprs) => exprs
+                .iter()
+                .flat_map(|expr| self.check_expression(expr).err())
+                .flatten()
+                .collect::<RtLolaError>()
+                .into(),
             Function(name, types, exprs) => {
-                let func_err: RtLolaError = self.check_function(expression, name).map_err(RtLolaError::from).into();
+                let func_err: RtLolaError = self
+                    .check_function(expression, name)
+                    .map_err(RtLolaError::from)
+                    .into();
                 let type_errs: RtLolaError = types
                     .iter()
                     .flat_map(|ty| self.check_type(ty).err())
@@ -436,19 +483,20 @@ impl NamingAnalysis {
                     .chain(expr_errs)
                     .collect::<RtLolaError>()
                     .into()
-            },
-            Default(accessed, default) => {
-                RtLolaError::combine(
-                    self.check_expression(accessed),
-                    self.check_expression(default),
-                    |_, _| {},
-                )
-            },
+            }
+            Default(accessed, default) => RtLolaError::combine(
+                self.check_expression(accessed),
+                self.check_expression(default),
+                |_, _| {},
+            ),
             Method(expr, name, types, args) => {
                 // Method is equal to function with `expr` as first argument
                 let func_name = FunctionName {
                     name: name.name.clone(),
-                    arg_names: vec![None].into_iter().chain(name.arg_names.clone()).collect(),
+                    arg_names: vec![None]
+                        .into_iter()
+                        .chain(name.arg_names.clone())
+                        .collect(),
                 };
                 let func_errs: RtLolaError = self
                     .check_function(expression, &func_name)
@@ -472,8 +520,24 @@ impl NamingAnalysis {
                     .chain(arg_errs)
                     .collect::<RtLolaError>()
                     .into()
-            },
+            }
+            Lambda { .. } => unreachable!(
+                "lambda expression only appear in instance aggregattions and are converted"
+            ),
         }
+    }
+
+    fn check_lambda(
+        &mut self,
+        LambdaExpr { parameters, expr }: &LambdaExpr,
+    ) -> Result<(), RtLolaError> {
+        self.declarations.push();
+        for p in parameters {
+            self.add_decl_for(Declaration::LambdaParameter(p.clone()))?;
+        }
+        self.check_expression(expr)?;
+        self.declarations.pop();
+        Ok(())
     }
 }
 
@@ -555,6 +619,7 @@ pub(crate) enum Declaration {
     Type,
     Param(Rc<Parameter>),
     Func(Rc<FuncDecl>),
+    LambdaParameter(Rc<Parameter>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -568,8 +633,10 @@ impl Declaration {
         match &self {
             Declaration::Const(constant) => Some(constant.name.span),
             Declaration::In(input) => Some(input.name.span),
-            Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.span),
-            Declaration::Param(p) => Some(p.name.span),
+            Declaration::Out(output) | Declaration::ParamOut(output) => {
+                output.name().map(|name| name.span)
+            }
+            Declaration::Param(p) | Declaration::LambdaParameter(p) => Some(p.name.span),
             Declaration::Type | Declaration::Func(_) => None,
         }
     }
@@ -578,8 +645,10 @@ impl Declaration {
         match self {
             Declaration::Const(constant) => Some(&constant.name.name),
             Declaration::In(input) => Some(&input.name.name),
-            Declaration::Out(output) | Declaration::ParamOut(output) => output.name().map(|name| name.name.as_str()),
-            Declaration::Param(p) => Some(&p.name.name),
+            Declaration::Out(output) | Declaration::ParamOut(output) => {
+                output.name().map(|name| name.name.as_str())
+            }
+            Declaration::Param(p) | Declaration::LambdaParameter(p) => Some(&p.name.name),
             Declaration::Type | Declaration::Func(_) => None,
         }
     }
@@ -592,6 +661,7 @@ impl Declaration {
             | Declaration::Out(_)
             | Declaration::ParamOut(_)
             | Declaration::Param(_)
+            | Declaration::LambdaParameter(_)
             | Declaration::Func(_) => false,
         }
     }
@@ -615,14 +685,14 @@ impl From<FunctionName> for crate::hir::FunctionName {
 
 #[cfg(test)]
 mod tests {
-
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
 
     /// Parses the content, runs naming analysis, and returns number of errors
     fn number_of_naming_errors(content: &str) -> usize {
-        let ast = parse(&ParserConfig::for_string(content.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let ast = parse(&ParserConfig::for_string(content.to_string()))
+            .unwrap_or_else(|e| panic!("{:?}", e));
         let mut naming_analyzer = NamingAnalysis::new();
         match naming_analyzer.check(&ast) {
             Ok(_) => 0,
@@ -632,7 +702,10 @@ mod tests {
 
     #[test]
     fn unknown_types_are_reported() {
-        assert_eq!(3, number_of_naming_errors("output test(ab: B, c: D): E := 3"))
+        assert_eq!(
+            3,
+            number_of_naming_errors("output test(ab: B, c: D): E := 3")
+        )
     }
 
     #[test]
@@ -645,7 +718,10 @@ mod tests {
         for ty in &[
             "Int8", "Int16", "Int32", "Int64", "Float32", "Float64", "Bool", "String",
         ] {
-            assert_eq!(0, number_of_naming_errors(&format!("output test: {} := 3", ty)))
+            assert_eq!(
+                0,
+                number_of_naming_errors(&format!("output test: {} := 3", ty))
+            )
         }
     }
 
@@ -659,12 +735,18 @@ mod tests {
 
     #[test]
     fn duplicate_parameters_are_not_allowed_for_outputs() {
-        assert_eq!(1, number_of_naming_errors("output test(ab: Int8, ab: Int8) := 3"))
+        assert_eq!(
+            1,
+            number_of_naming_errors("output test(ab: Int8, ab: Int8) := 3")
+        )
     }
 
     #[test]
     fn duplicate_parameters_are_not_allowed_for_inputs() {
-        assert_eq!(1, number_of_naming_errors("input test(ab: Int8, ab: Int8) : Int8"))
+        assert_eq!(
+            1,
+            number_of_naming_errors("input test(ab: Int8, ab: Int8) : Int8")
+        )
     }
 
     #[test]
@@ -674,7 +756,10 @@ mod tests {
 
     #[test]
     fn template_spec_is_also_tested() {
-        assert_eq!(1, number_of_naming_errors("output a spawn with b eval with 3"))
+        assert_eq!(
+            1,
+            number_of_naming_errors("output a spawn with b eval with 3")
+        )
     }
 
     #[test]
@@ -711,7 +796,10 @@ mod tests {
 
     #[test]
     fn known_function_though_import() {
-        assert_eq!(0, number_of_naming_errors("import math\noutput x: Float32 := sqrt(2)"))
+        assert_eq!(
+            0,
+            number_of_naming_errors("import math\noutput x: Float32 := sqrt(2)")
+        )
     }
 
     #[test]
@@ -737,7 +825,10 @@ mod tests {
 
     #[test]
     fn simple_variable_use() {
-        assert_eq!(number_of_naming_errors("output a: Int8 := 3 output b: Int32 := a"), 0)
+        assert_eq!(
+            number_of_naming_errors("output a: Int8 := 3 output b: Int32 := a"),
+            0
+        )
     }
 
     #[test]
@@ -750,5 +841,30 @@ mod tests {
     fn test_param_use() {
         let spec = "output a(x,y,z) := if y then y else z";
         assert_eq!(0, number_of_naming_errors(spec));
+    }
+
+    #[test]
+    fn test_param_shadow() {
+        let spec = "input id : UInt64\ninput user_id: UInt64\noutput count_users(id)\nspawn with user_id\neval when id == user_id with count_users(id).offset(by:-1).defaults(to: 0) + 1";
+        let ast = parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap_or_else(|e| panic!("{:?}", e));
+        let mut naming_analyzer = NamingAnalysis::new();
+        let table = naming_analyzer.check(&ast).unwrap();
+        let param = ast.outputs[0].params[0].clone();
+        let decl = table.get(&param.id).unwrap();
+        assert!(matches!(decl, Declaration::Param(_)));
+    }
+
+    #[test]
+    fn test_underscore() {
+        let spec = "output a(b,c) := b.aggregate(over_instances: all(where: (_,_,c,_) => c > 5), using: count)";
+
+        let ast = parse(&ParserConfig::for_string(spec.to_string()))
+            .unwrap_or_else(|e| panic!("{:?}", e));
+        let mut naming_analyzer = NamingAnalysis::new();
+        let table = naming_analyzer.check(&ast).unwrap();
+        table
+            .iter()
+            .any(|(_, v)| matches!(v, Declaration::LambdaParameter(_)));
     }
 }

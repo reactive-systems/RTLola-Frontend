@@ -76,19 +76,26 @@ impl Schedule {
             .map(|tds| tds.period());
         let spawn_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.spawn.pacing {
-                Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+                Some(UOM_Time::new::<second>(
+                    freq.get::<uom::si::frequency::hertz>().inv(),
+                ))
             } else {
                 None
             }
         });
         let close_periods = ir.outputs.iter().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.close.pacing {
-                Some(UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()))
+                Some(UOM_Time::new::<second>(
+                    freq.get::<uom::si::frequency::hertz>().inv(),
+                ))
             } else {
                 None
             }
         });
-        let periods: Vec<UOM_Time> = stream_periods.chain(spawn_periods).chain(close_periods).collect();
+        let periods: Vec<UOM_Time> = stream_periods
+            .chain(spawn_periods)
+            .chain(close_periods)
+            .collect();
         if periods.is_empty() {
             // Nothing to schedule here
             return Ok(Schedule {
@@ -104,7 +111,13 @@ impl Schedule {
         let mut deadlines = Self::condense_deadlines(gcd, extend_steps);
         Self::sort_deadlines(ir, &mut deadlines);
 
-        let hyper_period = Duration::from_nanos(hyper_period.get::<nanosecond>().to_integer().to_u64().unwrap());
+        let hyper_period = Duration::from_nanos(
+            hyper_period
+                .get::<nanosecond>()
+                .to_integer()
+                .to_u64()
+                .unwrap(),
+        );
         Ok(Schedule {
             hyper_period: Some(hyper_period),
             deadlines,
@@ -158,7 +171,11 @@ impl Schedule {
     /// Hyper-period: 2 seconds, gcd: 500ms, streams: (c @ .5Hz), (b @ 1Hz), (a @ 2Hz)
     /// Result: `[[a] [b] [] [c]]`
     /// Meaning: `a` starts being scheduled after one gcd, `b` after two gcds, `c` after 4 gcds.
-    fn build_extend_steps(ir: &RtLolaMir, gcd: UOM_Time, hyper_period: UOM_Time) -> Result<Vec<Vec<Task>>, String> {
+    fn build_extend_steps(
+        ir: &RtLolaMir,
+        gcd: UOM_Time,
+        hyper_period: UOM_Time,
+    ) -> Result<Vec<Vec<Task>>, String> {
         let num_steps = hyper_period.get::<second>() / gcd.get::<second>();
         assert!(num_steps.is_integer());
         let num_steps = num_steps.to_integer() as usize;
@@ -178,16 +195,12 @@ impl Schedule {
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns = ir.outputs.iter().filter_map(|o| {
-            match &o.spawn.pacing {
-                PacingType::GlobalPeriodic(freq) => {
-                    Some((
-                        o.reference.out_ix(),
-                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
-                    ))
-                },
-                _ => None,
-            }
+        let periodic_spawns = ir.outputs.iter().filter_map(|o| match &o.spawn.pacing {
+            PacingType::GlobalPeriodic(freq) => Some((
+                o.reference.out_ix(),
+                UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
+            )),
+            _ => None,
         });
         for (out_ix, period) in periodic_spawns {
             let ix = period.get::<second>() / gcd.get::<second>();
@@ -253,12 +266,10 @@ impl Schedule {
 
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
-            deadline.due.sort_by_key(|s| {
-                match s {
-                    Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
-                    Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
-                    Task::Close(_) => usize::MAX,
-                }
+            deadline.due.sort_by_key(|s| match s {
+                Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
+                Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                Task::Close(_) => usize::MAX,
             });
         }
     }
@@ -429,6 +440,9 @@ mod tests {
         );
         let mut schedule = ir.compute_schedule().expect("failed to compute schedule");
         assert_eq_with_sort!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
-        assert_eq_with_sort!(schedule.deadlines[1].due, vec![Evaluate(0), Spawn(2), Close(1)]);
+        assert_eq_with_sort!(
+            schedule.deadlines[1].due,
+            vec![Evaluate(0), Spawn(2), Close(1)]
+        );
     }
 }

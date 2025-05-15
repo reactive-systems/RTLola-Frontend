@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 15.05.2025
+
+### Added
+- Include stream tags in HIR.
+- Validate stream tags with tag validator.
+- Tuple Literal to HIR
+- Instance aggregation filter conditions
+- Add `Origin` to `aggregates_by` and `aggregates`
+- Add 128 and 256 bit variants for signed and unsigned integers
+
+### Changed
+- Missing Annotated pacing now also features a span
+
 ## [0.5.0] - 28.06.2024
 
 ### Added

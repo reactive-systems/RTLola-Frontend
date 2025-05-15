@@ -5,15 +5,15 @@
 //!
 //! # Specification Representations
 //! * [RtLolaAst]: The Ast represents the abstract syntax of the specification.  It is obtained by first parsing the specification into a homogenous tree
-//!  and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
-//!  The only checks performed when creating the Ast concern the correct syntax.  See also: [RtLolaAst], and [parse()].
+//!   and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
+//!   The only checks performed when creating the Ast concern the correct syntax.  See also: [RtLolaAst], and [parse()].
 //! * [RtLolaHir](https://docs.rs/rtlola_hir/struct.RtLolaHir.html): The Hir represents a high-level intermediate representation optimized for analyzability.  It contains more convenient methods than the Ast, enables different
-//!  analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
-//!  Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [rtlola_hir](https://docs.rs/rtlola_hir).
+//!   analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
+//!   Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [rtlola_hir](https://docs.rs/rtlola_hir).
 //! * [RtLolaMir](https://docs.rs/rtlola_frontend/struct.RtLolaMir.html): The Mir represents a mid-level intermediate representation optimized for external use such as interpretation and compilation.  It contains several interconnections
-//!  enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [rtlola_hir](https://docs.rs/rtlola_hir).
-//! As a rule of thumb, if you want to analyze and/or enrich a specification, use the [RtLolaHir](https://docs.rs/rtlola_hir/struct.RtLolaHir.html).  If you only need a convenient representation of the specification for some devious
-//! activity such as compiling it into something else, the [RtLolaMir](https://docs.rs/rtlola_frontend/struct.RtLolaMir.html) is the way to go.
+//!   enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [rtlola_hir](https://docs.rs/rtlola_hir).
+//!   As a rule of thumb, if you want to analyze and/or enrich a specification, use the [RtLolaHir](https://docs.rs/rtlola_hir/struct.RtLolaHir.html).  If you only need a convenient representation of the specification for some devious
+//!   activity such as compiling it into something else, the [RtLolaMir](https://docs.rs/rtlola_frontend/struct.RtLolaMir.html) is the way to go.
 //!
 //! # Modules
 //! * [ast] Contains anything related to the [RtLolaAst].
@@ -31,12 +31,11 @@
     unused_qualifications
 )]
 
-//! This module provides the functionality needed to parse an RTLola specification into a [RtLolaAst].
-
 mod parse;
 // Shall not be exposed; use parse function instead.
 mod syntactic_sugar;
 
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -47,8 +46,8 @@ pub mod ast;
 pub use ast::RtLolaAst;
 use rtlola_reporting::{Handler, RtLolaError};
 
-#[derive(Debug, Clone)]
 /// The configuration of the parser.
+#[derive(Debug, Clone)]
 pub struct ParserConfig {
     /// The path to the specification file that should be parsed
     path: Option<PathBuf>,

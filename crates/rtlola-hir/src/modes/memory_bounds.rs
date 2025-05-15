@@ -9,6 +9,7 @@ use uom::si::rational64::Time as UOM_Time;
 
 use super::dependencies::Origin;
 use super::TypedTrait;
+use crate::config::MemoryBoundMode;
 use crate::hir::{ConcretePacingType, Hir, SRef, StreamAccessKind, WRef, WindowReference};
 use crate::modes::{DepAnaTrait, HirMode, MemBound, MemBoundTrait};
 
@@ -33,7 +34,7 @@ impl MemorizationBound {
             MemorizationBound::Bounded(b) => b,
             MemorizationBound::Unbounded => {
                 unreachable!("Called `MemorizationBound::unwrap()` on an `Unbounded` value.")
-            },
+            }
         }
     }
 
@@ -48,11 +49,10 @@ impl MemorizationBound {
     }
 
     /// Returns the default value for the [MemorizationBound]
-    pub(crate) fn default_value(dynamic: bool) -> MemorizationBound {
-        if dynamic {
-            Self::DYNAMIC_DEFAULT_VALUE
-        } else {
-            Self::STATIC_DEFAULT_VALUE
+    pub(crate) fn default_value(mode: MemoryBoundMode) -> MemorizationBound {
+        match mode {
+            MemoryBoundMode::Static => Self::STATIC_DEFAULT_VALUE,
+            MemoryBoundMode::Dynamic => Self::DYNAMIC_DEFAULT_VALUE,
         }
     }
 }
@@ -64,8 +64,12 @@ impl Add for MemorizationBound {
         match (self, rhs) {
             (MemorizationBound::Unbounded, MemorizationBound::Unbounded)
             | (MemorizationBound::Unbounded, MemorizationBound::Bounded(_))
-            | (MemorizationBound::Bounded(_), MemorizationBound::Unbounded) => MemorizationBound::Unbounded,
-            (MemorizationBound::Bounded(lhs), MemorizationBound::Bounded(rhs)) => MemorizationBound::Bounded(lhs + rhs),
+            | (MemorizationBound::Bounded(_), MemorizationBound::Unbounded) => {
+                MemorizationBound::Unbounded
+            }
+            (MemorizationBound::Bounded(lhs), MemorizationBound::Bounded(rhs)) => {
+                MemorizationBound::Bounded(lhs + rhs)
+            }
         }
     }
 }
@@ -105,14 +109,14 @@ impl MemBound {
     /// This function returns for each stream in `spec` the required memory. It differentiates with the `dynamic` flag between a dynamic and a static memory computation.
     /// The dynamic memory computation starts with a memory-bound of 0 and increases the bound only if a value is used in at least one other evaluation cycle, i.e., if synchronous lookups only access a stream with an offset of 0, then this value does not need to be store in the global memory and the bound for this stream is 0.
     /// The static memory computation assumes that each value is stored in the global memory, so the starting value of each stream is 1.
-    pub(crate) fn analyze<M>(spec: &Hir<M>, dynamic: bool) -> MemBound
+    pub(crate) fn analyze<M>(spec: &Hir<M>, memory_bound_mode: MemoryBoundMode) -> MemBound
     where
         M: HirMode + DepAnaTrait + TypedTrait,
     {
         // Assign streams to default value
         let mut memory_bound_per_stream = spec
             .all_streams()
-            .map(|sr| (sr, MemorizationBound::default_value(dynamic)))
+            .map(|sr| (sr, MemorizationBound::default_value(memory_bound_mode)))
             .collect::<HashMap<SRef, MemorizationBound>>();
 
         let mut memory_bound_per_window = HashMap::new();
@@ -121,7 +125,7 @@ impl MemBound {
         // Assign stream to bounded memory
         spec.graph().edge_indices().for_each(|edge_index| {
             let cur_edge_weight = spec.graph().edge_weight(edge_index).unwrap();
-            let cur_edge_bound = cur_edge_weight.as_memory_bound(dynamic);
+            let cur_edge_bound = cur_edge_weight.as_memory_bound(memory_bound_mode);
             let (_, src_node) = spec.graph().edge_endpoints(edge_index).unwrap();
             let sr = spec.graph().node_weight(src_node).unwrap();
             let cur_mem_bound = memory_bound_per_stream.get_mut(sr).unwrap();
@@ -131,7 +135,9 @@ impl MemBound {
                 cur_edge_bound
             };
 
-            if let StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) = cur_edge_weight.kind {
+            if let StreamAccessKind::SlidingWindow(wr) | StreamAccessKind::DiscreteWindow(wr) =
+                cur_edge_weight.kind
+            {
                 let num_buckets = match wr {
                     WindowReference::Sliding(_) => {
                         let (bucket_count, bucket_size) =
@@ -139,7 +145,7 @@ impl MemBound {
                         assert!(!sliding_window_bucket_size.contains_key(&wr));
                         sliding_window_bucket_size.insert(wr, bucket_size);
                         bucket_count
-                    },
+                    }
                     WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
                     WindowReference::Instance(_) => unreachable!(),
                 };
@@ -156,7 +162,11 @@ impl MemBound {
         }
     }
 
-    fn calculate_num_window_buckets<M>(spec: &Hir<M>, window: WRef, origin: Origin) -> (usize, Duration)
+    fn calculate_num_window_buckets<M>(
+        spec: &Hir<M>,
+        window: WRef,
+        origin: Origin,
+    ) -> (usize, Duration)
     where
         M: HirMode + TypedTrait,
     {
@@ -170,18 +180,20 @@ impl MemBound {
         };
 
         let caller_frequency = match caller_pacing {
-            ConcretePacingType::FixedGlobalPeriodic(p) | ConcretePacingType::FixedLocalPeriodic(p) => p,
+            ConcretePacingType::FixedGlobalPeriodic(p)
+            | ConcretePacingType::FixedLocalPeriodic(p) => p,
             p => {
                 panic!(
                     "windows can only aggregate periodic streams with fixed frequency: {:?}",
                     p
                 )
-            },
+            }
         };
-        let caller_period =
-            UOM_Time::new::<uom::si::time::second>(caller_frequency.get::<uom::si::frequency::hertz>().inv())
-                .get::<uom::si::time::nanosecond>()
-                .to_integer();
+        let caller_period = UOM_Time::new::<uom::si::time::second>(
+            caller_frequency.get::<uom::si::frequency::hertz>().inv(),
+        )
+        .get::<uom::si::time::nanosecond>()
+        .to_integer();
 
         let window_duration = window.aggr.duration.as_nanos() as i64;
         let bucket_count = (lcm(window_duration, caller_period) / caller_period) as usize;
@@ -193,23 +205,32 @@ impl MemBound {
 }
 
 #[cfg(test)]
-mod dynaminc_memory_bound_tests {
+mod dynamic_memory_bound_tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
-    fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+    fn check_memory_bound_for_spec(
+        spec: &str,
+        ref_memory_bounds: HashMap<SRef, MemorizationBound>,
+    ) {
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .check_types()
+            .check_types(&frontend_config)
             .unwrap()
-            .analyze_dependencies()
+            .analyze_dependencies(&frontend_config)
             .unwrap()
-            .determine_evaluation_order()
+            .determine_evaluation_order(&frontend_config)
             .unwrap();
-        let bounds = MemBound::analyze(&hir, true);
-        assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
+        let bounds = MemBound::analyze(&hir, MemoryBoundMode::Dynamic);
+        assert_eq!(
+            bounds.memory_bound_per_stream.len(),
+            ref_memory_bounds.len()
+        );
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
             assert_eq!(b, ref_b);
@@ -253,7 +274,7 @@ mod dynaminc_memory_bound_tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(2)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
         ]
         .into_iter()
@@ -304,7 +325,7 @@ mod dynaminc_memory_bound_tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(5)),
             (sname_to_sref["b"], MemorizationBound::Bounded(0)),
             (sname_to_sref["c"], MemorizationBound::Bounded(0)),
             (sname_to_sref["d"], MemorizationBound::Bounded(0)),
@@ -326,10 +347,10 @@ mod dynaminc_memory_bound_tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let memory_bounds = vec![
-            (sname_to_sref["a"], MemorizationBound::Bounded(1)),
-            (sname_to_sref["b"], MemorizationBound::Bounded(3)),
-            (sname_to_sref["c"], MemorizationBound::Bounded(4)),
-            (sname_to_sref["d"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["a"], MemorizationBound::Bounded(2)),
+            (sname_to_sref["b"], MemorizationBound::Bounded(4)),
+            (sname_to_sref["c"], MemorizationBound::Bounded(5)),
+            (sname_to_sref["d"], MemorizationBound::Bounded(3)),
         ]
         .into_iter()
         .collect();
@@ -415,40 +436,58 @@ mod static_memory_bound_tests {
     use rtlola_parser::{parse, ParserConfig};
 
     use super::*;
+    use crate::config::FrontendConfig;
     use crate::modes::BaseMode;
 
     fn calculate_memory_bound(spec: &str) -> MemBound {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
+        let parser_config = ParserConfig::for_string(spec.to_string());
+        let frontend_config = FrontendConfig::from(&parser_config);
+        let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
         let hir = Hir::<BaseMode>::from_ast(ast)
             .unwrap()
-            .check_types()
+            .check_types(&frontend_config)
             .unwrap()
-            .analyze_dependencies()
+            .analyze_dependencies(&frontend_config)
             .unwrap()
-            .determine_evaluation_order()
+            .determine_evaluation_order(&frontend_config)
             .unwrap();
-        MemBound::analyze(&hir, false)
+        MemBound::analyze(&hir, MemoryBoundMode::Static)
     }
-    fn check_memory_bound_for_spec(spec: &str, ref_memory_bounds: HashMap<SRef, MemorizationBound>) {
+    fn check_memory_bound_for_spec(
+        spec: &str,
+        ref_memory_bounds: HashMap<SRef, MemorizationBound>,
+    ) {
         let bounds = calculate_memory_bound(spec);
-        assert_eq!(bounds.memory_bound_per_stream.len(), ref_memory_bounds.len());
+        assert_eq!(
+            bounds.memory_bound_per_stream.len(),
+            ref_memory_bounds.len()
+        );
         bounds.memory_bound_per_stream.iter().for_each(|(sr, b)| {
             let ref_b = ref_memory_bounds.get(sr).unwrap();
             assert_eq!(b, ref_b);
         });
     }
 
-    fn check_memory_bound_for_windows(spec: &str, ref_memory_bounds: HashMap<WRef, (MemorizationBound, Duration)>) {
+    fn check_memory_bound_for_windows(
+        spec: &str,
+        ref_memory_bounds: HashMap<WRef, (MemorizationBound, Duration)>,
+    ) {
         let bounds = calculate_memory_bound(spec);
-        assert_eq!(bounds.memory_bound_per_window.len(), ref_memory_bounds.len());
+        assert_eq!(
+            bounds.memory_bound_per_window.len(),
+            ref_memory_bounds.len()
+        );
         bounds.memory_bound_per_window.iter().for_each(|(wr, b)| {
             let ref_b = ref_memory_bounds.get(wr).unwrap().0.unwrap();
             assert_eq!(b.unwrap(), ref_b, "{}", wr);
         });
-        bounds.sliding_window_bucket_size.iter().for_each(|(wr, b)| {
-            let ref_b = ref_memory_bounds.get(wr).unwrap().1;
-            assert_eq!(*b, ref_b, "{}", wr);
-        })
+        bounds
+            .sliding_window_bucket_size
+            .iter()
+            .for_each(|(wr, b)| {
+                let ref_b = ref_memory_bounds.get(wr).unwrap().1;
+                assert_eq!(*b, ref_b, "{}", wr);
+            })
     }
 
     #[test]

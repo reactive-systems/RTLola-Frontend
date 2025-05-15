@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::punctuated::{Pair, Punctuated};
 use syn::{
-    parse_macro_input, AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat, PatIdent, PatType,
-    Path, Token, TraitItem, Type, Visibility,
+    parse_macro_input, AttributeArgs, FnArg, Ident, ItemStruct, ItemTrait, Meta, NestedMeta, Pat,
+    PatIdent, PatType, Path, Token, TraitItem, Type, Visibility,
 };
 
 #[proc_macro_derive(HirMode)]
@@ -25,8 +25,15 @@ pub fn mode_functionality(_attr: TokenStream, input: TokenStream) -> TokenStream
     let inner_name = generate_inner_name(&trait_name);
     let wrapper_name = generate_wrapper_name(&trait_name);
     let inner_fn_name = generate_wrapper_fn_name(&trait_name);
-    let wrapper = generate_wrapper(&trait_name, &wrapper_name, &inner_name, &inner_fn_name, &s.vis);
-    let wrapper_impl = generate_wrapper_impl(&trait_name, &wrapper_name, &inner_name, &inner_fn_name);
+    let wrapper = generate_wrapper(
+        &trait_name,
+        &wrapper_name,
+        &inner_name,
+        &inner_fn_name,
+        &s.vis,
+    );
+    let wrapper_impl =
+        generate_wrapper_impl(&trait_name, &wrapper_name, &inner_name, &inner_fn_name);
     let blanket = generate_blanket(&trait_name, &wrapper_name, &inner_fn_name, &s.items);
     input.extend(wrapper);
     input.extend(wrapper_impl);
@@ -90,28 +97,24 @@ fn generate_blanket(
     inner_fn_name: &Ident,
     content: &[TraitItem],
 ) -> TokenStream {
-    let content = content.iter().filter_map(|c| {
-        match c {
-            TraitItem::Method(m) => Some(m),
-            _ => None,
-        }
+    let content = content.iter().filter_map(|c| match c {
+        TraitItem::Method(m) => Some(m),
+        _ => None,
     });
     let sig = content.clone().map(|c| &c.sig);
     let args = content.clone().cloned().map(|c| c.sig.inputs).map(|args| {
         let mut ret = Punctuated::<Ident, Token![,]>::new();
         for (arg, opt_p) in args.into_pairs().map(Pair::into_tuple) {
             match arg {
-                FnArg::Receiver(_) => {}, // Skip receiver (self etc)
-                FnArg::Typed(PatType { pat, .. }) => {
-                    match *pat {
-                        Pat::Ident(PatIdent { ident, .. }) => {
-                            ret.push_value(ident);
-                            if let Some(p) = opt_p {
-                                ret.push_punct(p);
-                            }
-                        },
-                        _ => panic!("Inner WTF"),
+                FnArg::Receiver(_) => {} // Skip receiver (self etc)
+                FnArg::Typed(PatType { pat, .. }) => match *pat {
+                    Pat::Ident(PatIdent { ident, .. }) => {
+                        ret.push_value(ident);
+                        if let Some(p) = opt_p {
+                            ret.push_punct(p);
+                        }
                     }
+                    _ => panic!("Inner WTF"),
                 },
             }
         }
@@ -144,7 +147,10 @@ pub fn covers_functionality(attr: TokenStream, input: TokenStream) -> TokenStrea
         .fields
         .iter()
         .find_map(|field| {
-            let name = field.ident.as_ref().expect("there can't be unnamed fields in structs");
+            let name = field
+                .ident
+                .as_ref()
+                .expect("there can't be unnamed fields in structs");
             if accessor == name {
                 if let Type::Path(tp) = &field.ty {
                     Some(tp.path.get_ident())
@@ -186,7 +192,9 @@ fn extract_path(nm: &NestedMeta) -> &Path {
     match nm {
         NestedMeta::Meta(Meta::Path(p)) => p,
         NestedMeta::Meta(_) | NestedMeta::Lit(_) => {
-            panic!("extends_mode needs two arguments: the subsumed mode and a field refering to one.")
-        },
+            panic!(
+                "extends_mode needs two arguments: the subsumed mode and a field refering to one."
+            )
+        }
     }
 }

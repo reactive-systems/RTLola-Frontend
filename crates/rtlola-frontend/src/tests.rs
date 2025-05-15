@@ -125,11 +125,26 @@ fn fuzzed_aggregation() {
 
 #[test]
 fn fuzzed_type_checker_bad_assumptions() {
-    assert!(parse("input a: Int\ninput b: Int\n\noutput c :=0a + b\n\ntrigger c . 2 \"c is too large\"").is_err());
-    assert!(parse("input a: Int\ninput b: Int\n\noutput c :=!a + b\n\ntrigger c . 2 \"c is too large\"").is_err());
-    assert!(parse("input a: Int\ninput b: Int\n\noutput c := ! + b\n\ntrigger c . 2 \"c is too large\"").is_err());
-    assert!(parse("input a: Int\ninput b: Int\n\noutput c := a +0b\n\ntrigger c . 2 \"c is too large\"").is_err());
-    assert!(parse("input a: Int\ninput b: Int\n\noutput c := a&+ b\n\ntrigger c . 2 \"c is too large\"").is_err());
+    assert!(parse(
+        "input a: Int\ninput b: Int\n\noutput c :=0a + b\n\ntrigger c . 2 \"c is too large\""
+    )
+    .is_err());
+    assert!(parse(
+        "input a: Int\ninput b: Int\n\noutput c :=!a + b\n\ntrigger c . 2 \"c is too large\""
+    )
+    .is_err());
+    assert!(parse(
+        "input a: Int\ninput b: Int\n\noutput c := ! + b\n\ntrigger c . 2 \"c is too large\""
+    )
+    .is_err());
+    assert!(parse(
+        "input a: Int\ninput b: Int\n\noutput c := a +0b\n\ntrigger c . 2 \"c is too large\""
+    )
+    .is_err());
+    assert!(parse(
+        "input a: Int\ninput b: Int\n\noutput c := a&+ b\n\ntrigger c . 2 \"c is too large\""
+    )
+    .is_err());
     assert!(parse("input a: Int\ninput b: Int\n\noutput c @0a := a +!b.hold().defaults(to: 0)\n\ntrigger c > 2 \"c is too large\"").is_err());
     assert!(parse("input a: Int\ninput b: Int\n\noutput c @0a := a + b.triggerdefaults(to: 0)\n\ntrigger c > 2 \"c is too large\"").is_err());
 }
@@ -171,7 +186,9 @@ fn fuzzed_invalid_activation_condition() {
 #[ignore = "real-time offsets not implemented, yet"]
 #[test]
 fn fuzzed_big_realtime_offset() {
-    assert!(parse("output a: Int8 @0.5Hz := 1 output b: Int8 @1Hz := a[-1w].defaults(to: 0)").is_err());
+    assert!(
+        parse("output a: Int8 @0.5Hz := 1 output b: Int8 @1Hz := a[-1w].defaults(to: 0)").is_err()
+    );
 }
 
 #[test]
@@ -187,13 +204,18 @@ fn fuzzed_tuple_access_on_steriods() {
 
 #[test]
 fn min_max() -> Result<(), String> {
-    parse("import math\n input a: Int\n input b: Int\n output min_max := min<Int>(max<Int>(a,b), b)")?;
+    parse(
+        "import math\n input a: Int\n input b: Int\n output min_max := min<Int>(max<Int>(a,b), b)",
+    )?;
     Ok(())
 }
 
 #[test]
 fn min_incompatible() {
-    assert!(parse("import math\n input a: Int\n input b: Float64\n output minres := min(a, b)").is_err());
+    assert!(
+        parse("import math\n input a: Int\n input b: Float64\n output minres := min(a, b)")
+            .is_err()
+    );
 }
 
 #[test]

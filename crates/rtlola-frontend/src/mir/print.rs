@@ -4,11 +4,12 @@ use itertools::Itertools;
 use rtlola_hir::hir::OutputKind;
 
 use super::{
-    FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType, Trigger, UIntTy, Window,
-    WindowOperation,
+    FixedTy, FloatTy, InputStream, InstanceSelection, IntTy, Mir, OutputStream, PacingType,
+    Trigger, UIntTy, Window, WindowOperation,
 };
 use crate::mir::{
-    ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset, StreamAccessKind, Type,
+    ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset,
+    StreamAccessKind, Type,
 };
 
 impl Display for Constant {
@@ -19,6 +20,7 @@ impl Display for Constant {
             Constant::Int(i) => write!(f, "{i}"),
             Constant::Float(fl) => write!(f, "{fl:?}"),
             Constant::Str(s) => write!(f, "\"{s}\""),
+            Constant::Decimal(i) => write!(f, "{i}"),
         }
     }
 }
@@ -59,7 +61,11 @@ impl Display for Type {
             Type::Float(_) => write!(f, "Float{}", self.size().expect("Floats are sized.").0 * 8),
             Type::UInt(_) => write!(f, "UInt{}", self.size().expect("UInts are sized.").0 * 8),
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
-            Type::Function { args, ret } => write_delim_list(f, args, "(", &format!(") -> {ret}"), ","),
+            Type::Fixed(ty) => write!(f, "Fixed{ty}"),
+            Type::UFixed(ty) => write!(f, "UFixed{ty}"),
+            Type::Function { args, ret } => {
+                write_delim_list(f, args, "(", &format!(") -> {ret}"), ",")
+            }
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),
@@ -76,6 +82,8 @@ impl Display for IntTy {
             IntTy::Int16 => write!(f, "16"),
             IntTy::Int32 => write!(f, "32"),
             IntTy::Int64 => write!(f, "64"),
+            IntTy::Int128 => write!(f, "128"),
+            IntTy::Int256 => write!(f, "256"),
         }
     }
 }
@@ -87,6 +95,8 @@ impl Display for UIntTy {
             UIntTy::UInt16 => write!(f, "16"),
             UIntTy::UInt32 => write!(f, "32"),
             UIntTy::UInt64 => write!(f, "64"),
+            UIntTy::UInt128 => write!(f, "128"),
+            UIntTy::UInt256 => write!(f, "256"),
         }
     }
 }
@@ -100,11 +110,12 @@ impl Display for FloatTy {
     }
 }
 
-impl Display for InstanceSelection {
+impl Display for FixedTy {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            InstanceSelection::Fresh => write!(f, "Fresh"),
-            InstanceSelection::All => write!(f, "All"),
+            FixedTy::Fixed64_32 => write!(f, "64_32"),
+            FixedTy::Fixed32_16 => write!(f, "32_16"),
+            FixedTy::Fixed16_8 => write!(f, "16_8"),
         }
     }
 }
@@ -176,13 +187,13 @@ impl<'a, T> RtLolaMirPrinter<'a, T> {
     }
 }
 
-impl<'a, T: Display> Display for RtLolaMirPrinter<'a, T> {
+impl<T: Display> Display for RtLolaMirPrinter<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         self.inner.fmt(f)
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
+impl Display for RtLolaMirPrinter<'_, ActivationCondition> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             ActivationCondition::Conjunction(s) => {
@@ -191,35 +202,41 @@ impl<'a> Display for RtLolaMirPrinter<'a, ActivationCondition> {
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::And.to_string());
                 write!(f, "{rs}")
-            },
+            }
             ActivationCondition::Disjunction(s) => {
                 let rs = s
                     .iter()
                     .map(|ac| RtLolaMirPrinter::new(self.mir, ac).to_string())
                     .join(&ArithLogOp::Or.to_string());
                 write!(f, "{rs}")
-            },
+            }
             ActivationCondition::Stream(s) => write!(f, "{}", self.mir.stream(*s).name()),
             ActivationCondition::True => write!(f, "true"),
         }
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, PacingType> {
+impl Display for RtLolaMirPrinter<'_, PacingType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.inner {
             PacingType::GlobalPeriodic(freq) => {
                 let s = freq
-                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .into_format_args(
+                        uom::si::frequency::hertz,
+                        uom::fmt::DisplayStyle::Abbreviation,
+                    )
                     .to_string();
                 write!(f, "Global({}Hz)", &s[..s.len() - 3])
-            },
+            }
             PacingType::LocalPeriodic(freq) => {
                 let s = freq
-                    .into_format_args(uom::si::frequency::hertz, uom::fmt::DisplayStyle::Abbreviation)
+                    .into_format_args(
+                        uom::si::frequency::hertz,
+                        uom::fmt::DisplayStyle::Abbreviation,
+                    )
                     .to_string();
                 write!(f, "Local({}Hz)", &s[..s.len() - 3])
-            },
+            }
             PacingType::Event(ac) => RtLolaMirPrinter::new(self.mir, ac).fmt(f),
             PacingType::Constant => write!(f, "true"),
         }
@@ -269,14 +286,15 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 2 => format!("{} {} {}", display_exprs[0], op, display_exprs[1]),
                 _ => unreachable!(),
             };
-            if (associative && current_level < op_level || !associative && current_level <= op_level)
+            if (associative && current_level < op_level
+                || !associative && current_level <= op_level)
                 && current_level != 0
             {
                 format!("({display})")
             } else {
                 display
             }
-        },
+        }
         ExpressionKind::StreamAccess {
             target,
             parameters,
@@ -302,28 +320,40 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                     let duration = window.duration;
                     let op = &window.op;
                     format!("{target_name}.aggregate(over_discrete: {duration}, using: {op})")
-                },
+                }
                 StreamAccessKind::SlidingWindow(w) => {
                     let window = mir.sliding_window(*w);
                     let target_name = mir.stream(window.target).name();
                     let duration = window.duration.as_secs_f64().to_string();
                     let op = &window.op;
                     format!("{target_name}.aggregate(over: {duration}s, using: {op})")
-                },
+                }
                 StreamAccessKind::InstanceAggregation(w) => {
                     let window = mir.instance_aggregation(*w);
                     let target_name = mir.stream(window.target).name();
-                    let duration = window.selection.to_string();
+                    let duration = mir.display(&window.selection);
                     let op = &window.op().to_string();
                     format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
-                },
+                }
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
                 StreamAccessKind::Get => format!("{target_name}.get()"),
                 StreamAccessKind::Fresh => format!("{target_name}.fresh()"),
             }
-        },
-        ExpressionKind::ParameterAccess(sref, parameter) => mir.output(*sref).params[*parameter].name.to_string(),
+        }
+        ExpressionKind::ParameterAccess(sref, parameter) => {
+            mir.output(*sref).params[*parameter].name.to_string()
+        }
+        ExpressionKind::LambdaParameterAccess { wref, pref } => mir
+            .instance_aggregation(*wref)
+            .selection
+            .parameters()
+            .unwrap()
+            .iter()
+            .find(|p| p.idx == *pref)
+            .unwrap()
+            .name
+            .to_string(),
         ExpressionKind::Ite {
             condition,
             consequence,
@@ -333,7 +363,7 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
             let display_consequence = display_expression(mir, consequence, 0);
             let display_alternative = display_expression(mir, alternative, 0);
             format!("if {display_condition} then {display_consequence} else {display_alternative}")
-        },
+        }
         ExpressionKind::Tuple(exprs) => {
             let display_exprs = exprs
                 .iter()
@@ -341,11 +371,11 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("({display_exprs})")
-        },
+        }
         ExpressionKind::TupleAccess(expr, i) => {
             let display_expr = display_expression(mir, expr, 20);
             format!("{display_expr}({i})")
-        },
+        }
         ExpressionKind::Function(name, args) => {
             let display_args = args
                 .iter()
@@ -353,20 +383,45 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{name}({display_args})")
-        },
+        }
         ExpressionKind::Convert { expr: inner_expr } => {
             let inner_display = display_expression(mir, inner_expr, 0);
-            format!("Cast<{},{}>({inner_display})", expr.ty, inner_expr.ty)
-        },
+            format!("cast<{},{}>({inner_display})", inner_expr.ty, expr.ty)
+        }
         ExpressionKind::Default { expr, default } => {
             let display_expr = display_expression(mir, expr, 0);
             let display_default = display_expression(mir, default, 0);
             format!("{display_expr}.defaults(to: {display_default})")
-        },
+        }
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, Expression> {
+impl Display for RtLolaMirPrinter<'_, InstanceSelection> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match &self.inner {
+            InstanceSelection::Fresh => write!(f, "fresh"),
+            InstanceSelection::All => write!(f, "all"),
+            InstanceSelection::FilteredFresh { parameters, cond } => {
+                let parameters = parameters
+                    .iter()
+                    .map(|p| format!("{}: {}", &p.name, p.ty))
+                    .join(", ");
+                let cond = display_expression(self.mir, cond, 0);
+                write!(f, "fresh(where: ({parameters}) => {cond})")
+            }
+            InstanceSelection::FilteredAll { parameters, cond } => {
+                let parameters = parameters
+                    .iter()
+                    .map(|p| format!("{}: {}", &p.name, p.ty))
+                    .join(", ");
+                let cond = display_expression(self.mir, cond, 0);
+                write!(f, "all(where: ({parameters}) => {cond})")
+            }
+        }
+    }
+}
+
+impl Display for RtLolaMirPrinter<'_, Expression> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", display_expression(self.mir, self.inner, 0))
     }
@@ -380,7 +435,7 @@ impl Display for InputStream {
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
+impl Display for RtLolaMirPrinter<'_, OutputStream> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let OutputStream {
             name: _,
@@ -408,7 +463,10 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
             OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
         }
 
-        if spawn.expression.is_some() || spawn.condition.is_some() || spawn.pacing != PacingType::Constant {
+        if spawn.expression.is_some()
+            || spawn.condition.is_some()
+            || spawn.pacing != PacingType::Constant
+        {
             let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
             write!(f, "\n  spawn @{display_pacing}")?;
             if let Some(spawn_expr) = &spawn.expression {
@@ -435,14 +493,17 @@ impl<'a> Display for RtLolaMirPrinter<'a, OutputStream> {
         if let Some(close_condition) = &close.condition {
             let display_pacing = RtLolaMirPrinter::new(self.mir, &close.pacing).to_string();
             let display_close_condition = display_expression(self.mir, close_condition, 0);
-            write!(f, "\n  close @{display_pacing} when {display_close_condition}")?;
+            write!(
+                f,
+                "\n  close @{display_pacing} when {display_close_condition}"
+            )?;
         }
 
         Ok(())
     }
 }
 
-impl<'a> Display for RtLolaMirPrinter<'a, Trigger> {
+impl Display for RtLolaMirPrinter<'_, Trigger> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let output = self.mir.output(self.inner.output_reference);
         RtLolaMirPrinter::new(self.mir, output).fmt(f)
@@ -501,7 +562,7 @@ mod tests {
         comparison1:
         "(1 > 2) && !false || (2 != 2)" => "1 > 2 ∧ !false ∨ 2 ≠ 2",
         comparison2:
-        "(true == (1 > 2 || false)" => "true = (1 > 2 ∨ false)",
+        "(true == (1 > 2 || false))" => "true = (1 > 2 ∨ false)",
         associativity:
         "1 - (2 - 3)" => "1 - (2 - 3)",
         associativity2:
@@ -534,6 +595,32 @@ mod tests {
         ";
 
         let config = ParserConfig::for_string(example.into());
+        let mir = parse(&config).expect("should parse");
+        let config = ParserConfig::for_string(mir.to_string());
+        parse(&config).expect("should also parse");
+    }
+
+    #[test]
+    fn test_instance_aggregation() {
+        let spec = "input a: Int32\n\
+        input a2: Int32\n\
+        output b (p1, p2) \
+            spawn with (a, a + 1) \
+            eval with p1 + p2 + a\n\
+        output c (p1) \
+            spawn with a \
+            eval with b.aggregate(over_instances: fresh(where: (p1, p2) => p2 = a2), using: Σ)";
+        let config = ParserConfig::for_string(spec.into());
+        let mir = parse(&config).expect("should parse");
+        let config = ParserConfig::for_string(mir.to_string());
+        parse(&config).expect("should also parse");
+    }
+
+    #[test]
+    fn test_cast() {
+        let spec = "input a: Int32\n\
+        output b : UInt32 := cast<Int32,UInt32>(a)";
+        let config = ParserConfig::for_string(spec.into());
         let mir = parse(&config).expect("should parse");
         let config = ParserConfig::for_string(mir.to_string());
         parse(&config).expect("should also parse");

@@ -10,6 +10,7 @@
 //! * `RtLolaHir<OrderedMode>` orders the streams into layers of streams which can be evaluated at the same time.
 //! * `RtLolaHir<MemBoundMode>` enriches the streams with their memory requirements.
 //! * `RtLolaHir<CompleteMode>` finalizes the Hir to its fully analyzed state.
+//!
 //! Refer to [RtLolaHir] for more details.
 
 #![forbid(unused_must_use)] // disallow discarding errors
@@ -25,12 +26,14 @@
     unused_qualifications
 )]
 
+pub mod config;
 mod features;
 pub mod hir;
 mod modes;
 mod stdlib;
 mod type_check;
 
+use config::FrontendConfig;
 use hir::Hir;
 pub use hir::RtLolaHir;
 pub use modes::{BaseMode, CompleteMode};
@@ -56,13 +59,16 @@ pub fn from_ast(ast: RtLolaAst) -> Result<Hir<BaseMode>, RtLolaError> {
 /// - Memory analysis (see [determine_memory_bounds](crate::hir::RtLolaHir::<OrderedMode>::determine_memory_bounds)):
 ///
 /// This function returns the fully analysed [RtLolaHir]  which can be lowered into the [Mir](rtlola-frontend::Mir).
-pub fn fully_analyzed(ast: RtLolaAst) -> Result<Hir<CompleteMode>, RtLolaError> {
+pub fn fully_analyzed(
+    ast: RtLolaAst,
+    cfg: &FrontendConfig,
+) -> Result<Hir<CompleteMode>, RtLolaError> {
     Hir::<BaseMode>::from_ast(ast)?
-        .check_types()?
-        .analyze_dependencies()?
-        .determine_evaluation_order()?
-        .determine_memory_bounds()?
-        .finalize()
+        .check_types(cfg)?
+        .analyze_dependencies(cfg)?
+        .determine_evaluation_order(cfg)?
+        .determine_memory_bounds(cfg)?
+        .finalize(cfg)
 }
 
 #[macro_use]

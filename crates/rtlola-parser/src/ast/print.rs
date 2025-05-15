@@ -2,10 +2,18 @@
 
 use std::fmt::{Display, Formatter, Result};
 
+use itertools::Itertools;
+
 use crate::ast::*;
 
 /// Writes out the joined vector `v`, enclosed by the given strings `pref` and `suff`.
-fn write_delim_list<T: Display>(f: &mut Formatter<'_>, v: &[T], pref: &str, suff: &str, join: &str) -> Result {
+fn write_delim_list<T: Display>(
+    f: &mut Formatter<'_>,
+    v: &[T],
+    pref: &str,
+    suff: &str,
+    join: &str,
+) -> Result {
     write!(f, "{pref}")?;
     if let Some(e) = v.first() {
         write!(f, "{e}")?;
@@ -31,14 +39,43 @@ fn format_type(ty: &Option<Type>) -> String {
     format_opt(ty, ": ", "")
 }
 
+fn format_tags(f: &mut Formatter<'_>, tags: &[Tag], global: bool) -> Result {
+    if tags.is_empty() {
+        return Ok(());
+    }
+    let tag_list = tags
+        .iter()
+        .map(|tag| {
+            if let Some(value) = &tag.value {
+                format!("{}=\"{}\"", &tag.key, value)
+            } else {
+                tag.key.to_string()
+            }
+        })
+        .join(",");
+
+    if global {
+        writeln!(f, "#![{tag_list}]")
+    } else {
+        writeln!(f, "#[{tag_list}]")
+    }
+}
+
 impl Display for Constant {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "constant {}{} := {}", self.name, format_type(&self.ty), self.literal)
+        write!(
+            f,
+            "constant {}{} := {}",
+            self.name,
+            format_type(&self.ty),
+            self.literal
+        )
     }
 }
 
 impl Display for Input {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.tags, false)?;
         write!(f, "input {}", self.name)?;
         if !self.params.is_empty() {
             write_delim_list(f, &self.params, " (", ")", ", ")?;
@@ -49,12 +86,17 @@ impl Display for Input {
 
 impl Display for Mirror {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "output {} mirror {} when {}", self.name, self.target, self.filter)
+        write!(
+            f,
+            "output {} mirror {} when {}",
+            self.name, self.target, self.filter
+        )
     }
 }
 
 impl Display for Output {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.tags, false)?;
         match &self.kind {
             OutputKind::NamedOutput(name) => write!(f, "output {name}")?,
             OutputKind::Trigger => write!(f, "trigger")?,
@@ -90,7 +132,7 @@ impl Display for Parameter {
 impl Display for AnnotatedPacingType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            AnnotatedPacingType::NotAnnotated => Ok(()),
+            AnnotatedPacingType::NotAnnotated(_) => Ok(()),
             AnnotatedPacingType::Global(freq) => write!(f, " @Global({freq})"),
             AnnotatedPacingType::Local(freq) => write!(f, " @Local({freq})"),
             AnnotatedPacingType::Unspecified(expr) => write!(f, " @{expr}"),
@@ -118,7 +160,7 @@ impl Display for EvalSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if self.condition.is_some()
             || self.eval_expression.is_some()
-            || self.annotated_pacing != AnnotatedPacingType::NotAnnotated
+            || !matches!(self.annotated_pacing, AnnotatedPacingType::NotAnnotated(_))
         {
             write!(f, "eval")?;
         }
@@ -175,13 +217,11 @@ impl Display for Expression {
         match &self.kind {
             ExpressionKind::Lit(l) => write!(f, "{l}"),
             ExpressionKind::Ident(ident) => write!(f, "{ident}"),
-            ExpressionKind::StreamAccess(expr, access) => {
-                match access {
-                    StreamAccessKind::Sync => write!(f, "{expr}"),
-                    StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
-                    StreamAccessKind::Get => write!(f, "{expr}.get()"),
-                    StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
-                }
+            ExpressionKind::StreamAccess(expr, access) => match access {
+                StreamAccessKind::Sync => write!(f, "{expr}"),
+                StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
+                StreamAccessKind::Get => write!(f, "{expr}.get()"),
+                StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
             },
             ExpressionKind::Default(expr, val) => write!(f, "{expr}.defaults(to: {val})"),
             ExpressionKind::Offset(expr, val) => write!(f, "{expr}.offset(by: {val})"),
@@ -190,17 +230,18 @@ impl Display for Expression {
                 duration,
                 wait,
                 aggregation,
-            } => {
-                match wait {
-                    true => {
-                        write!(
-                            f,
-                            "{expr}.aggregate(over_exactly_discrete: {duration}, using: {aggregation})"
-                        )
-                    },
-                    false => {
-                        write!(f, "{expr}.aggregate(over_discrete: {duration}, using: {aggregation})")
-                    },
+            } => match wait {
+                true => {
+                    write!(
+                        f,
+                        "{expr}.aggregate(over_exactly_discrete: {duration}, using: {aggregation})"
+                    )
+                }
+                false => {
+                    write!(
+                        f,
+                        "{expr}.aggregate(over_discrete: {duration}, using: {aggregation})"
+                    )
                 }
             },
             ExpressionKind::SlidingWindowAggregation {
@@ -208,33 +249,34 @@ impl Display for Expression {
                 duration,
                 wait,
                 aggregation,
-            } => {
-                match wait {
-                    true => {
-                        write!(f, "{expr}.aggregate(over_exactly: {duration}, using: {aggregation})")
-                    },
-                    false => write!(f, "{expr}.aggregate(over: {duration}, using: {aggregation})"),
+            } => match wait {
+                true => {
+                    write!(
+                        f,
+                        "{expr}.aggregate(over_exactly: {duration}, using: {aggregation})"
+                    )
                 }
+                false => write!(
+                    f,
+                    "{expr}.aggregate(over: {duration}, using: {aggregation})"
+                ),
             },
             ExpressionKind::InstanceAggregation {
                 expr,
                 selection,
                 aggregation,
-            } => write!(f, "{expr}.aggregate(over_instances: {selection}, using: {aggregation})"),
+            } => write!(
+                f,
+                "{expr}.aggregate(over_instances: {selection}, using: {aggregation})"
+            ),
             ExpressionKind::Binary(op, lhs, rhs) => write!(f, "{lhs} {op} {rhs}"),
             ExpressionKind::Unary(operator, operand) => write!(f, "{operator}{operand}"),
             ExpressionKind::Ite(cond, cons, alt) => {
                 write!(f, "if {cond} then {cons} else {alt}")
-            },
-            ExpressionKind::ParenthesizedExpression(left, expr, right) => {
-                write!(
-                    f,
-                    "{}{}{}",
-                    if left.is_some() { "(" } else { "" },
-                    expr,
-                    if right.is_some() { ")" } else { "" }
-                )
-            },
+            }
+            ExpressionKind::ParenthesizedExpression(expr) => {
+                write!(f, "({})", expr,)
+            }
             ExpressionKind::MissingExpression => Ok(()),
             ExpressionKind::Tuple(exprs) => write_delim_list(f, exprs, "(", ")", ", "),
             ExpressionKind::Function(name, types, args) => {
@@ -245,15 +287,13 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| {
-                        match arg_name {
-                            None => format!("{arg}"),
-                            Some(arg_name) => format!("{arg_name}: {arg}"),
-                        }
+                    .map(|(arg, arg_name)| match arg_name {
+                        None => format!("{arg}"),
+                        Some(arg_name) => format!("{arg_name}: {arg}"),
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
-            },
+            }
             ExpressionKind::Field(expr, ident) => write!(f, "{expr}.{ident}"),
             ExpressionKind::Method(expr, name, types, args) => {
                 write!(f, "{}.{}", expr, name.name)?;
@@ -263,16 +303,25 @@ impl Display for Expression {
                 let args: Vec<String> = args
                     .iter()
                     .zip(&name.arg_names)
-                    .map(|(arg, arg_name)| {
-                        match arg_name {
-                            None => format!("{arg}"),
-                            Some(arg_name) => format!("{arg_name}: {arg}"),
-                        }
+                    .map(|(arg, arg_name)| match arg_name {
+                        None => format!("{arg}"),
+                        Some(arg_name) => format!("{arg_name}: {arg}"),
                     })
                     .collect();
                 write_delim_list(f, &args, "(", ")", ", ")
-            },
+            }
+            ExpressionKind::Lambda(lambda) => {
+                write!(f, "{lambda}")
+            }
         }
+    }
+}
+
+impl Display for LambdaExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let LambdaExpr { parameters, expr } = self;
+        let parameters = parameters.iter().map(|p| p.to_string()).join(",");
+        write!(f, "({parameters}) => {expr}")
     }
 }
 
@@ -282,11 +331,9 @@ impl Display for FunctionName {
         let args: Vec<String> = self
             .arg_names
             .iter()
-            .map(|arg_name| {
-                match arg_name {
-                    None => String::from("_:"),
-                    Some(arg_name) => format!("{arg_name}:"),
-                }
+            .map(|arg_name| match arg_name {
+                None => String::from("_:"),
+                Some(arg_name) => format!("{arg_name}:"),
             })
             .collect();
         write_delim_list(f, &args, "(", ")", "")
@@ -339,6 +386,7 @@ impl Display for WindowOperation {
             WindowOperation::Covariance => "cov",
             WindowOperation::StandardDeviation => "σ",
             WindowOperation::NthPercentile(p) => return write!(f, "pctl{p}"),
+            WindowOperation::TrueRatio => "true_ratio",
         };
         write!(f, "{op_str}")
     }
@@ -364,6 +412,7 @@ impl Display for Literal {
             LitKind::Bool(val) => write!(f, "{val}"),
             LitKind::Numeric(val, unit) => write!(f, "{}{}", val, unit.clone().unwrap_or_default()),
             LitKind::Str(s) => write!(f, "\"{s}\""),
+            LitKind::Tuple(elements) => write_delim_list(f, elements, "(", ")", ", "),
             LitKind::RawStr(s) => {
                 // need to determine padding with `#`
                 let mut padding = 0;
@@ -371,7 +420,7 @@ impl Display for Literal {
                     padding += 1;
                 }
                 write!(f, "r{pad}\"{}\"{pad}", s, pad = "#".repeat(padding))
-            },
+            }
         }
     }
 }
@@ -387,6 +436,8 @@ impl Display for InstanceSelection {
         match self {
             InstanceSelection::Fresh => write!(f, "fresh"),
             InstanceSelection::All => write!(f, "all"),
+            InstanceSelection::FilteredFresh(lambda) => write!(f, "fresh(where: {lambda})",),
+            InstanceSelection::FilteredAll(lambda) => write!(f, "all(where: {lambda})"),
         }
     }
 }
@@ -438,6 +489,7 @@ impl Display for Import {
 
 impl Display for RtLolaAst {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        format_tags(f, &self.global_tags, true)?;
         for import in &self.imports {
             writeln!(f, "{import}")?;
         }
@@ -462,6 +514,6 @@ impl Display for RtLolaAst {
 
 impl Display for NodeId {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "{}{}", self.id, "'".repeat(self.prime_counter as usize))
+        write!(f, "{}", self.0)
     }
 }

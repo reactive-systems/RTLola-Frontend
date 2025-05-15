@@ -4,13 +4,14 @@
 //!
 //! # Specification Representations
 //! * [RtLolaAst]: The Ast represents the abstract syntax of the specification.  It is obtained by first parsing the specification into a homogenous tree
-//!  and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
-//!  The only checks performed when creating the Ast concern the correct syntax.  See also: [rtlola_parser], [RtLolaAst], and [parse_to_ast].
+//!   and then remove concrete syntax fragments irrelevant for the logics of the specification.  Apart from that, the Ast does not provide much functionality.
+//!   The only checks performed when creating the Ast concern the correct syntax.  See also: [rtlola_parser], [RtLolaAst], and [parse_to_ast].
 //! * [RtLolaHir]: The Hir represents a high-level intermediate representation optimized for analyzability.  It contains more convenient methods than the Ast, enables different
-//!  analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
-//!  Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [rtlola_hir], [rtlola_hir::RtLolaHir], [parse_to_base_hir], and [parse_to_base_hir].
+//!   analysis steps and provides their reports.  The Hir traverses several modes representing the level to which it was analyzed and refined.
+//!   Its base mode is `RtLolaHir<BaseMode>` and its fully analyzed version is `RtLolaHir<CompleteMode>`.  See also: [rtlola_hir], [rtlola_hir::RtLolaHir], [parse_to_base_hir], and [parse_to_base_hir].
 //! * [RtLolaMir]: The Mir represents a mid-level intermediate representation optimized for external use such as interpretation and compilation.  It contains several interconnections
-//!  enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [RtLolaMir], [parse].
+//!   enabling easy accesses and additional annotation such as memory bounds for each stream. See also: [RtLolaMir], [parse].
+//!
 //! As a rule of thumb, if you want to analyze and/or enrich a specification, use the [RtLolaHir].  If you only need a convenient representation of the specification for some devious
 //! activity such as compiling it into something else, the [RtLolaMir] is the way to go.
 //!
@@ -33,6 +34,7 @@
 pub mod hash;
 mod lowering;
 pub mod mir;
+pub mod tag_parser;
 
 use mir::Mir;
 use rtlola_hir::hir::FeatureSelector;
@@ -42,6 +44,7 @@ use rtlola_parser::RtLolaAst;
 #[cfg(test)]
 mod tests;
 
+pub use rtlola_hir::config::{FrontendConfig, MemoryBoundMode, ParserConfigExt};
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
 pub use rtlola_reporting::{Diagnostic, Handler, RawDiagnostic, RtLolaError, Span};
@@ -55,7 +58,7 @@ pub use crate::mir::RtLolaMir;
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse(config: &ParserConfig) -> Result<RtLolaMir, RtLolaError> {
+pub fn parse<'a>(config: impl Into<FrontendConfig<'a>>) -> Result<RtLolaMir, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(Mir::from_hir(hir))
 }
@@ -68,7 +71,9 @@ pub fn parse(config: &ParserConfig) -> Result<RtLolaMir, RtLolaError> {
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_with_features(config: &ParserConfig) -> Result<FeatureSelector, RtLolaError> {
+pub fn parse_with_features<'a>(
+    config: impl Into<FrontendConfig<'a>>,
+) -> Result<FeatureSelector, RtLolaError> {
     let hir = parse_to_final_hir(config)?;
     Ok(FeatureSelector::new(hir))
 }
@@ -80,9 +85,12 @@ pub fn parse_with_features(config: &ParserConfig) -> Result<FeatureSelector, RtL
 /// # Fail
 /// Fails if either the parsing was unsuccessful due to parsing errors such as incorrect syntax or an analysis failed
 /// due to a semantic error such as inconsistent types or unknown identifiers.
-pub fn parse_to_final_hir(cfg: &ParserConfig) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
-    let spec = rtlola_parser::parse(cfg)?;
-    rtlola_hir::fully_analyzed(spec)
+pub fn parse_to_final_hir<'a>(
+    cfg: impl Into<FrontendConfig<'a>>,
+) -> Result<RtLolaHir<CompleteMode>, RtLolaError> {
+    let config: FrontendConfig = cfg.into();
+    let spec = rtlola_parser::parse(config.parser_config())?;
+    rtlola_hir::fully_analyzed(spec, &config)
 }
 
 /// Attempts to parse a textual specification into an `RtLolaHir<BaseMode>`.

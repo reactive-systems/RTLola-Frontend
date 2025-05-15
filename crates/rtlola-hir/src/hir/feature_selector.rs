@@ -6,13 +6,13 @@ use rtlola_parser::ast::{InstanceOperation, WindowOperation};
 use rtlola_reporting::{RtLolaError, Span};
 
 use crate::features::{
-    Closed, DiscreteWindows, Filtered, InstanceAggregations, MultipleEvals, Parameterized, Periodics, SlidingWindows,
-    Spawned, ValueTypes,
+    Closed, DiscreteWindows, Filtered, InstanceAggregations, MultipleEvals, Parameterized,
+    Periodics, SlidingWindows, Spawned, ValueTypes,
 };
 use crate::hir::{
-    AnnotatedPacingType, ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
-    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, TypedTrait, WRef, WidenExprKind,
-    Window,
+    ConcretePacingType, ConcreteValueType, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
+    Input, InstanceAggregation, Output, SlidingAggr, StreamAccessKind, StreamType, TypedTrait,
+    WRef, WidenExprKind, Window,
 };
 use crate::{CompleteMode, RtLolaHir};
 
@@ -36,14 +36,22 @@ pub trait Feature {
     /// Specifies whether to exclude a given discrete window.
     /// The given span corresponds to the code range where the window was defined.
     /// If the discrete window contains constructs part of the feature an Err should be returned describing which construct was used.
-    fn exclude_discrete_window(&self, _span: &Span, _window: &Window<DiscreteAggr>) -> Result<(), RtLolaError> {
+    fn exclude_discrete_window(
+        &self,
+        _span: &Span,
+        _window: &Window<DiscreteAggr>,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 
     /// Specifies whether to exclude a given sliding window.
     /// The given span corresponds to the code range where the window was defined.
     /// If the sliding window contains constructs part of the feature an Err should be returned describing which construct was used.
-    fn exclude_sliding_window(&self, _span: &Span, _window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
+    fn exclude_sliding_window(
+        &self,
+        _span: &Span,
+        _window: &Window<SlidingAggr>,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 
@@ -67,14 +75,22 @@ pub trait Feature {
 
     /// Specifies whether to exclude a given pacing type
     /// If the pacing type is part of the feature an Err should be returned describing which pacing type was used.
-    fn exclude_pacing_type(&self, _span: &Span, _ty: &ConcretePacingType) -> Result<(), RtLolaError> {
+    fn exclude_pacing_type(
+        &self,
+        _span: &Span,
+        _ty: &ConcretePacingType,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 
     /// Specifies whether to exclude a certain kind of expression
     /// If the given expression kind is part of the feature an Err should be returned describing which expression kind was used.
     /// Recursing into subexpressions is handled externally and does not need to be handled.
-    fn exclude_expression_kind(&self, _span: &Span, _kind: &ExpressionKind) -> Result<(), RtLolaError> {
+    fn exclude_expression_kind(
+        &self,
+        _span: &Span,
+        _kind: &ExpressionKind,
+    ) -> Result<(), RtLolaError> {
         Ok(())
     }
 }
@@ -90,8 +106,13 @@ pub struct FeatureSelector {
 
 impl Debug for FeatureSelector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let feature_strs: Vec<String> = self.features.iter().map(|f| f.name().to_string()).collect();
-        write!(f, "FeatureSelector{{hir: {:?}, features: {feature_strs:?}}}", self.hir)
+        let feature_strs: Vec<String> =
+            self.features.iter().map(|f| f.name().to_string()).collect();
+        write!(
+            f,
+            "FeatureSelector{{hir: {:?}, features: {feature_strs:?}}}",
+            self.hir
+        )
     }
 }
 
@@ -108,15 +129,27 @@ impl Feature for FeatureSelector {
         self.iter_features(|f| f.exclude_output(output))
     }
 
-    fn exclude_discrete_window(&self, span: &Span, window: &Window<DiscreteAggr>) -> Result<(), RtLolaError> {
+    fn exclude_discrete_window(
+        &self,
+        span: &Span,
+        window: &Window<DiscreteAggr>,
+    ) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_discrete_window(span, window))
     }
 
-    fn exclude_sliding_window(&self, span: &Span, window: &Window<SlidingAggr>) -> Result<(), RtLolaError> {
+    fn exclude_sliding_window(
+        &self,
+        span: &Span,
+        window: &Window<SlidingAggr>,
+    ) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_sliding_window(span, window))
     }
 
-    fn exclude_instance_aggregation(&self, span: &Span, aggregation: &InstanceAggregation) -> Result<(), RtLolaError> {
+    fn exclude_instance_aggregation(
+        &self,
+        span: &Span,
+        aggregation: &InstanceAggregation,
+    ) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_instance_aggregation(span, aggregation))
     }
 
@@ -128,22 +161,34 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Integer16
             | ConcreteValueType::Integer32
             | ConcreteValueType::Integer64
+            | ConcreteValueType::Integer128
+            | ConcreteValueType::Integer256
             | ConcreteValueType::UInteger8
             | ConcreteValueType::UInteger16
             | ConcreteValueType::UInteger32
             | ConcreteValueType::UInteger64
+            | ConcreteValueType::UInteger128
+            | ConcreteValueType::UInteger256
             | ConcreteValueType::Float32
             | ConcreteValueType::Float64
+            | ConcreteValueType::Fixed64_32
+            | ConcreteValueType::Fixed32_16
+            | ConcreteValueType::Fixed16_8
+            | ConcreteValueType::UFixed64_32
+            | ConcreteValueType::UFixed32_16
+            | ConcreteValueType::UFixed16_8
             | ConcreteValueType::TString
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
-            ConcreteValueType::Tuple(children) => {
-                children
-                    .iter()
-                    .flat_map(|ty| self.exclude_value_type(span, ty).map_err(|e| e.into_iter()).err())
-                    .flatten()
-                    .collect::<RtLolaError>()
-                    .into()
-            },
+            ConcreteValueType::Tuple(children) => children
+                .iter()
+                .flat_map(|ty| {
+                    self.exclude_value_type(span, ty)
+                        .map_err(|e| e.into_iter())
+                        .err()
+                })
+                .flatten()
+                .collect::<RtLolaError>()
+                .into(),
             ConcreteValueType::Option(ty) => self.exclude_value_type(span, ty.as_ref()),
         };
         let mut res = RtLolaError::new();
@@ -160,7 +205,11 @@ impl Feature for FeatureSelector {
         self.iter_features(|f| f.exclude_pacing_type(span, ty))
     }
 
-    fn exclude_expression_kind(&self, span: &Span, kind: &ExpressionKind) -> Result<(), RtLolaError> {
+    fn exclude_expression_kind(
+        &self,
+        span: &Span,
+        kind: &ExpressionKind,
+    ) -> Result<(), RtLolaError> {
         self.iter_features(|f| f.exclude_expression_kind(span, kind))
     }
 }
@@ -169,7 +218,10 @@ impl Feature for FeatureSelector {
 impl FeatureSelector {
     /// Creates a new [FeatureSelector] for the given [RtLolaHir].
     pub fn new(hir: RtLolaHir<CompleteMode>) -> Self {
-        Self { hir, features: vec![] }
+        Self {
+            hir,
+            features: vec![],
+        }
     }
 
     /// Exclude a custom feature.
@@ -193,7 +245,9 @@ impl FeatureSelector {
 
     /// Constraint the specification to Lola 2.o features.
     pub fn lola_2(self) -> Self {
-        self.no_discrete_windows().no_sliding_windows().non_periodic()
+        self.no_discrete_windows()
+            .no_sliding_windows()
+            .non_periodic()
     }
 
     /// Asserts that the specification does not contain a parameterized output stream
@@ -247,14 +301,17 @@ impl FeatureSelector {
     /// Restricts the specification to not contain any of the given value types.
     pub fn not_value_type(mut self, types: &[ConcreteValueType]) -> Self {
         self.features
-            .push(Box::new(ValueTypes::new(HashSet::from_iter(types.to_vec()))));
+            .push(Box::new(ValueTypes::new(HashSet::from_iter(
+                types.to_vec(),
+            ))));
         self
     }
 
     /// Restricts the specification to not contain any of the window operations.
     pub fn not_window_op(mut self, ops: &[WindowOperation]) -> Self {
         let set = HashSet::from_iter(ops.to_vec());
-        self.features.push(Box::new(SlidingWindows::new(set.clone())));
+        self.features
+            .push(Box::new(SlidingWindows::new(set.clone())));
         self.features.push(Box::new(DiscreteWindows::new(set)));
         self
     }
@@ -295,14 +352,7 @@ impl FeatureSelector {
                         .expression
                         .map(|expr| self.hir.expression(expr).span)
                         .or_else(|| spawn.condition.map(|expr| self.hir.expression(expr).span))
-                        .unwrap_or_else(|| {
-                            match spawn.pacing {
-                                AnnotatedPacingType::GlobalFrequency(f) => f.span,
-                                AnnotatedPacingType::LocalFrequency(f) => f.span,
-                                AnnotatedPacingType::Event(eid) => self.hir.expression(eid).span,
-                                AnnotatedPacingType::NotAnnotated => Span::Unknown,
-                            }
-                        })
+                        .unwrap_or(spawn.pacing.span(&self.hir))
                 })
                 .unwrap_or(Span::Unknown);
 
@@ -362,41 +412,68 @@ impl FeatureSelector {
 // Private interface
 impl FeatureSelector {
     fn find_window_span(&self, window: WRef) -> Span {
-        fn find_access_expr(expr: &Expression, window: WRef) -> Option<Span> {
+        fn find_access_expr(
+            hir: &RtLolaHir<CompleteMode>,
+            expr: &Expression,
+            window: WRef,
+        ) -> Option<Span> {
             match &expr.kind {
-                ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(w), _) if *w == window => {
+                ExpressionKind::StreamAccess(_, StreamAccessKind::SlidingWindow(w), _)
+                    if *w == window =>
+                {
                     Some(expr.span)
-                },
-                ExpressionKind::StreamAccess(_, StreamAccessKind::DiscreteWindow(w), _) if *w == window => {
+                }
+                ExpressionKind::StreamAccess(_, StreamAccessKind::DiscreteWindow(w), _)
+                    if *w == window =>
+                {
                     Some(expr.span)
-                },
-                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _) if *w == window => {
+                }
+                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _)
+                    if *w == window =>
+                {
                     Some(expr.span)
-                },
+                }
+                ExpressionKind::StreamAccess(_, StreamAccessKind::InstanceAggregation(w), _) => {
+                    if let Some(condition) =
+                        hir.single_instance_aggregation(*w).selection.condition()
+                    {
+                        find_access_expr(hir, condition, window)
+                    } else {
+                        None
+                    }
+                }
                 ExpressionKind::StreamAccess(_, _, _)
                 | ExpressionKind::LoadConstant(_)
-                | ExpressionKind::ParameterAccess(_, _) => None,
+                | ExpressionKind::ParameterAccess(_, _)
+                | ExpressionKind::LambdaParameterAccess { .. } => None,
                 ExpressionKind::Function(FnExprKind {
                     name: _,
                     args,
                     type_param: _,
                 })
                 | ExpressionKind::Tuple(args)
-                | ExpressionKind::ArithLog(_, args) => args.iter().filter_map(|e| find_access_expr(e, window)).next(),
+                | ExpressionKind::ArithLog(_, args) => args
+                    .iter()
+                    .filter_map(|e| find_access_expr(hir, e, window))
+                    .next(),
                 ExpressionKind::Ite {
                     condition,
                     consequence,
                     alternative,
-                } => {
-                    find_access_expr(condition.as_ref(), window)
-                        .or_else(|| find_access_expr(consequence.as_ref(), window))
-                        .or_else(|| find_access_expr(alternative.as_ref(), window))
-                },
-                ExpressionKind::Widen(WidenExprKind { expr: target, ty: _ })
-                | ExpressionKind::TupleAccess(target, _) => find_access_expr(target.as_ref(), window),
+                } => find_access_expr(hir, condition.as_ref(), window)
+                    .or_else(|| find_access_expr(hir, consequence.as_ref(), window))
+                    .or_else(|| find_access_expr(hir, alternative.as_ref(), window)),
+                ExpressionKind::Widen(WidenExprKind {
+                    expr: target,
+                    ty: _,
+                })
+                | ExpressionKind::TupleAccess(target, _) => {
+                    find_access_expr(hir, target.as_ref(), window)
+                }
                 ExpressionKind::Default { expr, default } => {
-                    find_access_expr(expr.as_ref(), window).or_else(|| find_access_expr(default.as_ref(), window))
-                },
+                    find_access_expr(hir, expr.as_ref(), window)
+                        .or_else(|| find_access_expr(hir, default.as_ref(), window))
+                }
             }
         }
 
@@ -413,28 +490,27 @@ impl FeatureSelector {
         let spawn = caller.spawn.as_ref().and_then(|spawn| {
             spawn
                 .condition
-                .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
+                .and_then(|expr| find_access_expr(&self.hir, self.hir.expression(expr), window))
                 .or_else(|| {
-                    spawn
-                        .expression
-                        .and_then(|expr| find_access_expr(self.hir.expression(expr), window))
+                    spawn.expression.and_then(|expr| {
+                        find_access_expr(&self.hir, self.hir.expression(expr), window)
+                    })
                 })
         });
         let eval = caller
             .eval
             .iter()
-            .find_map(|eval| find_access_expr(self.hir.expression(eval.expr), window))
+            .find_map(|eval| find_access_expr(&self.hir, self.hir.expression(eval.expr), window))
             .or_else(|| {
                 caller
                     .eval
                     .iter()
                     .flat_map(|eval| eval.condition)
-                    .find_map(|expr| find_access_expr(self.hir.expression(expr), window))
+                    .find_map(|expr| find_access_expr(&self.hir, self.hir.expression(expr), window))
             });
-        let close = caller
-            .close
-            .as_ref()
-            .and_then(|close| find_access_expr(self.hir.expression(close.condition), window));
+        let close = caller.close.as_ref().and_then(|close| {
+            find_access_expr(&self.hir, self.hir.expression(close.condition), window)
+        });
 
         spawn.or(eval).or(close).unwrap_or(Span::Unknown)
     }
@@ -467,21 +543,39 @@ impl FeatureSelector {
             res.join(e);
         }
         match &exp.kind {
-            ExpressionKind::ParameterAccess(_, _) | ExpressionKind::LoadConstant(_) => {},
+            ExpressionKind::ParameterAccess(_, _)
+            | ExpressionKind::LambdaParameterAccess { .. }
+            | ExpressionKind::LoadConstant(_) => {}
             ExpressionKind::Function(FnExprKind {
                 name: _,
                 args: sub_exps,
                 type_param: _,
             })
             | ExpressionKind::Tuple(sub_exps)
-            | ExpressionKind::StreamAccess(_, _, sub_exps)
-            | ExpressionKind::ArithLog(_, sub_exps) => {
+            | ExpressionKind::ArithLog(_, sub_exps) => sub_exps.iter().for_each(|exp| {
+                if let Err(e) = self.exclude_expression(exp) {
+                    res.join(e)
+                }
+            }),
+            ExpressionKind::StreamAccess(_, kind, sub_exps) => {
                 sub_exps.iter().for_each(|exp| {
                     if let Err(e) = self.exclude_expression(exp) {
                         res.join(e)
                     }
-                })
-            },
+                });
+                if let StreamAccessKind::InstanceAggregation(wref) = kind {
+                    if let Some(condition) = self
+                        .hir
+                        .single_instance_aggregation(*wref)
+                        .selection
+                        .condition()
+                    {
+                        if let Err(e) = self.exclude_expression(condition) {
+                            res.join(e)
+                        }
+                    }
+                }
+            }
             ExpressionKind::Ite {
                 condition,
                 consequence,
@@ -496,17 +590,17 @@ impl FeatureSelector {
                 if let Err(e) = self.exclude_expression(alternative.as_ref()) {
                     res.join(e)
                 }
-            },
+            }
             ExpressionKind::TupleAccess(target, _) => {
                 if let Err(e) = self.exclude_expression(target.as_ref()) {
                     res.join(e);
                 }
-            },
+            }
             ExpressionKind::Widen(WidenExprKind { expr, ty: _ }) => {
                 if let Err(e) = self.exclude_expression(expr.as_ref()) {
                     res.join(e);
                 }
-            },
+            }
             ExpressionKind::Default { expr, default } => {
                 if let Err(e) = self.exclude_expression(expr.as_ref()) {
                     res.join(e);
@@ -514,7 +608,7 @@ impl FeatureSelector {
                 if let Err(e) = self.exclude_expression(default.as_ref()) {
                     res.join(e);
                 }
-            },
+            }
         };
 
         res.into()
@@ -534,7 +628,9 @@ mod test {
         use rtlola_parser::parse;
         let handler = Handler::from(cfg);
         let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();
-        let hir = fully_analyzed(ast).map_err(|e| handler.emit_error(&e)).unwrap();
+        let hir = fully_analyzed(ast, &cfg.into())
+            .map_err(|e| handler.emit_error(&e))
+            .unwrap();
         (FeatureSelector::new(hir), handler)
     }
 
@@ -570,7 +666,14 @@ mod test {
         ";
         let config = ParserConfig::for_string(spec.into());
         let (builder, _handler) = builder(&config);
-        assert_eq!(builder.no_spawn().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+        assert_eq!(
+            builder
+                .no_spawn()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
+        );
     }
 
     #[test]
@@ -583,7 +686,14 @@ mod test {
         ";
         let config = ParserConfig::for_string(spec.into());
         let (builder, _handler) = builder(&config);
-        assert_eq!(builder.no_filter().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+        assert_eq!(
+            builder
+                .no_filter()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
+        );
     }
 
     #[test]
@@ -597,7 +707,14 @@ mod test {
         ";
         let config = ParserConfig::for_string(spec.into());
         let (builder, _handler) = builder(&config);
-        assert_eq!(builder.no_close().build().map_err(|e| e.num_errors()).unwrap_err(), 1);
+        assert_eq!(
+            builder
+                .no_close()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            1
+        );
     }
 
     #[test]
@@ -612,7 +729,11 @@ mod test {
         let (builder, _handler) = builder(&config);
 
         assert_eq!(
-            builder.non_periodic().build().map_err(|e| e.num_errors()).unwrap_err(),
+            builder
+                .non_periodic()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
             2
         );
     }
@@ -735,7 +856,14 @@ mod test {
         let config = ParserConfig::for_string(spec.into());
         let (builder, _handler) = builder(&config);
 
-        assert_eq!(builder.lola_1().build().map_err(|e| e.num_errors()).unwrap_err(), 6);
+        assert_eq!(
+            builder
+                .lola_1()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            6
+        );
     }
 
     #[test]
@@ -752,6 +880,13 @@ mod test {
         let config = ParserConfig::for_string(spec.into());
         let (builder, _handler) = builder(&config);
 
-        assert_eq!(builder.lola_2().build().map_err(|e| e.num_errors()).unwrap_err(), 2);
+        assert_eq!(
+            builder
+                .lola_2()
+                .build()
+                .map_err(|e| e.num_errors())
+                .unwrap_err(),
+            2
+        );
     }
 }

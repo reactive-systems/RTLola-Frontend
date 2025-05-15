@@ -21,6 +21,7 @@ mod dependency_graph;
 mod print;
 mod schedule;
 
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::time::Duration;
 
@@ -28,9 +29,13 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemorizationBound, Origin, OutputKind, OutputReference, StreamLayers, StreamReference,
-    WindowReference,
+    InputReference, Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, OutputReference,
+    RtLolaHir, StreamLayers, StreamReference, WindowReference,
 };
+pub use rtlola_parser::ast::Tag;
+#[cfg(feature = "spanned")]
+use rtlola_reporting::Span;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::{Frequency as UOM_Frequency, Time as UOM_Time};
 use uom::si::time::nanosecond;
@@ -68,7 +73,15 @@ pub trait Stream {
     fn accessed_by(&self) -> &Accesses;
     /// Returns the collection of sliding windows that access the stream non-transitively.
     /// This includes both sliding and discrete windows.
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)];
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)];
+    /// Returns the collection of sliding windows that are accessed by the stream non-transitively.
+    /// This includes both sliding and discrete windows.
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)];
+    /// Returns the tags annotated to this stream.
+    fn tags(&self) -> &HashMap<String, Option<String>>;
+    #[cfg(feature = "spanned")]
+    /// Returns the spans of all tags annotated to this stream.
+    fn tags_span(&self) -> &HashMap<String, Span>;
 }
 
 /// This struct constitutes the Mid-Level Intermediate Representation (MIR) of an RTLola specification.
@@ -107,6 +120,11 @@ pub struct RtLolaMir {
     pub instance_aggregations: Vec<InstanceAggregation>,
     /// The references of all outputs that represent triggers
     pub triggers: Vec<Trigger>,
+    /// The global tags of the specification
+    pub global_tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span's of the global tags
+    pub global_tags_span: HashMap<String, Span>,
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
@@ -120,6 +138,10 @@ pub enum Type {
     UInt(UIntTy),
     /// A floating point type of fixed bit-width
     Float(FloatTy),
+    /// A signed fixed point type of fixed bit-width
+    Fixed(FixedTy),
+    /// An unsigned fixed point type of fixed bit-width
+    UFixed(FixedTy),
     /// A unicode string
     String,
     /// A sequence of 8-bit bytes
@@ -161,6 +183,10 @@ pub enum IntTy {
     Int32,
     /// Represents a 64-bit integer.
     Int64,
+    /// Represents a 128-bit integer.
+    Int128,
+    /// Represents a 256-bit integer.
+    Int256,
 }
 
 #[allow(missing_docs)]
@@ -174,6 +200,10 @@ pub enum UIntTy {
     UInt32,
     /// Represents a 64-bit unsigned integer.
     UInt64,
+    /// Represents a 128-bit unsigned integer.
+    UInt128,
+    /// Represents a 256-bit unsigned integer.
+    UInt256,
 }
 
 #[allow(missing_docs)]
@@ -183,6 +213,17 @@ pub enum FloatTy {
     Float32,
     /// Represents a 64-bit floating point number.
     Float64,
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FixedTy {
+    /// Represents a 64-bit fixed point number with 32 integer bits and 32 fractional bits
+    Fixed64_32,
+    /// Represents a 32-bit fixed point number with 16 integer bits and 16 fractional bits
+    Fixed32_16,
+    /// Represents a 16-bit fixed point number with 16 integer bits and 8 fractional bits
+    Fixed16_8,
 }
 
 impl From<ConcreteValueType> for Type {
@@ -219,13 +260,23 @@ pub struct InputStream {
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
     /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
     /// The reference referring to this stream
     pub reference: StreamReference,
+    /// The tags annotated to this stream.
+    pub tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the input stream
+    pub tags_span: HashMap<String, Span>,
+    #[cfg(feature = "spanned")]
+    /// The span of the input stream definition
+    pub span: Span,
 }
 
 /// Contains all information relevant to every kind of output stream.
@@ -249,8 +300,10 @@ pub struct OutputStream {
     pub accesses: Accesses,
     /// The collection of streams that access the current stream non-transitively
     pub accessed_by: Accesses,
-    /// The collection of sliding windows that access this stream non-transitively.  This includes both sliding and discrete windows.
-    pub aggregated_by: Vec<(StreamReference, WindowReference)>,
+    /// The collection of windows that access this stream non-transitively.  This includes both sliding and discrete windows.
+    pub aggregated_by: Vec<(StreamReference, Origin, WindowReference)>,
+    /// The collection of windows that is accessed by this stream.  This includes both sliding and discrete windows.
+    pub aggregates: Vec<(StreamReference, Origin, WindowReference)>,
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
     /// Provides the evaluation of layer of this stream.
@@ -259,6 +312,14 @@ pub struct OutputStream {
     pub reference: StreamReference,
     /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
     pub params: Vec<Parameter>,
+    /// The tags annotated to this stream.
+    pub tags: Tags,
+    #[cfg(feature = "spanned")]
+    /// The span of the tags annotated to the output stream
+    pub tags_span: HashMap<String, Span>,
+    #[cfg(feature = "spanned")]
+    /// The span of the output stream definition
+    pub span: Span,
 }
 
 /// A trigger (represented by the output stream `output_reference`)
@@ -276,6 +337,8 @@ impl OutputStream {
     }
 }
 
+type Tags = HashMap<String, Option<String>>;
+
 /// A type alias for references to triggers.
 pub type TriggerReference = usize;
 
@@ -288,6 +351,9 @@ pub struct Spawn {
     pub pacing: PacingType,
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
     pub condition: Option<Expression>,
+    #[cfg(feature = "spanned")]
+    /// The span of the spawn clause
+    pub span: Span,
 }
 
 impl Default for Spawn {
@@ -296,6 +362,8 @@ impl Default for Spawn {
             expression: None,
             pacing: PacingType::Constant,
             condition: None,
+            #[cfg(feature = "spanned")]
+            span: Span::Unknown,
         }
     }
 }
@@ -309,6 +377,9 @@ pub struct Close {
     pub pacing: PacingType,
     /// Indicates whether the close condition contains a reference to the stream it belongs to.
     pub has_self_reference: bool,
+    #[cfg(feature = "spanned")]
+    /// The span of the close clause
+    pub span: Span,
 }
 
 impl Default for Close {
@@ -317,6 +388,8 @@ impl Default for Close {
             condition: None,
             pacing: PacingType::Constant,
             has_self_reference: false,
+            #[cfg(feature = "spanned")]
+            span: Span::Unknown,
         }
     }
 }
@@ -339,6 +412,9 @@ pub struct EvalClause {
     pub expression: Expression,
     /// The eval pacing of the stream, combining the condition and expr pacings of the clause.
     pub pacing: PacingType,
+    #[cfg(feature = "spanned")]
+    /// The span of the eval clause
+    pub span: Span,
 }
 
 /// Information of a parameter of a parametrized output stream
@@ -350,6 +426,9 @@ pub struct Parameter {
     pub ty: Type,
     /// The index of the parameter.
     pub idx: usize,
+    #[cfg(feature = "spanned")]
+    /// The span of the parameter
+    pub span: Span,
 }
 
 /// Wrapper for output streams providing additional information specific to time-driven streams.
@@ -375,7 +454,9 @@ pub enum PacingLocality {
 impl TimeDrivenStream {
     /// Returns the evaluation period, i.e., the multiplicative inverse of [TimeDrivenStream::frequency].
     pub fn period(&self) -> UOM_Time {
-        UOM_Time::new::<uom::si::time::second>(self.frequency.get::<uom::si::frequency::hertz>().inv())
+        UOM_Time::new::<uom::si::time::second>(
+            self.frequency.get::<uom::si::frequency::hertz>().inv(),
+        )
     }
 
     /// Returns the evaluation frequency.
@@ -424,6 +505,9 @@ pub struct Expression {
     pub kind: ExpressionKind,
     /// The type of the expression
     pub ty: Type,
+    #[cfg(feature = "spanned")]
+    /// The span of the expression
+    pub span: Span,
 }
 
 /// This enum contains all possible kinds of expressions and their relevant information.
@@ -452,6 +536,13 @@ pub enum ExpressionKind {
     /// Access to the parameter of a stream represented by a stream reference,
     /// referencing the target stream and the index of the parameter that should be accessed.
     ParameterAccess(StreamReference, usize),
+    /// Access to the lambda parameter in the filtered instance aggregation
+    LambdaParameterAccess {
+        /// Reference to the instance aggregation using the lambda function
+        wref: WindowReference,
+        /// Reference to the parameter
+        pref: usize,
+    },
     /// A conditional (if-then-else) expression
     Ite {
         /// The condition under which either `consequence` or `alternative` is selected.
@@ -504,6 +595,8 @@ pub enum Constant {
     Int(i64),
     #[allow(missing_docs)]
     Float(f64),
+    #[allow(missing_docs)]
+    Decimal(Decimal),
 }
 
 /// Arithmetical and logical operations
@@ -572,6 +665,10 @@ pub struct DiscreteWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the discrete window expression
+    pub origin: Origin,
+    /// The pacing of the discrete window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of a sliding window
@@ -595,10 +692,14 @@ pub struct SlidingWindow {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the sliding window expression
+    pub origin: Origin,
+    /// The pacing of the sliding window expression
+    pub pacing: PacingType,
 }
 
 /// Represents an instance of an instance aggregation
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct InstanceAggregation {
     /// The stream whose values will be aggregated
     pub target: StreamReference,
@@ -612,15 +713,65 @@ pub struct InstanceAggregation {
     pub reference: WindowReference,
     /// The type of value the window produces
     pub ty: Type,
+    /// The origin of the instance window expression
+    pub origin: Origin,
+    /// The pacing of the instance aggregation expression
+    pub pacing: PacingType,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// Enum to indicate which instances are part of the aggregation
 pub enum InstanceSelection {
     /// Only instances that are updated in this evaluation cycle are part of the aggregation
     Fresh,
     /// All instances are part of the aggregation
     All,
+    /// Only instances that are updated in this evaluation cycle and satisfy the condition are part of the aggregation
+    FilteredFresh {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+    /// All instances that satisfy the condition are part of the aggregation
+    FilteredAll {
+        /// The parameters of the lambda expression
+        parameters: Vec<Parameter>,
+        /// The condition that needs to be satisfied
+        cond: Box<Expression>,
+    },
+}
+
+impl InstanceSelection {
+    /// Accesses the condition to a filtered instance aggregation. Returns None if the instance aggregation is not filtered
+    pub fn condition(&self) -> Option<&Expression> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters: _,
+                cond,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters: _,
+                cond,
+            } => Some(cond),
+        }
+    }
+
+    /// Accesses the parameters to a filtered instance aggregation. Returns None if the instance aggregation is not filtered
+    pub fn parameters(&self) -> Option<&Vec<Parameter>> {
+        match self {
+            InstanceSelection::Fresh | InstanceSelection::All => None,
+            InstanceSelection::FilteredFresh {
+                parameters,
+                cond: _,
+            }
+            | InstanceSelection::FilteredAll {
+                parameters,
+                cond: _,
+            } => Some(parameters),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
@@ -749,7 +900,9 @@ impl Stream for OutputStream {
     }
 
     fn is_spawned(&self) -> bool {
-        self.spawn.expression.is_some() || self.spawn.condition.is_some() || self.spawn.pacing != PacingType::Constant
+        self.spawn.expression.is_some()
+            || self.spawn.condition.is_some()
+            || self.spawn.pacing != PacingType::Constant
     }
 
     fn is_closed(&self) -> bool {
@@ -757,7 +910,10 @@ impl Stream for OutputStream {
     }
 
     fn is_eval_filtered(&self) -> bool {
-        self.eval.clauses.iter().any(|eval| eval.condition.is_some())
+        self.eval
+            .clauses
+            .iter()
+            .any(|eval| eval.condition.is_some())
     }
 
     fn values_to_memorize(&self) -> MemorizationBound {
@@ -772,8 +928,21 @@ impl Stream for OutputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
+    }
+
+    fn tags(&self) -> &HashMap<String, Option<String>> {
+        &self.tags
+    }
+
+    #[cfg(feature = "spanned")]
+    fn tags_span(&self) -> &HashMap<String, Span> {
+        &self.tags_span
     }
 }
 
@@ -826,8 +995,21 @@ impl Stream for InputStream {
         &self.accessed_by
     }
 
-    fn aggregated_by(&self) -> &[(StreamReference, WindowReference)] {
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
         &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
+    }
+
+    fn tags(&self) -> &HashMap<String, Option<String>> {
+        &self.tags
+    }
+
+    #[cfg(feature = "spanned")]
+    fn tags_span(&self) -> &HashMap<String, Span> {
+        &self.tags_span
     }
 }
 
@@ -915,7 +1097,9 @@ impl RtLolaMir {
     pub fn input_mut(&mut self, reference: StreamReference) -> &mut InputStream {
         match reference {
             StreamReference::In(ix) => &mut self.inputs[ix],
-            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::Out(_) => {
+                unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`.")
+            }
         }
     }
 
@@ -926,7 +1110,9 @@ impl RtLolaMir {
     pub fn input(&self, reference: StreamReference) -> &InputStream {
         match reference {
             StreamReference::In(ix) => &self.inputs[ix],
-            StreamReference::Out(_) => unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`."),
+            StreamReference::Out(_) => {
+                unreachable!("Called `LolaIR::get_in` with a `StreamReference::OutRef`.")
+            }
         }
     }
 
@@ -936,7 +1122,9 @@ impl RtLolaMir {
     /// Panics if `reference` is a [StreamReference::In].
     pub fn output_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
         match reference {
-            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::In(_) => {
+                unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
+            }
             StreamReference::Out(ix) => &mut self.outputs[ix],
         }
     }
@@ -947,7 +1135,9 @@ impl RtLolaMir {
     /// Panics if `reference` is a [StreamReference::In].
     pub fn output(&self, reference: StreamReference) -> &OutputStream {
         match reference {
-            StreamReference::In(_) => unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`."),
+            StreamReference::In(_) => {
+                unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
+            }
             StreamReference::Out(ix) => &self.outputs[ix],
         }
     }
@@ -969,12 +1159,18 @@ impl RtLolaMir {
 
     /// Provides a collection of all output streams representing a trigger.
     pub fn all_triggers(&self) -> Vec<&OutputStream> {
-        self.triggers.iter().map(|t| self.output(t.output_reference)).collect()
+        self.triggers
+            .iter()
+            .map(|t| self.output(t.output_reference))
+            .collect()
     }
 
     /// Provides a collection of all event-driven output streams.
     pub fn all_event_driven(&self) -> Vec<&OutputStream> {
-        self.event_driven.iter().map(|t| self.output(t.reference)).collect()
+        self.event_driven
+            .iter()
+            .map(|t| self.output(t.reference))
+            .collect()
     }
 
     /// Return true if the specification contains any time-driven features.
@@ -991,12 +1187,18 @@ impl RtLolaMir {
 
     /// Provides a collection of all time-driven output streams.
     pub fn all_time_driven(&self) -> Vec<&OutputStream> {
-        self.time_driven.iter().map(|t| self.output(t.reference)).collect()
+        self.time_driven
+            .iter()
+            .map(|t| self.output(t.reference))
+            .collect()
     }
 
     /// Provides the activation contion of a event-driven stream and none if the stream is time-driven
     pub fn get_ac(&self, sref: StreamReference) -> Option<&ActivationCondition> {
-        self.event_driven.iter().find(|e| e.reference == sref).map(|e| &e.ac)
+        self.event_driven
+            .iter()
+            .find(|e| e.reference == sref)
+            .map(|e| &e.ac)
     }
 
     /// Provides immutable access to a discrete window.
@@ -1008,7 +1210,7 @@ impl RtLolaMir {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
             WindowReference::Sliding(_) | WindowReference::Instance(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1021,7 +1223,7 @@ impl RtLolaMir {
             WindowReference::Instance(x) => &self.instance_aggregations[x],
             WindowReference::Sliding(_) | WindowReference::Discrete(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1034,7 +1236,7 @@ impl RtLolaMir {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(_) | WindowReference::Instance(_) => {
                 panic!("wrong type of window reference passed to getter")
-            },
+            }
         }
     }
 
@@ -1061,16 +1263,18 @@ impl RtLolaMir {
         }
 
         // Zip eval layer with stream reference.
-        let streams_with_layers = self
-            .event_driven
-            .iter()
-            .map(|s| s.reference)
-            .map(|r| (self.output(r).eval_layer().into(), Task::Evaluate(r.out_ix())));
+        let streams_with_layers = self.event_driven.iter().map(|s| s.reference).map(|r| {
+            (
+                self.output(r).eval_layer().into(),
+                Task::Evaluate(r.out_ix()),
+            )
+        });
 
-        let spawns_with_layers =
-            event_driven_spawns.map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
+        let spawns_with_layers = event_driven_spawns
+            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
 
-        let tasks_with_layers: Vec<(usize, Task)> = streams_with_layers.chain(spawns_with_layers).collect();
+        let tasks_with_layers: Vec<(usize, Task)> =
+            streams_with_layers.chain(spawns_with_layers).collect();
 
         // Streams are annotated with an evaluation layer. The layer is not minimal, so there might be
         // layers without entries and more layers than streams.
@@ -1082,7 +1286,11 @@ impl RtLolaMir {
         // e) If there are some, add them as layer.
 
         // a) Find the greatest layer. Maximum must exist because vec cannot be empty.
-        let max_layer = tasks_with_layers.iter().max_by_key(|(layer, _)| layer).unwrap().0;
+        let max_layer = tasks_with_layers
+            .iter()
+            .max_by_key(|(layer, _)| layer)
+            .unwrap()
+            .0;
 
         let mut layers = Vec::new();
         // b) For each potential layer
@@ -1120,6 +1328,32 @@ impl RtLolaMir {
     pub fn dependency_graph(&self) -> DependencyGraph<'_> {
         DependencyGraph::new(self)
     }
+
+    /// Returns the input stream with the given name if it exists.
+    pub fn get_input_by_name(&self, name: &str) -> Option<&InputStream> {
+        self.inputs.iter().find(|input| input.name == name)
+    }
+
+    /// Returns the output stream with the given name if it exists.
+    pub fn get_output_by_name(&self, name: &str) -> Option<&OutputStream> {
+        self.outputs.iter().find(|output| output.name == name)
+    }
+
+    /// Returns the stream with the given name if it exists.
+    pub fn get_stream_by_name(&self, name: &str) -> Option<&dyn Stream> {
+        self.get_input_by_name(name)
+            .map(|input| {
+                // clippy likes it this way
+                let input: &dyn Stream = input;
+                input
+            })
+            .or_else(|| {
+                self.get_output_by_name(name).map(|output| {
+                    let output: &dyn Stream = output;
+                    output
+                })
+            })
+    }
 }
 
 impl Type {
@@ -1135,17 +1369,28 @@ impl Type {
             Type::Int(IntTy::Int16) => Some(ValSize(2)),
             Type::Int(IntTy::Int32) => Some(ValSize(4)),
             Type::Int(IntTy::Int64) => Some(ValSize(8)),
+            Type::Int(IntTy::Int128) => Some(ValSize(16)),
+            Type::Int(IntTy::Int256) => Some(ValSize(32)),
             Type::UInt(UIntTy::UInt8) => Some(ValSize(1)),
             Type::UInt(UIntTy::UInt16) => Some(ValSize(2)),
             Type::UInt(UIntTy::UInt32) => Some(ValSize(4)),
             Type::UInt(UIntTy::UInt64) => Some(ValSize(8)),
+            Type::UInt(UIntTy::UInt128) => Some(ValSize(16)),
+            Type::UInt(UIntTy::UInt256) => Some(ValSize(32)),
             Type::Float(FloatTy::Float32) => Some(ValSize(4)),
             Type::Float(FloatTy::Float64) => Some(ValSize(8)),
+            Type::Fixed(FixedTy::Fixed64_32) | Type::UFixed(FixedTy::Fixed64_32) => {
+                Some(ValSize(64))
+            }
+            Type::Fixed(FixedTy::Fixed32_16) | Type::UFixed(FixedTy::Fixed32_16) => {
+                Some(ValSize(32))
+            }
+            Type::Fixed(FixedTy::Fixed16_8) | Type::UFixed(FixedTy::Fixed16_8) => Some(ValSize(16)),
             Type::Option(_) => unimplemented!("Size of option not determined, yet."),
             Type::Tuple(t) => {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
-            },
+            }
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function { .. } => None,
         }
@@ -1210,20 +1455,20 @@ pub enum Offset {
 
 impl PartialOrd for Offset {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-
-        use Offset::*;
-        match (self, other) {
-            (Past(_), Future(_)) => Some(Ordering::Less),
-            (Future(_), Past(_)) => Some(Ordering::Greater),
-            (Future(a), Future(b)) => Some(a.cmp(b)),
-            (Past(a), Past(b)) => Some(b.cmp(a)),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        use std::cmp::Ordering;
+
+        use Offset::*;
+        match (self, other) {
+            (Past(_), Future(_)) => Ordering::Less,
+            (Future(_), Past(_)) => Ordering::Greater,
+            (Future(a), Future(b)) => a.cmp(b),
+            (Past(a), Past(b)) => b.cmp(a),
+        }
     }
 }

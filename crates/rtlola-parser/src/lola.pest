@@ -4,25 +4,34 @@
 // Take a look at https://pest-parser.github.io/book/grammars/syntax.html
 // TODO we can probably mark some rules as atomic or hidden
 
-IncompleteSpec = { SOI ~ ImportStmts ~ Declaration* }
-Spec = { SOI~ (BOM)? ~ ImportStmts ~ Declaration* ~ EOI }
+IncompleteSpec = { SOI ~ GlobalTagLists ~ ImportStmts ~ Declaration* }
+Spec = { SOI~ (BOM)? ~ GlobalTagLists ~ ImportStmts ~ Declaration* ~ EOI }
 ImportStmts = _{ ImportStmt* }
 ImportStmt  = { "import " ~ Ident }
-Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | SimpleTrigger}
+Declaration = _{IncludeStatement | TypeDecl | ConstantStream | InputStream | OutputStream | MirrorStream | SimpleTrigger }
 BOM = _{"\u{FEFF}"}
 
 // ///////////////// Statements ///////////////////
 
-ParamList = { "(" ~(ParameterDecl ~("," ~ParameterDecl)*)? ~")"}
+ParamListDecl = _{ "(" ~ ParamList ~")"}
+LambdaParamListDecl = _{ Ident | "(" ~ ParamList ~")"}
+ParamList = { (ParameterDecl ~("," ~ParameterDecl)*)? }
 ParameterDecl = { Ident ~ (":" ~ Type)? }
 
 SpawnDecl = { "spawn"~ ActivationCondition? ~ (SpawnWhen | SpawnWith){0,2} }
 SpawnWith = { "with " ~Expr }
 SpawnWhen = { "when " ~Expr }
 
-ActivationCondition = { "@" ~ ( GlobalActivationCondition | LocalActivationCondition | Expr)}
-GlobalActivationCondition = { "Global" ~ "(" ~ Expr ~ ")"}
-LocalActivationCondition = {"Local" ~ "(" ~ Expr ~ ")"}
+ActivationCondition = { "@" ~ (TopLevelAC | "(" ~ TopLevelAC ~ ")")}
+  TopLevelAC = _{GlobalActivationCondition | LocalActivationCondition | AcExpr}
+    GlobalActivationCondition = { "Global" ~ "(" ~ AcExpr ~ ")"}
+    LocalActivationCondition = {"Local" ~ "(" ~ AcExpr ~ ")"}
+      AcExpr = {NumberLiteral | PositiveBooleanExpr}
+        PositiveBooleanExpr = {
+            True
+            | (Ident | "(" ~ PositiveBooleanExpr ~ ")") ~ ((And | BitAnd | Or | BitOr) ~ PositiveBooleanExpr)*
+            | "(" ~ PositiveBooleanExpr ~ ")"
+        }
 
 CloseDecl = { "close" ~ ActivationCondition? ~ ("when" ~Expr)? }
 
@@ -36,11 +45,11 @@ IncludeStatement = { "include"~ StringLiteral}
 
 TypeDecl = { "type "  ~ Ident ~"{" ~Ident~ ":"~Type~ ("," ~Ident~ ":"~Type)* ~ "}"}
 
-ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~Literal}
+ConstantStream = { "constant " ~ Ident ~ ":" ~ Type ~":=" ~ ConstantLiteral }
 
-InputStream = { "input " ~ Ident ~ ParamList? ~ ":" ~ Type ~(","~ Ident~ ParamList? ~ ":" ~ Type)*}
+InputStream = { TagLists? ~ "input " ~ Ident ~ ParamListDecl? ~ ":" ~ Type ~(","~ Ident~ ParamListDecl? ~ ":" ~ Type)*}
 
-OutputStream = { (TriggerDecl | NamedOutputDecl) ~ ParamList?~ (":" ~ Type)? ~ 
+OutputStream = { TagLists? ~ (TriggerDecl | NamedOutputDecl) ~ ParamListDecl?~ (":" ~ Type)? ~
  (((SpawnDecl| CloseDecl)* ~ EvalDecl ~ (SpawnDecl | EvalDecl | CloseDecl)*)| SimpleEvalDecl)
 }
 TriggerDecl = { "trigger" }
@@ -48,9 +57,17 @@ NamedOutputDecl = { "output " ~ Ident }
 
 MirrorStream = { "output " ~ Ident ~ "mirrors " ~ Ident ~ "when " ~ Expr}
 
-SimpleTrigger = { "trigger " ~ ActivationCondition? ~ Expr ~ StringLiteral? }
+SimpleTriggerDecl = { "trigger " }
+SimpleTrigger = { TagLists? ~ SimpleTriggerDecl ~ ActivationCondition? ~ Expr ~ StringLiteral? }
 
 IdentList = {"(" ~(Ident ~("," ~Ident)*) ~")"}
+
+TagLists = { TagList ~ TagList* }
+TagList = { "#" ~ "[" ~ TagItem ~ ("," ~ TagItem)* ~ "]" }
+GlobalTagLists = _{ GlobalTagList* }
+GlobalTagList = { "#!" ~ "[" ~ TagItem ~ ("," ~ TagItem)* ~ "]" }
+TagItem = { Ident ~ ("=" ~ StringLiteral)? }
+
 
 // //////////////// Expressions ///////////////////
 
@@ -84,7 +101,7 @@ UnaryOperation = _{ Add | Subtract | Neg | BitNot }
 
 Expr = { (Term ~ ( (Operation ~ Term) | (Dot ~ (IntegerLiteral | FunctionExpr | Ident)) | (OpeningBracket ~ Literal ~ ClosingBracket) )*) }
 // TODO Do we need Term to exist for the precedence climber?
-Term = _{ MissingExpression | Literal | ParenthesizedExpression | UnaryExpr | TernaryExpr | FunctionExpr | Ident | Tuple}
+Term = _{ LambdaExpr | MissingExpression | Literal | ParenthesizedExpression | UnaryExpr | TernaryExpr | FunctionExpr | Ident | Tuple }
 
 ParenthesizedExpression = {OpeningParenthesis ~ Expr ~ ClosingParenthesis | OpeningParenthesis ~ Expr ~ MissingClosingParenthesis}
 OpeningParenthesis = {"("}
@@ -104,6 +121,8 @@ UnaryExpr = { UnaryOperation~ Term }
 
 TernaryExpr = { "if"~ Expr~ "then"~ Expr~ "else"~ Expr }
 
+
+LambdaExpr = { LambdaParamListDecl ~ "=>" ~ Expr}
 Tuple = { "("~ (Expr~ (","~ Expr)+)?~ ")"}
 
 OpeningBracket = { "[" }
@@ -119,23 +138,6 @@ NotEqual = {"!=" | "≠"}
 Equal = { "="{1,2} }
 CompOp = _{LessThanOrEqual | MoreThanOrEqual | LessThan | MoreThan | NotEqual | Equal}
 
-Sum = {"Σ" | "sum"}
-Count = {"#" | "count"}
-//Product = {"Π" | "prod" | "product"}
-Integral = {"∫"  | "integral"}
-Average = { "avg"| "average" }
-
-// WindowCovariance is not listed as it does not have any utf8 symbols as possible identifier,
-// "covariance" and "cov" will be parsed as normal identifier and are build as valid identifiers
-// and therefore valid window operations, e.g. Median without "µ" could be left out too
-
-WindowOp = _{ Sum | /*Product |*/ Average | Count | Integral | WindowForall | WindowExists | WindowVariance | WindowSd | WindowMedian}
-WindowForall = {"forall" | "∀" | "∧" | "conjunction" }
-WindowExists = {"exists" | "∃" | "∨" | "disjunction" }
-WindowVariance = {"var" | "variance" | "σ²"}
-WindowSd = {"standard_deviation" | "sd" | "σ"}
-WindowMedian = { "med" | "median" | "µ" }
-
 // ////////////////// Literals ////////////////////
 
 NumberLiteral = ${ NumberLiteralValue ~ NumberPostfix?}
@@ -150,9 +152,11 @@ RawStringLiteral = _{ "r" ~ PUSH("#"*) ~ "\"" ~ RawString ~ "\"" ~ POP }
 RawString = @{ (!("\"" ~ PEEK) ~ ANY)* }
 
 BooleanLiteral = _{ True | False}
-True = @{"true"| "⊤"}
-False = @{"false"  | "⊥"}
-Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral}
+True = @{("true"| "⊤")  ~ !(Ident)}
+False = @{("false"  | "⊥")  ~ !(Ident)}
+Literal = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral }
+ConstantLiteral = { StringLiteral | RawStringLiteral | NumberLiteral | BooleanLiteral | TupleLiteral }
+TupleLiteral = {"(" ~ ConstantLiteral ~(","~ ConstantLiteral)+ ~ ")"}
 
 IntegerLiteral = @{ Digit+ }
 SignedIntegerLiteral = @{ ("+" | "-")?~IntegerLiteral }
@@ -163,8 +167,9 @@ Optional = { Ident ~ "?" }  // Optional types are written `Int32?`
 
 // /////////////////// Names //////////////////////
 
-Ident = @{  (Letter | "_") ~ (Letter | Digit | "_" | "::")* | WindowOp}
-
+// look at https://www.unicode.org/reports/tr31/#R1 and  https://www.unicode.org/reports/tr31/#D1
+Ident = @{ VarianceAggregation | (XID_START | "_") ~ (XID_CONTINUE | "_" | "::" | "'")* }
+VarianceAggregation = _{ "σ²" }
 Parameter = { Ident } // Semantic Category
 
 // ////////////////// Symbols /////////////////////

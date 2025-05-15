@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rusttyc::TcKey;
 
-use crate::hir::{ExprId, Hir, StreamReference};
+use crate::hir::{ExprId, Hir, StreamReference, WRef};
 use crate::modes::{HirMode, Typed};
 use crate::type_check::pacing_ast_climber::PacingTypeChecker;
 use crate::type_check::value_ast_climber::ValueTypeChecker;
@@ -30,6 +30,7 @@ pub enum NodeId {
     Eval(usize, StreamReference),
     Expr(ExprId),
     Param(usize, StreamReference),
+    LambdaParameter(usize, WRef),
 }
 
 /// Resolvable is implemented for all type checker errors and is used for generic error printing.
@@ -66,7 +67,8 @@ impl<K: Resolvable> TypeError<K> {
         spans: &[&HashMap<TcKey, Span>],
         names: &HashMap<StreamReference, String>,
     ) -> Diagnostic {
-        self.kind.into_diagnostic(spans, names, self.key1, self.key2)
+        self.kind
+            .into_diagnostic(spans, names, self.key1, self.key2)
     }
 }
 
@@ -105,16 +107,19 @@ where
             match id {
                 NodeId::SRef(sref) => {
                     stream_map.insert(*sref, st);
-                },
+                }
                 NodeId::Expr(id) => {
                     expression_map.insert(*id, st);
-                },
+                }
                 NodeId::Param(id, sref) => {
                     parameters.insert((*sref, *id), st.value_ty);
-                },
+                }
                 NodeId::Eval(_, _) => {
                     unreachable!("no value type for eval clauses")
-                },
+                }
+                NodeId::LambdaParameter(_, _) => {
+                    // equal with parameter type
+                }
             }
         });
 
@@ -125,17 +130,26 @@ where
                 eval_clauses.insert((*sref, *idx), eval_pacing);
             };
         });
-        Ok(Typed::new(stream_map, expression_map, parameters, eval_clauses))
+        Ok(Typed::new(
+            stream_map,
+            expression_map,
+            parameters,
+            eval_clauses,
+        ))
     }
 
     /// starts the value type infer part with the [PacingTypeChecker].
-    pub(crate) fn pacing_type_infer(&mut self) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
+    pub(crate) fn pacing_type_infer(
+        &mut self,
+    ) -> Result<HashMap<NodeId, ConcreteStreamPacing>, RtLolaError> {
         let ptc = PacingTypeChecker::new(self.hir, &self.names);
         ptc.type_check()
     }
 
     /// starts the value type infer part with the [ValueTypeChecker].
-    pub(crate) fn value_type_infer(&self) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
+    pub(crate) fn value_type_infer(
+        &self,
+    ) -> Result<HashMap<NodeId, ConcreteValueType>, RtLolaError> {
         let ctx = ValueTypeChecker::new(self.hir, &self.names);
         ctx.type_check()
     }

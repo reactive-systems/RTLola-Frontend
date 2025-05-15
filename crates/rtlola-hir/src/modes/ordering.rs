@@ -23,10 +23,13 @@ pub struct Layer(usize);
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamLayers {
     spawn: Layer,
+    #[cfg(feature = "shift_layer")]
+    shift: Layer,
     evaluation: Layer,
 }
 
 impl StreamLayers {
+    #[cfg(not(feature = "shift_layer"))]
     /// Produces the wrapper [StreamLayers] for a given spawn and evaluation layer
     pub(crate) fn new(spawn_layer: Layer, evaluation_layer: Layer) -> StreamLayers {
         StreamLayers {
@@ -35,9 +38,29 @@ impl StreamLayers {
         }
     }
 
+    #[cfg(feature = "shift_layer")]
+    /// Produces the wrapper [StreamLayers] for a given spawn, shift and evaluation layer
+    pub(crate) fn new(
+        spawn_layer: Layer,
+        shift_layer: Layer,
+        evaluation_layer: Layer,
+    ) -> StreamLayers {
+        StreamLayers {
+            spawn: spawn_layer,
+            shift: shift_layer,
+            evaluation: evaluation_layer,
+        }
+    }
+
     /// Returns the layer when a stream is spawned
     pub fn spawn_layer(&self) -> Layer {
         self.spawn
+    }
+
+    #[cfg(feature = "shift_layer")]
+    /// Returns the layer when a stream is shifted
+    pub fn shift_layer(&self) -> Layer {
+        self.shift
     }
 
     /// Returns the layer when a new stream value is produced
@@ -96,6 +119,8 @@ impl Ordered {
             .without_close()
             .without_different_pacing(spec);
         let spawn_graph = &graph.clone().only_spawn();
+        #[cfg(feature = "shift_layer")]
+        let shift_graph = &graph.clone().only_filter();
 
         debug_assert!(
             !is_cyclic_directed(graph),
@@ -105,9 +130,19 @@ impl Ordered {
         // start analysis
         let mut evaluation_layers = spec
             .inputs()
-            .map(|i| (i.sr, Layer::new(0)))
+            .map(|i| {
+                (
+                    i.sr,
+                    Layer::new(if cfg!(feature = "shift_layer") { 1 } else { 0 }),
+                )
+            })
             .collect::<HashMap<SRef, Layer>>();
         let mut spawn_layers = spec
+            .inputs()
+            .map(|i| (i.sr, Layer::new(0)))
+            .collect::<HashMap<SRef, Layer>>();
+        #[cfg(feature = "shift_layer")]
+        let mut shift_layers = spec
             .inputs()
             .map(|i| (i.sr, Layer::new(0)))
             .collect::<HashMap<SRef, Layer>>();
@@ -142,10 +177,59 @@ impl Ordered {
                     }
                 }
             });
+            #[cfg(feature = "shift_layer")]
+            shift_graph.node_indices().for_each(|node| {
+                let sref = shift_graph.node_weight(node).unwrap();
+                // if we dont know the shift layer and evaluation layer, but the spawn layer is known
+                if !shift_layers.contains_key(sref)
+                    && !evaluation_layers.contains_key(sref)
+                    && spawn_layers.contains_key(sref)
+                {
+                    // Get evaluation layer of successors
+                    let neighbor_layers: Vec<_> = shift_graph
+                        .neighbors_directed(node, Outgoing)
+                        .flat_map(|outgoing_neighbor| {
+                            //ignore selfloops
+                            (outgoing_neighbor != node).then_some(outgoing_neighbor)
+                        })
+                        .map(|outgoing_neighbor| {
+                            evaluation_layers
+                                .get(shift_graph.node_weight(outgoing_neighbor).unwrap())
+                                .copied()
+                        })
+                        .collect();
+                    let computed_shift_layer = if neighbor_layers.is_empty() {
+                        // There are no successors
+                        Some(Layer::new(1))
+                    } else {
+                        neighbor_layers
+                            .into_iter()
+                            .try_fold(Layer::new(0), |cur_res_layer, neighbor_layer| {
+                                neighbor_layer.map(|nl| std::cmp::max(cur_res_layer, nl))
+                            })
+                            .map(|layer| Layer::new(layer.inner() + 1))
+                    };
+                    if let Some(layer) = computed_shift_layer {
+                        // Shift layer has to be greater than spawn layer
+                        let layer = if spawn_layers[sref] < layer {
+                            layer
+                        } else {
+                            Layer::new(spawn_layers[sref].inner() + 1)
+                        };
+                        shift_layers.insert(*sref, layer);
+                    }
+                }
+            });
+
+            #[cfg(feature = "shift_layer")]
+            let previous_layers = &shift_layers;
+            #[cfg(not(feature = "shift_layer"))]
+            let previous_layers = &spawn_layers;
+
             graph.node_indices().for_each(|node| {
                 let sref = graph.node_weight(node).unwrap();
                 // if we dont know the evaluation layer, but the spawn layer is known
-                if !evaluation_layers.contains_key(sref) && spawn_layers.contains_key(sref) {
+                if !evaluation_layers.contains_key(sref) && previous_layers.contains_key(sref) {
                     // Get evaluation layer of successors
                     let neighbor_layers: Vec<_> = graph
                         .neighbors_directed(node, Outgoing)
@@ -161,7 +245,11 @@ impl Ordered {
                         .collect();
                     let computed_evaluation_layer = if neighbor_layers.is_empty() {
                         // There are no successors
-                        Some(Layer::new(1))
+                        Some(Layer::new(if cfg!(feature = "shift_layer") {
+                            2
+                        } else {
+                            1
+                        }))
                     } else {
                         // eval_layer = max(successor_eval_layers) + 1
                         neighbor_layers
@@ -173,10 +261,10 @@ impl Ordered {
                     };
                     if let Some(layer) = computed_evaluation_layer {
                         // Evaluation layer has to be greater than spawn layer
-                        let layer = if spawn_layers[sref] < layer {
+                        let layer = if previous_layers[sref] < layer {
                             layer
                         } else {
-                            Layer::new(spawn_layers[sref].inner() + 1)
+                            Layer::new(previous_layers[sref].inner() + 1)
                         };
                         evaluation_layers.insert(*sref, layer);
                     }
@@ -185,34 +273,50 @@ impl Ordered {
         }
         evaluation_layers
             .into_iter()
-            .map(|(key, evaluation_layer)| (key, StreamLayers::new(spawn_layers[&key], evaluation_layer)))
+            .map(|(key, evaluation_layer)| {
+                #[cfg(feature = "shift_layer")]
+                let layer = (
+                    key,
+                    StreamLayers::new(spawn_layers[&key], shift_layers[&key], evaluation_layer),
+                );
+                #[cfg(not(feature = "shift_layer"))]
+                let layer = (key, StreamLayers::new(spawn_layers[&key], evaluation_layer));
+                layer
+            })
             .collect::<HashMap<SRef, StreamLayers>>()
     }
 }
 
 #[cfg(test)]
-mod tests {
+fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>) {
+    use crate::{config::FrontendConfig, BaseMode};
     use rtlola_parser::{parse, ParserConfig};
 
+    let parser_config = ParserConfig::for_string(spec.to_string());
+    let frontend_config = FrontendConfig::from(&parser_config);
+    let ast = parse(&parser_config).unwrap_or_else(|e| panic!("{:?}", e));
+    let hir = Hir::<BaseMode>::from_ast(ast)
+        .unwrap()
+        .check_types(&frontend_config)
+        .unwrap()
+        .analyze_dependencies(&frontend_config)
+        .unwrap();
+    let order = Ordered::analyze(&hir);
+    let Ordered { stream_layers } = order;
+    assert_eq!(stream_layers.len(), ref_layers.len());
+    stream_layers.iter().for_each(|(sr, layers)| {
+        let ref_layers = &ref_layers[sr];
+        assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
+        assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
+        #[cfg(feature = "shift_layer")]
+        assert_eq!(ref_layers.shift_layer(), layers.shift_layer());
+    });
+}
+
+#[cfg(test)]
+#[cfg(not(feature = "shift_layer"))]
+mod tests {
     use super::*;
-    use crate::modes::BaseMode;
-    fn check_eval_order_for_spec(spec: &str, ref_layers: HashMap<SRef, StreamLayers>) {
-        let ast = parse(&ParserConfig::for_string(spec.to_string())).unwrap_or_else(|e| panic!("{:?}", e));
-        let hir = Hir::<BaseMode>::from_ast(ast)
-            .unwrap()
-            .check_types()
-            .unwrap()
-            .analyze_dependencies()
-            .unwrap();
-        let order = Ordered::analyze(&hir);
-        let Ordered { stream_layers } = order;
-        assert_eq!(stream_layers.len(), ref_layers.len());
-        stream_layers.iter().for_each(|(sr, layers)| {
-            let ref_layers = &ref_layers[sr];
-            assert_eq!(ref_layers.spawn_layer(), layers.spawn_layer());
-            assert_eq!(ref_layers.evaluation_layer(), layers.evaluation_layer());
-        });
-    }
 
     #[test]
     fn synchronous_lookup() {
@@ -221,9 +325,18 @@ mod tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -243,10 +356,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -260,9 +385,18 @@ mod tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -283,12 +417,30 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["f"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["f"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -311,10 +463,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -334,11 +498,26 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -356,10 +535,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -378,10 +569,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(3))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -404,14 +607,38 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["f"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["g"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["h"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["f"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["g"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["h"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -432,11 +659,26 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -455,10 +697,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -476,10 +730,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(2))),
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -488,14 +754,24 @@ mod tests {
 
     #[test]
     fn simple_chain_with_parameter() {
-        let spec = "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b eval with para + a";
+        let spec =
+            "input a: Int8\noutput b := a + 5\noutput c(para) spawn with b eval with para + a";
         let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(1))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(2), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(2), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -514,10 +790,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(1), Layer::new(3))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(1), Layer::new(4))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(1), Layer::new(3)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(1), Layer::new(4)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -556,13 +844,34 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(1), Layer::new(3))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(4), Layer::new(5))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(1), Layer::new(6))),
-            (sname_to_sref["f"], StreamLayers::new(Layer::new(1), Layer::new(7))),
-            (sname_to_sref["g"], StreamLayers::new(Layer::new(1), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(1), Layer::new(3)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(4), Layer::new(5)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(1), Layer::new(6)),
+            ),
+            (
+                sname_to_sref["f"],
+                StreamLayers::new(Layer::new(1), Layer::new(7)),
+            ),
+            (
+                sname_to_sref["g"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -581,10 +890,22 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(1), Layer::new(2))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -604,11 +925,26 @@ mod tests {
         .into_iter()
         .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(1), Layer::new(2))),
-            (sname_to_sref["d"], StreamLayers::new(Layer::new(0), Layer::new(3))),
-            (sname_to_sref["e"], StreamLayers::new(Layer::new(0), Layer::new(4))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
+            (
+                sname_to_sref["e"],
+                StreamLayers::new(Layer::new(0), Layer::new(4)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -623,8 +959,14 @@ mod tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -636,16 +978,26 @@ mod tests {
         let spec = "input a: UInt64\n\
                             output a_counter: UInt64 @a := a_counter.offset(by: -1).defaults(to: 0) + 1\n\
                             output b(p: UInt64) spawn with a_counter when a = 1 close when if true then true else b(p) eval @1Hz with a.hold(or: 0) == 2";
-        let sname_to_sref = vec![("a", SRef::In(0)), ("a_counter", SRef::Out(0)), ("b", SRef::Out(1))]
-            .into_iter()
-            .collect::<HashMap<&str, SRef>>();
+        let sname_to_sref = vec![
+            ("a", SRef::In(0)),
+            ("a_counter", SRef::Out(0)),
+            ("b", SRef::Out(1)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
         let ref_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
             (
                 sname_to_sref["a_counter"],
                 StreamLayers::new(Layer::new(0), Layer::new(1)),
             ),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(2), Layer::new(3))),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(2), Layer::new(3)),
+            ),
         ]
         .into_iter()
         .collect();
@@ -661,9 +1013,127 @@ mod tests {
             .into_iter()
             .collect::<HashMap<&str, SRef>>();
         let event_layers = vec![
-            (sname_to_sref["a"], StreamLayers::new(Layer::new(0), Layer::new(0))),
-            (sname_to_sref["b"], StreamLayers::new(Layer::new(1), Layer::new(2))),
-            (sname_to_sref["c"], StreamLayers::new(Layer::new(0), Layer::new(3))),
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(3)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "shift_layer")]
+mod tests {
+    use std::collections::HashMap;
+
+    use crate::hir::SRef;
+
+    use super::{check_eval_order_for_spec, Layer, StreamLayers};
+
+    #[test]
+    fn synchronous_lookup() {
+        let spec = "input a: UInt8\noutput b: UInt8 := a\noutput c:UInt8 := b";
+        let sname_to_sref = vec![("a", SRef::In(0)), ("b", SRef::Out(0)), ("c", SRef::Out(1))]
+            .into_iter()
+            .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(3)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
+    }
+
+    #[test]
+    fn filtered_spec() {
+        let spec = "input a: UInt8
+        output b := a + 1
+        output c eval when b == 0 with a
+        output d eval when a == 0 with c.hold(or: 0)";
+        let sname_to_sref = vec![
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(3), Layer::new(4)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(2), Layer::new(5)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        check_eval_order_for_spec(spec, event_layers)
+    }
+
+    #[test]
+    fn filtered_spec_offset() {
+        let spec = "input a: UInt8
+        output b := a + 1
+        output c eval when b == 0 with a
+        output d eval when b == 0 with c.last(or: 0)";
+        let sname_to_sref = vec![
+            ("a", SRef::In(0)),
+            ("b", SRef::Out(0)),
+            ("c", SRef::Out(1)),
+            ("d", SRef::Out(2)),
+        ]
+        .into_iter()
+        .collect::<HashMap<&str, SRef>>();
+        let event_layers = vec![
+            (
+                sname_to_sref["a"],
+                StreamLayers::new(Layer::new(0), Layer::new(0), Layer::new(1)),
+            ),
+            (
+                sname_to_sref["b"],
+                StreamLayers::new(Layer::new(0), Layer::new(1), Layer::new(2)),
+            ),
+            (
+                sname_to_sref["c"],
+                StreamLayers::new(Layer::new(0), Layer::new(3), Layer::new(4)),
+            ),
+            (
+                sname_to_sref["d"],
+                StreamLayers::new(Layer::new(0), Layer::new(3), Layer::new(4)),
+            ),
         ]
         .into_iter()
         .collect();

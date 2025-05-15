@@ -49,7 +49,7 @@ impl From<HashError> for Diagnostic {
                     s
                 });
                 Diagnostic::error(&format!("The imported file was exported from a specification with hash {imported_hash}, but the current specification has hash {current_hash}."))
-            },
+            }
         }
     }
 }
@@ -133,7 +133,8 @@ mod tests {
         let exported_mir = mir.hash(&config);
         let exported = to_json(exported_mir).unwrap();
 
-        let new_spec = "input a : UInt64\ninput b : UInt64\noutput c := a + b\ntrigger c > 10 \"test\"";
+        let new_spec =
+            "input a : UInt64\ninput b : UInt64\noutput c := a + b\ntrigger c > 10 \"test\"";
         let new_config = ParserConfig::for_string(new_spec.into());
 
         let imported = from_json(exported).expect("should parse");

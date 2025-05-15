@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 15.05.2025
+
+### Added
+- Added methods `get_stream_by_name`, `get_input_by_name`, `get_output_by_name` to MIR.
+- Include stream tags in `InputStream` and `OutputStream` and global tags of the `MIR`.
+- Added frontend config
+- Tuple Literal to MIR
+- Added `InstanceSelection::FilteredAll` and `InstanceSelection::FilteredFresh` variants for filtered instance aggregation.
+- Added `aggregates` field to mir
+- Added `origin` to windows
+- Add 128 and 256 bit variants for signed and unsigned integers
+
 ## [0.7.0] - 28.06.2024
 
 ### Changed

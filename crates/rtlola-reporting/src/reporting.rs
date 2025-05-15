@@ -1,6 +1,7 @@
 //! This module contains helper to report messages (warnings/errors)
+use std::error::Error;
 use std::fmt::Debug;
-use std::iter::FromIterator;
+use std::iter::{self, FromIterator};
 use std::ops::Range;
 use std::path::Path;
 use std::sync::RwLock;
@@ -13,7 +14,9 @@ use codespan_reporting::term::Config;
 use serde::{Deserialize, Serialize};
 
 /// Represents a location in the source
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default, PartialOrd, Ord,
+)]
 pub enum Span {
     /// Direct code reference through byte offset
     Direct {
@@ -70,7 +73,7 @@ impl Span {
 
     /// Returns the start and end position of the span.
     /// Note: If the span is unknown returns (usize::min, usize::max)
-    fn get_bounds(&self) -> (usize, usize) {
+    pub fn get_bounds(&self) -> (usize, usize) {
         match self {
             Span::Indirect { start, end } | Span::Direct { start, end } => (*start, *end),
             Span::Unknown => (usize::MIN, usize::MAX),
@@ -123,7 +126,7 @@ pub struct Handler<'a> {
     /// The config for the error formatting
     config: Config,
 }
-impl<'a> Debug for Handler<'a> {
+impl Debug for Handler<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Handler")
             .field("error_count", &self.error_count)
@@ -179,7 +182,7 @@ impl<'a> Handler<'a> {
         match diag.severity {
             Severity::Error => *self.error_count.write().unwrap() += 1,
             Severity::Warning => *self.warning_count.write().unwrap() += 1,
-            _ => {},
+            _ => {}
         }
         term::emit(
             (*self.output.write().unwrap()).as_mut(),
@@ -299,7 +302,12 @@ impl Diagnostic {
     /// Adds a code span to the diagnostic if the span is available.
     /// The `label` is printed next to the code fragment the span refers to.
     /// If `primary` is set to true the span is treated as the primary code fragment.
-    pub fn maybe_add_span_with_label(mut self, span: Option<Span>, label: Option<&str>, primary: bool) -> Self {
+    pub fn maybe_add_span_with_label(
+        mut self,
+        span: Option<Span>,
+        label: Option<&str>,
+        primary: bool,
+    ) -> Self {
         let span = match span {
             None | Some(Span::Unknown) => return self,
             Some(s) => s,
@@ -334,6 +342,28 @@ impl From<Diagnostic> for RawDiagnostic<()> {
 /// An error type to collect diagnostics throughout the frontend.
 pub struct RtLolaError {
     errors: Vec<Diagnostic>,
+}
+
+impl Error for RtLolaError {}
+
+impl std::fmt::Display for RtLolaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "RTLola Error: {} errors, {} warnings:",
+            self.num_errors(),
+            self.num_warnings()
+        )?;
+        for msg in self.iter() {
+            let severity = match msg.inner.severity {
+                Severity::Warning => "[WARNING]",
+                Severity::Error => "[ERROR]",
+                _ => unreachable!(),
+            };
+            writeln!(f, "- {severity} {}", msg.inner.message)?;
+        }
+        Ok(())
+    }
 }
 
 impl RtLolaError {
@@ -393,7 +423,7 @@ impl RtLolaError {
             (Err(mut l), Err(r)) => {
                 l.join(r);
                 Err(l)
-            },
+            }
         }
     }
 }
@@ -433,6 +463,28 @@ impl From<Result<(), RtLolaError>> for RtLolaError {
             Ok(()) => RtLolaError::new(),
             Err(e) => e,
         }
+    }
+}
+
+impl RtLolaError {
+    /// Collects the iterator of Result's into a Result of a collection, while
+    /// concatenating all RTLola errors together
+    #[allow(clippy::manual_try_fold)]
+    pub fn collect<T, Q: FromIterator<T> + Extend<T>>(
+        iter: impl IntoIterator<Item = Result<T, Self>>,
+    ) -> Result<Q, RtLolaError> {
+        iter.into_iter()
+            .fold(Ok(Q::from_iter(iter::empty())), |e, item| match (e, item) {
+                (Ok(mut e), Ok(item)) => {
+                    e.extend(iter::once(item));
+                    Ok(e)
+                }
+                (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err(e),
+                (Err(mut e1), Err(e2)) => {
+                    e1.join(e2);
+                    Err(e1)
+                }
+            })
     }
 }
 

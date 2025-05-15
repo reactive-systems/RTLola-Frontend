@@ -9,8 +9,11 @@ use std::time::Duration;
 
 use rtlola_reporting::RtLolaError;
 
-use self::dependencies::{DependencyGraph, Origin, Streamdependencies, Transitivedependencies, Windowdependencies};
+use self::dependencies::{
+    DependencyGraph, Origin, StreamDependencies, TransitiveDependencies, WindowDependencies,
+};
 use self::types::HirType;
+use crate::config::FrontendConfig;
 use crate::hir::{ConcretePacingType, ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
 use crate::modes::ordering::StreamLayers;
@@ -32,7 +35,7 @@ pub trait HirStage: Sized {
     type NextStage: HirMode;
 
     /// Returns an [RtLolaHir](crate::RtLolaHir) with additional functionality
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError>;
+    fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError>;
 }
 
 /// Represents the first stage in the [RtLolaHir](crate::RtLolaHir)(crate::RtLolaHir)
@@ -45,7 +48,7 @@ pub struct BaseMode {}
 impl HirStage for Hir<BaseMode> {
     type NextStage = TypedMode;
 
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let tts = crate::type_check::type_check(&self)?;
 
         let mode = TypedMode { types: tts };
@@ -56,6 +59,7 @@ impl HirStage for Hir<BaseMode> {
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
+            global_tags: self.global_tags,
             mode,
         })
     }
@@ -70,8 +74,8 @@ impl Hir<BaseMode> {
     ///
     /// # Fails
     /// The function fails if the type checker finds a type error in the specification and returns a string with a detailed description.
-    pub fn check_types(self) -> Result<Hir<TypedMode>, RtLolaError> {
-        self.progress()
+    pub fn check_types(self, cfg: &FrontendConfig) -> Result<Hir<TypedMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 
@@ -155,7 +159,7 @@ pub trait TypedTrait {
 impl HirStage for Hir<TypedMode> {
     type NextStage = DepAnaMode;
 
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let dependencies = DepAna::analyze(&self)?;
 
         let mode = DepAnaMode {
@@ -169,6 +173,7 @@ impl HirStage for Hir<TypedMode> {
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
+            global_tags: self.global_tags,
             mode,
         })
     }
@@ -183,20 +188,23 @@ impl Hir<TypedMode> {
     ///
     /// # Fails
     /// The function returns a [RtLolaError] if the specification is not well-formed.
-    pub fn analyze_dependencies(self) -> Result<Hir<DepAnaMode>, RtLolaError> {
-        self.progress()
+    pub fn analyze_dependencies(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<DepAnaMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 
 /// Represents the results of the dependency analysis
 #[derive(Debug, Clone)]
 pub struct DepAna {
-    direct_accesses: Streamdependencies,
-    transitive_accesses: Transitivedependencies,
-    direct_accessed_by: Streamdependencies,
-    transitive_accessed_by: Transitivedependencies,
-    aggregated_by: Windowdependencies,
-    aggregates: Windowdependencies,
+    direct_accesses: StreamDependencies,
+    transitive_accesses: TransitiveDependencies,
+    direct_accessed_by: StreamDependencies,
+    transitive_accessed_by: TransitiveDependencies,
+    aggregated_by: WindowDependencies,
+    aggregates: WindowDependencies,
     graph: DependencyGraph,
 }
 
@@ -264,13 +272,13 @@ pub trait DepAnaTrait {
     ///
     /// The function returns all windows that aggregate `who` and the stream that uses the window.
     /// The result contains only the windows that are direct.
-    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+    fn aggregated_by(&self, who: SRef) -> Vec<(SRef, Origin, WRef)>; // (non-transitive)
 
     /// Returns all windows that are used in `who` and the corresponding stream that is aggregated
     ///
     /// The function returns all windows that are used in `who` and the corresponding stream that is aggregated.
     /// The result contains only the windows that are direct.
-    fn aggregates(&self, who: SRef) -> Vec<(SRef, WRef)>; // (non-transitive)
+    fn aggregates(&self, who: SRef) -> Vec<(SRef, Origin, WRef)>; // (non-transitive)
 
     /// Returns the (Dependency Graph)[DependencyGraph] of the specification
     fn graph(&self) -> &DependencyGraph;
@@ -279,7 +287,7 @@ pub trait DepAnaTrait {
 impl HirStage for Hir<DepAnaMode> {
     type NextStage = OrderedMode;
 
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let order = Ordered::analyze(&self);
 
         let mode = OrderedMode {
@@ -294,6 +302,7 @@ impl HirStage for Hir<DepAnaMode> {
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
+            global_tags: self.global_tags,
             mode,
         })
     }
@@ -304,8 +313,11 @@ impl Hir<DepAnaMode> {
     ///
     /// # Fails
     /// The function fails if the evaluation order cannot be determined.
-    pub fn determine_evaluation_order(self) -> Result<Hir<OrderedMode>, RtLolaError> {
-        self.progress()
+    pub fn determine_evaluation_order(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<OrderedMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 
@@ -343,8 +355,8 @@ pub trait OrderedTrait {
 impl HirStage for Hir<OrderedMode> {
     type NextStage = MemBoundMode;
 
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
-        let memory = MemBound::analyze(&self, false);
+    fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let memory = MemBound::analyze(&self, cfg.memory_bound_mode());
 
         let mode = MemBoundMode {
             dependencies: self.mode.dependencies,
@@ -359,6 +371,7 @@ impl HirStage for Hir<OrderedMode> {
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
+            global_tags: self.global_tags,
             mode,
         })
     }
@@ -369,8 +382,11 @@ impl Hir<OrderedMode> {
     ///
     /// # Fails
     /// The function fails if the memory cannot be determined.
-    pub fn determine_memory_bounds(self) -> Result<Hir<MemBoundMode>, RtLolaError> {
-        self.progress()
+    pub fn determine_memory_bounds(
+        self,
+        cfg: &FrontendConfig,
+    ) -> Result<Hir<MemBoundMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 
@@ -425,7 +441,7 @@ pub trait MemBoundTrait {
 impl HirStage for Hir<MemBoundMode> {
     type NextStage = CompleteMode;
 
-    fn progress(self) -> Result<Hir<Self::NextStage>, RtLolaError> {
+    fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let mode = CompleteMode {
             dependencies: self.mode.dependencies,
             types: self.mode.types,
@@ -439,6 +455,7 @@ impl HirStage for Hir<MemBoundMode> {
             next_output_ref: self.next_output_ref,
             next_input_ref: self.next_input_ref,
             expr_maps: self.expr_maps,
+            global_tags: self.global_tags,
             mode,
         })
     }
@@ -450,8 +467,8 @@ impl Hir<MemBoundMode> {
     /// The function returns the [RtLolaHir](crate::RtLolaHir) in the [CompleteMode].
     /// This mode indicates that the [RtLolaHir](crate::RtLolaHir) has passed all analyzes and now contains all information.
     /// The function moves the information of the previous mode to the new one and therefore destroys the current mode.
-    pub fn finalize(self) -> Result<Hir<CompleteMode>, RtLolaError> {
-        self.progress()
+    pub fn finalize(self, cfg: &FrontendConfig) -> Result<Hir<CompleteMode>, RtLolaError> {
+        self.progress(cfg)
     }
 }
 

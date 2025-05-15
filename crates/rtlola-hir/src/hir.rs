@@ -19,9 +19,11 @@ mod print;
 pub mod selector;
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::Duration;
 
 pub use feature_selector::{Feature, FeatureSelector};
+use rtlola_parser::ast::Tag;
 use rtlola_reporting::Span;
 use serde::{Deserialize, Serialize};
 use uom::si::rational64::Frequency as UOM_Frequency;
@@ -33,8 +35,8 @@ pub use crate::modes::memory_bounds::MemorizationBound;
 pub use crate::modes::ordering::{Layer, StreamLayers};
 use crate::modes::HirMode;
 pub use crate::modes::{
-    BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait, OrderedMode, OrderedTrait,
-    TypedMode, TypedTrait,
+    BaseMode, CompleteMode, DepAnaMode, DepAnaTrait, HirStage, MemBoundMode, MemBoundTrait,
+    OrderedMode, OrderedTrait, TypedMode, TypedTrait,
 };
 use crate::stdlib::FuncDecl;
 pub use crate::type_check::{
@@ -79,6 +81,8 @@ pub struct RtLolaHir<M: HirMode> {
     pub(crate) next_output_ref: usize,
     /// Maps expression ids to their expressions.
     pub(crate) expr_maps: ExpressionMaps,
+    /// A list of the global tags of the specification
+    pub(crate) global_tags: HashMap<String, Tag>,
     /// The current mode
     pub(crate) mode: M,
 }
@@ -167,7 +171,11 @@ impl<M: HirMode> Hir<M> {
 
     /// Provides access to a collection of references for all discrete windows occurring in the Hir.
     pub fn instance_aggregations(&self) -> Vec<&InstanceAggregation> {
-        self.expr_maps.instance_aggregations.values().clone().collect()
+        self.expr_maps
+            .instance_aggregations
+            .values()
+            .clone()
+            .collect()
     }
 
     /// Retrieves an expression for a given expression id.
@@ -214,10 +222,9 @@ impl<M: HirMode> Hir<M> {
     ///
     /// # Panic
     /// Panics if no such aggregation exists.
-    pub fn single_instance_aggregation(&self, window: WRef) -> InstanceAggregation {
-        *self
-            .instance_aggregations()
-            .into_iter()
+    pub fn single_instance_aggregation(&self, window: WRef) -> &InstanceAggregation {
+        self.instance_aggregations()
+            .iter()
             .find(|w| w.reference == window)
             .unwrap()
     }
@@ -236,7 +243,7 @@ impl<M: HirMode> Hir<M> {
                         st.span,
                     )
                 })
-            },
+            }
         }
     }
 
@@ -245,13 +252,12 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.spawn_cond())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.spawn_cond())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -260,13 +266,12 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_expr(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.spawn_expr())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.spawn_expr())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -275,7 +280,11 @@ impl<M: HirMode> Hir<M> {
     pub fn spawn_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.spawn_pacing()),
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.spawn_pacing()),
         }
     }
 
@@ -284,7 +293,8 @@ impl<M: HirMode> Hir<M> {
     /// Panics if the stream does not exist or is an input/trigger.
     #[cfg(test)]
     pub(crate) fn spawn_unchecked(&self, sr: SRef) -> SpawnDef {
-        self.spawn(sr).expect("Invalid for input and triggers references")
+        self.spawn(sr)
+            .expect("Invalid for input and triggers references")
     }
 
     /// Retrieves the eval definitions of a particular output stream or trigger or `None` for input references.
@@ -306,7 +316,7 @@ impl<M: HirMode> Hir<M> {
                         })
                         .collect()
                 })
-            },
+            }
         }
     }
 
@@ -329,7 +339,7 @@ impl<M: HirMode> Hir<M> {
                 } else {
                     Some(vec![None])
                 }
-            },
+            }
         }
     }
 
@@ -338,12 +348,13 @@ impl<M: HirMode> Hir<M> {
     pub fn eval_expr(&self, sr: SRef) -> Option<Vec<&Expression>> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
+            SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).map(|output| {
+                output
+                    .eval
                     .iter()
-                    .find(|o| o.sr == sr)
-                    .map(|output| output.eval.iter().map(|eval| self.expression(eval.expr)).collect())
-            },
+                    .map(|eval| self.expression(eval.expr))
+                    .collect()
+            }),
         }
     }
 
@@ -354,8 +365,14 @@ impl<M: HirMode> Hir<M> {
             SRef::In(_) => None,
             SRef::Out(_) => {
                 let output = self.outputs.iter().find(|o| o.sr == sr)?;
-                Some(output.eval.iter().map(|eval| &eval.annotated_pacing_type).collect())
-            },
+                Some(
+                    output
+                        .eval
+                        .iter()
+                        .map(|eval| &eval.annotated_pacing_type)
+                        .collect(),
+                )
+            }
         }
     }
 
@@ -371,9 +388,13 @@ impl<M: HirMode> Hir<M> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
-                let ct = self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close());
+                let ct = self
+                    .outputs
+                    .iter()
+                    .find(|o| o.sr == sr)
+                    .and_then(|o| o.close());
                 ct.map(|ct| CloseDef::new(Some(self.expression(ct.condition)), &ct.pacing, ct.span))
-            },
+            }
         }
     }
 
@@ -382,13 +403,12 @@ impl<M: HirMode> Hir<M> {
     pub fn close_cond(&self, sr: SRef) -> Option<&Expression> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => {
-                self.outputs
-                    .iter()
-                    .find(|o| o.sr == sr)
-                    .and_then(|o| o.close_cond())
-                    .map(|eid| self.expression(eid))
-            },
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.close_cond())
+                .map(|eid| self.expression(eid)),
         }
     }
 
@@ -397,7 +417,11 @@ impl<M: HirMode> Hir<M> {
     pub fn close_pacing(&self, sr: SRef) -> Option<&AnnotatedPacingType> {
         match sr {
             SRef::In(_) => None,
-            SRef::Out(_) => self.outputs.iter().find(|o| o.sr == sr).and_then(|o| o.close_pacing()),
+            SRef::Out(_) => self
+                .outputs
+                .iter()
+                .find(|o| o.sr == sr)
+                .and_then(|o| o.close_pacing()),
         }
     }
 
@@ -406,7 +430,8 @@ impl<M: HirMode> Hir<M> {
     /// Panics if the stream does not exist or is an input/trigger.
     #[cfg(test)]
     pub(crate) fn close_unchecked(&self, sr: StreamReference) -> CloseDef {
-        self.close(sr).expect("Invalid for input and triggers references")
+        self.close(sr)
+            .expect("Invalid for input and triggers references")
     }
 
     /// Generates a map from a [StreamReference] to the name of the corresponding stream.
@@ -415,6 +440,11 @@ impl<M: HirMode> Hir<M> {
             .map(|i| (i.sr, i.name.clone()))
             .chain(self.outputs().map(|o| (o.sr, o.name())))
             .collect()
+    }
+
+    /// Returns the global tags annotated to the specification
+    pub fn global_tags(&self) -> &HashMap<String, Tag> {
+        &self.global_tags
     }
 }
 
@@ -488,9 +518,8 @@ impl FunctionName {
 impl PartialEq for FunctionName {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::ArbitraryParameters { name }, other) | (other, Self::ArbitraryParameters { name }) => {
-                name == other.name()
-            },
+            (Self::ArbitraryParameters { name }, other)
+            | (other, Self::ArbitraryParameters { name }) => name == other.name(),
             (
                 Self::FixedParameters {
                     name: s_name,
@@ -526,6 +555,8 @@ pub struct Input {
     pub(crate) sr: SRef,
     /// The user annotated Type
     pub(crate) annotated_type: AnnotatedType,
+    /// The tags of this stream.
+    pub tags: HashMap<String, Tag>,
     /// The code span the input represents
     pub(crate) span: Span,
 }
@@ -568,6 +599,8 @@ pub struct Output {
     pub(crate) close: Option<Close>,
     /// The reference pointing to this stream.
     pub(crate) sr: SRef,
+    /// The tags of this stream.
+    pub tags: HashMap<String, Tag>,
     /// The code span the output represents
     pub(crate) span: Span,
 }
@@ -679,7 +712,7 @@ pub struct AnnotatedFrequency {
 }
 
 /// Pacing information for stream; contains either a frequency or a condition on input streams.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotatedPacingType {
     /// The global evaluation frequency
     GlobalFrequency(AnnotatedFrequency),
@@ -688,17 +721,23 @@ pub enum AnnotatedPacingType {
     /// The expression which constitutes the condition under which the stream should be evaluated.
     Event(ExprId),
     /// The stream is not annotated with a pacing
-    #[default]
-    NotAnnotated,
+    NotAnnotated(Span),
+}
+
+impl Default for AnnotatedPacingType {
+    fn default() -> Self {
+        AnnotatedPacingType::NotAnnotated(Span::default())
+    }
 }
 
 impl AnnotatedPacingType {
     /// Returns the span of the annotated type.
     pub fn span<M: HirMode>(&self, hir: &Hir<M>) -> Span {
         match self {
-            AnnotatedPacingType::GlobalFrequency(freq) | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
+            AnnotatedPacingType::GlobalFrequency(freq)
+            | AnnotatedPacingType::LocalFrequency(freq) => freq.span,
             AnnotatedPacingType::Event(id) => hir.expression(*id).span,
-            AnnotatedPacingType::NotAnnotated => Span::Unknown,
+            AnnotatedPacingType::NotAnnotated(span) => *span,
         }
     }
 }
@@ -718,24 +757,28 @@ pub(crate) struct Spawn {
 
 impl Spawn {
     /// Returns a reference to the `Expression` representing the spawn expression if it exists
-    pub(crate) fn spawn_expr<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+    pub(crate) fn spawn_expr<'a, M: HirMode>(
+        &self,
+        hir: &'a RtLolaHir<M>,
+    ) -> Option<&'a Expression> {
         self.expression.map(|eid| hir.expression(eid))
     }
 
     /// Returns a vector of `Expression` references representing the expressions with which the parameters of the stream are initialized
     pub(crate) fn spawn_args<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Vec<&'a Expression> {
         self.spawn_expr(hir)
-            .map(|se| {
-                match &se.kind {
-                    ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
-                    _ => vec![se],
-                }
+            .map(|se| match &se.kind {
+                ExpressionKind::Tuple(spawns) => spawns.iter().collect(),
+                _ => vec![se],
             })
             .unwrap_or_default()
     }
 
     /// Returns a reference to the `Expression` representing the spawn condition if it exists
-    pub(crate) fn spawn_cond<'a, M: HirMode>(&self, hir: &'a RtLolaHir<M>) -> Option<&'a Expression> {
+    pub(crate) fn spawn_cond<'a, M: HirMode>(
+        &self,
+        hir: &'a RtLolaHir<M>,
+    ) -> Option<&'a Expression> {
         self.condition.map(|eid| hir.expression(eid))
     }
 }
@@ -839,7 +882,11 @@ pub struct CloseDef<'a> {
 
 impl<'a> CloseDef<'a> {
     /// Constructs a new [CloseDef]
-    pub fn new(condition: Option<&'a Expression>, annotated_pacing: &'a AnnotatedPacingType, span: Span) -> Self {
+    pub fn new(
+        condition: Option<&'a Expression>,
+        annotated_pacing: &'a AnnotatedPacingType,
+        span: Span,
+    ) -> Self {
         Self {
             condition,
             annotated_pacing,
@@ -854,14 +901,17 @@ impl<'a> CloseDef<'a> {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub(crate) enum AnnotatedType {
     Int(u32),
+    Fixed(u32, u32),
     Float(u32),
     UInt(u32),
+    UFixed(u32, u32),
     Bool,
     String,
     Bytes,
     Option(Box<AnnotatedType>),
     Tuple(Vec<AnnotatedType>),
     Numeric,
+    Fractional,
     Signed,
     Sequence,
     Param(usize, String),
@@ -962,13 +1012,7 @@ impl StreamReference {
 
 impl PartialOrd for StreamReference {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-        match (self, other) {
-            (StreamReference::In(i), StreamReference::In(i2)) => Some(i.cmp(i2)),
-            (StreamReference::Out(o), StreamReference::Out(o2)) => Some(o.cmp(o2)),
-            (StreamReference::In(_), StreamReference::Out(_)) => Some(Ordering::Less),
-            (StreamReference::Out(_), StreamReference::In(_)) => Some(Ordering::Greater),
-        }
+        Some(self.cmp(other))
     }
 }
 
@@ -1007,9 +1051,11 @@ impl Offset {
         }
     }
 
-    pub(crate) fn as_memory_bound(&self, dynamic: bool) -> MemorizationBound {
+    pub(crate) fn as_memory_bound(&self) -> MemorizationBound {
         match self {
-            Offset::PastDiscrete(o) => MemorizationBound::Bounded(*o) + MemorizationBound::default_value(dynamic),
+            Offset::PastDiscrete(o) => {
+                MemorizationBound::Bounded(*o) + MemorizationBound::Bounded(1)
+            }
             Offset::FutureDiscrete(_) => unimplemented!(),
             Offset::FutureRealTime(_) => unimplemented!(),
             Offset::PastRealTime(_) => unimplemented!(),
@@ -1019,30 +1065,29 @@ impl Offset {
 
 impl PartialOrd for Offset {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering;
-
-        use Offset::*;
-        match (self, other) {
-            (PastDiscrete(_), FutureDiscrete(_))
-            | (PastRealTime(_), FutureRealTime(_))
-            | (PastDiscrete(_), FutureRealTime(_))
-            | (PastRealTime(_), FutureDiscrete(_)) => Some(Ordering::Less),
-
-            (FutureDiscrete(_), PastDiscrete(_))
-            | (FutureDiscrete(_), PastRealTime(_))
-            | (FutureRealTime(_), PastDiscrete(_))
-            | (FutureRealTime(_), PastRealTime(_)) => Some(Ordering::Greater),
-
-            (FutureDiscrete(a), FutureDiscrete(b)) => Some(a.cmp(b)),
-            (PastDiscrete(a), PastDiscrete(b)) => Some(b.cmp(a)),
-
-            (_, _) => unimplemented!(),
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Offset {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        use std::cmp::Ordering;
+        use Offset::*;
+        match (self, other) {
+            (PastDiscrete(_), FutureDiscrete(_))
+            | (PastRealTime(_), FutureRealTime(_))
+            | (PastDiscrete(_), FutureRealTime(_))
+            | (PastRealTime(_), FutureDiscrete(_)) => Ordering::Less,
+
+            (FutureDiscrete(_), PastDiscrete(_))
+            | (FutureDiscrete(_), PastRealTime(_))
+            | (FutureRealTime(_), PastDiscrete(_))
+            | (FutureRealTime(_), PastRealTime(_)) => Ordering::Greater,
+
+            (FutureDiscrete(a), FutureDiscrete(b)) => a.cmp(b),
+            (PastDiscrete(a), PastDiscrete(b)) => b.cmp(a),
+
+            (_, _) => unimplemented!(),
+        }
     }
 }
