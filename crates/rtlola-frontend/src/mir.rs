@@ -1181,6 +1181,9 @@ impl RtLolaMir {
                 matches!(
                     o.spawn.pacing,
                     PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_)
+                ) || matches!(
+                    o.close.pacing,
+                    PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_)
                 )
             })
     }
