@@ -536,7 +536,6 @@ where
                                     .params
                                     .iter()
                                     .map(|p| {
-                                        // Todo: Move to own function in Variable
                                         self.tyc.get_var_key(&Variable::for_parameter(
                                             target_stream,
                                             p.idx,
@@ -544,12 +543,16 @@ where
                                     })
                                     .collect();
 
-                                self.tyc.impose(term_key.concretizes_explicit(
-                                    AbstractValueType::Tuple(param_keys.len()),
-                                ))?;
-                                for (ix, p) in param_keys.iter().enumerate() {
-                                    let child = self.tyc.get_child_key(term_key, ix)?;
-                                    self.tyc.impose(child.equate_with(*p))?;
+                                if param_keys.len() == 1 {
+                                    self.tyc.impose(term_key.equate_with(param_keys[0]))?;
+                                } else {
+                                    self.tyc.impose(term_key.concretizes_explicit(
+                                        AbstractValueType::Tuple(param_keys.len()),
+                                    ))?;
+                                    for (ix, p) in param_keys.iter().enumerate() {
+                                        let child = self.tyc.get_child_key(term_key, ix)?;
+                                        self.tyc.impose(child.equate_with(*p))?;
+                                    }
                                 }
                             }
                             //Count: Any -> uint
@@ -2693,6 +2696,36 @@ output o_9: Bool @i_0 := true  && true";
             spawn with a\n\
             eval with a+p\n\
         output c := b.aggregate(over_instances: All(where: (x) => x + i > 5), using: sum)";
+        assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn argmin_instance_aggregation_inference() {
+        let spec = "input a: Int32\n\
+        output b(p1,p2)\n\
+            spawn with (a,a)\n\
+            eval with 1\n\
+        output c : (Int32, Int32) := b.aggregate(over_instances: fresh, using: argmin)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn argmin_instance_aggregation_inference2() {
+        let spec = "input a: Int32\n\
+        output b(p1)\n\
+            spawn with a\n\
+            eval with true\n\
+        output c : Int32 := b.aggregate(over_instances: fresh, using: argmin)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn argmin_instance_aggregation_inference_wrong() {
+        let spec = "input a: Int32\n\
+        output b(p1)\n\
+            spawn with a\n\
+            eval with true\n\
+        output c : Bool := b.aggregate(over_instances: fresh, using: argmin)";
         assert_eq!(1, num_errors(spec));
     }
 }
