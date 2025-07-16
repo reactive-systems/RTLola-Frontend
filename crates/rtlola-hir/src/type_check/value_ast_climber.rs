@@ -532,6 +532,11 @@ where
                                     .output(*sr)
                                     .expect("unable to find referenced stream");
 
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Option),
+                                )?;
+                                let inner_key = self.tyc.get_child_key(term_key, 0)?;
+
                                 let param_keys: Vec<_> = target_stream
                                     .params
                                     .iter()
@@ -544,13 +549,13 @@ where
                                     .collect();
 
                                 if param_keys.len() == 1 {
-                                    self.tyc.impose(term_key.equate_with(param_keys[0]))?;
+                                    self.tyc.impose(inner_key.equate_with(param_keys[0]))?;
                                 } else {
-                                    self.tyc.impose(term_key.concretizes_explicit(
+                                    self.tyc.impose(inner_key.concretizes_explicit(
                                         AbstractValueType::Tuple(param_keys.len()),
                                     ))?;
                                     for (ix, p) in param_keys.iter().enumerate() {
-                                        let child = self.tyc.get_child_key(term_key, ix)?;
+                                        let child = self.tyc.get_child_key(inner_key, ix)?;
                                         self.tyc.impose(child.equate_with(*p))?;
                                     }
                                 }
@@ -2705,7 +2710,7 @@ output o_9: Bool @i_0 := true  && true";
         output b(p1,p2)\n\
             spawn with (a,a)\n\
             eval with 1\n\
-        output c : (Int32, Int32) := b.aggregate(over_instances: fresh, using: argmin)";
+        output c : (Int32, Int32) := b.aggregate(over_instances: fresh, using: argmin).defaults(to: (0, 0))";
         assert_eq!(0, num_errors(spec));
     }
 
@@ -2715,7 +2720,7 @@ output o_9: Bool @i_0 := true  && true";
         output b(p1)\n\
             spawn with a\n\
             eval with true\n\
-        output c : Int32 := b.aggregate(over_instances: fresh, using: argmin)";
+        output c : Int32 := b.aggregate(over_instances: fresh, using: argmin).defaults(to: 0)";
         assert_eq!(0, num_errors(spec));
     }
 
