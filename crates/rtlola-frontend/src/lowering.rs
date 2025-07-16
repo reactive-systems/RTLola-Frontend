@@ -673,7 +673,9 @@ impl Mir {
         match op {
             WindowOperation::Count => mir::WindowOperation::Count,
             WindowOperation::Min => mir::WindowOperation::Min,
+            WindowOperation::ArgMin => mir::WindowOperation::ArgMin,
             WindowOperation::Max => mir::WindowOperation::Max,
+            WindowOperation::ArgMax => mir::WindowOperation::ArgMax,
             WindowOperation::Sum => mir::WindowOperation::Sum,
             WindowOperation::Product => mir::WindowOperation::Product,
             WindowOperation::Average => mir::WindowOperation::Average,
@@ -693,7 +695,9 @@ impl Mir {
         match op {
             InstanceOperation::Count => mir::InstanceOperation::Count,
             InstanceOperation::Min => mir::InstanceOperation::Min,
+            InstanceOperation::ArgMin => mir::InstanceOperation::ArgMin,
             InstanceOperation::Max => mir::InstanceOperation::Max,
+            InstanceOperation::ArgMax => mir::InstanceOperation::ArgMax,
             InstanceOperation::Sum => mir::InstanceOperation::Sum,
             InstanceOperation::Product => mir::InstanceOperation::Product,
             InstanceOperation::Average => mir::InstanceOperation::Average,

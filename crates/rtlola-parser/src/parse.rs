@@ -1224,7 +1224,9 @@ impl<'a> RtLolaParser<'a> {
                                                 "∫" | "integral" => WindowOperation::Integral,
                                                 "avg" | "average" => WindowOperation::Average,
                                                 "min" => WindowOperation::Min,
+                                                "argmin" => WindowOperation::ArgMin,
                                                 "max" => WindowOperation::Max,
+                                                "argmax" => WindowOperation::ArgMax,
                                                 "∃" | "disjunction" | "∨" | "exists" => {
                                                     WindowOperation::Disjunction
                                                 }
@@ -1288,7 +1290,11 @@ impl<'a> RtLolaParser<'a> {
                                             };
                                             let aggregation = window_op.try_into().map_err(|reason| Diagnostic::error(&format!("Operation not supported: {reason}")).add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true))?;
                                             ExpressionKind::InstanceAggregation { expr: inner, selection: instances, aggregation }
-                                        } else if signature.contains("discrete") {
+                                        } else {
+                                            if matches!(window_op, WindowOperation::ArgMax | WindowOperation::ArgMin) {
+                                                return Err(Diagnostic::error("Window Operations argmin and argmax only supported for instance aggregations.").add_span_with_label(args[0].span, Some("found other aggregation here"), true).into())
+                                            }
+                                            if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
                                                 // Todo: This should be a warning
                                                 // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
@@ -1306,7 +1312,7 @@ impl<'a> RtLolaParser<'a> {
                                                 wait: signature.contains("over_exactly"),
                                                 aggregation: window_op,
                                             }
-                                        }
+                                        }}
                                     }
                                     _ => ExpressionKind::Method(inner, name, types, args),
                                 };
