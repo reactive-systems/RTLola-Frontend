@@ -525,6 +525,33 @@ where
                                 let inner_key = self.tyc.get_child_key(term_key, 0)?;
                                 self.tyc.impose(inner_key.equate_with(target_key))?;
                             }
+
+                            WindowOperation::ArgMin | WindowOperation::ArgMax => {
+                                let target_stream: &Output = self
+                                    .hir
+                                    .output(*sr)
+                                    .expect("unable to find referenced stream");
+
+                                let param_keys: Vec<_> = target_stream
+                                    .params
+                                    .iter()
+                                    .map(|p| {
+                                        // Todo: Move to own function in Variable
+                                        self.tyc.get_var_key(&Variable::for_parameter(
+                                            target_stream,
+                                            p.idx,
+                                        ))
+                                    })
+                                    .collect();
+
+                                self.tyc.impose(term_key.concretizes_explicit(
+                                    AbstractValueType::Tuple(param_keys.len()),
+                                ))?;
+                                for (ix, p) in param_keys.iter().enumerate() {
+                                    let child = self.tyc.get_child_key(term_key, ix)?;
+                                    self.tyc.impose(child.equate_with(*p))?;
+                                }
+                            }
                             //Count: Any -> uint
                             WindowOperation::Count => {
                                 if wait {

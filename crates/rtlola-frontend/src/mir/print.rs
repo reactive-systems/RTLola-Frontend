@@ -157,7 +157,9 @@ impl Display for WindowOperation {
             match self {
                 WindowOperation::Count => "count",
                 WindowOperation::Min => "min",
+                WindowOperation::ArgMin => "argmin",
                 WindowOperation::Max => "max",
+                WindowOperation::ArgMax => "argmax",
                 WindowOperation::Sum => "sum",
                 WindowOperation::Product => "product",
                 WindowOperation::Average => "average",

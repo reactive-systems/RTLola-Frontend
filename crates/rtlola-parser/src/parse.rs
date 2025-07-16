@@ -1224,7 +1224,9 @@ impl<'a> RtLolaParser<'a> {
                                                 "∫" | "integral" => WindowOperation::Integral,
                                                 "avg" | "average" => WindowOperation::Average,
                                                 "min" => WindowOperation::Min,
+                                                "argmin" => WindowOperation::ArgMin,
                                                 "max" => WindowOperation::Max,
+                                                "argmax" => WindowOperation::ArgMax,
                                                 "∃" | "disjunction" | "∨" | "exists" => {
                                                     WindowOperation::Disjunction
                                                 }

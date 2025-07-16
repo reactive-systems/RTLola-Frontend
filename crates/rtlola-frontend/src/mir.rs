@@ -781,8 +781,12 @@ pub enum InstanceOperation {
     Count,
     /// Aggregation function to return the minimum
     Min,
+    /// Aggregation function to return parameter of the minimum
+    ArgMin,
     /// Aggregation function to return the minimum
     Max,
+    /// Aggregation function to return the parameter of the maximum
+    ArgMax,
     /// Aggregation function to return the addition
     Sum,
     /// Aggregation function to return the product
@@ -810,8 +814,12 @@ pub enum WindowOperation {
     Count,
     /// Aggregation function to return the minimum
     Min,
-    /// Aggregation function to return the minimum
+    /// Aggregation function to return the parameter of the minimum
+    ArgMin,
+    /// Aggregation function to return the maximum
     Max,
+    /// Aggregation function to return the parameter of the maximum
+    ArgMax,
     /// Aggregation function to return the addition
     Sum,
     /// Aggregation function to return the product
@@ -841,7 +849,9 @@ impl From<InstanceOperation> for WindowOperation {
         match value {
             InstanceOperation::Count => WindowOperation::Count,
             InstanceOperation::Min => WindowOperation::Min,
+            InstanceOperation::ArgMin => WindowOperation::ArgMin,
             InstanceOperation::Max => WindowOperation::Max,
+            InstanceOperation::ArgMax => WindowOperation::ArgMax,
             InstanceOperation::Sum => WindowOperation::Sum,
             InstanceOperation::Product => WindowOperation::Product,
             InstanceOperation::Average => WindowOperation::Average,
