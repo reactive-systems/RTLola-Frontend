@@ -210,6 +210,7 @@ impl NamingAnalysis {
                 "regex" => self
                     .fun_declarations
                     .add_all_fun_decl(stdlib::regex_module()),
+                "vec" => self.fun_declarations.add_all_fun_decl(stdlib::vec_module()),
                 n => {
                     error.add(
                         Diagnostic::error(&format!("unresolved import `{n}`")).add_span_with_label(

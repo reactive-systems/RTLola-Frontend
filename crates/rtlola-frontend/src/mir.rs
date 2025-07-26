@@ -157,6 +157,10 @@ pub enum Type {
         /// The monomorphized return type of the function
         ret: Box<Type>,
     },
+    /// A 2-element vector
+    Vec2,
+    /// A 3-element vector
+    Vec3,
 }
 
 /// Represents an RTLola pacing type.
@@ -1406,6 +1410,8 @@ impl Type {
             }
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Function { .. } => None,
+            Type::Vec2 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 2)),
+            Type::Vec3 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 3)),
         }
     }
 }

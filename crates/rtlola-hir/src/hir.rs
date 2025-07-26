@@ -916,6 +916,9 @@ pub(crate) enum AnnotatedType {
     Sequence,
     Param(usize, String),
     Any,
+    Vec,
+    Vec2,
+    Vec3,
 }
 
 impl AnnotatedType {

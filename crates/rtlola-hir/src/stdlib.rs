@@ -167,6 +167,97 @@ lazy_static! {
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::UInt(8)]),
         return_type: AnnotatedType::Float(64)
     };
+
+    static ref ELEMENTWISE_ADD: FuncDecl = FuncDecl {
+        name: FunctionName::new("elementwise_add".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref ELEMENTWISE_SUB: FuncDecl = FuncDecl {
+        name: FunctionName::new("elementwise_sub".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref ELEMENTWISE_MUL: FuncDecl = FuncDecl {
+        name: FunctionName::new("elementwise_mul".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref ELEMENTWISE_DIV: FuncDecl = FuncDecl {
+        name: FunctionName::new("elementwise_div".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref SCALAR_MUL: FuncDecl = FuncDecl {
+        name: FunctionName::new("scalar_mul".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Float(64)]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref DOT_PRODUCT: FuncDecl = FuncDecl {
+        name: FunctionName::new("dot_product".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Float(64)
+    };
+
+    static ref CROSS_PRODUCT: FuncDecl = FuncDecl {
+        name: FunctionName::new("cross_product".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref LENGTH: FuncDecl = FuncDecl {
+        name: FunctionName::new("length".to_string(), &[None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Float(64)
+    };
+
+    static ref NORMALIZE: FuncDecl = FuncDecl {
+        name: FunctionName::new("normalize".to_string(), &[None]),
+        generics: vec![AnnotatedType::Vec],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    static ref VEC2_CONSTRUCTOR: FuncDecl = FuncDecl {
+        name: FunctionName::new("Vec2".to_string(), &[None, None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Float(64), AnnotatedType::Float(64)]),
+        return_type: AnnotatedType::Vec2
+    };
+
+    static ref VEC3_CONSTRUCTOR: FuncDecl = FuncDecl {
+        name: FunctionName::new("Vec3".to_string(), &[None, None, None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Float(64), AnnotatedType::Float(64), AnnotatedType::Float(64)]),
+        return_type: AnnotatedType::Vec3
+    };
+
+    static ref UNWRAP2: FuncDecl = FuncDecl {
+        name: FunctionName::new("unwrap2".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Vec2]),
+        return_type: AnnotatedType::Tuple(vec![AnnotatedType::Float(64), AnnotatedType::Float(64)])
+    };
+
+    static ref UNWRAP3: FuncDecl = FuncDecl {
+        name: FunctionName::new("unwrap3".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Vec3]),
+        return_type: AnnotatedType::Tuple(vec![AnnotatedType::Float(64), AnnotatedType::Float(64), AnnotatedType::Float(64)])
+    };
 }
 
 pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
@@ -181,6 +272,24 @@ pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
 
 pub(crate) fn regex_module() -> Vec<&'static FuncDecl> {
     vec![&MATCHES]
+}
+
+pub(crate) fn vec_module() -> Vec<&'static FuncDecl> {
+    vec![
+        &ELEMENTWISE_ADD,
+        &ELEMENTWISE_SUB,
+        &ELEMENTWISE_MUL,
+        &ELEMENTWISE_DIV,
+        &SCALAR_MUL,
+        &DOT_PRODUCT,
+        &CROSS_PRODUCT,
+        &LENGTH,
+        &NORMALIZE,
+        &VEC3_CONSTRUCTOR,
+        &VEC3_CONSTRUCTOR,
+        &UNWRAP2,
+        &UNWRAP3,
+    ]
 }
 
 lazy_static! {
@@ -209,6 +318,8 @@ lazy_static! {
         ("UFixed16_8", &AnnotatedType::UFixed(16, 8)),
         ("String", &AnnotatedType::String),
         ("Bytes", &AnnotatedType::Bytes),
+        ("Vec2", &AnnotatedType::Vec2),
+        ("Vec3", &AnnotatedType::Vec3),
     ];
     pub(crate) static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
         ("Bool", &AnnotatedType::Bool),

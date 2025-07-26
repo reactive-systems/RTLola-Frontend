@@ -257,6 +257,9 @@ impl Display for AnnotatedType {
             Fixed(total, fractional) => write!(f, "Fixed{total}_{fractional}"),
             UFixed(total, fractional) => write!(f, "UFixed{total}_{fractional}"),
             Fractional => write!(f, "Fractional"),
+            Vec2 => write!(f, "Vec2"),
+            Vec3 => write!(f, "Vec3"),
+            Vec => write!(f, "Vec"),
         }
     }
 }

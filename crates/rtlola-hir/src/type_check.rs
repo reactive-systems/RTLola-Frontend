@@ -111,6 +111,10 @@ pub enum ConcreteValueType {
     Byte,
     /// Optional value for partial functions like [Offset](crate::hir::Offset)
     Option(Box<ConcreteValueType>),
+    /// A 2-element vector
+    Vec2,
+    /// A 3-element vector
+    Vec3,
 }
 
 /// The external definition of the stream pacing.

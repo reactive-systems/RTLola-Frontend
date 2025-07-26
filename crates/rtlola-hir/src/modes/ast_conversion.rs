@@ -509,6 +509,12 @@ impl ExpressionTransformer {
                 if string == "Bytes" {
                     return Ok(AnnotatedType::Bytes);
                 }
+                if string == "Vec2" {
+                    return Ok(AnnotatedType::Vec2);
+                }
+                if string == "Vec3" {
+                    return Ok(AnnotatedType::Vec3);
+                }
                 Err("unknown type".into())
             }
         }

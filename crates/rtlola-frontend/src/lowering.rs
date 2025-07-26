@@ -502,6 +502,8 @@ impl Mir {
             ConcreteValueType::TString => mir::Type::String,
             ConcreteValueType::Byte => mir::Type::Bytes,
             ConcreteValueType::Option(v) => mir::Type::Option(Box::new(Self::lower_value_type(v))),
+            ConcreteValueType::Vec2 => mir::Type::Vec2,
+            ConcreteValueType::Vec3 => mir::Type::Vec3,
         }
     }
 
