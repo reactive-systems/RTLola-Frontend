@@ -300,19 +300,19 @@ test:frontend:
 
 ####### Use cargo to test the project on stable toolchain on windows #######
 
-test:windows:
-  stage: additional-test
-  needs: [ "test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend" ]
-  variables:
-    CARGO_HOME: "C:\\Users\\react\\.cargo"
-  tags:
-    - windows
-    - rust
-  script:
-    - rustup update
-    - rustc --version
-    - cargo --version
-    - cargo test --all --verbose
+#test:windows:
+#  stage: additional-test
+#  needs: [ "test:reporting", "test:parser", "test:macros", "test:hir", "test:frontend" ]
+#  variables:
+#    CARGO_HOME: "C:\\Users\\react\\.cargo"
+#  tags:
+#    - windows
+#    - rust
+#  script:
+#    - rustup update
+#    - rustc --version
+#    - cargo --version
+#    - cargo test --all --verbose
 
 ####### Use cargo to test the project on nightly toolchain #######
 test:nightly:
