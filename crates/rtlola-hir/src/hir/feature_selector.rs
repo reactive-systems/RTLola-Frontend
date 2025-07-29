@@ -178,6 +178,8 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::UFixed32_16
             | ConcreteValueType::UFixed16_8
             | ConcreteValueType::TString
+            | ConcreteValueType::Vec2
+            | ConcreteValueType::Vec3
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
             ConcreteValueType::Tuple(children) => children
                 .iter()

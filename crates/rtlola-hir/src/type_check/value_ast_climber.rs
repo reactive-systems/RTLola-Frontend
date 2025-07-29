@@ -251,6 +251,15 @@ where
                     self.concretizes_annotated_type(child_key, child)?;
                 }
             }
+            AnnotatedType::Vec2 => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Vec2))?,
+            AnnotatedType::Vec3 => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Vec3))?,
+            AnnotatedType::Vec => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Vec))?,
             AnnotatedType::Numeric => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
@@ -1016,6 +1025,9 @@ where
             | AnnotatedType::Bytes
             | AnnotatedType::Option(_)
             | AnnotatedType::Tuple(_)
+            | AnnotatedType::Vec
+            | AnnotatedType::Vec2
+            | AnnotatedType::Vec3
             | AnnotatedType::Any => {
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;

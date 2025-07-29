@@ -79,6 +79,9 @@ pub(crate) enum AbstractValueType {
     String,
     Bytes,
     Option,
+    Vec2,
+    Vec3,
+    Vec,
 }
 
 impl Variant for AbstractValueType {
@@ -235,6 +238,14 @@ impl Variant for AbstractValueType {
             (Bytes, _) | (_, Bytes) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Option, Option) => Ok((Option, 1)),
             (Option, _) | (_, Option) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Vec, Vec2) | (Vec2, Vec) => Ok((Vec2, 0)),
+            (Vec, Vec3) | (Vec3, Vec) => Ok((Vec3, 0)),
+            (Vec, Vec) => Ok((Vec, 0)),
+            (Vec2, Vec2) => Ok((Vec2, 0)),
+            (Vec3, Vec3) => Ok((Vec3, 0)),
+            (Vec | Vec2 | Vec3, _) | (_, Vec | Vec2 | Vec3) => {
+                Err(TypeClash(lhs.variant, rhs.variant))
+            }
         }?;
         Ok(Partial {
             variant: new_var,
@@ -265,6 +276,9 @@ impl Variant for AbstractValueType {
             | Bool
             | Sequence
             | String
+            | Vec
+            | Vec2
+            | Vec3
             | Bytes => Arity::Fixed(0),
         }
     }
@@ -348,6 +362,9 @@ impl Constructable for AbstractValueType {
             AbstractValueType::Option => {
                 Ok(ConcreteValueType::Option(Box::new(children[0].clone())))
             }
+            AbstractValueType::Vec2 => Ok(ConcreteValueType::Vec2),
+            AbstractValueType::Vec3 => Ok(ConcreteValueType::Vec3),
+            AbstractValueType::Vec => Err(CannotReify(*self)),
         }
     }
 }
@@ -410,6 +427,9 @@ impl ConcreteValueType {
             AnnotatedType::Signed => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Any => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
+            AnnotatedType::Vec2 => Ok(ConcreteValueType::Vec2),
+            AnnotatedType::Vec3 => Ok(ConcreteValueType::Vec3),
+            AnnotatedType::Vec => Err(AnnotationInvalid(at.clone())),
         }
     }
 
@@ -442,6 +462,7 @@ impl ConcreteValueType {
             TString => None,
             Byte => None,
             Option(_) => None,
+            Vec2 | Vec3 => None,
         }
     }
 }
@@ -475,6 +496,9 @@ impl Display for AbstractValueType {
             AbstractValueType::Bytes => write!(f, "Bytes"),
             AbstractValueType::Option => write!(f, "Option<?>"),
             AbstractValueType::Sequence => write!(f, "Sequence"),
+            AbstractValueType::Vec => write!(f, "Vec"),
+            AbstractValueType::Vec2 => write!(f, "Vec2"),
+            AbstractValueType::Vec3 => write!(f, "Vec3"),
         }
     }
 }
@@ -509,6 +533,8 @@ impl Display for ConcreteValueType {
             ConcreteValueType::TString => write!(f, "String"),
             ConcreteValueType::Byte => write!(f, "Byte"),
             ConcreteValueType::Option(c) => write!(f, "Option<{c}>"),
+            ConcreteValueType::Vec2 => write!(f, "Vec2"),
+            ConcreteValueType::Vec3 => write!(f, "Vec3"),
         }
     }
 }

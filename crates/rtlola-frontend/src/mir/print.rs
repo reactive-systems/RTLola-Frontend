@@ -71,6 +71,8 @@ impl Display for Type {
             Type::Bytes => write!(f, "Bytes"),
             Type::Option(inner) => write!(f, "Option<{inner}>"),
             Type::Bool => write!(f, "Bool"),
+            Type::Vec2 => write!(f, "Vec2"),
+            Type::Vec3 => write!(f, "Vec3"),
         }
     }
 }
