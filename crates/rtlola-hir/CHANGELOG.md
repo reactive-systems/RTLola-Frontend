@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - ArgMin / ArgMax instance aggregations
+- Added Logarithmic functions
 
 ## [0.6.0] - 15.05.2025
 

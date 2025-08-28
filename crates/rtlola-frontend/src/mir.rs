@@ -177,7 +177,7 @@ pub enum PacingType {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum IntTy {
     /// Represents an 8-bit integer.
     Int8,
@@ -194,7 +194,7 @@ pub enum IntTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum UIntTy {
     /// Represents an 8-bit unsigned integer.
     UInt8,

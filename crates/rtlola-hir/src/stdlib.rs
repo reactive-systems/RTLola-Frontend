@@ -160,6 +160,23 @@ lazy_static! {
         return_type: AnnotatedType::String
     };
 
+    /// computes the natural logarithm of a number
+    static ref LN: FuncDecl = FuncDecl {
+        name: FunctionName::new("ln".to_string(), &[None]),
+        generics: vec![AnnotatedType::Fractional],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
+    /// computes the logarithm of a number to a given base
+    static ref LOG: FuncDecl = FuncDecl {
+        name: FunctionName::new("log".to_string(), &[None, None]),
+        generics: vec![AnnotatedType::Fractional, AnnotatedType::Numeric],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T1".to_string()), AnnotatedType::Param(1, "T2".to_string())]),
+        return_type: AnnotatedType::Param(0, "T1".to_string())
+    };
+
+
     /// round a float to a given number of decimal points
     static ref ROUND: FuncDecl = FuncDecl {
         name: FunctionName::new("round".to_string(), &[None, None]),
@@ -266,7 +283,7 @@ pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
     vec![
-        &SQRT, &COS, &SIN, &TAN, &ARCSIN, &ARCCOS, &ARCTAN, &ABS, &MIN, &MAX, &ROUND,
+        &SQRT, &COS, &SIN, &TAN, &ARCSIN, &ARCCOS, &ARCTAN, &ABS, &MIN, &MAX, &ROUND, &LN, &LOG,
     ]
 }
 
