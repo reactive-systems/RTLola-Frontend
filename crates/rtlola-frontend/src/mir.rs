@@ -128,7 +128,7 @@ pub struct RtLolaMir {
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Type {
     /// A boolean type
     Bool,
@@ -177,7 +177,7 @@ pub enum PacingType {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum IntTy {
     /// Represents an 8-bit integer.
     Int8,
@@ -194,7 +194,7 @@ pub enum IntTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum UIntTy {
     /// Represents an 8-bit unsigned integer.
     UInt8,
@@ -211,7 +211,7 @@ pub enum UIntTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum FloatTy {
     /// Represents a 32-bit floating point number.
     Float32,
@@ -220,7 +220,7 @@ pub enum FloatTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum FixedTy {
     /// Represents a 64-bit fixed point number with 32 integer bits and 32 fractional bits
     Fixed64_32,
