@@ -12,7 +12,7 @@ pub mod verbosity_parser;
 
 use std::collections::{HashMap, HashSet};
 
-use rtlola_hir::hir::StreamReference;
+use crate::mir::StreamReference;
 use rtlola_reporting::{Diagnostic, RtLolaError};
 
 use super::RtLolaMir;

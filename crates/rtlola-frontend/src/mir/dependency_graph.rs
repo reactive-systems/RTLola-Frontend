@@ -112,7 +112,7 @@ impl Display for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
-            Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{i}"),
+            Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{}", i.ix()),
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
@@ -597,19 +597,19 @@ mod tests {
     use crate::parse;
 
     macro_rules! build_node {
-        ( In($i:expr) ) => {
+        ( $mir:expr, In($i:expr) ) => {
             Node::Stream(StreamReference::In($i))
         };
-        ( Out($i:expr) ) => {
-            Node::Stream(StreamReference::Out($i))
+        ( $mir:expr, Out($i:expr) ) => {
+            Node::Stream($mir.outputs[$i].reference)
         };
-        ( T($i:expr) ) => {
+        ( $mir:expr, T($i:expr) ) => {
             Node::Trigger($i)
         };
-        ( SW($i:expr) ) => {
+        ( $mir:expr, SW($i:expr) ) => {
             Node::Window(WindowReference::Sliding($i))
         };
-        ( DW($i:expr) ) => {
+        ( $mir:expr, DW($i:expr) ) => {
             Node::Window(WindowReference::Discrete($i))
         };
     }
@@ -648,8 +648,8 @@ mod tests {
                 let dep_graph = mir.dependency_graph();
                 let edges = &dep_graph.edges;
                 $(
-                    let from_node = build_node!($edge_from_ty($edge_from_i));
-                    let to_node = build_node!($edge_to_ty($edge_to_i));
+                    let from_node = build_node!(mir, $edge_from_ty($edge_from_i));
+                    let to_node = build_node!(mir, $edge_to_ty($edge_to_i));
                     let with = build_edge_kind!($with $(,$p)? $(,$origin $(,$origin_i)?)?);
                     let expected_edge = Edge {
                         from: from_node, to: to_node, with

@@ -267,8 +267,8 @@ impl Schedule {
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| match s {
-                Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
-                Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                Task::Evaluate(sref) => ir.outputs[sref.ix()].eval_layer().inner(),
+                Task::Spawn(sref) => ir.outputs[sref.ix()].spawn_layer().inner(),
                 Task::Close(_) => usize::MAX,
             });
         }
@@ -439,10 +439,20 @@ mod tests {
        ",
         );
         let mut schedule = ir.compute_schedule().expect("failed to compute schedule");
-        assert_eq_with_sort!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
+        assert_eq_with_sort!(
+            schedule.deadlines[0].due,
+            vec![
+                Evaluate(ir.outputs[0].reference.out_ix()),
+                Close(ir.outputs[1].reference.out_ix())
+            ]
+        );
         assert_eq_with_sort!(
             schedule.deadlines[1].due,
-            vec![Evaluate(0), Spawn(2), Close(1)]
+            vec![
+                Evaluate(ir.outputs[0].reference.out_ix()),
+                Spawn(ir.outputs[2].reference.out_ix()),
+                Close(ir.outputs[1].reference.out_ix())
+            ]
         );
     }
 }

@@ -29,8 +29,8 @@ use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
 pub use rtlola_hir::hir::{
-    InputReference, Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, OutputReference,
-    RtLolaHir, StreamLayers, StreamReference, WindowReference,
+    Layer, MemBoundMode, MemorizationBound, Origin, OutputKind, RtLolaHir, StreamLayers,
+    WindowReference,
 };
 pub use rtlola_parser::ast::Tag;
 #[cfg(feature = "spanned")]
@@ -101,7 +101,7 @@ pub trait Stream {
 /// * [rtlola_frontend::parse](crate::parse) to obtain an [RtLolaMir] for a specification in form of a string or path to a specification file.
 /// * [rtlola_hir::hir::RtLolaHir] for a data structs designed for working _on_it.
 /// * [RtLolaAst](rtlola_parser::RtLolaAst), which is the most basic and down-to-syntax data structure available for RTLola.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RtLolaMir {
     /// Contains all input streams.
     pub inputs: Vec<InputStream>,
@@ -128,7 +128,7 @@ pub struct RtLolaMir {
 }
 
 /// Represents an RTLola value type.  This does not including pacing information, for this refer to [TimeDrivenStream] and [EventDrivenStream].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum Type {
     /// A boolean type
     Bool,
@@ -211,7 +211,7 @@ pub enum UIntTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum FloatTy {
     /// Represents a 32-bit floating point number.
     Float32,
@@ -220,7 +220,7 @@ pub enum FloatTy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum FixedTy {
     /// Represents a 64-bit fixed point number with 32 integer bits and 32 fractional bits
     Fixed64_32,
@@ -253,6 +253,87 @@ impl From<ConcreteValueType> for Type {
 }
 
 type Accesses = Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>;
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
+pub enum StreamReference {
+    In(InputReference),
+    Out(OutputReference),
+}
+
+impl StreamReference {
+    /// Returns the index inside the reference if it is an output reference.  Panics otherwise.
+    pub fn out_ix(&self) -> OutputReference {
+        match self {
+            StreamReference::In(_) => unreachable!(),
+            StreamReference::Out(ix) => *ix,
+        }
+    }
+
+    /// Returns the index inside the reference if it is an input reference.  Panics otherwise.
+    pub fn in_ix(&self) -> usize {
+        match self {
+            StreamReference::Out(_) => unreachable!(),
+            StreamReference::In(ix) => *ix,
+        }
+    }
+
+    /// True if the reference is an instance of [StreamReference::In], false otherwise.
+    pub fn is_input(&self) -> bool {
+        match self {
+            StreamReference::Out(_) => false,
+            StreamReference::In(_) => true,
+        }
+    }
+
+    /// True if the reference is an instance of [StreamReference::Out], false otherwise.
+    pub fn is_output(&self) -> bool {
+        match self {
+            StreamReference::Out(_) => true,
+            StreamReference::In(_) => false,
+        }
+    }
+}
+
+pub type InputReference = usize;
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
+pub struct OutputReference {
+    pub idx: usize,
+    pub kind: OutputReferenceKind,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
+pub enum OutputReferenceKind {
+    Unparameterized(usize),
+    Parameterized(usize),
+}
+
+impl OutputReference {
+    pub fn ix(&self) -> usize {
+        self.idx
+    }
+
+    pub fn kind(&self) -> OutputReferenceKind {
+        self.kind
+    }
+
+    pub fn sr(&self) -> StreamReference {
+        StreamReference::Out(*self)
+    }
+
+    pub fn unparameterized_idx(&self) -> usize {
+        match &self.kind {
+            OutputReferenceKind::Unparameterized(i) => *i,
+            OutputReferenceKind::Parameterized(_) => panic!(),
+        }
+    }
+
+    pub fn parameterized_idx(&self) -> usize {
+        match &self.kind {
+            OutputReferenceKind::Parameterized(i) => *i,
+            OutputReferenceKind::Unparameterized(_) => panic!(),
+        }
+    }
+}
 
 /// Contains all information inherent to an input stream.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -1100,8 +1181,8 @@ impl RtLolaMir {
     }
 
     /// Returns a collection containing a reference to each output stream in the specification.
-    pub fn output_refs(&self) -> impl Iterator<Item = OutputReference> {
-        0..self.outputs.len()
+    pub fn output_refs(&self) -> impl Iterator<Item = OutputReference> + '_ {
+        self.outputs.iter().map(|o| o.reference.out_ix())
     }
 
     /// Provides mutable access to an input stream.
@@ -1139,7 +1220,7 @@ impl RtLolaMir {
             StreamReference::In(_) => {
                 unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
             }
-            StreamReference::Out(ix) => &mut self.outputs[ix],
+            StreamReference::Out(sr) => &mut self.outputs[sr.ix()],
         }
     }
 
@@ -1152,7 +1233,7 @@ impl RtLolaMir {
             StreamReference::In(_) => {
                 unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
             }
-            StreamReference::Out(ix) => &self.outputs[ix],
+            StreamReference::Out(sr) => &self.outputs[sr.ix()],
         }
     }
 
@@ -1160,12 +1241,12 @@ impl RtLolaMir {
     pub fn stream(&self, reference: StreamReference) -> &dyn Stream {
         match reference {
             StreamReference::In(ix) => &self.inputs[ix],
-            StreamReference::Out(ix) => &self.outputs[ix],
+            StreamReference::Out(sr) => &self.outputs[sr.ix()],
         }
     }
 
     /// Produces an iterator over all stream references.
-    pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> {
+    pub fn all_streams(&self) -> impl Iterator<Item = StreamReference> + '_ {
         self.input_refs()
             .map(StreamReference::In)
             .chain(self.output_refs().map(StreamReference::Out))
@@ -1488,6 +1569,15 @@ impl Ord for Offset {
             (Future(_), Past(_)) => Ordering::Greater,
             (Future(a), Future(b)) => a.cmp(b),
             (Past(a), Past(b)) => b.cmp(a),
+        }
+    }
+}
+
+impl Type {
+    pub fn inner_ty(&self) -> &Type {
+        match self {
+            Type::Option(inner) => inner.inner_ty(),
+            other => other,
         }
     }
 }

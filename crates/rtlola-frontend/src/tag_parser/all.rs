@@ -2,11 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rtlola_hir::hir::StreamReference;
 use rtlola_reporting::RtLolaError;
 
 use super::{TagParser, TagValidator};
-use crate::RtLolaMir;
+use crate::{mir::StreamReference, RtLolaMir};
 
 #[derive(Debug, Copy, Clone)]
 /// A tag validator allowing any tags in the specification
