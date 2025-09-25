@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::iter::zip;
 
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use num::ToPrimitive;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant,
@@ -15,8 +15,8 @@ use rtlola_parser::ast::{InstanceOperation, Tag, WindowOperation};
 use rtlola_reporting::Span;
 
 use crate::mir::{
-    self, Close, Eval, EvalClause, Mir, OutputReference, OutputReferenceKind, PacingLocality,
-    PacingType, Spawn, Trigger,
+    self, Close, Eval, EvalClause, Mir, OutputReference, OutputStream, PacingLocality, PacingType,
+    ParameterizedOutputStream, Spawn, Trigger, UnparameterizedOutputStream,
 };
 
 impl Mir {
@@ -30,27 +30,23 @@ impl Mir {
             .chain(
                 hir.outputs()
                     .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-                    .enumerate()
                     .scan(
                         (0, 0),
                         |(ref mut next_unparameterized_idx, ref mut next_parameterized_idx),
-                         (idx, out)| {
-                            let kind = match out.params().count() {
+                         out| {
+                            let oref = match out.params().count() {
                                 0 => {
                                     let idx = *next_unparameterized_idx;
                                     *next_unparameterized_idx += 1;
-                                    OutputReferenceKind::Unparameterized(idx)
+                                    OutputReference::Unparameterized(idx)
                                 }
                                 1.. => {
                                     let idx = *next_parameterized_idx;
                                     *next_parameterized_idx += 1;
-                                    OutputReferenceKind::Parameterized(idx)
+                                    OutputReference::Parameterized(idx)
                                 }
                             };
-                            Some((
-                                out.sr(),
-                                mir::StreamReference::Out(OutputReference { idx, kind }),
-                            ))
+                            Some((out.sr(), mir::StreamReference::Out(oref)))
                         },
                     ),
             )
@@ -76,7 +72,7 @@ impl Mir {
                     aggregates: Vec::new(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
-                    reference: sr_map[&sr],
+                    reference: sr_map[&sr].in_ix(),
                     tags: Self::lower_tags(&i.tags),
                     #[cfg(feature = "spanned")]
                     tags_span: i.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
@@ -86,16 +82,13 @@ impl Mir {
             })
             .collect::<Vec<mir::InputStream>>();
         assert!(
-            inputs
-                .iter()
-                .enumerate()
-                .all(|(idx, i)| idx == i.reference.in_ix()),
+            inputs.iter().enumerate().all(|(idx, i)| idx == i.reference),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
-        let outputs = hir.outputs().map(|o| {
+        let (unparameterized, parameterized): (Vec<_>, Vec<_>) = hir.outputs().partition_map(|o| {
             let sr = o.sr();
-            mir::OutputStream {
+            let output = mir::CommonOutputStream {
                 name: o.name(),
                 kind: o.kind.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
@@ -116,29 +109,55 @@ impl Mir {
                     .collect(),
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
-                reference: sr_map[&sr],
-                params: Self::lower_parameters(
-                    hir.output(sr).expect("is output stream").params(),
-                    &hir,
-                    sr,
-                ),
+                reference: sr_map[&sr].out_ix(),
                 tags: Self::lower_tags(&o.tags),
                 #[cfg(feature = "spanned")]
                 tags_span: o.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
                 #[cfg(feature = "spanned")]
                 span: o.span(),
+            };
+
+            let params = Self::lower_parameters(
+                hir.output(sr).expect("is output stream").params(),
+                &hir,
+                sr,
+            );
+
+            if params.is_empty() {
+                Either::Left(UnparameterizedOutputStream(output))
+            } else {
+                let hir_spawn_expr = hir.spawn_expr(sr);
+                let spawn_expr = Self::lower_expr(&hir, &sr_map, hir_spawn_expr.as_ref().unwrap());
+                Either::Right(ParameterizedOutputStream {
+                    spawn_expr,
+                    params,
+                    output,
+                })
             }
         });
 
-        let outputs = outputs
+        let unparameterized_outputs = unparameterized
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
+            .collect::<Vec<_>>();
+        let parameterized_outputs = parameterized
+            .into_iter()
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
         assert!(
-            outputs
+            unparameterized_outputs
                 .iter()
                 .enumerate()
-                .all(|(idx, o)| idx == o.reference.out_ix().ix()),
+                .all(|(idx, o)| idx == o.reference.unparameterized_idx()),
+            "SRefs need to enumerated from 0 to the number of streams"
+        );
+
+        assert!(
+            parameterized_outputs
+                .iter()
+                .enumerate()
+                .all(|(idx, o)| idx == o.reference.parameterized_idx()),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
@@ -196,8 +215,16 @@ impl Mir {
             "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
-        let triggers = outputs
+        let triggers = unparameterized_outputs
             .iter()
+            .map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            })
+            .chain(parameterized_outputs.iter().map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            }))
             .filter_map(|output| {
                 matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference)
             })
@@ -218,7 +245,8 @@ impl Mir {
 
         Mir {
             inputs,
-            outputs,
+            unparameterized_outputs,
+            parameterized_outputs,
             time_driven,
             event_driven,
             discrete_windows,
@@ -320,14 +348,11 @@ impl Mir {
     ) -> Spawn {
         let ty = hir.stream_type(sr);
         let spawn_pacing = Self::lower_pacing_type(ty.spawn_pacing, sr_map);
-        let hir_spawn_expr = hir.spawn_expr(sr);
         let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, sr_map, expr));
-        let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, sr_map, expr));
         #[cfg(feature = "spanned")]
         let spawn_span = hir.spawn(sr).map(|s| s.span).unwrap_or(Span::Unknown);
         Spawn {
-            expression: spawn_expression,
             pacing: spawn_pacing,
             condition: spawn_cond,
             #[cfg(feature = "spanned")]
@@ -853,10 +878,10 @@ mod tests {
     #[test]
     fn check_event_based_streams() {
         let spec = "input a: Float64\ninput b:Float64\noutput c := a + b\noutput d := a.hold().defaults(to:0.0) + b\noutput e := a + 9.0\ntrigger d < e\ntrigger a < 5.0";
-        let (hir, mir) = lower_spec(spec);
+        let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 5);
+        assert_eq!(mir.outputs().count(), 5);
         assert_eq!(mir.event_driven.len(), 5);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -870,7 +895,7 @@ mod tests {
         let (_hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 4);
+        assert_eq!(mir.outputs().count(), 4);
         assert_eq!(mir.event_driven.len(), 0);
         assert_eq!(mir.time_driven.len(), 4);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -885,7 +910,7 @@ mod tests {
         let (_hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 1);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -897,20 +922,20 @@ mod tests {
             .find(|i| i.name == "a".to_string())
             .unwrap();
         let mir_d = mir
-            .outputs
+            .parameterized_outputs
             .iter()
             .find(|i| i.name == "d".to_string())
             .unwrap();
         assert_eq!(
-            &mir_d.spawn.expression,
-            &Some(mir::Expression {
+            &mir_d.spawn_expr,
+            &mir::Expression {
                 kind: mir::ExpressionKind::StreamAccess {
-                    target: mir_a.reference,
+                    target: mir_a.as_stream_ref(),
                     parameters: vec![],
                     access_kind: mir::StreamAccessKind::Sync,
                 },
                 ty: mir::Type::Int(Int8),
-            })
+            }
         );
         assert!(matches!(
             &mir_d.spawn.condition,
@@ -921,12 +946,12 @@ mod tests {
         ));
         assert_eq!(
             &mir_d.spawn.pacing,
-            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
+            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.as_stream_ref()))
         );
         assert_eq!(
             &mir_d.eval.clauses[0].expression,
             &mir::Expression {
-                kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
+                kind: mir::ExpressionKind::ParameterAccess(mir_d.as_stream_ref(), 0),
                 ty: mir::Type::Int(Int8),
             }
         );
@@ -939,7 +964,7 @@ mod tests {
         let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 1);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -947,12 +972,11 @@ mod tests {
         assert_eq!(mir.triggers.len(), 0);
 
         let mir_d = mir
-            .outputs
+            .unparameterized_outputs
             .iter()
             .find(|i| i.name == "d".to_string())
             .unwrap();
 
-        assert!(mir_d.spawn.expression.is_none());
         assert!(matches!(
             &mir_d.spawn.condition,
             Some(mir::Expression {
@@ -987,7 +1011,7 @@ mod tests {
         let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 0);
         assert_eq!(mir.time_driven.len(), 1);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -1002,7 +1026,10 @@ mod tests {
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 
-        let expr = mir.outputs[1].eval.clauses[0].expression.kind.clone();
+        let expr = mir.unparameterized_outputs[0].eval.clauses[0]
+            .expression
+            .kind
+            .clone();
         assert!(
             matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
         );
@@ -1014,7 +1041,9 @@ mod tests {
         output b := cast<Int64, Float64>(a)";
         let (_, mir) = lower_spec(spec);
         assert!(matches!(
-            mir.outputs[0].eval.clauses[0].expression.kind,
+            mir.unparameterized_outputs[0].eval.clauses[0]
+                .expression
+                .kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
     }
@@ -1024,17 +1053,16 @@ mod tests {
         let spec = "input a: Int64\ninput b: Int64\ninput c: Bool\n\
         output d eval @(c&&a) when c with a eval @(c&&b) when !c with b";
         let (_, mir) = lower_spec(spec);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.inputs.len(), 3);
         assert_eq!(mir.triggers.len(), 0);
 
-        let output = &mir.outputs[0];
+        let output = &mir.unparameterized_outputs[0];
         assert_eq!(output.eval.clauses.len(), 2);
         assert_eq!(
             output.eval.eval_pacing,
             PacingType::Event(mir::ActivationCondition::Disjunction(vec![
                 mir::ActivationCondition::Conjunction(vec![
-                    // TODO:??
                     mir::ActivationCondition::Stream(mir::StreamReference::In(0)),
                     mir::ActivationCondition::Stream(mir::StreamReference::In(1)),
                     mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
@@ -1069,11 +1097,11 @@ mod tests {
     fn spawn_close_ac_only() {
         let spec = "input a : UInt64\noutput b spawn @a eval @true with true";
         let (_, mir) = lower_spec(spec);
-        assert!(mir.outputs[0].is_spawned());
+        assert!(mir.unparameterized_outputs[0].is_spawned());
 
         let spec = "input a : UInt64\noutput b spawn when a == 0 eval @Global(1Hz) with true close @Local(5s)";
         let (_, mir) = lower_spec(spec);
-        assert!(mir.outputs[0].is_closed());
+        assert!(mir.unparameterized_outputs[0].is_closed());
     }
 
     #[test]
@@ -1087,7 +1115,7 @@ mod tests {
         assert_eq!(input_tags.len(), 2);
         assert!(input_tags["key"].as_ref().unwrap() == "value");
         assert!(input_tags["key2"].as_ref().unwrap() == "value2");
-        let trigger_tags = &mir.outputs[0].tags;
+        let trigger_tags = &mir.unparameterized_outputs[0].tags;
         assert_eq!(trigger_tags.len(), 1);
         assert_eq!(trigger_tags["warning"], None);
     }

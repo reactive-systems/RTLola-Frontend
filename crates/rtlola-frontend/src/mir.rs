@@ -23,8 +23,10 @@ mod schedule;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
+use itertools::Either;
 use num::traits::Inv;
 pub use print::RtLolaMirPrinter;
 use rtlola_hir::hir::ConcreteValueType;
@@ -105,9 +107,12 @@ pub trait Stream {
 pub struct RtLolaMir {
     /// Contains all input streams.
     pub inputs: Vec<InputStream>,
-    /// Contains all output streams including all triggers.  They only contain the information relevant for every single kind of output stream.  Refer to [RtLolaMir::time_driven], [RtLolaMir::event_driven],
+    /// Contains all unparameterized output streams including all triggers.  They only contain the information relevant for every single kind of output stream.  Refer to [RtLolaMir::time_driven], [RtLolaMir::event_driven],
     /// and [RtLolaMir::triggers] for more information.
-    pub outputs: Vec<OutputStream>,
+    pub unparameterized_outputs: Vec<UnparameterizedOutputStream>,
+    /// Contains all parameterized output streams including all triggers.  They only contain the information relevant for every single kind of output stream.  Refer to [RtLolaMir::time_driven], [RtLolaMir::event_driven],
+    /// and [RtLolaMir::triggers] for more information.
+    pub parameterized_outputs: Vec<ParameterizedOutputStream>,
     /// References and pacing information of all time-driven streams.
     pub time_driven: Vec<TimeDrivenStream>,
     /// References and pacing information of all event-driven streams.
@@ -254,9 +259,12 @@ impl From<ConcreteValueType> for Type {
 
 type Accesses = Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>;
 
+/// Allows for referencing a stream within the specification.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
 pub enum StreamReference {
+    /// References an input stream.
     In(InputReference),
+    /// References an output stream.
     Out(OutputReference),
 }
 
@@ -294,43 +302,37 @@ impl StreamReference {
     }
 }
 
+/// Allows for referencing an input stream within the specification.
 pub type InputReference = usize;
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
-pub struct OutputReference {
-    pub idx: usize,
-    pub kind: OutputReferenceKind,
-}
 
+/// Allows for referencing an output stream within the specification.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy, Hash, PartialOrd, Ord)]
-pub enum OutputReferenceKind {
+pub enum OutputReference {
+    /// The output stream is unparameterized
     Unparameterized(usize),
+    /// The output stream is parameterized
     Parameterized(usize),
 }
 
 impl OutputReference {
-    pub fn ix(&self) -> usize {
-        self.idx
-    }
-
-    pub fn kind(&self) -> OutputReferenceKind {
-        self.kind
-    }
-
+    /// Returns the StreamReference of the output
     pub fn sr(&self) -> StreamReference {
         StreamReference::Out(*self)
     }
 
+    /// Returns the index for an unparameterized stream
     pub fn unparameterized_idx(&self) -> usize {
-        match &self.kind {
-            OutputReferenceKind::Unparameterized(i) => *i,
-            OutputReferenceKind::Parameterized(_) => panic!(),
+        match &self {
+            OutputReference::Unparameterized(i) => *i,
+            OutputReference::Parameterized(_) => panic!(),
         }
     }
 
+    /// Returns the index for an parameterized stream
     pub fn parameterized_idx(&self) -> usize {
-        match &self.kind {
-            OutputReferenceKind::Parameterized(i) => *i,
-            OutputReferenceKind::Unparameterized(_) => panic!(),
+        match &self {
+            OutputReference::Parameterized(i) => *i,
+            OutputReference::Unparameterized(_) => panic!(),
         }
     }
 }
@@ -353,7 +355,7 @@ pub struct InputStream {
     /// Provides the number of values of this stream's type that need to be memorized.  Refer to [Type::size] to get a type's byte-size.
     pub memory_bound: MemorizationBound,
     /// The reference referring to this stream
-    pub reference: StreamReference,
+    pub reference: InputReference,
     /// The tags annotated to this stream.
     pub tags: Tags,
     #[cfg(feature = "spanned")]
@@ -368,7 +370,7 @@ pub struct InputStream {
 ///
 /// Refer to [TimeDrivenStream], [EventDrivenStream], and [Trigger], as well as their respective fields in the Mir for additional information.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct OutputStream {
+pub struct CommonOutputStream {
     /// The name of the stream.
     pub name: String,
     /// The kind of the output (regular output or trigger)
@@ -394,9 +396,7 @@ pub struct OutputStream {
     /// Provides the evaluation of layer of this stream.
     pub layer: StreamLayers,
     /// The reference referring to this stream
-    pub reference: StreamReference,
-    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
-    pub params: Vec<Parameter>,
+    pub reference: OutputReference,
     /// The tags annotated to this stream.
     pub tags: Tags,
     #[cfg(feature = "spanned")]
@@ -407,16 +407,181 @@ pub struct OutputStream {
     pub span: Span,
 }
 
+/// Contains all information related to parameterized output streams
+///
+/// Refer to [OutputStream] as well as the respective fields in the Mir for additional information.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ParameterizedOutputStream {
+    /// The expression needs to be evaluated whenever the stream with this Spawn template is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
+    pub spawn_expr: Expression,
+    /// The parameters of a parameterized output stream; The vector is empty in non-parametrized streams
+    pub params: Vec<Parameter>,
+    /// The underlying output stream information
+    pub output: CommonOutputStream,
+}
+
+impl Deref for ParameterizedOutputStream {
+    type Target = CommonOutputStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.output
+    }
+}
+
+impl DerefMut for ParameterizedOutputStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.output
+    }
+}
+
+/// Represents an unparameterized output stream
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UnparameterizedOutputStream(pub CommonOutputStream);
+
+impl Deref for UnparameterizedOutputStream {
+    type Target = CommonOutputStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for UnparameterizedOutputStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// Trait to collect all common functionality of output streams
+pub trait OutputStream: Deref<Target = CommonOutputStream> + Stream {
+    /// Turns the output stream into Either<Unparameterized, ParameterizedOutputStream>
+    fn into_either(self) -> Either<UnparameterizedOutputStream, ParameterizedOutputStream>;
+}
+
+impl OutputStream for UnparameterizedOutputStream {
+    fn into_either(self) -> Either<UnparameterizedOutputStream, ParameterizedOutputStream> {
+        Either::Left(self)
+    }
+}
+
+impl OutputStream for ParameterizedOutputStream {
+    fn into_either(self) -> Either<UnparameterizedOutputStream, ParameterizedOutputStream> {
+        Either::Right(self)
+    }
+}
+
+impl OutputStream for Either<UnparameterizedOutputStream, ParameterizedOutputStream> {
+    fn into_either(self) -> Either<UnparameterizedOutputStream, ParameterizedOutputStream> {
+        self
+    }
+}
+
+impl OutputStream for Either<ParameterizedOutputStream, UnparameterizedOutputStream> {
+    fn into_either(self) -> Either<UnparameterizedOutputStream, ParameterizedOutputStream> {
+        match self {
+            Either::Left(lhs) => Either::Right(lhs),
+            Either::Right(rhs) => Either::Left(rhs),
+        }
+    }
+}
+
+trait EitherStream {
+    fn as_stream(&self) -> &dyn OutputStream;
+}
+
+macro_rules! implement_either {
+    ($lhs:ty, $rhs:ty) => {
+        impl EitherStream for Either<$lhs, $rhs> {
+            fn as_stream(&self) -> &dyn OutputStream {
+                match self {
+                    Either::Left(lhs) => {
+                        let lhs: &dyn OutputStream = lhs;
+                        lhs
+                    }
+                    Either::Right(rhs) => {
+                        let rhs: &dyn OutputStream = rhs;
+                        rhs
+                    }
+                }
+            }
+        }
+        impl Stream for Either<$lhs, $rhs> {
+            fn spawn_layer(&self) -> Layer {
+                self.as_stream().spawn_layer()
+            }
+
+            fn eval_layer(&self) -> Layer {
+                self.as_stream().eval_layer()
+            }
+
+            fn name(&self) -> &str {
+                self.as_stream().name()
+            }
+
+            fn ty(&self) -> &Type {
+                self.as_stream().ty()
+            }
+
+            fn is_input(&self) -> bool {
+                self.as_stream().is_input()
+            }
+
+            fn is_parameterized(&self) -> bool {
+                self.as_stream().is_parameterized()
+            }
+
+            fn is_spawned(&self) -> bool {
+                self.as_stream().is_spawned()
+            }
+
+            fn is_closed(&self) -> bool {
+                self.as_stream().is_closed()
+            }
+
+            fn is_eval_filtered(&self) -> bool {
+                self.as_stream().is_eval_filtered()
+            }
+
+            fn values_to_memorize(&self) -> MemorizationBound {
+                self.as_stream().values_to_memorize()
+            }
+
+            fn as_stream_ref(&self) -> StreamReference {
+                self.as_stream().as_stream_ref()
+            }
+
+            fn accessed_by(&self) -> &Accesses {
+                self.as_stream().accessed_by()
+            }
+
+            fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
+                self.as_stream().aggregated_by()
+            }
+
+            fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+                self.as_stream().aggregates()
+            }
+
+            fn tags(&self) -> &HashMap<String, Option<String>> {
+                self.as_stream().tags()
+            }
+        }
+    };
+}
+
+implement_either!(UnparameterizedOutputStream, ParameterizedOutputStream);
+implement_either!(ParameterizedOutputStream, UnparameterizedOutputStream);
+
 /// A trigger (represented by the output stream `output_reference`)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 pub struct Trigger {
     /// The reference of the output stream representing this trigger
-    pub output_reference: StreamReference,
+    pub output_reference: OutputReference,
     /// The reference of this trigger
     pub trigger_reference: TriggerReference,
 }
 
-impl OutputStream {
+impl CommonOutputStream {
     fn is_trigger(&self) -> bool {
         matches!(self.kind, OutputKind::Trigger(_))
     }
@@ -430,8 +595,6 @@ pub type TriggerReference = usize;
 /// Information on the spawn behavior of a stream
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Spawn {
-    /// The expression needs to be evaluated whenever the stream with this Spawn template is supposed to be spawned.  The result of the evaluation constitutes the respective parameters.
-    pub expression: Option<Expression>,
     /// The timing of when a new instance _could_ be created assuming the spawn condition evaluates to true.
     pub pacing: PacingType,
     /// The spawn condition.  If the condition evaluates to false, the stream will not be spawned.
@@ -444,7 +607,6 @@ pub struct Spawn {
 impl Default for Spawn {
     fn default() -> Self {
         Spawn {
-            expression: None,
             pacing: PacingType::Constant,
             condition: None,
             #[cfg(feature = "spanned")]
@@ -969,7 +1131,8 @@ pub trait Window {
 }
 
 ////////// Implementations //////////
-impl Stream for OutputStream {
+
+impl Stream for UnparameterizedOutputStream {
     fn spawn_layer(&self) -> Layer {
         self.layer.spawn_layer()
     }
@@ -991,13 +1154,11 @@ impl Stream for OutputStream {
     }
 
     fn is_parameterized(&self) -> bool {
-        self.spawn.expression.is_some()
+        false
     }
 
     fn is_spawned(&self) -> bool {
-        self.spawn.expression.is_some()
-            || self.spawn.condition.is_some()
-            || self.spawn.pacing != PacingType::Constant
+        self.spawn.condition.is_some() || self.spawn.pacing != PacingType::Constant
     }
 
     fn is_closed(&self) -> bool {
@@ -1016,7 +1177,77 @@ impl Stream for OutputStream {
     }
 
     fn as_stream_ref(&self) -> StreamReference {
-        self.reference
+        self.reference.sr()
+    }
+
+    fn accessed_by(&self) -> &Accesses {
+        &self.accessed_by
+    }
+
+    fn aggregated_by(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregated_by
+    }
+
+    fn aggregates(&self) -> &[(StreamReference, Origin, WindowReference)] {
+        &self.aggregates
+    }
+
+    fn tags(&self) -> &HashMap<String, Option<String>> {
+        &self.tags
+    }
+
+    #[cfg(feature = "spanned")]
+    fn tags_span(&self) -> &HashMap<String, Span> {
+        &self.tags_span
+    }
+}
+
+impl Stream for ParameterizedOutputStream {
+    fn spawn_layer(&self) -> Layer {
+        self.layer.spawn_layer()
+    }
+
+    fn eval_layer(&self) -> Layer {
+        self.layer.evaluation_layer()
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    fn is_input(&self) -> bool {
+        false
+    }
+
+    fn is_parameterized(&self) -> bool {
+        true
+    }
+
+    fn is_spawned(&self) -> bool {
+        true
+    }
+
+    fn is_closed(&self) -> bool {
+        self.close.condition.is_some()
+    }
+
+    fn is_eval_filtered(&self) -> bool {
+        self.eval
+            .clauses
+            .iter()
+            .any(|eval| eval.condition.is_some())
+    }
+
+    fn values_to_memorize(&self) -> MemorizationBound {
+        self.memory_bound
+    }
+
+    fn as_stream_ref(&self) -> StreamReference {
+        self.reference.sr()
     }
 
     fn accessed_by(&self) -> &Accesses {
@@ -1083,7 +1314,7 @@ impl Stream for InputStream {
     }
 
     fn as_stream_ref(&self) -> StreamReference {
-        self.reference
+        StreamReference::In(self.reference)
     }
 
     fn accessed_by(&self) -> &Accesses {
@@ -1182,7 +1413,10 @@ impl RtLolaMir {
 
     /// Returns a collection containing a reference to each output stream in the specification.
     pub fn output_refs(&self) -> impl Iterator<Item = OutputReference> + '_ {
-        self.outputs.iter().map(|o| o.reference.out_ix())
+        self.unparameterized_outputs
+            .iter()
+            .map(|s| s.reference)
+            .chain(self.parameterized_outputs.iter().map(|s| s.reference))
     }
 
     /// Provides mutable access to an input stream.
@@ -1215,12 +1449,17 @@ impl RtLolaMir {
     ///
     /// # Panic
     /// Panics if `reference` is a [StreamReference::In].
-    pub fn output_mut(&mut self, reference: StreamReference) -> &mut OutputStream {
+    pub fn output_mut(&mut self, reference: StreamReference) -> &mut dyn OutputStream {
         match reference {
             StreamReference::In(_) => {
                 unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
             }
-            StreamReference::Out(sr) => &mut self.outputs[sr.ix()],
+            StreamReference::Out(OutputReference::Unparameterized(idx)) => {
+                &mut self.unparameterized_outputs[idx]
+            }
+            StreamReference::Out(OutputReference::Parameterized(idx)) => {
+                &mut self.parameterized_outputs[idx]
+            }
         }
     }
 
@@ -1228,20 +1467,59 @@ impl RtLolaMir {
     ///
     /// # Panic
     /// Panics if `reference` is a [StreamReference::In].
-    pub fn output(&self, reference: StreamReference) -> &OutputStream {
+    pub fn output(&self, reference: StreamReference) -> &dyn OutputStream {
         match reference {
             StreamReference::In(_) => {
-                unreachable!("Called `LolaIR::get_out` with a `StreamReference::InRef`.")
+                unreachable!("Called `LolaIR::output` with a `StreamReference::InRef`.")
             }
-            StreamReference::Out(sr) => &self.outputs[sr.ix()],
+            StreamReference::Out(OutputReference::Unparameterized(idx)) => {
+                &self.unparameterized_outputs[idx]
+            }
+            StreamReference::Out(OutputReference::Parameterized(idx)) => {
+                &self.parameterized_outputs[idx]
+            }
         }
+    }
+
+    /// Provides immutable access to a parameterized output stream.
+    ///
+    /// # Panic
+    /// Panics if `reference` is a [StreamReference::In].
+    pub fn parameterized_output(&self, reference: StreamReference) -> &ParameterizedOutputStream {
+        match reference {
+            StreamReference::In(_) => {
+                unreachable!(
+                    "Called `LolaIR::parameterized_output` with a `StreamReference::InRef`."
+                )
+            }
+            StreamReference::Out(OutputReference::Unparameterized(_)) => {
+                unreachable!("Called `LolaIR::parameterized_output` with a unparameterized stream.")
+            }
+            StreamReference::Out(OutputReference::Parameterized(idx)) => {
+                &self.parameterized_outputs[idx]
+            }
+        }
+    }
+
+    /// Returns an iterator over all output streams in the specification (parameterized and unparameterized).
+    pub fn outputs(&self) -> impl Iterator<Item = &dyn OutputStream> {
+        self.unparameterized_outputs
+            .iter()
+            .map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            })
+            .chain(self.parameterized_outputs.iter().map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            }))
     }
 
     /// Provides immutable access to a stream.
     pub fn stream(&self, reference: StreamReference) -> &dyn Stream {
         match reference {
             StreamReference::In(ix) => &self.inputs[ix],
-            StreamReference::Out(sr) => &self.outputs[sr.ix()],
+            StreamReference::Out(_) => self.output(reference),
         }
     }
 
@@ -1253,15 +1531,15 @@ impl RtLolaMir {
     }
 
     /// Provides a collection of all output streams representing a trigger.
-    pub fn all_triggers(&self) -> Vec<&OutputStream> {
+    pub fn all_triggers(&self) -> Vec<&dyn OutputStream> {
         self.triggers
             .iter()
-            .map(|t| self.output(t.output_reference))
+            .map(|t| self.output(t.output_reference.sr()))
             .collect()
     }
 
     /// Provides a collection of all event-driven output streams.
-    pub fn all_event_driven(&self) -> Vec<&OutputStream> {
+    pub fn all_event_driven(&self) -> Vec<&dyn OutputStream> {
         self.event_driven
             .iter()
             .map(|t| self.output(t.reference))
@@ -1272,7 +1550,7 @@ impl RtLolaMir {
     /// This includes time-driven streams and time-driven spawn conditions.
     pub fn has_time_driven_features(&self) -> bool {
         !self.time_driven.is_empty()
-            || self.outputs.iter().any(|o| {
+            || self.outputs().any(|o| {
                 matches!(
                     o.spawn.pacing,
                     PacingType::GlobalPeriodic(_) | PacingType::LocalPeriodic(_)
@@ -1284,7 +1562,7 @@ impl RtLolaMir {
     }
 
     /// Provides a collection of all time-driven output streams.
-    pub fn all_time_driven(&self) -> Vec<&OutputStream> {
+    pub fn all_time_driven(&self) -> Vec<&dyn OutputStream> {
         self.time_driven
             .iter()
             .map(|t| self.output(t.reference))
@@ -1350,8 +1628,7 @@ impl RtLolaMir {
     /// Provides a representation for the evaluation layers of all event-driven output streams.  Each element of the outer `Vec` represents a layer, each element of the inner `Vec` an output stream in the layer.
     pub fn get_event_driven_layers(&self) -> Vec<Vec<Task>> {
         let mut event_driven_spawns = self
-            .outputs
-            .iter()
+            .outputs()
             .filter(|o| matches!(o.spawn.pacing, PacingType::Event(_)))
             .peekable();
 
@@ -1368,8 +1645,8 @@ impl RtLolaMir {
             )
         });
 
-        let spawns_with_layers = event_driven_spawns
-            .map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference.out_ix())));
+        let spawns_with_layers =
+            event_driven_spawns.map(|o| (o.spawn_layer().inner(), Task::Spawn(o.reference)));
 
         let tasks_with_layers: Vec<(usize, Task)> =
             streams_with_layers.chain(spawns_with_layers).collect();
@@ -1433,8 +1710,8 @@ impl RtLolaMir {
     }
 
     /// Returns the output stream with the given name if it exists.
-    pub fn get_output_by_name(&self, name: &str) -> Option<&OutputStream> {
-        self.outputs.iter().find(|output| output.name == name)
+    pub fn get_output_by_name(&self, name: &str) -> Option<&dyn OutputStream> {
+        self.outputs().find(|output| output.name == name)
     }
 
     /// Returns the stream with the given name if it exists.
@@ -1574,6 +1851,7 @@ impl Ord for Offset {
 }
 
 impl Type {
+    /// Returns the inner type of an option or itself
     pub fn inner_ty(&self) -> &Type {
         match self {
             Type::Option(inner) => inner.inner_ty(),

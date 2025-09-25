@@ -8,6 +8,8 @@ use itertools::Itertools;
 use serde::{Serialize, Serializer};
 use serde_json::{json, to_string_pretty};
 
+use crate::mir::{OutputReference, Stream};
+
 use super::{
     ActivationCondition, Mir, Origin, PacingType, StreamAccessKind, StreamReference,
     TriggerReference, WindowReference,
@@ -26,12 +28,11 @@ impl<'a> DependencyGraph<'a> {
         let stream_nodes = mir
             .inputs
             .iter()
-            .map(|i| i.reference)
+            .map(|i| i.as_stream_ref())
             .chain(
-                mir.outputs
-                    .iter()
+                mir.outputs()
                     .filter(|o| !o.is_trigger())
-                    .map(|o| o.reference),
+                    .map(|o| o.as_stream_ref()),
             )
             .map(Node::Stream);
 
@@ -112,7 +113,12 @@ impl Display for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Node::Stream(StreamReference::In(i)) => write!(f, "In_{i}"),
-            Node::Stream(StreamReference::Out(i)) => write!(f, "Out_{}", i.ix()),
+            Node::Stream(StreamReference::Out(OutputReference::Unparameterized(i))) => {
+                write!(f, "UPOut_{i}")
+            }
+            Node::Stream(StreamReference::Out(OutputReference::Parameterized(i))) => {
+                write!(f, "POut_{i}")
+            }
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
@@ -226,7 +232,7 @@ fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
     match node {
         Node::Stream(sref) => stream_infos(mir, sref),
         Node::Window(wref) => window_infos(mir, wref),
-        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference),
+        Node::Trigger(sref) => stream_infos(mir, mir.triggers[sref].output_reference.sr()),
     }
 }
 
@@ -318,16 +324,15 @@ fn edges(mir: &Mir) -> Vec<Edge> {
     let input_accesses = mir
         .inputs
         .iter()
-        .map(|input| (input.reference, &input.accessed_by));
+        .map(|input| (input.as_stream_ref(), &input.accessed_by));
     let output_accesses = mir
-        .outputs
-        .iter()
-        .map(|output| (output.reference, &output.accessed_by));
+        .outputs()
+        .map(|output| (output.as_stream_ref(), &output.accessed_by));
     let all_accesses = input_accesses.chain(output_accesses);
     let out_to_trig: &HashMap<_, _> = &(mir
         .triggers
         .iter()
-        .map(|t| (t.output_reference, t.trigger_reference))
+        .map(|t| (t.output_reference.sr(), t.trigger_reference))
         .collect());
 
     let access_edges = all_accesses.flat_map(|(source_ref, accesses)| {
@@ -374,11 +379,11 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         })
     });
 
-    let spawn_edges = mir.outputs.iter().flat_map(|output| {
+    let spawn_edges = mir.outputs().flat_map(|output| {
         let source = out_to_trig
-            .get(&output.reference)
+            .get(&output.as_stream_ref())
             .map(|t| Node::Trigger(*t))
-            .unwrap_or_else(|| Node::Stream(output.reference));
+            .unwrap_or_else(|| Node::Stream(output.as_stream_ref()));
         match &output.spawn.pacing {
             PacingType::Event(ac) => flatten_ac(ac)
                 .into_iter()
@@ -394,11 +399,11 @@ fn edges(mir: &Mir) -> Vec<Edge> {
         }
     });
 
-    let ac_edges = mir.outputs.iter().flat_map(|output| {
+    let ac_edges = mir.outputs().flat_map(|output| {
         let source = out_to_trig
-            .get(&output.reference)
+            .get(&output.as_stream_ref())
             .map(|t| Node::Trigger(*t))
-            .unwrap_or_else(|| Node::Stream(output.reference));
+            .unwrap_or_else(|| Node::Stream(output.as_stream_ref()));
         match &output.eval.eval_pacing {
             PacingType::Event(ac) => flatten_ac(ac)
                 .into_iter()
@@ -600,8 +605,11 @@ mod tests {
         ( $mir:expr, In($i:expr) ) => {
             Node::Stream(StreamReference::In($i))
         };
-        ( $mir:expr, Out($i:expr) ) => {
-            Node::Stream($mir.outputs[$i].reference)
+        ( $mir:expr, POut($i:expr) ) => {
+            Node::Stream($mir.parameterized_outputs[$i].as_stream_ref())
+        };
+        ( $mir:expr, UPOut($i:expr) ) => {
+            Node::Stream($mir.unparameterized_outputs[$i].as_stream_ref())
         };
         ( $mir:expr, T($i:expr) ) => {
             Node::Trigger($i)
@@ -665,10 +673,10 @@ mod tests {
         "input a : UInt64
         input b : UInt64
         output c := a + b",
-        Out(0):Eval(0) => In(0) : Sync,
-        Out(0):Eval(0) => In(1) : Sync,
-        Out(0) => In(0) : Eval,
-        Out(0) => In(1) : Eval,
+        UPOut(0):Eval(0) => In(0) : Sync,
+        UPOut(0):Eval(0) => In(1) : Sync,
+        UPOut(0) => In(0) : Eval,
+        UPOut(0) => In(1) : Eval,
     );
 
     test_dependency_graph!(trigger,
@@ -684,12 +692,12 @@ mod tests {
         output c := a + b.hold().defaults(to:0)
         output d@1Hz := a.aggregate(over:5s, using:count)
         trigger d < 5",
-        Out(0):Eval(0) => In(0) : Sync,
-        Out(0):Eval(0) => In(1) : Hold,
-        Out(1):Eval(0) => SW(0) : SW(0),
+        UPOut(0):Eval(0) => In(0) : Sync,
+        UPOut(0):Eval(0) => In(1) : Hold,
+        UPOut(1):Eval(0) => SW(0) : SW(0),
         SW(0):Eval(0) => In(0) : SW(0),
-        T(0):Filter(0) => Out(1) : Sync,
-        Out(0) => In(0) : Eval,
+        T(0):Filter(0) => UPOut(1) : Sync,
+        UPOut(0) => In(0) : Eval,
     );
 
     test_dependency_graph!(ac,
@@ -698,11 +706,11 @@ mod tests {
         output c @(a||b) := 0
         output d @(a&&b) := a
         ",
-        Out(1):Eval(0) => In(0) : Sync,
-        Out(0) => In(0) : Eval,
-        Out(0) => In(1) : Eval,
-        Out(1) => In(0) : Eval,
-        Out(1) => In(1) : Eval,
+        UPOut(1):Eval(0) => In(0) : Sync,
+        UPOut(0) => In(0) : Eval,
+        UPOut(0) => In(1) : Eval,
+        UPOut(1) => In(0) : Eval,
+        UPOut(1) => In(1) : Eval,
     );
 
     test_dependency_graph!(spawn,
@@ -712,12 +720,12 @@ mod tests {
             spawn with a
             eval with b when x == a
         ",
-        Out(0) => In(0) : Spawn,
-        Out(0) => In(0) : Eval,
-        Out(0) => In(1) : Eval,
-        Out(0):Filter(0) => In(0) : Sync,
-        Out(0):Eval(0) => In(1) : Sync,
-        Out(0):Spawn => In(0) : Sync,
+        POut(0) => In(0) : Spawn,
+        POut(0) => In(0) : Eval,
+        POut(0) => In(1) : Eval,
+        POut(0):Filter(0) => In(0) : Sync,
+        POut(0):Eval(0) => In(1) : Sync,
+        POut(0):Spawn => In(0) : Sync,
     );
 
     test_dependency_graph!(multiple_evals,
@@ -728,12 +736,12 @@ mod tests {
             eval @(a&&b) when b == 0 with 1
             eval @(a&&b) when a + b == 1 with a  
         ",
-        Out(0) => In(0) : Eval,
-        Out(0) => In(1) : Eval,
-        Out(0):Filter(0) => In(0) : Sync,
-        Out(0):Filter(1) => In(1) : Sync,
-        Out(0):Filter(2) => In(0) : Sync,
-        Out(0):Filter(2) => In(1) : Sync,
-        Out(0):Eval(2) => In(0) : Sync,
+        UPOut(0) => In(0) : Eval,
+        UPOut(0) => In(1) : Eval,
+        UPOut(0):Filter(0) => In(0) : Sync,
+        UPOut(0):Filter(1) => In(1) : Sync,
+        UPOut(0):Filter(2) => In(0) : Sync,
+        UPOut(0):Filter(2) => In(1) : Sync,
+        UPOut(0):Eval(2) => In(0) : Sync,
     );
 }
