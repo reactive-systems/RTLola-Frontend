@@ -8,7 +8,7 @@ use uom::si::rational64::Time as UOM_Time;
 use uom::si::time::{nanosecond, second};
 
 use super::PacingLocality;
-use crate::mir::{OutputReference, PacingType, RtLolaMir, Stream};
+use crate::mir::{OutputReference, PacingType, RtLolaMir};
 
 /// This enum represents the different tasks that have to be executed periodically.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -74,7 +74,7 @@ impl Schedule {
             .iter()
             .filter(|tds| tds.locality == PacingLocality::Global)
             .map(|tds| tds.period());
-        let spawn_periods = ir.outputs.iter().filter_map(|o| {
+        let spawn_periods = ir.outputs().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.spawn.pacing {
                 Some(UOM_Time::new::<second>(
                     freq.get::<uom::si::frequency::hertz>().inv(),
@@ -83,7 +83,7 @@ impl Schedule {
                 None
             }
         });
-        let close_periods = ir.outputs.iter().filter_map(|o| {
+        let close_periods = ir.outputs().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.close.pacing {
                 Some(UOM_Time::new::<second>(
                     freq.get::<uom::si::frequency::hertz>().inv(),
@@ -195,9 +195,9 @@ impl Schedule {
             let ix = ix - 1;
             extend_steps[ix].push(Task::Evaluate(s.reference.out_ix()));
         }
-        let periodic_spawns = ir.outputs.iter().filter_map(|o| match &o.spawn.pacing {
+        let periodic_spawns = ir.outputs().filter_map(|o| match &o.spawn.pacing {
             PacingType::GlobalPeriodic(freq) => Some((
-                o.reference.out_ix(),
+                o.reference,
                 UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
             )),
             _ => None,
@@ -211,11 +211,11 @@ impl Schedule {
             extend_steps[ix].push(Task::Spawn(out_ix));
         }
 
-        let periodic_close = ir.outputs.iter().filter_map(|o| {
+        let periodic_close = ir.outputs().filter_map(|o| {
             if let PacingType::GlobalPeriodic(freq) = &o.close.pacing {
                 o.close.has_self_reference.not().then(|| {
                     (
-                        o.reference.out_ix(),
+                        o.reference,
                         UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv()),
                     )
                 })
@@ -267,8 +267,8 @@ impl Schedule {
     fn sort_deadlines(ir: &RtLolaMir, deadlines: &mut Vec<Deadline>) {
         for deadline in deadlines {
             deadline.due.sort_by_key(|s| match s {
-                Task::Evaluate(sref) => ir.outputs[*sref].eval_layer().inner(),
-                Task::Spawn(sref) => ir.outputs[*sref].spawn_layer().inner(),
+                Task::Evaluate(sref) => ir.output(sref.sr()).eval_layer().inner(),
+                Task::Spawn(sref) => ir.output(sref.sr()).spawn_layer().inner(),
                 Task::Close(_) => usize::MAX,
             });
         }
@@ -439,10 +439,20 @@ mod tests {
        ",
         );
         let mut schedule = ir.compute_schedule().expect("failed to compute schedule");
-        assert_eq_with_sort!(schedule.deadlines[0].due, vec![Evaluate(0), Close(1)]);
+        assert_eq_with_sort!(
+            schedule.deadlines[0].due,
+            vec![
+                Evaluate(ir.unparameterized_outputs[0].reference),
+                Close(ir.unparameterized_outputs[1].reference)
+            ]
+        );
         assert_eq_with_sort!(
             schedule.deadlines[1].due,
-            vec![Evaluate(0), Spawn(2), Close(1)]
+            vec![
+                Evaluate(ir.unparameterized_outputs[0].reference),
+                Spawn(ir.unparameterized_outputs[2].reference),
+                Close(ir.unparameterized_outputs[1].reference)
+            ]
         );
     }
 }

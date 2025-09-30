@@ -8,8 +8,9 @@ use super::{
     Trigger, UIntTy, Window, WindowOperation,
 };
 use crate::mir::{
-    ActivationCondition, ArithLogOp, Constant, Expression, ExpressionKind, Offset,
-    StreamAccessKind, Type,
+    ActivationCondition, ArithLogOp, Close, CommonOutputStream, Constant, Eval, Expression,
+    ExpressionKind, Offset, OutputReference, ParameterizedOutputStream, StreamAccessKind, Type,
+    UnparameterizedOutputStream,
 };
 
 impl Display for Constant {
@@ -345,9 +346,10 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                 StreamAccessKind::Fresh => format!("{target_name}.fresh()"),
             }
         }
-        ExpressionKind::ParameterAccess(sref, parameter) => {
-            mir.output(*sref).params[*parameter].name.to_string()
-        }
+        ExpressionKind::ParameterAccess(sref, parameter) => mir.parameterized_output(*sref).params
+            [*parameter]
+            .name
+            .to_string(),
         ExpressionKind::LambdaParameterAccess { wref, pref } => mir
             .instance_aggregation(*wref)
             .selection
@@ -439,17 +441,54 @@ impl Display for InputStream {
     }
 }
 
-impl Display for RtLolaMirPrinter<'_, OutputStream> {
+impl Display for RtLolaMirPrinter<'_, UnparameterizedOutputStream> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let OutputStream {
+        let UnparameterizedOutputStream(CommonOutputStream {
             name: _,
             ty,
             spawn,
             eval,
             close,
-            params,
             kind,
             ..
+        }) = self.inner;
+
+        match kind {
+            OutputKind::NamedOutput(name) => write!(f, "output {name} : {ty}")?,
+            OutputKind::Trigger(_) => write!(f, "trigger")?,
+        }
+
+        if spawn.condition.is_some() || spawn.pacing != PacingType::Constant {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
+            write!(f, "\n  spawn @{display_pacing}")?;
+            if let Some(spawn_condition) = &spawn.condition {
+                let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
+                write!(f, " when {display_spawn_condition}")?;
+            }
+        }
+
+        self.mir.display(eval).fmt(f)?;
+        self.mir.display(close).fmt(f)?;
+
+        Ok(())
+    }
+}
+
+impl Display for RtLolaMirPrinter<'_, ParameterizedOutputStream> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let ParameterizedOutputStream {
+            spawn_expr,
+            params,
+            output:
+                CommonOutputStream {
+                    name: _,
+                    ty,
+                    spawn,
+                    eval,
+                    close,
+                    kind,
+                    ..
+                },
         } = self.inner;
 
         let display_parameters = if !params.is_empty() {
@@ -467,24 +506,42 @@ impl Display for RtLolaMirPrinter<'_, OutputStream> {
             OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
         }
 
-        if spawn.expression.is_some()
-            || spawn.condition.is_some()
-            || spawn.pacing != PacingType::Constant
-        {
-            let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
-            write!(f, "\n  spawn @{display_pacing}")?;
-            if let Some(spawn_expr) = &spawn.expression {
-                let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
-                write!(f, " with {display_spawn_expr}")?;
-            }
-            if let Some(spawn_condition) = &spawn.condition {
-                let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
-                write!(f, " when {display_spawn_condition}")?;
-            }
+        let display_pacing = RtLolaMirPrinter::new(self.mir, &spawn.pacing).to_string();
+        write!(f, "\n  spawn @{display_pacing}")?;
+        let display_spawn_expr = display_expression(self.mir, spawn_expr, 0);
+        write!(f, " with {display_spawn_expr}")?;
+        if let Some(spawn_condition) = &spawn.condition {
+            let display_spawn_condition = display_expression(self.mir, spawn_condition, 0);
+            write!(f, " when {display_spawn_condition}")?;
         }
 
-        for clause in &eval.clauses {
-            let display_pacing = RtLolaMirPrinter::new(self.mir, &eval.eval_pacing).to_string();
+        self.mir.display(eval).fmt(f)?;
+        self.mir.display(close).fmt(f)?;
+
+        Ok(())
+    }
+}
+
+impl Display for RtLolaMirPrinter<'_, &dyn OutputStream> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self.inner.reference {
+            OutputReference::Unparameterized(idx) => self
+                .mir
+                .display(&self.mir.unparameterized_outputs[idx])
+                .fmt(f),
+            OutputReference::Parameterized(idx) => self
+                .mir
+                .display(&self.mir.parameterized_outputs[idx])
+                .fmt(f),
+        }
+    }
+}
+
+impl Display for RtLolaMirPrinter<'_, Eval> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        for clause in &self.inner.clauses {
+            let display_pacing =
+                RtLolaMirPrinter::new(self.mir, &self.inner.eval_pacing).to_string();
             write!(f, "\n  eval @{display_pacing} ")?;
             if let Some(eval_condition) = &clause.condition {
                 let display_eval_condition = display_expression(self.mir, eval_condition, 0);
@@ -493,23 +550,26 @@ impl Display for RtLolaMirPrinter<'_, OutputStream> {
             let display_eval_expr = display_expression(self.mir, &clause.expression, 0);
             write!(f, "with {display_eval_expr}")?;
         }
+        Ok(())
+    }
+}
 
-        if let Some(close_condition) = &close.condition {
-            let display_pacing = RtLolaMirPrinter::new(self.mir, &close.pacing).to_string();
+impl Display for RtLolaMirPrinter<'_, Close> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if let Some(close_condition) = &self.inner.condition {
+            let display_pacing = RtLolaMirPrinter::new(self.mir, &self.inner.pacing).to_string();
             let display_close_condition = display_expression(self.mir, close_condition, 0);
             write!(
                 f,
                 "\n  close @{display_pacing} when {display_close_condition}"
             )?;
         }
-
         Ok(())
     }
 }
-
 impl Display for RtLolaMirPrinter<'_, Trigger> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let output = self.mir.output(self.inner.output_reference);
+        let output = &self.mir.output(self.inner.output_reference.sr());
         RtLolaMirPrinter::new(self.mir, output).fmt(f)
     }
 }
@@ -521,8 +581,8 @@ impl Display for Mir {
             write!(f, "\n\n")
         })?;
 
-        self.outputs.iter().try_for_each(|output| {
-            RtLolaMirPrinter::new(self, output).fmt(f)?;
+        self.outputs().try_for_each(|output| {
+            RtLolaMirPrinter::new(self, &output).fmt(f)?;
             write!(f, "\n\n")
         })?;
         Ok(())
@@ -544,7 +604,7 @@ mod tests {
                 let spec = format!("input a : UInt64\noutput b@a := {}", $test);
                 let config = ParserConfig::for_string(spec);
                 let mir = parse(&config).expect("should parse");
-                let expr = &mir.outputs[0].eval.clauses.get(0).expect("only one clause").expression;
+                let expr = &mir.unparameterized_outputs[0].eval.clauses.get(0).expect("only one clause").expression;
                 let display_expr = display_expression(&mir, expr, 0);
                 assert_eq!(display_expr, $expected);
             }

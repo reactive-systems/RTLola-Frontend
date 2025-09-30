@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::iter::zip;
 
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use num::ToPrimitive;
 use rtlola_hir::hir::{
     ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant,
@@ -14,21 +14,41 @@ use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, Tag, WindowOperation};
 use rtlola_reporting::Span;
 
-use crate::mir::{self, Close, Eval, EvalClause, Mir, PacingLocality, PacingType, Spawn, Trigger};
+use crate::mir::{
+    self, Close, Eval, EvalClause, Mir, OutputReference, OutputStream, PacingLocality, PacingType,
+    ParameterizedOutputStream, Spawn, Trigger, UnparameterizedOutputStream,
+};
 
 impl Mir {
     /// Generates an Mir from a complete Hir.
     pub fn from_hir(hir: RtLolaHir<CompleteMode>) -> Mir {
-        let sr_map: HashMap<StreamReference, StreamReference> = hir
+        let sr_map: HashMap<StreamReference, mir::StreamReference> = hir
             .inputs()
             .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
             .enumerate()
-            .map(|(new_ref, i)| (i.sr(), StreamReference::In(new_ref)))
+            .map(|(new_ref, i)| (i.sr(), mir::StreamReference::In(new_ref)))
             .chain(
                 hir.outputs()
                     .sorted_by(|a, b| Ord::cmp(&a.sr(), &b.sr()))
-                    .enumerate()
-                    .map(|(new_ref, o)| (o.sr(), StreamReference::Out(new_ref))),
+                    .scan(
+                        (0, 0),
+                        |(ref mut next_unparameterized_idx, ref mut next_parameterized_idx),
+                         out| {
+                            let oref = match out.params().count() {
+                                0 => {
+                                    let idx = *next_unparameterized_idx;
+                                    *next_unparameterized_idx += 1;
+                                    OutputReference::Unparameterized(idx)
+                                }
+                                1.. => {
+                                    let idx = *next_parameterized_idx;
+                                    *next_parameterized_idx += 1;
+                                    OutputReference::Parameterized(idx)
+                                }
+                            };
+                            Some((out.sr(), mir::StreamReference::Out(oref)))
+                        },
+                    ),
             )
             .collect();
 
@@ -52,7 +72,7 @@ impl Mir {
                     aggregates: Vec::new(),
                     layer: hir.stream_layers(sr),
                     memory_bound: hir.memory_bound(sr),
-                    reference: sr_map[&sr],
+                    reference: sr_map[&sr].in_ix(),
                     tags: Self::lower_tags(&i.tags),
                     #[cfg(feature = "spanned")]
                     tags_span: i.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
@@ -62,16 +82,13 @@ impl Mir {
             })
             .collect::<Vec<mir::InputStream>>();
         assert!(
-            inputs
-                .iter()
-                .enumerate()
-                .all(|(idx, i)| idx == i.reference.in_ix()),
+            inputs.iter().enumerate().all(|(idx, i)| idx == i.reference),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
-        let outputs = hir.outputs().map(|o| {
+        let (unparameterized, parameterized): (Vec<_>, Vec<_>) = hir.outputs().partition_map(|o| {
             let sr = o.sr();
-            mir::OutputStream {
+            let output = mir::CommonOutputStream {
                 name: o.name(),
                 kind: o.kind.clone(),
                 ty: Self::lower_value_type(&hir.stream_type(sr).value_ty),
@@ -92,41 +109,67 @@ impl Mir {
                     .collect(),
                 memory_bound: hir.memory_bound(sr),
                 layer: hir.stream_layers(sr),
-                reference: sr_map[&sr],
-                params: Self::lower_parameters(
-                    hir.output(sr).expect("is output stream").params(),
-                    &hir,
-                    sr,
-                ),
+                reference: sr_map[&sr].out_ix(),
                 tags: Self::lower_tags(&o.tags),
                 #[cfg(feature = "spanned")]
                 tags_span: o.tags.iter().map(|(k, v)| (k.clone(), v.span)).collect(),
                 #[cfg(feature = "spanned")]
                 span: o.span(),
+            };
+
+            let params = Self::lower_parameters(
+                hir.output(sr).expect("is output stream").params(),
+                &hir,
+                sr,
+            );
+
+            if params.is_empty() {
+                Either::Left(UnparameterizedOutputStream(output))
+            } else {
+                let hir_spawn_expr = hir.spawn_expr(sr);
+                let spawn_expr = Self::lower_expr(&hir, &sr_map, hir_spawn_expr.as_ref().unwrap());
+                Either::Right(ParameterizedOutputStream {
+                    spawn_expr,
+                    params,
+                    output,
+                })
             }
         });
 
-        let outputs = outputs
+        let unparameterized_outputs = unparameterized
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
+            .collect::<Vec<_>>();
+        let parameterized_outputs = parameterized
+            .into_iter()
             .sorted_by(|a, b| Ord::cmp(&a.reference, &b.reference))
             .collect::<Vec<_>>();
 
         assert!(
-            outputs
+            unparameterized_outputs
                 .iter()
                 .enumerate()
-                .all(|(idx, o)| idx == o.reference.out_ix()),
+                .all(|(idx, o)| idx == o.reference.unparameterized_idx()),
             "SRefs need to enumerated from 0 to the number of streams"
         );
 
-        let time_driven = outputs
-            .iter()
-            .filter(|o| hir.is_periodic(o.reference))
-            .map(|o| Self::lower_periodic(&hir, &sr_map, o.reference))
+        assert!(
+            parameterized_outputs
+                .iter()
+                .enumerate()
+                .all(|(idx, o)| idx == o.reference.parameterized_idx()),
+            "SRefs need to enumerated from 0 to the number of streams"
+        );
+
+        let time_driven = hir
+            .outputs()
+            .filter(|o| hir.is_periodic(o.sr()))
+            .map(|o| Self::lower_periodic(&hir, &sr_map, o.sr()))
             .collect::<Vec<mir::TimeDrivenStream>>();
-        let event_driven = outputs
-            .iter()
-            .filter(|o| hir.is_event(o.reference))
-            .map(|o| Self::lower_event_based(&hir, &sr_map, o.reference))
+        let event_driven = hir
+            .outputs()
+            .filter(|o| hir.is_event(o.sr()))
+            .map(|o| Self::lower_event_based(&hir, &sr_map, o.sr()))
             .collect::<Vec<mir::EventDrivenStream>>();
 
         let discrete_windows = hir
@@ -172,8 +215,16 @@ impl Mir {
             "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
-        let triggers = outputs
+        let triggers = unparameterized_outputs
             .iter()
+            .map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            })
+            .chain(parameterized_outputs.iter().map(|o| {
+                let o: &dyn OutputStream = o;
+                o
+            }))
             .filter_map(|output| {
                 matches!(&output.kind, OutputKind::Trigger(_)).then_some(output.reference)
             })
@@ -194,7 +245,8 @@ impl Mir {
 
         Mir {
             inputs,
-            outputs,
+            unparameterized_outputs,
+            parameterized_outputs,
             time_driven,
             event_driven,
             discrete_windows,
@@ -209,7 +261,7 @@ impl Mir {
 
     fn lower_event_based(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         sr: StreamReference,
     ) -> mir::EventDrivenStream {
         if let ConcretePacingType::Event(ac) = hir.stream_type(sr).eval_pacing {
@@ -224,7 +276,7 @@ impl Mir {
 
     fn lower_activation_condition(
         ac: &ActivationCondition,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
     ) -> mir::ActivationCondition {
         let lower_conjunction = |conjs: &BTreeSet<StreamReference>| -> mir::ActivationCondition {
             if conjs.len() == 1 {
@@ -254,7 +306,7 @@ impl Mir {
 
     fn lower_periodic(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         sr: StreamReference,
     ) -> mir::TimeDrivenStream {
         match &hir.stream_type(sr).eval_pacing {
@@ -274,7 +326,7 @@ impl Mir {
 
     fn lower_pacing_type(
         cpt: ConcretePacingType,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
     ) -> PacingType {
         match cpt {
             ConcretePacingType::Event(ac) => {
@@ -291,19 +343,16 @@ impl Mir {
 
     fn lower_spawn(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         sr: StreamReference,
     ) -> Spawn {
         let ty = hir.stream_type(sr);
         let spawn_pacing = Self::lower_pacing_type(ty.spawn_pacing, sr_map);
-        let hir_spawn_expr = hir.spawn_expr(sr);
         let hir_spawn_condition = hir.spawn_cond(sr);
         let spawn_cond = hir_spawn_condition.map(|expr| Self::lower_expr(hir, sr_map, expr));
-        let spawn_expression = hir_spawn_expr.map(|expr| Self::lower_expr(hir, sr_map, expr));
         #[cfg(feature = "spanned")]
         let spawn_span = hir.spawn(sr).map(|s| s.span).unwrap_or(Span::Unknown);
         Spawn {
-            expression: spawn_expression,
             pacing: spawn_pacing,
             condition: spawn_cond,
             #[cfg(feature = "spanned")]
@@ -313,7 +362,7 @@ impl Mir {
 
     fn lower_eval(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         sr: StreamReference,
     ) -> Eval {
         assert_eq!(
@@ -348,7 +397,7 @@ impl Mir {
 
     fn lower_close(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         sr: StreamReference,
     ) -> Close {
         let (close, close_pacing, close_self_ref, _close_span) = hir
@@ -387,7 +436,7 @@ impl Mir {
 
     fn lower_sliding_window(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         win: &Window<SlidingAggr>,
     ) -> mir::SlidingWindow {
         let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
@@ -408,7 +457,7 @@ impl Mir {
 
     fn lower_discrete_window(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         win: &Window<DiscreteAggr>,
     ) -> mir::DiscreteWindow {
         let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
@@ -427,7 +476,7 @@ impl Mir {
 
     fn lower_instance_aggregation(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         win: &InstanceAggregation,
     ) -> mir::InstanceAggregation {
         let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
@@ -458,7 +507,7 @@ impl Mir {
         hir: &RtLolaHir<CompleteMode>,
         sr: StreamReference,
         origin: &Origin,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
     ) -> PacingType {
         let ty = hir.stream_type(sr);
         let pacing = match origin {
@@ -509,7 +558,7 @@ impl Mir {
 
     fn lower_expr(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         expr: &Expression,
     ) -> mir::Expression {
         let ty = Self::lower_value_type(&hir.expr_type(expr.id()).value_ty);
@@ -523,7 +572,7 @@ impl Mir {
 
     fn lower_expression_kind(
         hir: &RtLolaHir<CompleteMode>,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         expr: &ExpressionKind,
         ty: &mir::Type,
     ) -> mir::ExpressionKind {
@@ -717,7 +766,7 @@ impl Mir {
         sel: &InstanceSelection,
         hir: &RtLolaHir<CompleteMode>,
         wref: WindowReference,
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
     ) -> mir::InstanceSelection {
         match sel {
             InstanceSelection::Fresh => mir::InstanceSelection::Fresh,
@@ -765,9 +814,9 @@ impl Mir {
     }
 
     fn lower_accessed_streams(
-        sr_map: &HashMap<StreamReference, StreamReference>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
         streams: Vec<(StreamReference, Vec<(Origin, StreamAccessKind)>)>,
-    ) -> Vec<(StreamReference, Vec<(Origin, mir::StreamAccessKind)>)> {
+    ) -> Vec<(mir::StreamReference, Vec<(Origin, mir::StreamAccessKind)>)> {
         streams
             .into_iter()
             .map(|(sref, kinds)| {
@@ -829,96 +878,64 @@ mod tests {
     #[test]
     fn check_event_based_streams() {
         let spec = "input a: Float64\ninput b:Float64\noutput c := a + b\noutput d := a.hold().defaults(to:0.0) + b\noutput e := a + 9.0\ntrigger d < e\ntrigger a < 5.0";
-        let (hir, mir) = lower_spec(spec);
+        let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 5);
+        assert_eq!(mir.outputs().count(), 5);
         assert_eq!(mir.event_driven.len(), 5);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 2);
-        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
-        let mir_a = mir
-            .inputs
-            .iter()
-            .find(|i| i.name == "a".to_string())
-            .unwrap();
-        assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
-        let mir_d = mir
-            .outputs
-            .iter()
-            .find(|i| i.name == "d".to_string())
-            .unwrap();
-        assert_eq!(hir_d.sr(), mir_d.reference);
     }
 
     #[test]
     fn check_time_driven_streams() {
         let spec = "input a: Int64\ninput b:Int64\noutput c @1Hz:= a.aggregate(over: 2s, using: sum)+ b.aggregate(over: 4s, using:sum)\noutput d @4Hz:= a.hold().defaults(to:0) + b.hold().defaults(to: 0)\noutput e @0.5Hz := a.aggregate(over: 4s, using: sum) + 9\ntrigger d < e";
-        let (hir, mir) = lower_spec(spec);
+        let (_hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 2);
-        assert_eq!(mir.outputs.len(), 4);
+        assert_eq!(mir.outputs().count(), 4);
         assert_eq!(mir.event_driven.len(), 0);
         assert_eq!(mir.time_driven.len(), 4);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 3);
         assert_eq!(mir.triggers.len(), 1);
-        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
-        let mir_a = mir
-            .inputs
-            .iter()
-            .find(|i| i.name == "a".to_string())
-            .unwrap();
-        assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
-        let mir_d = mir
-            .outputs
-            .iter()
-            .find(|i| i.name == "d".to_string())
-            .unwrap();
-        assert_eq!(hir_d.sr(), mir_d.reference);
     }
 
     #[test]
     fn check_stream_with_parameter() {
         let spec = "input a: Int8\n\
         output d(para) spawn with a when a > 6 eval @a with para";
-        let (hir, mir) = lower_spec(spec);
+        let (_hir, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 1);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
         assert_eq!(mir.sliding_windows.len(), 0);
         assert_eq!(mir.triggers.len(), 0);
-        let hir_a = hir.inputs().find(|i| i.name == "a".to_string()).unwrap();
         let mir_a = mir
             .inputs
             .iter()
             .find(|i| i.name == "a".to_string())
             .unwrap();
-        assert_eq!(hir_a.sr(), mir_a.reference);
-        let hir_d = hir.outputs().find(|i| i.name() == "d".to_string()).unwrap();
         let mir_d = mir
-            .outputs
+            .parameterized_outputs
             .iter()
             .find(|i| i.name == "d".to_string())
             .unwrap();
-        assert_eq!(hir_d.sr(), mir_d.reference);
         assert_eq!(
-            &mir_d.spawn.expression,
-            &Some(mir::Expression {
+            &mir_d.spawn_expr,
+            &mir::Expression {
                 kind: mir::ExpressionKind::StreamAccess {
-                    target: mir_a.reference,
+                    target: mir_a.as_stream_ref(),
                     parameters: vec![],
                     access_kind: mir::StreamAccessKind::Sync,
                 },
                 ty: mir::Type::Int(Int8),
-            })
+            }
         );
         assert!(matches!(
             &mir_d.spawn.condition,
@@ -929,12 +946,12 @@ mod tests {
         ));
         assert_eq!(
             &mir_d.spawn.pacing,
-            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.reference))
+            &PacingType::Event(mir::ActivationCondition::Stream(mir_a.as_stream_ref()))
         );
         assert_eq!(
             &mir_d.eval.clauses[0].expression,
             &mir::Expression {
-                kind: mir::ExpressionKind::ParameterAccess(mir_d.reference, 0),
+                kind: mir::ExpressionKind::ParameterAccess(mir_d.as_stream_ref(), 0),
                 ty: mir::Type::Int(Int8),
             }
         );
@@ -947,7 +964,7 @@ mod tests {
         let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 1);
         assert_eq!(mir.time_driven.len(), 0);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -955,12 +972,11 @@ mod tests {
         assert_eq!(mir.triggers.len(), 0);
 
         let mir_d = mir
-            .outputs
+            .unparameterized_outputs
             .iter()
             .find(|i| i.name == "d".to_string())
             .unwrap();
 
-        assert!(mir_d.spawn.expression.is_none());
         assert!(matches!(
             &mir_d.spawn.condition,
             Some(mir::Expression {
@@ -995,7 +1011,7 @@ mod tests {
         let (_, mir) = lower_spec(spec);
 
         assert_eq!(mir.inputs.len(), 1);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.event_driven.len(), 0);
         assert_eq!(mir.time_driven.len(), 1);
         assert_eq!(mir.discrete_windows.len(), 0);
@@ -1010,7 +1026,10 @@ mod tests {
         output c @1Hz := b(false).aggregate(over: 1s, using: sum)";
         let (_, mir) = lower_spec(spec);
 
-        let expr = mir.outputs[1].eval.clauses[0].expression.kind.clone();
+        let expr = mir.unparameterized_outputs[0].eval.clauses[0]
+            .expression
+            .kind
+            .clone();
         assert!(
             matches!(expr, mir::ExpressionKind::StreamAccess {target: _, parameters: paras, access_kind: mir::StreamAccessKind::SlidingWindow(_)} if paras.len() == 1)
         );
@@ -1022,7 +1041,9 @@ mod tests {
         output b := cast<Int64, Float64>(a)";
         let (_, mir) = lower_spec(spec);
         assert!(matches!(
-            mir.outputs[0].eval.clauses[0].expression.kind,
+            mir.unparameterized_outputs[0].eval.clauses[0]
+                .expression
+                .kind,
             mir::ExpressionKind::Convert { expr: _ }
         ));
     }
@@ -1032,43 +1053,42 @@ mod tests {
         let spec = "input a: Int64\ninput b: Int64\ninput c: Bool\n\
         output d eval @(c&&a) when c with a eval @(c&&b) when !c with b";
         let (_, mir) = lower_spec(spec);
-        assert_eq!(mir.outputs.len(), 1);
+        assert_eq!(mir.outputs().count(), 1);
         assert_eq!(mir.inputs.len(), 3);
         assert_eq!(mir.triggers.len(), 0);
 
-        let output = &mir.outputs[0];
+        let output = &mir.unparameterized_outputs[0];
         assert_eq!(output.eval.clauses.len(), 2);
         assert_eq!(
             output.eval.eval_pacing,
             PacingType::Event(mir::ActivationCondition::Disjunction(vec![
                 mir::ActivationCondition::Conjunction(vec![
-                    // TODO:??
-                    mir::ActivationCondition::Stream(StreamReference::In(0)),
-                    mir::ActivationCondition::Stream(StreamReference::In(1)),
-                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
                 ]),
                 mir::ActivationCondition::Conjunction(vec![
-                    mir::ActivationCondition::Stream(StreamReference::In(0)),
-                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(0)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
                 ]),
                 mir::ActivationCondition::Conjunction(vec![
-                    mir::ActivationCondition::Stream(StreamReference::In(1)),
-                    mir::ActivationCondition::Stream(StreamReference::In(2)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(1)),
+                    mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
                 ]),
             ]))
         );
         assert_eq!(
             output.eval.clauses[0].pacing,
             PacingType::Event(mir::ActivationCondition::Conjunction(vec![
-                mir::ActivationCondition::Stream(StreamReference::In(0)),
-                mir::ActivationCondition::Stream(StreamReference::In(2)),
+                mir::ActivationCondition::Stream(mir::StreamReference::In(0)),
+                mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
             ]))
         );
         assert_eq!(
             output.eval.clauses[1].pacing,
             PacingType::Event(mir::ActivationCondition::Conjunction(vec![
-                mir::ActivationCondition::Stream(StreamReference::In(1)),
-                mir::ActivationCondition::Stream(StreamReference::In(2)),
+                mir::ActivationCondition::Stream(mir::StreamReference::In(1)),
+                mir::ActivationCondition::Stream(mir::StreamReference::In(2)),
             ]))
         );
     }
@@ -1077,11 +1097,11 @@ mod tests {
     fn spawn_close_ac_only() {
         let spec = "input a : UInt64\noutput b spawn @a eval @true with true";
         let (_, mir) = lower_spec(spec);
-        assert!(mir.outputs[0].is_spawned());
+        assert!(mir.unparameterized_outputs[0].is_spawned());
 
         let spec = "input a : UInt64\noutput b spawn when a == 0 eval @Global(1Hz) with true close @Local(5s)";
         let (_, mir) = lower_spec(spec);
-        assert!(mir.outputs[0].is_closed());
+        assert!(mir.unparameterized_outputs[0].is_closed());
     }
 
     #[test]
@@ -1095,7 +1115,7 @@ mod tests {
         assert_eq!(input_tags.len(), 2);
         assert!(input_tags["key"].as_ref().unwrap() == "value");
         assert!(input_tags["key2"].as_ref().unwrap() == "value2");
-        let trigger_tags = &mir.outputs[0].tags;
+        let trigger_tags = &mir.unparameterized_outputs[0].tags;
         assert_eq!(trigger_tags.len(), 1);
         assert_eq!(trigger_tags["warning"], None);
     }

@@ -3,11 +3,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rtlola_hir::hir::{OutputKind, StreamReference};
+use rtlola_hir::hir::OutputKind;
 use rtlola_reporting::{Diagnostic, RtLolaError};
 
 use super::{TagParser, TagValidator};
-use crate::RtLolaMir;
+use crate::{mir::StreamReference, RtLolaMir};
 
 #[derive(Debug, Copy, Clone)]
 /// A tag validator parsing annotated stream verbosities

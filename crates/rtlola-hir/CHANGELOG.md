@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - ArgMin / ArgMax instance aggregations
+- Added Logarithmic functions
+
+### Changed
+- OutputReference now also contains a kind (parameterized or unparameterized)
 
 ## [0.6.0] - 15.05.2025
 
