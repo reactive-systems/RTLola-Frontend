@@ -394,7 +394,9 @@ impl Display for WindowOperation {
             WindowOperation::Covariance => "cov",
             WindowOperation::StandardDeviation => "σ",
             WindowOperation::NthPercentile(p) => return write!(f, "pctl{p}"),
-            WindowOperation::TrueRatio => "true_ratio",
+            WindowOperation::TrueRatio => "ratio",
+            WindowOperation::ConditionalProbability => "probability",
+            WindowOperation::ConditionalProbabilityWithPrior => "probability_prior",
         };
         write!(f, "{op_str}")
     }

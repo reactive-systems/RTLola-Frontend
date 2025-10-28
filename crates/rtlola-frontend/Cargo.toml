@@ -35,3 +35,5 @@ rust_decimal = "1.36.0"
 [features]
 spanned = []
 shift_layer = ["rtlola-hir/shift_layer"]
+probability = ["rtlola-hir/probability"]
+default = []

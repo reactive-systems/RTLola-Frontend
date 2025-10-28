@@ -82,6 +82,8 @@ pub(crate) enum AbstractValueType {
     Vec2,
     Vec3,
     Vec,
+    #[cfg(feature = "probability")]
+    Probability,
 }
 
 impl Variant for AbstractValueType {
@@ -230,7 +232,6 @@ impl Variant for AbstractValueType {
             (Tuple(_), _) | (_, Tuple(_)) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Sequence, String) | (String, Sequence) => Ok((String, 0)),
             (Sequence, Bytes) | (Bytes, Sequence) => Ok((Bytes, 0)),
-            (SignedNumeric, _) | (_, SignedNumeric) => Err(TypeClash(lhs.variant, rhs.variant)),
             (Sequence, _) | (_, Sequence) => Err(TypeClash(lhs.variant, rhs.variant)),
             (String, String) => Ok((String, 0)),
             (String, _) | (_, String) => Err(TypeClash(lhs.variant, rhs.variant)),
@@ -246,6 +247,12 @@ impl Variant for AbstractValueType {
             (Vec | Vec2 | Vec3, _) | (_, Vec | Vec2 | Vec3) => {
                 Err(TypeClash(lhs.variant, rhs.variant))
             }
+            #[cfg(feature = "probability")]
+            (Probability, Probability)
+            | (Probability, Numeric | SignedNumeric | FractionalNumeric)
+            | (Numeric | SignedNumeric | FractionalNumeric, Probability) => Ok((Probability, 0)),
+            #[cfg(feature = "probability")]
+            (Probability, _) | (_, Probability) => Err(TypeClash(lhs.variant, rhs.variant)),
         }?;
         Ok(Partial {
             variant: new_var,
@@ -280,6 +287,8 @@ impl Variant for AbstractValueType {
             | Vec2
             | Vec3
             | Bytes => Arity::Fixed(0),
+            #[cfg(feature = "probability")]
+            Probability => Arity::Fixed(0),
         }
     }
 }
@@ -364,6 +373,8 @@ impl Constructable for AbstractValueType {
             }
             AbstractValueType::Vec2 => Ok(ConcreteValueType::Vec2),
             AbstractValueType::Vec3 => Ok(ConcreteValueType::Vec3),
+            #[cfg(feature = "probability")]
+            AbstractValueType::Probability => Ok(ConcreteValueType::Probability),
             AbstractValueType::Vec => Err(CannotReify(*self)),
         }
     }
@@ -430,6 +441,8 @@ impl ConcreteValueType {
             AnnotatedType::Vec2 => Ok(ConcreteValueType::Vec2),
             AnnotatedType::Vec3 => Ok(ConcreteValueType::Vec3),
             AnnotatedType::Vec => Err(AnnotationInvalid(at.clone())),
+            #[cfg(feature = "probability")]
+            AnnotatedType::Probability => Ok(ConcreteValueType::Probability),
         }
     }
 
@@ -463,6 +476,8 @@ impl ConcreteValueType {
             Byte => None,
             Option(_) => None,
             Vec2 | Vec3 => None,
+            #[cfg(feature = "probability")]
+            Probability => None,
         }
     }
 }
@@ -499,6 +514,8 @@ impl Display for AbstractValueType {
             AbstractValueType::Vec => write!(f, "Vec"),
             AbstractValueType::Vec2 => write!(f, "Vec2"),
             AbstractValueType::Vec3 => write!(f, "Vec3"),
+            #[cfg(feature = "probability")]
+            AbstractValueType::Probability => write!(f, "Prob"),
         }
     }
 }
@@ -535,6 +552,8 @@ impl Display for ConcreteValueType {
             ConcreteValueType::Option(c) => write!(f, "Option<{c}>"),
             ConcreteValueType::Vec2 => write!(f, "Vec2"),
             ConcreteValueType::Vec3 => write!(f, "Vec3"),
+            #[cfg(feature = "probability")]
+            ConcreteValueType::Probability => write!(f, "Prob"),
         }
     }
 }

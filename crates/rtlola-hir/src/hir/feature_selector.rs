@@ -181,6 +181,8 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Vec2
             | ConcreteValueType::Vec3
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
+            #[cfg(feature = "probability")]
+            ConcreteValueType::Probability => Ok(()),
             ConcreteValueType::Tuple(children) => children
                 .iter()
                 .flat_map(|ty| {

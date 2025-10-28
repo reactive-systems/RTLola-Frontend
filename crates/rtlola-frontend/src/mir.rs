@@ -161,6 +161,9 @@ pub enum Type {
     Vec2,
     /// A 3-element vector
     Vec3,
+    #[cfg(feature = "probability")]
+    /// A probability (between 0 and 1)
+    Probability,
 }
 
 /// Represents an RTLola pacing type.
@@ -1047,6 +1050,15 @@ pub enum InstanceOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the ratio of true values in the stream.
+    TrueRatio,
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the conditional probability of boolean pairs in the stream.
+    ConditionalProbability,
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the conditional probability of boolean pairs in the stream (with a prior and confidence).
+    ConditionalProbabilityWithPrior,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
@@ -1084,6 +1096,15 @@ pub enum WindowOperation {
     StandardDeviation,
     /// Aggregation function to return the Nth-Percentile
     NthPercentile(u8),
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the ratio of true values.
+    TrueRatio,
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the conditional probability of boolean pairs in the stream.
+    ConditionalProbability,
+    #[cfg(feature = "probability")]
+    /// Aggregation function to return the conditional probability of boolean pairs in the stream (with a prior and confidence).
+    ConditionalProbabilityWithPrior,
 }
 
 impl From<InstanceOperation> for WindowOperation {
@@ -1103,6 +1124,14 @@ impl From<InstanceOperation> for WindowOperation {
             InstanceOperation::Covariance => WindowOperation::Covariance,
             InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
+            #[cfg(feature = "probability")]
+            InstanceOperation::TrueRatio => WindowOperation::TrueRatio,
+            #[cfg(feature = "probability")]
+            InstanceOperation::ConditionalProbability => WindowOperation::ConditionalProbability,
+            #[cfg(feature = "probability")]
+            InstanceOperation::ConditionalProbabilityWithPrior => {
+                WindowOperation::ConditionalProbabilityWithPrior
+            }
         }
     }
 }
@@ -1794,7 +1823,7 @@ impl Type {
     ///
     /// Recursive types yield the sum of their sub-type sizes, unsized types panic, and functions do not have a size, so they produce `None`.
     /// # Panics
-    /// Panics if the type is an instance of [Type::Option], [Type::String], or [Type::Bytes] because their size is undetermined.
+    /// Panics if the type is an instance of [Type::Option], [Type::String], [Type::Bytes], or [Type::Probability] because their size is undetermined.
     pub fn size(&self) -> Option<ValSize> {
         match self {
             Type::Bool => Some(ValSize(1)),
@@ -1827,6 +1856,8 @@ impl Type {
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
             Type::Vec2 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 2)),
             Type::Vec3 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 3)),
+            #[cfg(feature = "probability")]
+            Type::Probability => panic!("Size of probabilities depends on implementation"),
         }
     }
 }

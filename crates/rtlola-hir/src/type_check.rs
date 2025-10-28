@@ -115,6 +115,9 @@ pub enum ConcreteValueType {
     Vec2,
     /// A 3-element vector
     Vec3,
+    #[cfg(feature = "probability")]
+    /// A probability between 0 and 1
+    Probability,
 }
 
 /// The external definition of the stream pacing.

@@ -36,3 +36,7 @@ serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "*", features = ["serde"] }
 itertools = "0.13.0"
 unicode-normalization = "0.1.24"
+
+[features]
+probability = []
+default = ["probability"]

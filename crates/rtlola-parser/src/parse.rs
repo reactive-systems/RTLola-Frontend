@@ -1251,12 +1251,14 @@ impl<'a> RtLolaParser<'a> {
                                                     WindowOperation::NthPercentile(percentile as u8)
                                                 }
                                                 "true_ratio" | "trueRatio" | "ratio" => WindowOperation::TrueRatio,
+                                                "probability" | "prob" | "conditional_probability" | "pr" => WindowOperation::ConditionalProbability,
+                                                "probability_prior" | "prob_prior" | "conditional_probability_prior" => WindowOperation::ConditionalProbabilityWithPrior,
                                                 fun => {
-                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25)"), true).into());
+                                                    return Err(Diagnostic::error(&format!("unknown aggregation function {fun}")).add_span_with_label(i.span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25), ratio, probability, probability_prior"), true).into());
                                                 }
                                             },
                                             _ => {
-                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25), ratio"), true).into());
+                                                return Err(Diagnostic::error("expected aggregation function").add_span_with_label(args[1].span, Some("available: count, min, max, sum, average, exists, forall, integral, last, variance, covariance, standard_deviation, median, pctlX with 0 ≤ X ≤ 100 (e.g. pctl25), ratio, probability, probability_prior"), true).into());
                                             }
                                         };
                                         if signature.contains("instances") {
@@ -2713,6 +2715,23 @@ mod tests {
         let spec = "input a: UInt64\n\
         output b eval with a.aggregate(over_discrete: all, using: Σ)\n";
         let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn true_ratio() {
+        let spec = "input a: Bool\n\
+        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    #[cfg(feature = "probability")]
+    fn true_ratio2() {
+        let spec = "input a: Bool\n\
+        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: ratio)\n";
+        let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }
 }

@@ -257,6 +257,10 @@ where
             AnnotatedType::Vec3 => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Vec3))?,
+            #[cfg(feature = "probability")]
+            AnnotatedType::Probability => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Probability))?,
             AnnotatedType::Vec => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Vec))?,
@@ -686,8 +690,76 @@ where
                                 self.tyc
                                     .impose(inner_key.is_meet_of(target_child_1, target_child_2))?;
                             }
+                            #[cfg(not(feature = "probability"))]
                             WindowOperation::TrueRatio => {
                                 unreachable!("True Ratio is Syntactic sugar")
+                            }
+                            #[cfg(feature = "probability")]
+                            WindowOperation::TrueRatio => {
+                                eprintln!("here");
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                if wait {
+                                    unimplemented!()
+                                } else {
+                                    self.tyc
+                                        .impose(term_key.concretizes_explicit(
+                                            AbstractValueType::Probability,
+                                        ))?;
+                                }
+                            }
+                            #[cfg(not(feature = "probability"))]
+                            WindowOperation::ConditionalProbability => {
+                                unreachable!("probability is Syntactic sugar")
+                            }
+                            #[cfg(feature = "probability")]
+                            WindowOperation::ConditionalProbability => {
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Tuple(2)),
+                                )?;
+                                let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
+                                let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
+                                self.tyc.impose(
+                                    target_child_1.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                self.tyc.impose(
+                                    target_child_2.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Probability),
+                                )?;
+                            }
+                            #[cfg(not(feature = "probability"))]
+                            WindowOperation::ConditionalProbabilityWithPrior => {
+                                unreachable!("probability is Syntactic sugar")
+                            }
+                            #[cfg(feature = "probability")]
+                            WindowOperation::ConditionalProbabilityWithPrior => {
+                                self.tyc.impose(
+                                    target_key.concretizes_explicit(AbstractValueType::Tuple(4)),
+                                )?;
+                                let target_child_1 = self.tyc.get_child_key(target_key, 0)?;
+                                let target_child_2 = self.tyc.get_child_key(target_key, 1)?;
+                                let target_child_3 = self.tyc.get_child_key(target_key, 2)?;
+                                let target_child_4 = self.tyc.get_child_key(target_key, 3)?;
+                                self.tyc.impose(
+                                    target_child_1.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                self.tyc.impose(
+                                    target_child_2.concretizes_explicit(AbstractValueType::Bool),
+                                )?;
+                                self.tyc
+                                    .impose(target_child_3.concretizes_explicit(
+                                        AbstractValueType::FractionalNumeric,
+                                    ))?;
+                                self.tyc.impose(
+                                    target_child_4
+                                        .concretizes_explicit(AbstractValueType::UInteger),
+                                )?;
+                                self.tyc.impose(
+                                    term_key.concretizes_explicit(AbstractValueType::Probability),
+                                )?;
                             }
                         }
                     }
@@ -1034,6 +1106,12 @@ where
             | AnnotatedType::Vec2
             | AnnotatedType::Vec3
             | AnnotatedType::Any => {
+                let replace_key = self.tyc.new_term_key();
+                self.concretizes_annotated_type(replace_key, at)?;
+                Ok(replace_key)
+            }
+            #[cfg(feature = "probability")]
+            AnnotatedType::Probability => {
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
@@ -2749,5 +2827,52 @@ output o_9: Bool @i_0 := true  && true";
             eval with true\n\
         output c : Bool := b.aggregate(over_instances: fresh, using: argmin)";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[cfg(feature = "probability")]
+    mod probability_aggregation_tests {
+        use crate::{
+            hir::{ConcreteValueType, StreamReference},
+            type_check::{rtltc::NodeId, value_ast_climber::value_type_tests::check_value_type},
+        };
+
+        #[test]
+        fn true_ratio() {
+            let spec = "input a : Bool
+        output x @1Hz := a.aggregate(over: 2s, using: ratio)";
+            let (_, result_map) = check_value_type(spec);
+            assert_eq!(
+                result_map[&NodeId::SRef(StreamReference::Out(0))],
+                ConcreteValueType::Probability
+            );
+        }
+
+        #[test]
+        fn conditional_probability() {
+            let spec = "input a : Bool
+            input b : Bool
+            output c := (a,b)
+        output x @1Hz := c.aggregate(over: 2s, using: probability)";
+            let (_, result_map) = check_value_type(spec);
+            assert_eq!(
+                result_map[&NodeId::SRef(StreamReference::Out(1))],
+                ConcreteValueType::Probability
+            );
+        }
+
+        #[test]
+        fn conditional_probability_prior() {
+            let spec = "input a : Bool
+            input b : Bool
+            input c : Float64
+            input d : UInt64
+            output e := (a,b,c,d)
+        output x @1Hz := e.aggregate(over: 2s, using: probability_prior)";
+            let (_, result_map) = check_value_type(spec);
+            assert_eq!(
+                result_map[&NodeId::SRef(StreamReference::Out(1))],
+                ConcreteValueType::Probability
+            );
+        }
     }
 }

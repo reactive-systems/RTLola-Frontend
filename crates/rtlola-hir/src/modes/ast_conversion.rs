@@ -524,6 +524,10 @@ impl ExpressionTransformer {
                 if string == "Vec3" {
                     return Ok(AnnotatedType::Vec3);
                 }
+                #[cfg(feature = "probability")]
+                if string == "Prob" || string == "Probability" {
+                    return Ok(AnnotatedType::Probability);
+                }
                 Err("unknown type".into())
             }
         }

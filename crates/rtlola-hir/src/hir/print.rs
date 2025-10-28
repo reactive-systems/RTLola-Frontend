@@ -263,6 +263,8 @@ impl Display for AnnotatedType {
             Vec2 => write!(f, "Vec2"),
             Vec3 => write!(f, "Vec3"),
             Vec => write!(f, "Vec"),
+            #[cfg(feature = "probability")]
+            Probability => write!(f, "Prob"),
         }
     }
 }

@@ -585,6 +585,8 @@ impl Mir {
             ConcreteValueType::Option(v) => mir::Type::Option(Box::new(Self::lower_value_type(v))),
             ConcreteValueType::Vec2 => mir::Type::Vec2,
             ConcreteValueType::Vec3 => mir::Type::Vec3,
+            #[cfg(feature = "probability")]
+            ConcreteValueType::Probability => mir::Type::Probability,
         }
     }
 
@@ -770,7 +772,24 @@ impl Mir {
             WindowOperation::Covariance => mir::WindowOperation::Covariance,
             WindowOperation::StandardDeviation => mir::WindowOperation::StandardDeviation,
             WindowOperation::NthPercentile(x) => mir::WindowOperation::NthPercentile(x),
+            #[cfg(feature = "probability")]
+            WindowOperation::TrueRatio => mir::WindowOperation::TrueRatio,
+            #[cfg(not(feature = "probability"))]
             WindowOperation::TrueRatio => unreachable!("True Ratio is Syntactic Sugar"),
+            #[cfg(feature = "probability")]
+            WindowOperation::ConditionalProbability => mir::WindowOperation::ConditionalProbability,
+            #[cfg(not(feature = "probability"))]
+            WindowOperation::ConditionalProbability => {
+                unreachable!("Probability is Syntactic Sugar")
+            }
+            #[cfg(feature = "probability")]
+            WindowOperation::ConditionalProbabilityWithPrior => {
+                mir::WindowOperation::ConditionalProbabilityWithPrior
+            }
+            #[cfg(not(feature = "probability"))]
+            WindowOperation::ConditionalProbabilityWithPrior => {
+                unreachable!("Probability is Syntactic Sugar")
+            }
         }
     }
 
@@ -790,7 +809,26 @@ impl Mir {
             InstanceOperation::Covariance => mir::InstanceOperation::Covariance,
             InstanceOperation::StandardDeviation => mir::InstanceOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => mir::InstanceOperation::NthPercentile(x),
+            #[cfg(feature = "probability")]
+            InstanceOperation::TrueRatio => mir::InstanceOperation::TrueRatio,
+            #[cfg(not(feature = "probability"))]
             InstanceOperation::TrueRatio => unreachable!("True Ratio is Syntactic Sugar"),
+            #[cfg(feature = "probability")]
+            InstanceOperation::ConditionalProbability => {
+                mir::InstanceOperation::ConditionalProbability
+            }
+            #[cfg(not(feature = "probability"))]
+            InstanceOperation::ConditionalProbability => {
+                unreachable!("Probability is Syntactic Sugar")
+            }
+            #[cfg(feature = "probability")]
+            InstanceOperation::ConditionalProbabilityWithPrior => {
+                mir::InstanceOperation::ConditionalProbabilityWithPrior
+            }
+            #[cfg(not(feature = "probability"))]
+            InstanceOperation::ConditionalProbabilityWithPrior => {
+                unreachable!("Probability is Syntactic Sugar")
+            }
         }
     }
 

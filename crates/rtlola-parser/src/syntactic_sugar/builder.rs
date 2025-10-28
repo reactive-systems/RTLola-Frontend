@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use rtlola_reporting::Span;
 
 use crate::{
@@ -206,6 +208,21 @@ impl<'a> Builder<'a> {
         }
     }
 
+    pub(crate) fn all_aggregation(
+        &self,
+        stream: Expression,
+        aggregation: WindowOperation,
+    ) -> Expression {
+        Expression {
+            kind: ExpressionKind::AllAggregation {
+                expr: Box::new(stream),
+                aggregation,
+            },
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
     pub(crate) fn literal(&self, v: Literal) -> Expression {
         Expression {
             kind: ExpressionKind::Lit(v),
@@ -222,6 +239,14 @@ impl<'a> Builder<'a> {
     ) -> Expression {
         Expression {
             kind: ExpressionKind::Ite(Box::new(cond), Box::new(cons), Box::new(alt)),
+            id: self.ast.next_id(),
+            span: self.span.to_indirect(),
+        }
+    }
+
+    pub(crate) fn tuple(&self, exprs: Vec<Expression>) -> Expression {
+        Expression {
+            kind: ExpressionKind::Tuple(exprs.into_iter().map(|e| e.next_id(self.ast)).collect()),
             id: self.ast.next_id(),
             span: self.span.to_indirect(),
         }

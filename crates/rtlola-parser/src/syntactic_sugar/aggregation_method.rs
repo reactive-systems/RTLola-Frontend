@@ -13,7 +13,13 @@ pub(crate) struct AggrMethodToWindow {}
 impl AggrMethodToWindow {
     fn apply(&self, expr: &Expression, ast: &RtLolaAst) -> ChangeSet {
         match &expr.kind {
-            ExpressionKind::Method(base, name, _types, arguments) => {
+            ExpressionKind::Method(base, name, _types, arguments)
+                if name.arg_names.len() == 0
+                    || (name.arg_names.len() == 1
+                        && name.arg_names[0]
+                            .as_ref()
+                            .is_some_and(|ident| ident.name == "over")) =>
+            {
                 let aggregation = match name.name.name.as_ref() {
                     "count" => WindowOperation::Count,
                     "min" => WindowOperation::Min,
@@ -25,13 +31,19 @@ impl AggrMethodToWindow {
                     "cov" => WindowOperation::Covariance,
                     "sd" => WindowOperation::StandardDeviation,
                     "med" => WindowOperation::NthPercentile(50),
+                    "ratio" => WindowOperation::TrueRatio,
+                    "prob" | "probability" => WindowOperation::ConditionalProbability,
                     _ => return ChangeSet::empty(),
                 };
                 let builder = Builder::new(expr.span, ast);
                 let target_stream = base.clone();
                 let wait = false;
-                let duration = arguments[0].clone();
-                let new_expr = builder.sliding_window(*target_stream, duration, wait, aggregation);
+                let new_expr = if arguments.len() == 0 {
+                    builder.all_aggregation(*target_stream, aggregation)
+                } else {
+                    let duration = arguments[0].clone();
+                    builder.sliding_window(*target_stream, duration, wait, aggregation)
+                };
                 ChangeSet::replace_current_expression(new_expr)
             }
             _ => ChangeSet::empty(),

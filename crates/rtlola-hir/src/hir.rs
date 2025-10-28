@@ -938,6 +938,8 @@ pub(crate) enum AnnotatedType {
     Vec,
     Vec2,
     Vec3,
+    #[cfg(feature = "probability")]
+    Probability,
 }
 
 impl AnnotatedType {

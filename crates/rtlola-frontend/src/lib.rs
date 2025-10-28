@@ -114,3 +114,15 @@ pub fn parse_to_base_hir(cfg: &ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLo
 pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
+
+#[test]
+fn test() {
+    let spec = "input a : Bool
+        input b : Bool
+        output e(p)
+            spawn with a
+            eval with a.prob(given: b)"
+        .to_string();
+    let mir = parse(&ParserConfig::for_string(spec.into())).unwrap();
+    println!("{mir}");
+}

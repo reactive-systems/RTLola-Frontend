@@ -71,6 +71,8 @@ impl Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::Vec2 => write!(f, "Vec2"),
             Type::Vec3 => write!(f, "Vec3"),
+            #[cfg(feature = "probability")]
+            Type::Probability => write!(f, "Prob"),
         }
     }
 }
@@ -171,6 +173,12 @@ impl Display for WindowOperation {
                 WindowOperation::Covariance => "covariance",
                 WindowOperation::StandardDeviation => "standard deviation",
                 WindowOperation::NthPercentile(_) => todo!(),
+                #[cfg(feature = "probability")]
+                WindowOperation::TrueRatio => "true_ratio",
+                #[cfg(feature = "probability")]
+                WindowOperation::ConditionalProbability => "probability",
+                #[cfg(feature = "probability")]
+                WindowOperation::ConditionalProbabilityWithPrior => "probability_prior",
             }
         )
     }

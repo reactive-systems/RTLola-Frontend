@@ -502,6 +502,10 @@ pub enum WindowOperation {
     NthPercentile(u8),
     /// Aggregation function to return the true ratio
     TrueRatio,
+    /// Aggregation function to return the conditional probability
+    ConditionalProbability,
+    /// Aggregation function to return the conditional probability (with a prior)
+    ConditionalProbabilityWithPrior,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
@@ -537,6 +541,10 @@ pub enum InstanceOperation {
     NthPercentile(u8),
     /// Aggregation function to return the true ratio
     TrueRatio,
+    /// Aggregation function to return the conditional probability
+    ConditionalProbability,
+    /// Aggregation function to return the conditional probability (with a prior)
+    ConditionalProbabilityWithPrior,
 }
 
 impl TryFrom<WindowOperation> for InstanceOperation {
@@ -559,6 +567,12 @@ impl TryFrom<WindowOperation> for InstanceOperation {
             WindowOperation::StandardDeviation => Ok(InstanceOperation::StandardDeviation),
             WindowOperation::NthPercentile(x) => Ok(InstanceOperation::NthPercentile(x)),
             WindowOperation::TrueRatio => Ok(InstanceOperation::TrueRatio),
+            WindowOperation::ConditionalProbability => {
+                Ok(InstanceOperation::ConditionalProbability)
+            }
+            WindowOperation::ConditionalProbabilityWithPrior => {
+                Ok(InstanceOperation::ConditionalProbabilityWithPrior)
+            }
             WindowOperation::Integral | WindowOperation::Last => {
                 Err(format!("Operation {value} not supported over instances."))
             }
@@ -584,6 +598,10 @@ impl From<InstanceOperation> for WindowOperation {
             InstanceOperation::StandardDeviation => WindowOperation::StandardDeviation,
             InstanceOperation::NthPercentile(x) => WindowOperation::NthPercentile(x),
             InstanceOperation::TrueRatio => WindowOperation::TrueRatio,
+            InstanceOperation::ConditionalProbability => WindowOperation::ConditionalProbability,
+            InstanceOperation::ConditionalProbabilityWithPrior => {
+                WindowOperation::ConditionalProbabilityWithPrior
+            }
         }
     }
 }

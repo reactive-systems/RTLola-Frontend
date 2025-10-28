@@ -277,8 +277,42 @@ lazy_static! {
     };
 }
 
+#[cfg(feature = "probability")]
+lazy_static! {
+    static ref PROB: FuncDecl = FuncDecl {
+        name: FunctionName::new(
+            "prob".to_string(),
+            &[Some("of".into()), Some("given".into())]
+        ),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Bool, AnnotatedType::Bool]),
+        return_type: AnnotatedType::Probability
+    };
+    static ref PROB_PRIOR: FuncDecl = FuncDecl {
+        name: FunctionName::new(
+            "prob".to_string(),
+            &[
+                Some("of".into()),
+                Some("given".into()),
+                Some("confidence".into()),
+                Some("prior".into())
+            ]
+        ),
+        generics: vec![AnnotatedType::Fractional],
+        parameters: ParameterDecl::FixedAmount(vec![
+            AnnotatedType::Bool,
+            AnnotatedType::Bool,
+            AnnotatedType::Param(0, "T".into())
+        ]),
+        return_type: AnnotatedType::Probability
+    };
+}
+
 pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
-    vec![&WIDEN, &CAST, &BYTES_AT, &FORMAT]
+    #[cfg(not(feature = "probability"))]
+    return vec![&WIDEN, &CAST, &BYTES_AT, &FORMAT];
+    #[cfg(feature = "probability")]
+    return vec![&WIDEN, &CAST, &BYTES_AT, &FORMAT, &PROB, &PROB_PRIOR];
 }
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
@@ -337,6 +371,8 @@ lazy_static! {
         ("Bytes", &AnnotatedType::Bytes),
         ("Vec2", &AnnotatedType::Vec2),
         ("Vec3", &AnnotatedType::Vec3),
+        #[cfg(feature = "probability")]
+        ("Prob", &AnnotatedType::Probability)
     ];
     pub(crate) static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
         ("Bool", &AnnotatedType::Bool),
