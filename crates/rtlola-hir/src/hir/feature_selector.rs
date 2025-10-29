@@ -483,6 +483,7 @@ impl FeatureSelector {
             WRef::Sliding(_) => self.hir.single_sliding(window).caller,
             WRef::Discrete(_) => self.hir.single_discrete(window).caller,
             WRef::Instance(_) => self.hir.single_instance_aggregation(window).caller,
+            WRef::All(_) => self.hir.single_all_aggregation(window).caller,
         };
         let caller = self
             .hir

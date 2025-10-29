@@ -22,6 +22,7 @@ impl Implication {
                     | ExpressionKind::StreamAccess(_, _)
                     | ExpressionKind::Unary(_, _)
                     | ExpressionKind::DiscreteWindowAggregation { .. }
+                    | ExpressionKind::AllAggregation { .. }
                     | ExpressionKind::SlidingWindowAggregation { .. }
                     | ExpressionKind::InstanceAggregation { .. }
                     | ExpressionKind::Function(_, _, _)

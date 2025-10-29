@@ -148,6 +148,7 @@ impl MemBound {
                     }
                     WindowReference::Discrete(_) => spec.single_discrete(wr).aggr.duration,
                     WindowReference::Instance(_) => unreachable!(),
+                    WindowReference::All(_) => 1,
                 };
                 let memory_bound = MemorizationBound::Bounded(num_buckets as u32);
                 assert!(!memory_bound_per_window.contains_key(&wr));

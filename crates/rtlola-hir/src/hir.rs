@@ -178,6 +178,11 @@ impl<M: HirMode> Hir<M> {
             .collect()
     }
 
+    /// Provides access to a collection of references for all all-aggregations occurring in the Hir.
+    pub fn all_aggregations(&self) -> Vec<&AllAggregation> {
+        self.expr_maps.all_aggregations.values().clone().collect()
+    }
+
     /// Retrieves an expression for a given expression id.
     ///
     /// # Panic
@@ -224,6 +229,17 @@ impl<M: HirMode> Hir<M> {
     /// Panics if no such aggregation exists.
     pub fn single_instance_aggregation(&self, window: WRef) -> &InstanceAggregation {
         self.instance_aggregations()
+            .iter()
+            .find(|w| w.reference == window)
+            .unwrap()
+    }
+
+    /// Retrieves a single all aggregation for a given reference.
+    ///
+    /// # Panic
+    /// Panics if no such aggregation exists.
+    pub fn single_all_aggregation(&self, window: WRef) -> &AllAggregation {
+        self.all_aggregations()
             .iter()
             .find(|w| w.reference == window)
             .unwrap()
@@ -455,6 +471,7 @@ pub(crate) struct ExpressionMaps {
     sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
     discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
     instance_aggregations: HashMap<WRef, InstanceAggregation>,
+    all_aggregations: HashMap<WRef, AllAggregation>,
     func_table: HashMap<String, FuncDecl>,
 }
 
@@ -465,6 +482,7 @@ impl ExpressionMaps {
         sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
         discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
         instance_aggregations: HashMap<WRef, InstanceAggregation>,
+        all_aggregations: HashMap<WRef, AllAggregation>,
         func_table: HashMap<String, FuncDecl>,
     ) -> Self {
         Self {
@@ -472,6 +490,7 @@ impl ExpressionMaps {
             sliding_windows,
             discrete_windows,
             instance_aggregations,
+            all_aggregations,
             func_table,
         }
     }
@@ -941,6 +960,8 @@ pub enum WindowReference {
     Discrete(usize),
     /// Refers to a instance aggregation
     Instance(usize),
+    /// Refers to an all aggregation
+    All(usize),
 }
 
 pub(crate) type WRef = WindowReference;
@@ -952,6 +973,7 @@ impl WindowReference {
             WindowReference::Sliding(u) => u,
             WindowReference::Discrete(u) => u,
             WindowReference::Instance(u) => u,
+            WindowReference::All(u) => u,
         }
     }
 }

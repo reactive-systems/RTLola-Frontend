@@ -4,11 +4,11 @@ use std::iter::zip;
 use itertools::{Either, Itertools};
 use num::ToPrimitive;
 use rtlola_hir::hir::{
-    ActivationCondition, Aggregation, ArithLogOp, ConcretePacingType, ConcreteValueType, Constant,
-    DepAnaTrait, DiscreteAggr, Expression, ExpressionKind, FnExprKind, Inlined,
-    InstanceAggregation, InstanceSelection, Literal, MemBoundTrait, Offset, OrderedTrait, Origin,
-    OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind, Window,
-    WindowReference,
+    ActivationCondition, Aggregation, AllAggregation, ArithLogOp, ConcretePacingType,
+    ConcreteValueType, Constant, DepAnaTrait, DiscreteAggr, Expression, ExpressionKind, FnExprKind,
+    Inlined, InstanceAggregation, InstanceSelection, Literal, MemBoundTrait, Offset, OrderedTrait,
+    Origin, OutputKind, SlidingAggr, StreamAccessKind, StreamReference, TypedTrait, WidenExprKind,
+    Window, WindowReference,
 };
 use rtlola_hir::{CompleteMode, RtLolaHir};
 use rtlola_parser::ast::{InstanceOperation, Tag, WindowOperation};
@@ -215,6 +215,20 @@ impl Mir {
             "WRefs need to enumerate from 0 to the number of discrete windows"
         );
 
+        let all_aggregations = hir
+            .all_aggregations()
+            .into_iter()
+            .sorted_by(|a, b| Ord::cmp(&a.reference().idx(), &b.reference().idx()))
+            .map(|win| Self::lower_all_aggregation(&hir, &sr_map, win))
+            .collect::<Vec<mir::AllAggregation>>();
+        assert!(
+            all_aggregations
+                .iter()
+                .enumerate()
+                .all(|(idx, w)| idx == w.reference.idx()),
+            "WRefs need to enumerate from 0 to the number of all aggregations"
+        );
+
         let triggers = unparameterized_outputs
             .iter()
             .map(|o| {
@@ -252,6 +266,7 @@ impl Mir {
             discrete_windows,
             sliding_windows,
             instance_aggregations,
+            all_aggregations,
             triggers,
             global_tags,
             #[cfg(feature = "spanned")]
@@ -486,6 +501,23 @@ impl Mir {
             reference: win.reference(),
             selection: Self::lower_instance_selection(&win.selection, hir, win.reference(), sr_map),
             aggr: Self::lower_instance_operation(win.aggr),
+            ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
+            pacing: Self::lower_origin_pacing(hir, win.caller, &origin, sr_map),
+            origin,
+        }
+    }
+
+    fn lower_all_aggregation(
+        hir: &RtLolaHir<CompleteMode>,
+        sr_map: &HashMap<StreamReference, mir::StreamReference>,
+        win: &AllAggregation,
+    ) -> mir::AllAggregation {
+        let origin = Self::lower_window_origin(hir, win.reference(), win.caller);
+        mir::AllAggregation {
+            target: sr_map[&win.target],
+            caller: sr_map[&win.caller],
+            aggr: Self::lower_window_operation(win.aggr),
+            reference: win.reference(),
             ty: Self::lower_value_type(&hir.expr_type(win.id()).value_ty),
             pacing: Self::lower_origin_pacing(hir, win.caller, &origin, sr_map),
             origin,
@@ -796,6 +828,7 @@ impl Mir {
             StreamAccessKind::InstanceAggregation(wref) => {
                 mir::StreamAccessKind::InstanceAggregation(wref)
             }
+            StreamAccessKind::AllAggregation(wref) => mir::StreamAccessKind::AllAggregation(wref),
             StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
             StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
             StreamAccessKind::Get => mir::StreamAccessKind::Get,
@@ -860,7 +893,7 @@ mod tests {
 
     use super::*;
     use crate::mir::IntTy::Int8;
-    use crate::mir::{PacingType, Stream};
+    use crate::mir::{FloatTy, PacingType, Stream, Type, UIntTy, WindowOperation};
 
     fn lower_spec(spec: &str) -> (RtLolaHir<CompleteMode>, mir::RtLolaMir) {
         lower_spec_with_config((&ParserConfig::for_string(spec.into())).into())
@@ -934,7 +967,7 @@ mod tests {
                     parameters: vec![],
                     access_kind: mir::StreamAccessKind::Sync,
                 },
-                ty: mir::Type::Int(Int8),
+                ty: Type::Int(Int8),
             }
         );
         assert!(matches!(
@@ -952,7 +985,7 @@ mod tests {
             &mir_d.eval.clauses[0].expression,
             &mir::Expression {
                 kind: mir::ExpressionKind::ParameterAccess(mir_d.as_stream_ref(), 0),
-                ty: mir::Type::Int(Int8),
+                ty: Type::Int(Int8),
             }
         );
     }
@@ -1179,6 +1212,82 @@ output statParity
     eval @true with abs(relation_per("M").hold(or: 1.0) - relation_per("F").hold(or: 1.0))
 
 trigger statParity > 0.1"#;
+        let (_, _) = lower_spec(spec);
+    }
+
+    #[test]
+    fn all_aggregation() {
+        let spec = r#"input a : Float64
+        output b @a := a.aggregate(over_discrete: all, using: sum)
+        output c @a := a.aggregate(over_discrete: all, using: count)
+        output d @a := b.aggregate(over_discrete: all, using: average).defaults(to: 0.0)"#;
+        let (_, mir) = lower_spec(spec);
+        assert_eq!(mir.all_aggregations.len(), 3);
+        assert!(matches!(mir.all_aggregations[0].aggr, WindowOperation::Sum));
+        assert!(matches!(
+            mir.all_aggregations[0].caller,
+            mir::StreamReference::Out(OutputReference::Unparameterized(0))
+        ));
+        assert!(matches!(
+            mir.all_aggregations[0].target,
+            mir::StreamReference::In(0)
+        ));
+        assert!(matches!(
+            mir.all_aggregations[0].pacing,
+            PacingType::Event(_)
+        ));
+        assert!(matches!(
+            mir.all_aggregations[0].ty,
+            Type::Float(FloatTy::Float64)
+        ));
+        assert!(matches!(
+            mir.all_aggregations[1].pacing,
+            PacingType::Event(_)
+        ));
+        assert!(matches!(
+            mir.all_aggregations[1].ty,
+            Type::UInt(UIntTy::UInt64)
+        ));
+        assert!(matches!(
+            mir.all_aggregations[2].pacing,
+            PacingType::Event(_)
+        ));
+        assert!(matches!(mir.all_aggregations[2].ty, Type::Option(_)));
+    }
+
+    #[test]
+    fn all_aggregation_parameterized() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval @a with a.aggregate(over_discrete: all, using: count)
+        output c(p)
+            spawn with a
+            eval @a with b(p).aggregate(over_discrete: all, using: count)";
+        let (_, mir) = lower_spec(spec);
+        assert_eq!(mir.all_aggregations.len(), 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn all_aggregation_parameterized_missing_parameter() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval @a with a.aggregate(over_discrete: all, using: count)
+        output c(p)
+            spawn with a
+            eval @a with b.aggregate(over_discrete: all, using: count)";
+        let (_, _) = lower_spec(spec);
+    }
+
+    #[test]
+    #[should_panic]
+    fn all_aggregation_parameterized_unnecessary_parameter() {
+        let spec = "input a : UInt64
+        output b(p)
+            spawn with a
+            eval @a with a(p).aggregate(over_discrete: all, using: count)";
         let (_, _) = lower_spec(spec);
     }
 }

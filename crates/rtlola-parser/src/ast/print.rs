@@ -261,6 +261,12 @@ impl Display for Expression {
                     "{expr}.aggregate(over: {duration}, using: {aggregation})"
                 ),
             },
+            ExpressionKind::AllAggregation { expr, aggregation } => {
+                write!(
+                    f,
+                    "{expr}.aggregate(over_discrete: all, using: {aggregation})"
+                )
+            }
             ExpressionKind::InstanceAggregation {
                 expr,
                 selection,

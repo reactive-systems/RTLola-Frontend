@@ -416,6 +416,13 @@ pub enum ExpressionKind {
         /// The aggregation function
         aggregation: WindowOperation,
     },
+    /// An aggregation over all values with aggregation function `aggregation`
+    AllAggregation {
+        /// The accesses stream
+        expr: Box<Expression>,
+        /// The aggregation function
+        aggregation: WindowOperation,
+    },
     /// A sliding window with duration `duration` and aggregation function `aggregation`
     SlidingWindowAggregation {
         /// The accesses stream
