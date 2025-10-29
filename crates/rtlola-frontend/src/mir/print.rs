@@ -340,6 +340,12 @@ pub(crate) fn display_expression(mir: &Mir, expr: &Expression, current_level: u3
                     let op = &window.op().to_string();
                     format!("{target_name}.aggregate(over_instances: {duration}, using: {op})")
                 }
+                StreamAccessKind::AllAggregation(w) => {
+                    let window = mir.all_aggregation(*w);
+                    let target_name = mir.stream(window.target).name();
+                    let op = &window.op().to_string();
+                    format!("{target_name}.aggregate(over_discrete: all, using: {op})")
+                }
                 StreamAccessKind::Hold => format!("{target_name}.hold()"),
                 StreamAccessKind::Offset(o) => format!("{target_name}.offset(by:-{o})"),
                 StreamAccessKind::Get => format!("{target_name}.get()"),

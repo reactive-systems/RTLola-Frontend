@@ -123,6 +123,8 @@ pub struct RtLolaMir {
     pub sliding_windows: Vec<SlidingWindow>,
     /// A collection of all instance aggregations.
     pub instance_aggregations: Vec<InstanceAggregation>,
+    /// A collection of all all-aggregations.
+    pub all_aggregations: Vec<AllAggregation>,
     /// The references of all outputs that represent triggers
     pub triggers: Vec<Trigger>,
     /// The global tags of the specification
@@ -1112,6 +1114,25 @@ impl From<InstanceOperation> for WindowOperation {
     }
 }
 
+/// Represents an instance of an all aggregation
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct AllAggregation {
+    /// The stream whose values will be aggregated
+    pub target: StreamReference,
+    /// The stream calling and evaluating this window
+    pub caller: StreamReference,
+    /// The operation to be performed over the instances
+    pub aggr: WindowOperation,
+    /// The reference of this window.
+    pub reference: WindowReference,
+    /// The type of value the window produces
+    pub ty: Type,
+    /// The origin of the all aggregation expression
+    pub origin: Origin,
+    /// The pacing of the all aggregation expression
+    pub pacing: PacingType,
+}
+
 /// A trait for any kind of window
 pub trait Window {
     /// Returns a reference to the stream that will be aggregated by that window.
@@ -1405,6 +1426,28 @@ impl Window for InstanceAggregation {
     }
 }
 
+impl Window for AllAggregation {
+    fn target(&self) -> StreamReference {
+        self.target
+    }
+
+    fn caller(&self) -> StreamReference {
+        self.caller
+    }
+
+    fn op(&self) -> WindowOperation {
+        self.aggr
+    }
+
+    fn ty(&self) -> &Type {
+        &self.ty
+    }
+
+    fn memory_bound(&self) -> MemorizationBound {
+        MemorizationBound::Bounded(1)
+    }
+}
+
 impl RtLolaMir {
     /// Returns a collection containing a reference to each input stream in the specification.
     pub fn input_refs(&self) -> impl Iterator<Item = InputReference> {
@@ -1584,7 +1627,9 @@ impl RtLolaMir {
     pub fn discrete_window(&self, window: WindowReference) -> &DiscreteWindow {
         match window {
             WindowReference::Discrete(x) => &self.discrete_windows[x],
-            WindowReference::Sliding(_) | WindowReference::Instance(_) => {
+            WindowReference::Sliding(_)
+            | WindowReference::Instance(_)
+            | WindowReference::All(_) => {
                 panic!("wrong type of window reference passed to getter")
             }
         }
@@ -1597,7 +1642,24 @@ impl RtLolaMir {
     pub fn instance_aggregation(&self, window: WindowReference) -> &InstanceAggregation {
         match window {
             WindowReference::Instance(x) => &self.instance_aggregations[x],
-            WindowReference::Sliding(_) | WindowReference::Discrete(_) => {
+            WindowReference::Sliding(_)
+            | WindowReference::Discrete(_)
+            | WindowReference::All(_) => {
+                panic!("wrong type of window reference passed to getter")
+            }
+        }
+    }
+
+    /// Provides immutable access to an all aggregation.
+    ///
+    /// # Panic
+    /// Panics if `window` is not a [WindowReference::All].
+    pub fn all_aggregation(&self, window: WindowReference) -> &AllAggregation {
+        match window {
+            WindowReference::All(x) => &self.all_aggregations[x],
+            WindowReference::Sliding(_)
+            | WindowReference::Discrete(_)
+            | WindowReference::Instance(_) => {
                 panic!("wrong type of window reference passed to getter")
             }
         }
@@ -1610,7 +1672,9 @@ impl RtLolaMir {
     pub fn sliding_window(&self, window: WindowReference) -> &SlidingWindow {
         match window {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
-            WindowReference::Discrete(_) | WindowReference::Instance(_) => {
+            WindowReference::Discrete(_)
+            | WindowReference::Instance(_)
+            | WindowReference::All(_) => {
                 panic!("wrong type of window reference passed to getter")
             }
         }
@@ -1622,6 +1686,7 @@ impl RtLolaMir {
             WindowReference::Sliding(x) => &self.sliding_windows[x],
             WindowReference::Discrete(x) => &self.discrete_windows[x],
             WindowReference::Instance(x) => &self.instance_aggregations[x],
+            WindowReference::All(x) => &self.all_aggregations[x],
         }
     }
 
@@ -1809,6 +1874,10 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the reference to the (instance aggregation)[InstanceAggregation] whose value is used in the [Expression].
     InstanceAggregation(WindowReference),
+    /// Represents the access to an (all aggregation)[AllAggregation]
+    ///
+    /// The argument contains the reference to the (all aggregation)[AllAggregation] whose value is used in the [Expression].
+    AllAggregation(WindowReference),
     /// Representation of sample and hold accesses
     Hold,
     /// Representation of offset accesses

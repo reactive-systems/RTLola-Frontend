@@ -289,6 +289,8 @@ pub enum StreamAccessKind {
     ///
     /// The argument contains the reference to the (instance aggregation)[InstanceAggregation] whose value is used in the [Expression].
     InstanceAggregation(WRef),
+    /// The argument contains the reference to the (all aggregation)[AllAggregation] whose value is used in the [Expression].
+    AllAggregation(WRef),
     /// Representation of sample and hold accesses
     Hold,
     /// Representation of offset accesses
@@ -422,6 +424,23 @@ impl InstanceSelection {
     }
 }
 
+/// Represents an all aggregation
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct AllAggregation {
+    /// The stream whose values will be aggregated
+    pub target: SRef,
+    /// The stream calling and evaluating this window
+    pub caller: SRef,
+    /// The operation to be performed over the values
+    pub aggr: WindowOperation,
+    /// The reference of this window.
+    pub(crate) reference: WRef,
+    /// The Id of the expression in which this window is accessed
+    ///
+    /// This field contains the Id of the expression that uses the produced value. It is NOT the id of the window.
+    pub(crate) eid: ExprId,
+}
+
 /// Combines the functionality of Instance and Window Aggregations
 pub trait Aggregation {
     /// Returns the reference of the window
@@ -434,6 +453,16 @@ pub trait Aggregation {
 }
 
 impl Aggregation for InstanceAggregation {
+    fn reference(&self) -> WindowReference {
+        self.reference
+    }
+
+    fn id(&self) -> ExprId {
+        self.eid
+    }
+}
+
+impl Aggregation for AllAggregation {
     fn reference(&self) -> WindowReference {
         self.reference
     }

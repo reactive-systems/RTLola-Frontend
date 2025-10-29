@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 
 use super::BaseMode;
 use crate::hir::{
-    AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close, Constant as HirConstant,
-    DiscreteAggr, Eval, ExprId, Expression, ExpressionKind, ExpressionMaps, FnExprKind, Hir,
-    Inlined, Input, InstanceAggregation, InstanceSelection, Literal, Offset, Output, OutputKind,
-    Parameter, SRef, SlidingAggr, Spawn, StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
+    AllAggregation, AnnotatedFrequency, AnnotatedPacingType, AnnotatedType, Close,
+    Constant as HirConstant, DiscreteAggr, Eval, ExprId, Expression, ExpressionKind,
+    ExpressionMaps, FnExprKind, Hir, Inlined, Input, InstanceAggregation, InstanceSelection,
+    Literal, Offset, Output, OutputKind, Parameter, SRef, SlidingAggr, Spawn,
+    StreamAccessKind as IRAccess, WRef, WidenExprKind, Window,
 };
 use crate::modes::ast_conversion::naming::{Declaration, NamingAnalysis};
 use crate::stdlib::FuncDecl;
@@ -242,6 +243,7 @@ struct ExpressionTransformer {
     sliding_windows: Vec<Window<SlidingAggr>>,
     discrete_windows: Vec<Window<DiscreteAggr>>,
     instance_aggregations: Vec<InstanceAggregation>,
+    all_aggregations: Vec<AllAggregation>,
     decl_table: HashMap<NodeId, Declaration>,
     stream_by_name: HashMap<String, SRef>,
     current_exp_id: u32,
@@ -258,6 +260,7 @@ impl ExpressionTransformer {
             sliding_windows: vec![],
             discrete_windows: vec![],
             instance_aggregations: vec![],
+            all_aggregations: vec![],
             decl_table,
             stream_by_name,
             current_exp_id: 0,
@@ -399,6 +402,7 @@ impl ExpressionTransformer {
             sliding_windows,
             discrete_windows,
             instance_aggregations,
+            all_aggregations,
             ..
         } = self;
         let sliding_windows = sliding_windows
@@ -413,11 +417,16 @@ impl ExpressionTransformer {
             .into_iter()
             .map(|w| (w.reference, w))
             .collect();
+        let all_aggregations = all_aggregations
+            .into_iter()
+            .map(|w| (w.reference, w))
+            .collect();
         let expr_maps = ExpressionMaps::new(
             exprid_to_expr,
             sliding_windows,
             discrete_windows,
             instance_aggregations,
+            all_aggregations,
             func_table,
         );
 
@@ -932,6 +941,21 @@ impl ExpressionTransformer {
                     IRAccess::InstanceAggregation(WRef::Instance(idx)),
                     paras,
                 )
+            }
+            ast::ExpressionKind::AllAggregation { expr, aggregation } => {
+                let (sref, paras) =
+                    self.get_stream_ref(&expr, current_output, current_instance_aggregation, true)?;
+                let idx = self.all_aggregations.len();
+                let wref = WRef::All(idx);
+                let window = AllAggregation {
+                    target: sref,
+                    caller: current_output,
+                    aggr: aggregation,
+                    reference: wref,
+                    eid: new_id,
+                };
+                self.all_aggregations.push(window);
+                ExpressionKind::StreamAccess(sref, IRAccess::AllAggregation(WRef::All(idx)), paras)
             }
             ast::ExpressionKind::Binary(op, left, right) => {
                 use rtlola_parser::ast::BinOp;

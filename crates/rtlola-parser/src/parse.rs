@@ -1296,22 +1296,26 @@ impl<'a> RtLolaParser<'a> {
                                             }
                                             if signature.contains("discrete") {
                                             if window_op == WindowOperation::Last {
-                                                // Todo: This should be a warning
-                                                // return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span.clone(), Some("don't use last for discrete windows"), true).into());
+                                                return Err(Diagnostic::error("discrete window operation: last has same semantics as .offset(by:-1) and is more expensive").add_span_with_label(args[1].span, Some("don't use last for discrete windows"), true).into());
                                             }
-                                            ExpressionKind::DiscreteWindowAggregation {
-                                                expr: inner,
-                                                duration: Box::new(args[0].clone()),
-                                                wait: signature.contains("over_exactly"),
-                                                aggregation: window_op,
+
+                                            match &args[0].kind {
+                                                ExpressionKind::Ident(i) if i.name == "all" => ExpressionKind::AllAggregation { expr: inner, aggregation: window_op },
+                                                _ => ExpressionKind::DiscreteWindowAggregation {
+                                                    expr: inner,
+                                                    duration: Box::new(args[0].clone()),
+                                                    wait: signature.contains("over_exactly"),
+                                                    aggregation: window_op,
+                                                }
                                             }
+
                                         } else {
-                                            ExpressionKind::SlidingWindowAggregation {
-                                                expr: inner,
-                                                duration: Box::new(args[0].clone()),
-                                                wait: signature.contains("over_exactly"),
-                                                aggregation: window_op,
-                                            }
+                                                ExpressionKind::SlidingWindowAggregation {
+                                                    expr: inner,
+                                                    duration: Box::new(args[0].clone()),
+                                                    wait: signature.contains("over_exactly"),
+                                                    aggregation: window_op,
+                                                }
                                         }}
                                     }
                                     _ => ExpressionKind::Method(inner, name, types, args),
@@ -1332,7 +1336,7 @@ impl<'a> RtLolaParser<'a> {
                                 return Err(Diagnostic::error(&format!("expected method call or tuple access, found {rhs}")).add_span_with_label(rhs.span, Some("unexpected"), true).into());
                             }
                         }
-                    }
+                        }
                     Rule::OpeningBracket => {
                         let rhs_span = rhs.span;
                         let offset = rhs.parse_offset().map_err(|reason| Diagnostic::error("failed to parse offset expression").add_span_with_label(rhs_span, Some(&reason), true))?;
@@ -2700,6 +2704,14 @@ mod tests {
         input a'': Boolean\n\
         input a''': Boolean\n\
         output b eval @1Hz with (a').aggregate(over: 1s, using: true_ratio)\n";
+        let ast = parse_without_desugar(spec);
+        cmp_ast_spec(&ast, spec);
+    }
+
+    #[test]
+    fn all_aggregation() {
+        let spec = "input a: UInt64\n\
+        output b eval with a.aggregate(over_discrete: all, using: Σ)\n";
         let ast = parse_without_desugar(spec);
         cmp_ast_spec(&ast, spec);
     }

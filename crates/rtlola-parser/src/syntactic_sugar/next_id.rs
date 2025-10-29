@@ -84,6 +84,12 @@ impl ExpressionKind {
                 wait: *wait,
                 aggregation: *aggregation,
             },
+            ExpressionKind::AllAggregation { expr, aggregation } => {
+                ExpressionKind::AllAggregation {
+                    expr: Box::new(expr.next_id(ast)),
+                    aggregation: *aggregation,
+                }
+            }
             ExpressionKind::SlidingWindowAggregation {
                 expr,
                 duration,

@@ -466,6 +466,7 @@ where
                     }
                     StreamAccessKind::DiscreteWindow(wref)
                     | StreamAccessKind::SlidingWindow(wref)
+                    | StreamAccessKind::AllAggregation(wref)
                     | StreamAccessKind::InstanceAggregation(wref) => {
                         let (target, op, wait) = match wref {
                             WindowReference::Sliding(_) => {
@@ -475,6 +476,10 @@ where
                             WindowReference::Discrete(_) => {
                                 let win = self.hir.single_discrete(*wref);
                                 (win.target, win.aggr.op, win.aggr.wait)
+                            }
+                            WindowReference::All(_) => {
+                                let win = self.hir.single_all_aggregation(*wref);
+                                (win.target, win.aggr, false)
                             }
                             WindowReference::Instance(_) => {
                                 let win = self.hir.single_instance_aggregation(*wref);

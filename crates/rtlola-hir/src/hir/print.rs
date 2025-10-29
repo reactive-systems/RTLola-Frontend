@@ -29,6 +29,7 @@ impl Expression {
                         StreamAccessKind::Hold => ".hold()".into(),
                         StreamAccessKind::SlidingWindow(r)
                         | StreamAccessKind::DiscreteWindow(r)
+                        | StreamAccessKind::AllAggregation(r)
                         | StreamAccessKind::InstanceAggregation(r) => {
                             format!(".aggregate(ref: {r})")
                         }
@@ -144,6 +145,7 @@ impl Display for Expression {
                     StreamAccessKind::Hold => write!(f, ".hold()"),
                     StreamAccessKind::SlidingWindow(r)
                     | StreamAccessKind::DiscreteWindow(r)
+                    | StreamAccessKind::AllAggregation(r)
                     | StreamAccessKind::InstanceAggregation(r) => {
                         write!(f, ".aggregate(ref: {r})")
                     }
@@ -223,6 +225,7 @@ impl Display for WindowReference {
             WindowReference::Sliding(u) => write!(f, "SlidingWin({u})"),
             WindowReference::Discrete(u) => write!(f, "DiscreteWin({u})"),
             WindowReference::Instance(u) => write!(f, "InstanceAggr({u})"),
+            WindowReference::All(u) => write!(f, "AllAggr({u})"),
         }
     }
 }

@@ -488,7 +488,8 @@ where
                 match kind {
                     StreamAccessKind::DiscreteWindow(_)
                     | StreamAccessKind::Sync
-                    | StreamAccessKind::Offset(_) => {
+                    | StreamAccessKind::Offset(_)
+                    | StreamAccessKind::AllAggregation(_) => {
                         self.impose_more_concrete(term_keys, stream_key)?;
 
                         //Check that arguments are equal to spawn target if parameterized or the parameters for self

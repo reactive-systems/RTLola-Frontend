@@ -517,6 +517,14 @@ impl Desugarizer {
                 span,
                 ..*ast_expr
             },
+            AllAggregation { expr, aggregation } => Expression {
+                kind: AllAggregation {
+                    expr: Box::new(Self::apply_expr_global_change(target_id, new_expr, expr)),
+                    aggregation: *aggregation,
+                },
+                span,
+                ..*ast_expr
+            },
             SlidingWindowAggregation {
                 expr: left,
                 duration: right,
@@ -738,6 +746,19 @@ impl Desugarizer {
                         expr: Box::new(expr),
                         duration: Box::new(dur),
                         wait,
+                        aggregation,
+                    },
+                    span,
+                    id,
+                }
+            }
+            AllAggregation { expr, aggregation } => {
+                let (expr, ecs) =
+                    Self::desugarize_expression(*expr, ast, current_sugar, stream, origin)?;
+                return_cs += ecs;
+                Expression {
+                    kind: AllAggregation {
+                        expr: Box::new(expr),
                         aggregation,
                     },
                     span,

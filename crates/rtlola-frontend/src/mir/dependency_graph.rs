@@ -122,6 +122,7 @@ impl Display for Node {
             Node::Window(WindowReference::Sliding(i)) => write!(f, "SW_{i}"),
             Node::Window(WindowReference::Discrete(i)) => write!(f, "DW_{i}"),
             Node::Window(WindowReference::Instance(i)) => write!(f, "IA_{i}"),
+            Node::Window(WindowReference::All(i)) => write!(f, "AA_{i}"),
             Node::Trigger(i) => write!(f, "T_{i}"),
         }
     }
@@ -178,6 +179,10 @@ impl Display for EdgeType {
             // no label on window access edges
             EdgeType::Access {
                 kind: StreamAccessKind::DiscreteWindow(_),
+                ..
+            }
+            | EdgeType::Access {
+                kind: StreamAccessKind::AllAggregation(_),
                 ..
             }
             | EdgeType::Access {
@@ -283,11 +288,11 @@ fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
             let duration = mir.discrete_window(wref).duration;
             format!("{duration} values")
         }
-
         WindowReference::Instance(_) => {
             let selection = &mir.instance_aggregation(wref).selection;
             format!("{} instances", mir.display(selection))
         }
+        WindowReference::All(_) => "all values".into(),
     };
     let caller = mir.output(window.caller());
 
@@ -348,7 +353,9 @@ fn edges(mir: &Mir) -> Vec<Edge> {
             access_kinds
                 .iter()
                 .flat_map(move |&(origin, kind)| match kind {
-                    StreamAccessKind::SlidingWindow(w) | StreamAccessKind::DiscreteWindow(w) => {
+                    StreamAccessKind::SlidingWindow(w)
+                    | StreamAccessKind::DiscreteWindow(w)
+                    | StreamAccessKind::AllAggregation(w) => {
                         let with = EdgeType::Access { origin, kind };
                         vec![
                             Edge {
@@ -507,6 +514,7 @@ Layer {eval_layer}"
                 | StreamAccessKind::InstanceAggregation(_)
                 | StreamAccessKind::Offset(_)
                 | StreamAccessKind::DiscreteWindow(_)
+                | StreamAccessKind::AllAggregation(_)
                 | StreamAccessKind::SlidingWindow(_) => Style::None,
             },
             EdgeType::Spawn | EdgeType::Eval => Style::Dotted,

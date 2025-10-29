@@ -437,6 +437,7 @@ impl NamingAnalysis {
                     | InstanceSelection::FilteredAll(lambda) => self.check_lambda(lambda),
                 }
             }
+            AllAggregation { expr, .. } => self.check_expression(expr),
             Binary(_, left, right) => RtLolaError::combine(
                 self.check_expression(left),
                 self.check_expression(right),
