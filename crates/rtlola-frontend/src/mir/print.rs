@@ -64,9 +64,6 @@ impl Display for Type {
             Type::Int(_) => write!(f, "Int{}", self.size().expect("Ints are sized.").0 * 8),
             Type::Fixed(ty) => write!(f, "Fixed{ty}"),
             Type::UFixed(ty) => write!(f, "UFixed{ty}"),
-            Type::Function { args, ret } => {
-                write_delim_list(f, args, "(", &format!(") -> {ret}"), ",")
-            }
             Type::Tuple(elems) => write_delim_list(f, elems, "(", ")", ","),
             Type::String => write!(f, "String"),
             Type::Bytes => write!(f, "Bytes"),
