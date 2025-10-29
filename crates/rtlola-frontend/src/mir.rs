@@ -157,13 +157,6 @@ pub enum Type {
     Tuple(Vec<Type>),
     /// An optional value type, e.g., resulting from accessing a past value of a stream
     Option(Box<Type>),
-    /// A type describing a function
-    Function {
-        /// The types of the arguments to the function, monomorphized
-        args: Vec<Type>,
-        /// The monomorphized return type of the function
-        ret: Box<Type>,
-    },
     /// A 2-element vector
     Vec2,
     /// A 3-element vector
@@ -1832,7 +1825,6 @@ impl Type {
                 Some(ValSize(size))
             }
             Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
-            Type::Function { .. } => None,
             Type::Vec2 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 2)),
             Type::Vec3 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 3)),
         }
