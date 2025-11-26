@@ -115,6 +115,10 @@ pub enum ConcreteValueType {
     Vec2,
     /// A 3-element vector
     Vec3,
+    /// A timestamp
+    Time,
+    /// A time duration
+    Duration,
 }
 
 /// The external definition of the stream pacing.

@@ -524,6 +524,12 @@ impl ExpressionTransformer {
                 if string == "Vec3" {
                     return Ok(AnnotatedType::Vec3);
                 }
+                if string == "Time" {
+                    return Ok(AnnotatedType::Time);
+                }
+                if string == "Duration" {
+                    return Ok(AnnotatedType::Duration);
+                }
                 Err("unknown type".into())
             }
         }

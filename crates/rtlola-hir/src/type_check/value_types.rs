@@ -82,6 +82,8 @@ pub(crate) enum AbstractValueType {
     Vec2,
     Vec3,
     Vec,
+    Time,
+    Duration,
 }
 
 impl Variant for AbstractValueType {
@@ -246,6 +248,10 @@ impl Variant for AbstractValueType {
             (Vec | Vec2 | Vec3, _) | (_, Vec | Vec2 | Vec3) => {
                 Err(TypeClash(lhs.variant, rhs.variant))
             }
+            (Time, Time) => Ok((Time, 0)),
+            (Time, _) | (_, Time) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Duration, Duration) => Ok((Duration, 0)),
+            (Duration, _) | (_, Duration) => Err(TypeClash(lhs.variant, rhs.variant)),
         }?;
         Ok(Partial {
             variant: new_var,
@@ -279,7 +285,9 @@ impl Variant for AbstractValueType {
             | Vec
             | Vec2
             | Vec3
-            | Bytes => Arity::Fixed(0),
+            | Bytes
+            | Time
+            | Duration => Arity::Fixed(0),
         }
     }
 }
@@ -364,6 +372,8 @@ impl Constructable for AbstractValueType {
             }
             AbstractValueType::Vec2 => Ok(ConcreteValueType::Vec2),
             AbstractValueType::Vec3 => Ok(ConcreteValueType::Vec3),
+            AbstractValueType::Time => Ok(ConcreteValueType::Time),
+            AbstractValueType::Duration => Ok(ConcreteValueType::Duration),
             AbstractValueType::Vec => Err(CannotReify(*self)),
         }
     }
@@ -429,6 +439,8 @@ impl ConcreteValueType {
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Vec2 => Ok(ConcreteValueType::Vec2),
             AnnotatedType::Vec3 => Ok(ConcreteValueType::Vec3),
+            AnnotatedType::Time => Ok(ConcreteValueType::Time),
+            AnnotatedType::Duration => Ok(ConcreteValueType::Duration),
             AnnotatedType::Vec => Err(AnnotationInvalid(at.clone())),
         }
     }
@@ -463,6 +475,8 @@ impl ConcreteValueType {
             Byte => None,
             Option(_) => None,
             Vec2 | Vec3 => None,
+            Time => None,
+            Duration => None,
         }
     }
 }
@@ -499,6 +513,8 @@ impl Display for AbstractValueType {
             AbstractValueType::Vec => write!(f, "Vec"),
             AbstractValueType::Vec2 => write!(f, "Vec2"),
             AbstractValueType::Vec3 => write!(f, "Vec3"),
+            AbstractValueType::Time => write!(f, "Time"),
+            AbstractValueType::Duration => write!(f, "Duration"),
         }
     }
 }
@@ -535,6 +551,8 @@ impl Display for ConcreteValueType {
             ConcreteValueType::Option(c) => write!(f, "Option<{c}>"),
             ConcreteValueType::Vec2 => write!(f, "Vec2"),
             ConcreteValueType::Vec3 => write!(f, "Vec3"),
+            ConcreteValueType::Time => write!(f, "Time"),
+            ConcreteValueType::Duration => write!(f, "Duration"),
         }
     }
 }

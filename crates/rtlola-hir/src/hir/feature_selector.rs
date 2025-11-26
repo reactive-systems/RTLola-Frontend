@@ -180,7 +180,9 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::TString
             | ConcreteValueType::Vec2
             | ConcreteValueType::Vec3
-            | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
+            | ConcreteValueType::Byte
+            | ConcreteValueType::Time
+            | ConcreteValueType::Duration => Ok(()), /* handled by first disjunct */
             ConcreteValueType::Tuple(children) => children
                 .iter()
                 .flat_map(|ty| {

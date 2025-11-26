@@ -161,6 +161,10 @@ pub enum Type {
     Vec2,
     /// A 3-element vector
     Vec3,
+    /// A timestamp
+    Time,
+    /// A time duration
+    Duration,
 }
 
 /// Represents an RTLola pacing type.
@@ -1824,7 +1828,9 @@ impl Type {
                 let size = t.iter().map(|t| Type::size(t).unwrap().0).sum();
                 Some(ValSize(size))
             }
-            Type::String | Type::Bytes => unimplemented!("Size of Strings not determined, yet."),
+            Type::String | Type::Bytes | Type::Duration | Type::Time => {
+                unimplemented!("Size of Strings not determined, yet.")
+            }
             Type::Vec2 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 2)),
             Type::Vec3 => Some(ValSize(Type::Float(FloatTy::Float64).size().unwrap().0 * 3)),
         }

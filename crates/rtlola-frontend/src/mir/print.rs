@@ -71,6 +71,8 @@ impl Display for Type {
             Type::Bool => write!(f, "Bool"),
             Type::Vec2 => write!(f, "Vec2"),
             Type::Vec3 => write!(f, "Vec3"),
+            Type::Time => write!(f, "Time"),
+            Type::Duration => write!(f, "Duration"),
         }
     }
 }

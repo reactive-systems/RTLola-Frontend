@@ -260,6 +260,12 @@ where
             AnnotatedType::Vec => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Vec))?,
+            AnnotatedType::Time => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Time))?,
+            AnnotatedType::Duration => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Duration))?,
             AnnotatedType::Numeric => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
@@ -1033,7 +1039,9 @@ where
             | AnnotatedType::Vec
             | AnnotatedType::Vec2
             | AnnotatedType::Vec3
-            | AnnotatedType::Any => {
+            | AnnotatedType::Any
+            | AnnotatedType::Time
+            | AnnotatedType::Duration => {
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
@@ -2749,5 +2757,54 @@ output o_9: Bool @i_0 := true  && true";
             eval with true\n\
         output c : Bool := b.aggregate(over_instances: fresh, using: argmin)";
         assert_eq!(1, num_errors(spec));
+    }
+
+    #[test]
+    fn time_comparison() {
+        let spec = "input a : Time
+        input b : Time
+        output c : Bool := a > b";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn time_duration() {
+        let spec = "import time
+        input a : Time
+        input b : Time
+        output c : Duration := b.time_diff(a)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn time_add_duration() {
+        let spec = "import time
+        input a : Time
+        output c : Duration := duration_from_secs(100)
+        output d : Time := a.add_duration(c)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn eu_spec() {
+        let spec = "import time
+input id: Int64
+input content_language: String
+input automated_decision: String
+input automated_detection: Bool
+input platform_name: String
+input application_date: Time
+input created_at: Time
+
+output delay_per(p)
+    spawn with platform_name
+    eval when platform_name == p
+    with cast<UInt64,Float64>(created_at.time_diff(application_date).to_days())
+    
+#[plot]
+output avg_delay_per(p)
+    spawn with platform_name
+    eval @1h with delay_per(p).aggregate(over: 1d, using: avg).defaults(to: 0.0)";
+        assert_eq!(0, num_errors(spec));
     }
 }
