@@ -118,6 +118,10 @@ pub enum ConcreteValueType {
     #[cfg(feature = "probability")]
     /// A probability between 0 and 1
     Probability,
+    /// A timestamp
+    Time,
+    /// A time duration
+    Duration,
 }
 
 /// The external definition of the stream pacing.

@@ -587,6 +587,8 @@ impl Mir {
             ConcreteValueType::Vec3 => mir::Type::Vec3,
             #[cfg(feature = "probability")]
             ConcreteValueType::Probability => mir::Type::Probability,
+            ConcreteValueType::Time => mir::Type::Time,
+            ConcreteValueType::Duration => mir::Type::Duration,
         }
     }
 

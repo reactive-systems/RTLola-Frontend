@@ -183,6 +183,9 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
             #[cfg(feature = "probability")]
             ConcreteValueType::Probability => Ok(()),
+            ConcreteValueType::Byte | ConcreteValueType::Time | ConcreteValueType::Duration => {
+                Ok(())
+            } /* handled by first disjunct */
             ConcreteValueType::Tuple(children) => children
                 .iter()
                 .flat_map(|ty| {

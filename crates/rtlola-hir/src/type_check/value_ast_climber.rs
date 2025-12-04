@@ -264,6 +264,12 @@ where
             AnnotatedType::Vec => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Vec))?,
+            AnnotatedType::Time => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Time))?,
+            AnnotatedType::Duration => self
+                .tyc
+                .impose(target.concretizes_explicit(AbstractValueType::Duration))?,
             AnnotatedType::Numeric => self
                 .tyc
                 .impose(target.concretizes_explicit(AbstractValueType::Numeric))?,
@@ -1105,7 +1111,9 @@ where
             | AnnotatedType::Vec
             | AnnotatedType::Vec2
             | AnnotatedType::Vec3
-            | AnnotatedType::Any => {
+            | AnnotatedType::Any
+            | AnnotatedType::Time
+            | AnnotatedType::Duration => {
                 let replace_key = self.tyc.new_term_key();
                 self.concretizes_annotated_type(replace_key, at)?;
                 Ok(replace_key)
@@ -2828,51 +2836,99 @@ output o_9: Bool @i_0 := true  && true";
         output c : Bool := b.aggregate(over_instances: fresh, using: argmin)";
         assert_eq!(1, num_errors(spec));
     }
+    #[test]
+    fn time_comparison() {
+        let spec = "input a : Time
+        input b : Time
+        output c : Bool := a > b";
+        assert_eq!(0, num_errors(spec));
+    }
 
-    #[cfg(feature = "probability")]
-    mod probability_aggregation_tests {
-        use crate::{
-            hir::{ConcreteValueType, StreamReference},
-            type_check::{rtltc::NodeId, value_ast_climber::value_type_tests::check_value_type},
-        };
+    #[test]
+    fn time_duration() {
+        let spec = "import time
+        input a : Time
+        input b : Time
+        output c : Duration := b.time_diff(a)";
+        assert_eq!(0, num_errors(spec));
+    }
 
-        #[test]
-        fn true_ratio() {
-            let spec = "input a : Bool
+    #[test]
+    fn time_add_duration() {
+        let spec = "import time
+        input a : Time
+        output c : Duration := duration_from_secs(100)
+        output d : Time := a.add_duration(c)";
+        assert_eq!(0, num_errors(spec));
+    }
+
+    #[test]
+    fn eu_spec() {
+        let spec = "import time
+input id: Int64
+input content_language: String
+input automated_decision: String
+input automated_detection: Bool
+input platform_name: String
+input application_date: Time
+input created_at: Time
+
+output delay_per(p)
+    spawn with platform_name
+    eval when platform_name == p
+    with cast<UInt64,Float64>(created_at.time_diff(application_date).to_days())
+    
+#[plot]
+output avg_delay_per(p)
+    spawn with platform_name
+    eval @1h with delay_per(p).aggregate(over: 1d, using: avg).defaults(to: 0.0)";
+        assert_eq!(0, num_errors(spec));
+    }
+}
+
+#[cfg(feature = "probability")]
+mod probability_aggregation_tests {
+    use crate::{
+        hir::{ConcreteValueType, StreamReference},
+        type_check::{rtltc::NodeId, value_ast_climber::value_type_tests::check_value_type},
+    };
+
+    #[test]
+    fn true_ratio() {
+        let spec = "input a : Bool
         output x @1Hz := a.aggregate(over: 2s, using: ratio)";
-            let (_, result_map) = check_value_type(spec);
-            assert_eq!(
-                result_map[&NodeId::SRef(StreamReference::Out(0))],
-                ConcreteValueType::Probability
-            );
-        }
+        let (_, result_map) = check_value_type(spec);
+        assert_eq!(
+            result_map[&NodeId::SRef(StreamReference::Out(0))],
+            ConcreteValueType::Probability
+        );
+    }
 
-        #[test]
-        fn conditional_probability() {
-            let spec = "input a : Bool
+    #[test]
+    fn conditional_probability() {
+        let spec = "input a : Bool
             input b : Bool
             output c := (a,b)
         output x @1Hz := c.aggregate(over: 2s, using: probability)";
-            let (_, result_map) = check_value_type(spec);
-            assert_eq!(
-                result_map[&NodeId::SRef(StreamReference::Out(1))],
-                ConcreteValueType::Probability
-            );
-        }
+        let (_, result_map) = check_value_type(spec);
+        assert_eq!(
+            result_map[&NodeId::SRef(StreamReference::Out(1))],
+            ConcreteValueType::Probability
+        );
+    }
 
-        #[test]
-        fn conditional_probability_prior() {
-            let spec = "input a : Bool
+    #[test]
+    fn conditional_probability_prior() {
+        let spec = "input a : Bool
             input b : Bool
             input c : Float64
             input d : UInt64
             output e := (a,b,c,d)
         output x @1Hz := e.aggregate(over: 2s, using: probability_prior)";
-            let (_, result_map) = check_value_type(spec);
-            assert_eq!(
-                result_map[&NodeId::SRef(StreamReference::Out(1))],
-                ConcreteValueType::Probability
-            );
-        }
+        let (_, result_map) = check_value_type(spec);
+        assert_eq!(
+            result_map[&NodeId::SRef(StreamReference::Out(1))],
+            ConcreteValueType::Probability
+        );
     }
 }

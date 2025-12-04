@@ -84,6 +84,8 @@ pub(crate) enum AbstractValueType {
     Vec,
     #[cfg(feature = "probability")]
     Probability,
+    Time,
+    Duration,
 }
 
 impl Variant for AbstractValueType {
@@ -253,6 +255,10 @@ impl Variant for AbstractValueType {
             | (Numeric | SignedNumeric | FractionalNumeric, Probability) => Ok((Probability, 0)),
             #[cfg(feature = "probability")]
             (Probability, _) | (_, Probability) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Time, Time) => Ok((Time, 0)),
+            (Time, _) | (_, Time) => Err(TypeClash(lhs.variant, rhs.variant)),
+            (Duration, Duration) => Ok((Duration, 0)),
+            (Duration, _) | (_, Duration) => Err(TypeClash(lhs.variant, rhs.variant)),
         }?;
         Ok(Partial {
             variant: new_var,
@@ -289,6 +295,7 @@ impl Variant for AbstractValueType {
             | Bytes => Arity::Fixed(0),
             #[cfg(feature = "probability")]
             Probability => Arity::Fixed(0),
+            Bytes | Time | Duration => Arity::Fixed(0),
         }
     }
 }
@@ -375,6 +382,8 @@ impl Constructable for AbstractValueType {
             AbstractValueType::Vec3 => Ok(ConcreteValueType::Vec3),
             #[cfg(feature = "probability")]
             AbstractValueType::Probability => Ok(ConcreteValueType::Probability),
+            AbstractValueType::Time => Ok(ConcreteValueType::Time),
+            AbstractValueType::Duration => Ok(ConcreteValueType::Duration),
             AbstractValueType::Vec => Err(CannotReify(*self)),
         }
     }
@@ -440,6 +449,8 @@ impl ConcreteValueType {
             AnnotatedType::Param(..) => Err(AnnotationInvalid(at.clone())),
             AnnotatedType::Vec2 => Ok(ConcreteValueType::Vec2),
             AnnotatedType::Vec3 => Ok(ConcreteValueType::Vec3),
+            AnnotatedType::Time => Ok(ConcreteValueType::Time),
+            AnnotatedType::Duration => Ok(ConcreteValueType::Duration),
             AnnotatedType::Vec => Err(AnnotationInvalid(at.clone())),
             #[cfg(feature = "probability")]
             AnnotatedType::Probability => Ok(ConcreteValueType::Probability),
@@ -478,6 +489,8 @@ impl ConcreteValueType {
             Vec2 | Vec3 => None,
             #[cfg(feature = "probability")]
             Probability => None,
+            Time => None,
+            Duration => None,
         }
     }
 }
@@ -516,6 +529,8 @@ impl Display for AbstractValueType {
             AbstractValueType::Vec3 => write!(f, "Vec3"),
             #[cfg(feature = "probability")]
             AbstractValueType::Probability => write!(f, "Prob"),
+            AbstractValueType::Time => write!(f, "Time"),
+            AbstractValueType::Duration => write!(f, "Duration"),
         }
     }
 }
@@ -554,6 +569,8 @@ impl Display for ConcreteValueType {
             ConcreteValueType::Vec3 => write!(f, "Vec3"),
             #[cfg(feature = "probability")]
             ConcreteValueType::Probability => write!(f, "Prob"),
+            ConcreteValueType::Time => write!(f, "Time"),
+            ConcreteValueType::Duration => write!(f, "Duration"),
         }
     }
 }

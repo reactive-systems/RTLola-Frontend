@@ -528,6 +528,12 @@ impl ExpressionTransformer {
                 if string == "Prob" || string == "Probability" {
                     return Ok(AnnotatedType::Probability);
                 }
+                if string == "Time" {
+                    return Ok(AnnotatedType::Time);
+                }
+                if string == "Duration" {
+                    return Ok(AnnotatedType::Duration);
+                }
                 Err("unknown type".into())
             }
         }

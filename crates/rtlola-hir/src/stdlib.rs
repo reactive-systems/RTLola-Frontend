@@ -275,6 +275,48 @@ lazy_static! {
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Vec3]),
         return_type: AnnotatedType::Tuple(vec![AnnotatedType::Float(64), AnnotatedType::Float(64), AnnotatedType::Float(64)])
     };
+
+    static ref DURATION_BETWEEN: FuncDecl = FuncDecl {
+        name: FunctionName::new("time_diff".to_string(), &[None, None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Time, AnnotatedType::Time]),
+        return_type: AnnotatedType::Duration
+    };
+
+    static ref ADD_DURATION: FuncDecl = FuncDecl {
+        name: FunctionName::new("add_duration".to_string(), &[None, None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Time, AnnotatedType::Duration]),
+        return_type: AnnotatedType::Time
+    };
+
+    static ref DURATION_CONSTRUCTOR: FuncDecl = FuncDecl {
+        name: FunctionName::new("duration_from_secs".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Numeric]),
+        return_type: AnnotatedType::Duration
+    };
+
+    static ref TIME_CONSTRUCTOR: FuncDecl = FuncDecl {
+        name: FunctionName::new("time_from_utf".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::String]),
+        return_type: AnnotatedType::Time
+    };
+
+    static ref DURATION_TO_SECS: FuncDecl = FuncDecl {
+        name: FunctionName::new("to_secs".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Duration]),
+        return_type: AnnotatedType::Float(64)
+    };
+
+    static ref DURATION_IN_DAYS: FuncDecl = FuncDecl {
+        name: FunctionName::new("to_days".to_string(), &[None]),
+        generics: vec![],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Duration]),
+        return_type: AnnotatedType::UInt(64)
+    };
 }
 
 #[cfg(feature = "probability")]
@@ -343,6 +385,17 @@ pub(crate) fn vec_module() -> Vec<&'static FuncDecl> {
     ]
 }
 
+pub(crate) fn time_module() -> Vec<&'static FuncDecl> {
+    vec![
+        &TIME_CONSTRUCTOR,
+        &DURATION_CONSTRUCTOR,
+        &DURATION_BETWEEN,
+        &ADD_DURATION,
+        &DURATION_TO_SECS,
+        &DURATION_IN_DAYS,
+    ]
+}
+
 lazy_static! {
     pub(crate) static ref PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
         ("Bool", &AnnotatedType::Bool),
@@ -372,7 +425,8 @@ lazy_static! {
         ("Vec2", &AnnotatedType::Vec2),
         ("Vec3", &AnnotatedType::Vec3),
         #[cfg(feature = "probability")]
-        ("Prob", &AnnotatedType::Probability)
+        ("Prob", &AnnotatedType::Probability)("Time", &AnnotatedType::Time),
+        ("Duration", &AnnotatedType::Duration),
     ];
     pub(crate) static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![
         ("Bool", &AnnotatedType::Bool),

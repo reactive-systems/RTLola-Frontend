@@ -73,6 +73,8 @@ impl Display for Type {
             Type::Vec3 => write!(f, "Vec3"),
             #[cfg(feature = "probability")]
             Type::Probability => write!(f, "Prob"),
+            Type::Time => write!(f, "Time"),
+            Type::Duration => write!(f, "Duration"),
         }
     }
 }

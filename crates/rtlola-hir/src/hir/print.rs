@@ -265,6 +265,8 @@ impl Display for AnnotatedType {
             Vec => write!(f, "Vec"),
             #[cfg(feature = "probability")]
             Probability => write!(f, "Prob"),
+            Time => write!(f, "Time"),
+            Duration => write!(f, "Duration"),
         }
     }
 }
