@@ -724,6 +724,7 @@ impl Mir {
             Literal::Decimal(f) => match ty {
                 mir::Type::Float(_) => mir::Constant::Float(f.to_f64().unwrap()),
                 mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
+                mir::Type::Probability => mir::Constant::Float(f.to_f64().unwrap()),
                 _ => unreachable!(),
             },
         }
@@ -1206,6 +1207,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "probability")]
     fn lower_true_ratio_aggregation() {
         let spec = "input a: Bool\n\
         output b (p) spawn with a eval when a = p with a\n\
@@ -1214,6 +1216,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "probability")]
     fn lower_true_ratio_instance_aggregation() {
         let spec = "input a: UInt8\n\
         output a' (p) spawn @a with a eval @a when a = p with a + p > 5\n\

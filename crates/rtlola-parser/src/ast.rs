@@ -389,6 +389,64 @@ impl Expression {
     pub(crate) fn new(id: NodeId, kind: ExpressionKind, span: Span) -> Expression {
         Expression { kind, id, span }
     }
+
+    pub(crate) fn all_identifier(&self) -> Vec<&Ident> {
+        match &self.kind {
+            ExpressionKind::Lit(_) => vec![],
+            ExpressionKind::Ident(ident) => vec![ident],
+            ExpressionKind::DiscreteWindowAggregation {
+                expr: expression, ..
+            }
+            | ExpressionKind::AllAggregation {
+                expr: expression, ..
+            }
+            | ExpressionKind::SlidingWindowAggregation {
+                expr: expression, ..
+            }
+            | ExpressionKind::InstanceAggregation {
+                expr: expression, ..
+            }
+            | ExpressionKind::Field(expression, _)
+            | ExpressionKind::Unary(_, expression)
+            | ExpressionKind::Offset(expression, _)
+            | ExpressionKind::ParenthesizedExpression(expression)
+            | ExpressionKind::StreamAccess(expression, _) => expression.all_identifier(),
+            ExpressionKind::Binary(_, expression, expression1)
+            | ExpressionKind::Default(expression, expression1) => expression
+                .all_identifier()
+                .into_iter()
+                .chain(expression1.all_identifier())
+                .collect(),
+            ExpressionKind::Ite(expression, expression1, expression2) => expression
+                .all_identifier()
+                .into_iter()
+                .chain(expression1.all_identifier())
+                .into_iter()
+                .chain(expression2.all_identifier())
+                .collect(),
+            ExpressionKind::MissingExpression => vec![],
+            ExpressionKind::Method(expression, _, _, expressions) => expression
+                .all_identifier()
+                .into_iter()
+                .chain(
+                    expressions
+                        .into_iter()
+                        .flat_map(|expr| expr.all_identifier()),
+                )
+                .collect(),
+            ExpressionKind::Tuple(expressions) | ExpressionKind::Function(_, _, expressions) => {
+                expressions
+                    .into_iter()
+                    .flat_map(|expr| expr.all_identifier())
+                    .collect()
+            }
+            ExpressionKind::Lambda(LambdaExpr { parameters, expr }) => expr
+                .all_identifier()
+                .into_iter()
+                .filter(|ident| !parameters.iter().any(|p| p.name.name == ident.name))
+                .collect(),
+        }
+    }
 }
 
 #[allow(clippy::large_enum_variant, clippy::vec_box)]

@@ -292,10 +292,11 @@ impl Variant for AbstractValueType {
             | Vec
             | Vec2
             | Vec3
-            | Bytes => Arity::Fixed(0),
+            | Bytes
+            | Time
+            | Duration => Arity::Fixed(0),
             #[cfg(feature = "probability")]
             Probability => Arity::Fixed(0),
-            Bytes | Time | Duration => Arity::Fixed(0),
         }
     }
 }

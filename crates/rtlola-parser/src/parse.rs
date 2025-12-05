@@ -2721,7 +2721,7 @@ mod tests {
     #[test]
     fn true_ratio() {
         let spec = "input a: Bool\n\
-        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: ratio)\n";
+        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: true_ratio)\n";
         let ast = parse_without_desugar(spec);
         cmp_ast_spec(&ast, spec);
     }
@@ -2730,7 +2730,7 @@ mod tests {
     #[cfg(feature = "probability")]
     fn true_ratio2() {
         let spec = "input a: Bool\n\
-        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: ratio)\n";
+        output x: Float64 eval @1Hz with a.aggregate(over: 2s, using: true_ratio)\n";
         let ast = parse(spec);
         cmp_ast_spec(&ast, spec);
     }

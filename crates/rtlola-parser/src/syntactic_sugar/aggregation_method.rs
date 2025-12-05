@@ -31,8 +31,7 @@ impl AggrMethodToWindow {
                     "cov" => WindowOperation::Covariance,
                     "sd" => WindowOperation::StandardDeviation,
                     "med" => WindowOperation::NthPercentile(50),
-                    "ratio" => WindowOperation::TrueRatio,
-                    "prob" | "probability" => WindowOperation::ConditionalProbability,
+                    "true_ratio" | "ratio" | "probability" | "prob" => WindowOperation::TrueRatio,
                     _ => return ChangeSet::empty(),
                 };
                 let builder = Builder::new(expr.span, ast);

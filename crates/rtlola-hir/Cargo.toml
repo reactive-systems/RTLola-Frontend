@@ -35,4 +35,4 @@ rust_decimal = "1.36.0"
 [features]
 shift_layer = []
 probability = ["rtlola-parser/probability"]
-default = []
+default = ["probability"]

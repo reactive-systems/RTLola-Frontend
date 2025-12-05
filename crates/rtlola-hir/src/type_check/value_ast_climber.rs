@@ -709,10 +709,25 @@ where
                                 if wait {
                                     unimplemented!()
                                 } else {
-                                    self.tyc
-                                        .impose(term_key.concretizes_explicit(
-                                            AbstractValueType::Probability,
-                                        ))?;
+                                    match wref {
+                                        WindowReference::All(_) | WindowReference::Discrete(_) => {
+                                            self.tyc.impose(term_key.concretizes_explicit(
+                                                AbstractValueType::Probability,
+                                            ))?;
+                                        }
+                                        WindowReference::Sliding(_)
+                                        | WindowReference::Instance(_) => {
+                                            self.tyc.impose(
+                                                term_key.concretizes_explicit(
+                                                    AbstractValueType::Option,
+                                                ),
+                                            )?;
+                                            let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                            self.tyc.impose(inner_key.concretizes_explicit(
+                                                AbstractValueType::Probability,
+                                            ))?
+                                        }
+                                    }
                                 }
                             }
                             #[cfg(not(feature = "probability"))]
@@ -732,9 +747,26 @@ where
                                 self.tyc.impose(
                                     target_child_2.concretizes_explicit(AbstractValueType::Bool),
                                 )?;
-                                self.tyc.impose(
-                                    term_key.concretizes_explicit(AbstractValueType::Probability),
-                                )?;
+
+                                match wref {
+                                    WindowReference::All(_) | WindowReference::Discrete(_) => {
+                                        self.tyc.impose(term_key.concretizes_explicit(
+                                            AbstractValueType::Probability,
+                                        ))?;
+                                    }
+                                    WindowReference::Sliding(_) | WindowReference::Instance(_) => {
+                                        self.tyc.impose(
+                                            term_key
+                                                .concretizes_explicit(AbstractValueType::Option),
+                                        )?;
+                                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                        self.tyc.impose(
+                                            inner_key.concretizes_explicit(
+                                                AbstractValueType::Probability,
+                                            ),
+                                        )?
+                                    }
+                                }
                             }
                             #[cfg(not(feature = "probability"))]
                             WindowOperation::ConditionalProbabilityWithPrior => {
@@ -763,9 +795,26 @@ where
                                     target_child_4
                                         .concretizes_explicit(AbstractValueType::UInteger),
                                 )?;
-                                self.tyc.impose(
-                                    term_key.concretizes_explicit(AbstractValueType::Probability),
-                                )?;
+
+                                match wref {
+                                    WindowReference::All(_) | WindowReference::Discrete(_) => {
+                                        self.tyc.impose(term_key.concretizes_explicit(
+                                            AbstractValueType::Probability,
+                                        ))?;
+                                    }
+                                    WindowReference::Sliding(_) | WindowReference::Instance(_) => {
+                                        self.tyc.impose(
+                                            term_key
+                                                .concretizes_explicit(AbstractValueType::Option),
+                                        )?;
+                                        let inner_key = self.tyc.get_child_key(term_key, 0)?;
+                                        self.tyc.impose(
+                                            inner_key.concretizes_explicit(
+                                                AbstractValueType::Probability,
+                                            ),
+                                        )?
+                                    }
+                                }
                             }
                         }
                     }
@@ -1246,7 +1295,7 @@ mod value_type_tests {
     use crate::type_check::rtltc::{LolaTypeChecker, NodeId};
     use crate::type_check::ConcreteValueType;
 
-    struct TestBox {
+    pub(crate) struct TestBox {
         hir: RtLolaHir<BaseMode>,
     }
 
@@ -1270,7 +1319,7 @@ mod value_type_tests {
         TestBox { hir }
     }
 
-    fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, ConcreteValueType>) {
+    pub(crate) fn check_value_type(spec: &str) -> (TestBox, HashMap<NodeId, ConcreteValueType>) {
         let test_box = setup_hir(spec);
         let ltc = LolaTypeChecker::new(&test_box.hir);
         let tt_result = ltc.value_type_infer();
@@ -2886,6 +2935,7 @@ output avg_delay_per(p)
     }
 }
 
+#[cfg(test)]
 #[cfg(feature = "probability")]
 mod probability_aggregation_tests {
     use crate::{
@@ -2896,7 +2946,18 @@ mod probability_aggregation_tests {
     #[test]
     fn true_ratio() {
         let spec = "input a : Bool
-        output x @1Hz := a.aggregate(over: 2s, using: ratio)";
+        output x @1Hz := a.aggregate(over: 2s, using: ratio).defaults(to: 0.0)";
+        let (_, result_map) = check_value_type(spec);
+        assert_eq!(
+            result_map[&NodeId::SRef(StreamReference::Out(0))],
+            ConcreteValueType::Probability
+        );
+    }
+
+    #[test]
+    fn true_ratio_all() {
+        let spec = "input a : Bool
+        output x @1Hz := a.aggregate(over_discrete: all, using: ratio)";
         let (_, result_map) = check_value_type(spec);
         assert_eq!(
             result_map[&NodeId::SRef(StreamReference::Out(0))],
@@ -2909,7 +2970,7 @@ mod probability_aggregation_tests {
         let spec = "input a : Bool
             input b : Bool
             output c := (a,b)
-        output x @1Hz := c.aggregate(over: 2s, using: probability)";
+        output x @1Hz := c.aggregate(over: 2s, using: probability).defaults(to: 0.0)";
         let (_, result_map) = check_value_type(spec);
         assert_eq!(
             result_map[&NodeId::SRef(StreamReference::Out(1))],
@@ -2924,7 +2985,7 @@ mod probability_aggregation_tests {
             input c : Float64
             input d : UInt64
             output e := (a,b,c,d)
-        output x @1Hz := e.aggregate(over: 2s, using: probability_prior)";
+        output x @1Hz := e.aggregate(over: 2s, using: probability_prior).defaults(to: 0.0)";
         let (_, result_map) = check_value_type(spec);
         assert_eq!(
             result_map[&NodeId::SRef(StreamReference::Out(1))],

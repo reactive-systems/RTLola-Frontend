@@ -298,7 +298,7 @@ lazy_static! {
     };
 
     static ref TIME_CONSTRUCTOR: FuncDecl = FuncDecl {
-        name: FunctionName::new("time_from_utf".to_string(), &[None]),
+        name: FunctionName::new("time_from_rfc".to_string(), &[None]),
         generics: vec![],
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::String]),
         return_type: AnnotatedType::Time
@@ -425,7 +425,8 @@ lazy_static! {
         ("Vec2", &AnnotatedType::Vec2),
         ("Vec3", &AnnotatedType::Vec3),
         #[cfg(feature = "probability")]
-        ("Prob", &AnnotatedType::Probability)("Time", &AnnotatedType::Time),
+        ("Prob", &AnnotatedType::Probability),
+        ("Time", &AnnotatedType::Time),
         ("Duration", &AnnotatedType::Duration),
     ];
     pub(crate) static ref REDUCED_PRIMITIVE_TYPES: Vec<(&'static str, &'static AnnotatedType)> = vec![

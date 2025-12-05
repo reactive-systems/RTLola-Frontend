@@ -223,6 +223,21 @@ impl<'a> Builder<'a> {
         }
     }
 
+    pub(crate) fn stream_access(&self, stream: Ident, params: Vec<Expression>) -> Expression {
+        if params.is_empty() {
+            self.ident(stream)
+        } else {
+            self.function(
+                FunctionName {
+                    name: stream,
+                    arg_names: vec![None; params.len()],
+                },
+                Vec::new(),
+                params,
+            )
+        }
+    }
+
     pub(crate) fn literal(&self, v: Literal) -> Expression {
         Expression {
             kind: ExpressionKind::Lit(v),

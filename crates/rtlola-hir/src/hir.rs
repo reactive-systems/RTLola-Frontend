@@ -246,7 +246,7 @@ impl<M: HirMode> Hir<M> {
     }
 
     /// Retrieves the spawn definition of a particular output stream or trigger or `None` for input references.
-    pub fn spawn(&self, sr: SRef) -> Option<SpawnDef> {
+    pub fn spawn(&self, sr: SRef) -> Option<SpawnDef<'_>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -308,13 +308,13 @@ impl<M: HirMode> Hir<M> {
     /// # Panic
     /// Panics if the stream does not exist or is an input/trigger.
     #[cfg(test)]
-    pub(crate) fn spawn_unchecked(&self, sr: SRef) -> SpawnDef {
+    pub(crate) fn spawn_unchecked(&self, sr: SRef) -> SpawnDef<'_> {
         self.spawn(sr)
             .expect("Invalid for input and triggers references")
     }
 
     /// Retrieves the eval definitions of a particular output stream or trigger or `None` for input references.
-    pub fn eval(&self, sr: SRef) -> Option<Vec<EvalDef>> {
+    pub fn eval(&self, sr: SRef) -> Option<Vec<EvalDef<'_>>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -395,12 +395,12 @@ impl<M: HirMode> Hir<M> {
     /// Same behavior as [`eval`](fn@Hir).
     /// # Panic
     /// Panics if the stream does not exist or is an input.
-    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> Vec<EvalDef> {
+    pub(crate) fn eval_unchecked(&self, sr: StreamReference) -> Vec<EvalDef<'_>> {
         self.eval(sr).expect("Invalid for input references")
     }
 
     /// Retrieves the expressions representing the close definition of a particular output stream or `None` for input and trigger references.
-    pub fn close(&self, sr: SRef) -> Option<CloseDef> {
+    pub fn close(&self, sr: SRef) -> Option<CloseDef<'_>> {
         match sr {
             SRef::In(_) => None,
             SRef::Out(_) => {
@@ -445,7 +445,7 @@ impl<M: HirMode> Hir<M> {
     /// # Panic
     /// Panics if the stream does not exist or is an input/trigger.
     #[cfg(test)]
-    pub(crate) fn close_unchecked(&self, sr: StreamReference) -> CloseDef {
+    pub(crate) fn close_unchecked(&self, sr: StreamReference) -> CloseDef<'_> {
         self.close(sr)
             .expect("Invalid for input and triggers references")
     }

@@ -180,12 +180,11 @@ impl Feature for FeatureSelector {
             | ConcreteValueType::TString
             | ConcreteValueType::Vec2
             | ConcreteValueType::Vec3
-            | ConcreteValueType::Byte => Ok(()), /* handled by first disjunct */
+            | ConcreteValueType::Byte
+            | ConcreteValueType::Time
+            | ConcreteValueType::Duration => Ok(()), /* handled by first disjunct */
             #[cfg(feature = "probability")]
             ConcreteValueType::Probability => Ok(()),
-            ConcreteValueType::Byte | ConcreteValueType::Time | ConcreteValueType::Duration => {
-                Ok(())
-            } /* handled by first disjunct */
             ConcreteValueType::Tuple(children) => children
                 .iter()
                 .flat_map(|ty| {
@@ -632,7 +631,7 @@ mod test {
     use crate::fully_analyzed;
     use crate::hir::{ConcreteValueType, FeatureSelector};
 
-    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler) {
+    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler<'_>) {
         use rtlola_parser::parse;
         let handler = Handler::from(cfg);
         let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();

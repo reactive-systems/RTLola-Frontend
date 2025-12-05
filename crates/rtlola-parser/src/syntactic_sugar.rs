@@ -1203,7 +1203,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace() {
-        let spec = "output x eval @5Hz with x.count(6s)".to_string();
+        let spec = "output x eval @5Hz with x.count(over: 6s)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert!(matches!(
             ast.outputs[0].eval[0].clone().eval_expression.unwrap().kind,
@@ -1216,7 +1216,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_nested() {
-        let spec = "output x eval @ 5hz with -x.sum(6s)".to_string();
+        let spec = "output x eval @ 5hz with -x.sum(over: 6s)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0]
             .clone()
@@ -1241,7 +1241,7 @@ mod tests {
 
     #[test]
     fn test_aggr_replace_multiple() {
-        let spec = "output x eval @5hz with x.avg(5s) - x.integral(2.5s)".to_string();
+        let spec = "output x eval @5hz with x.avg(over: 5s) - x.integral(over: 2.5s)".to_string();
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         let out_kind = ast.outputs[0].eval[0]
             .clone()
@@ -1338,7 +1338,11 @@ mod tests {
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
+}
 
+#[cfg(test)]
+#[cfg(not(feature = "probability"))]
+mod prob_tests {
     #[test]
     fn test_true_ratio_aggregation() {
         let spec = "input a: Bool\n\
@@ -1422,11 +1426,6 @@ mod tests {
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
-}
-
-#[cfg(test)]
-#[cfg(not(feature = "probability"))]
-mod prob_tests {
 
     #[test]
     fn test_probability() {
@@ -1609,7 +1608,7 @@ output target' eval with (a, b)";
 input b: Bool
 input c: Float64
 input d: UInt64
-output e eval with target'.aggregate(over_discrete: all, using: probability)
+output e eval with target'.aggregate(over_discrete: all, using: probability_prior)
 output target' eval with (a, b, c, d)";
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
@@ -1630,8 +1629,8 @@ output target' eval with (a, b, c, d)";
 input b: Bool
 input c: Float64
 input d: UInt64
-output e spawn when a eval when !a with target'.aggregate(over_discrete: all, using: probability) close when b
-output target' spawn when a eval when !a with (a, b, c, d) close when b";
+output e spawn when a eval when !a with target'.aggregate(over_discrete: all, using: probability_prior) close when b
+output target' eval when !a with (a, b, c, d)";
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }
@@ -1646,8 +1645,8 @@ output target' spawn when a eval when !a with (a, b, c, d) close when b";
             .to_string();
         let expected = "input a: Bool
 input b: Bool
-output e(p) spawn with a eval with target'.aggregate(over_discrete: all, using: probability)
-output target'(p) spawn with a eval with (a, b, c, d)";
+output e (p) spawn with a eval with target'.aggregate(over_discrete: all, using: probability)
+output target' eval with (a, b)";
         let ast = crate::parse(&crate::ParserConfig::for_string(spec)).unwrap();
         assert_eq!(expected, format!("{}", ast).trim());
     }

@@ -191,17 +191,54 @@ impl Probability {
     fn desugar_prob(
         expr: &Expression,
         ast: &RtLolaAst,
-        _origin: ExprOrigin,
-        _stream: usize,
+        origin: ExprOrigin,
+        stream: usize,
         of_expr: &Expression,
         given_expr: Option<&Expression>,
         prior_expr: Option<&Expression>,
         confidence_expr: Option<&Expression>,
         duration_expr: Option<&Expression>,
     ) -> Result<ChangeSet, RtLolaError> {
+        use std::rc::Rc;
+
         use crate::ast::WindowOperation;
 
         let builder = Builder::new(expr.span, ast);
+
+        let stream = &ast.outputs[stream];
+
+        let target_parameterized = of_expr
+            .all_identifier()
+            .into_iter()
+            .chain(given_expr.iter().flat_map(|expr| expr.all_identifier()))
+            .any(|ident| {
+                stream
+                    .params
+                    .iter()
+                    .any(|param| param.name.name == ident.name)
+            });
+
+        let (spawn, filter, close) = match origin {
+            ExprOrigin::EvalWith(c) => (
+                stream.spawn.as_ref(),
+                stream.eval[c].condition.as_ref(),
+                stream.close.as_ref(),
+            ),
+            ExprOrigin::EvalWhen(_) => (stream.spawn.as_ref(), None, stream.close.as_ref()),
+            ExprOrigin::SpawnWhen | ExprOrigin::SpawnWith | ExprOrigin::CloseWhen => {
+                return Err(Diagnostic::error(
+                    "Prob functions are only supported in eval with clauses",
+                )
+                .add_span_with_label(expr.span, Some("Found unsupported prob here."), true)
+                .into())
+            }
+        };
+
+        let params = &stream.params;
+        let param_exprs = params
+            .iter()
+            .map(|p| builder.ident(p.name.next_id(ast)))
+            .collect::<Vec<_>>();
 
         let target_stream_name = ast.primed_name("target");
         let target_stream_ident = Ident {
@@ -225,14 +262,20 @@ impl Probability {
         let target_stream = Output {
             kind: OutputKind::NamedOutput(target_stream_ident.next_id(ast)),
             annotated_type: None,
-            params: Vec::new(),
-            spawn: None,
+            params: target_parameterized
+                .then(|| params.iter().map(|p| Rc::new(p.next_id(ast))).collect())
+                .unwrap_or_default(),
+            spawn: target_parameterized
+                .then(|| spawn.as_ref().map(|s| s.next_id(ast)))
+                .flatten(),
             eval: vec![builder.eval_spec(
-                None,
+                filter.as_ref().map(|filter| filter.next_id(ast)),
                 AnnotatedPacingType::NotAnnotated(builder.span.to_indirect()),
                 Some(target_stream_expr),
             )],
-            close: None,
+            close: target_parameterized
+                .then(|| close.as_ref().map(|c| c.next_id(ast)))
+                .flatten(),
             tags: Vec::new(),
             id: ast.next_id(),
             span: expr.span.to_indirect(),
@@ -245,15 +288,18 @@ impl Probability {
             _ => unreachable!(),
         };
 
+        let target = builder.stream_access(
+            target_stream_ident,
+            if target_parameterized {
+                param_exprs
+            } else {
+                Vec::new()
+            },
+        );
         let expr = if let Some(duration_expr) = duration_expr {
-            builder.sliding_window(
-                builder.ident(target_stream_ident),
-                duration_expr.next_id(ast),
-                false,
-                op,
-            )
+            builder.sliding_window(target, duration_expr.next_id(ast), false, op)
         } else {
-            builder.all_aggregation(builder.ident(target_stream_ident), op)
+            builder.all_aggregation(target, op)
         };
 
         Ok(ChangeSet::replace_current_expression(expr) + ChangeSet::add_output(target_stream))
@@ -274,7 +320,7 @@ impl Probability {
                     match name.to_string().as_str() {
                         "prob(given:)" => (of, Some(&arguments[0]), None, None, None),
                         "prob(given:over:)" => {
-                            (of, Some(&arguments[0]), None, None, Some(&arguments[0]))
+                            (of, Some(&arguments[0]), None, None, Some(&arguments[1]))
                         }
                         "prob(given:prior:confidence:)" => (
                             of,

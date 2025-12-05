@@ -233,7 +233,7 @@ enum NodeInformation<'a> {
     },
 }
 
-fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
+fn node_infos(mir: &Mir, node: Node) -> NodeInformation<'_> {
     match node {
         Node::Stream(sref) => stream_infos(mir, sref),
         Node::Window(wref) => window_infos(mir, wref),
@@ -241,7 +241,7 @@ fn node_infos(mir: &Mir, node: Node) -> NodeInformation {
     }
 }
 
-fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
+fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation<'_> {
     let stream = mir.stream(sref);
 
     let stream_name = stream.name();
@@ -276,7 +276,7 @@ fn stream_infos(mir: &Mir, sref: StreamReference) -> NodeInformation {
     }
 }
 
-fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation {
+fn window_infos(mir: &Mir, wref: WindowReference) -> NodeInformation<'_> {
     let window = mir.window(wref);
     let operation_str = window.op().to_string();
     let duration_str = match wref {
