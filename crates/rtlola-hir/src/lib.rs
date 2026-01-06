@@ -66,6 +66,7 @@ pub fn fully_analyzed(
     Hir::<BaseMode>::from_ast(ast)?
         .check_types(cfg)?
         .analyze_dependencies(cfg)?
+        .privacy_stage(cfg)?
         .determine_evaluation_order(cfg)?
         .determine_memory_bounds(cfg)?
         .finalize(cfg)

@@ -10,6 +10,7 @@ use rtlola_parser::ParserConfig;
 pub struct FrontendConfig<'a> {
     parser_config: &'a ParserConfig,
     memory_bound_mode: MemoryBoundMode,
+    privacy_parameter: Option<f64>,
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +30,7 @@ impl<'a> From<&'a ParserConfig> for FrontendConfig<'a> {
         Self {
             parser_config,
             memory_bound_mode: MemoryBoundMode::default(),
+            privacy_parameter: None,
         }
     }
 }
@@ -40,6 +42,9 @@ pub trait ParserConfigExt<'a> {
 
     /// Returns a reference to the underlying parser config.
     fn parser_config(&self) -> &ParserConfig;
+
+    /// Make the specification private with the given privacy parameter
+    fn with_privacy_parameter(&'a self, parameter: f64) -> FrontendConfig<'a>;
 }
 
 impl<'a> ParserConfigExt<'a> for ParserConfig {
@@ -49,6 +54,10 @@ impl<'a> ParserConfigExt<'a> for ParserConfig {
 
     fn parser_config(&self) -> &ParserConfig {
         self
+    }
+
+    fn with_privacy_parameter(&'a self, parameter: f64) -> FrontendConfig<'a> {
+        FrontendConfig::from(self).with_privacy_parameter(parameter)
     }
 }
 
@@ -60,9 +69,20 @@ impl<'a> FrontendConfig<'a> {
         }
     }
 
+    fn with_privacy_parameter(self, parameter: f64) -> FrontendConfig<'a> {
+        Self {
+            privacy_parameter: Some(parameter),
+            ..self
+        }
+    }
+
     /// Returns the configuration for the parser
     pub fn parser_config(&self) -> &ParserConfig {
         self.parser_config
+    }
+
+    pub fn privacy_parameter(&self) -> Option<f64> {
+        self.privacy_parameter
     }
 }
 

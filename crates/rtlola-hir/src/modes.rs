@@ -2,6 +2,7 @@ pub(crate) mod ast_conversion;
 pub(crate) mod dependencies;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
+mod privacy;
 pub(crate) mod types;
 
 use std::collections::HashMap;
@@ -26,7 +27,7 @@ use crate::type_check::{ConcreteValueType, StreamType};
 /// Each mode implements a separate trait defining the functionality that is added by the new mode, e.g., the [TypedMode] implements the [TypedTrait], providing an interface to get the types of a stream or expression.
 /// With a new mode, a compiler flag derives the functionality of the previous modes.
 /// The [RtLolaHir](crate::RtLolaHir) progesses the following modes:
-/// [BaseMode] -> [TypedMode] -> [DepAnaMode] -> [OrderedMode] -> [MemBoundMode] -> [CompleteMode]
+/// [BaseMode] -> [TypedMode] -> [DepAnaMode] -> [PrivacyMode] -> [OrderedMode] -> [MemBoundMode] -> [CompleteMode]
 pub trait HirMode {}
 
 /// Defines the functionality to progress one mode to the next one
@@ -285,6 +286,58 @@ pub trait DepAnaTrait {
 }
 
 impl HirStage for Hir<DepAnaMode> {
+    type NextStage = PrivacyMode;
+
+    fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
+        let hir = if let Some(parameter) = cfg.privacy_parameter() {
+            self.add_privacy_barriers(parameter)?
+        } else {
+            self
+        };
+
+        let Hir {
+            inputs,
+            outputs,
+            next_input_ref,
+            next_output_ref,
+            expr_maps,
+            global_tags,
+            mode: DepAnaMode {
+                types,
+                dependencies,
+            },
+        } = hir;
+
+        Ok(Hir {
+            inputs,
+            outputs,
+            next_input_ref,
+            next_output_ref,
+            expr_maps,
+            global_tags,
+            mode: PrivacyMode {
+                types,
+                dependencies,
+            },
+        })
+    }
+}
+
+impl Hir<DepAnaMode> {
+    pub fn privacy_stage(self, cfg: &FrontendConfig) -> Result<Hir<PrivacyMode>, RtLolaError> {
+        self.progress(cfg)
+    }
+}
+
+#[covers_functionality(DepAnaTrait, dependencies)]
+#[covers_functionality(TypedTrait, types)]
+#[derive(Debug, Clone, HirMode)]
+pub struct PrivacyMode {
+    types: Typed,
+    dependencies: DepAna,
+}
+
+impl HirStage for Hir<PrivacyMode> {
     type NextStage = OrderedMode;
 
     fn progress(self, _cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
@@ -308,7 +361,7 @@ impl HirStage for Hir<DepAnaMode> {
     }
 }
 
-impl Hir<DepAnaMode> {
+impl Hir<PrivacyMode> {
     /// Returns the [RtLolaHir](crate::RtLolaHir) with the spawn and evaluation layer of each stream
     ///
     /// # Fails

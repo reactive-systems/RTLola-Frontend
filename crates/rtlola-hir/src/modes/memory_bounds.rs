@@ -225,6 +225,8 @@ mod dynamic_memory_bound_tests {
             .unwrap()
             .analyze_dependencies(&frontend_config)
             .unwrap()
+            .privacy_stage(&frontend_config)
+            .unwrap()
             .determine_evaluation_order(&frontend_config)
             .unwrap();
         let bounds = MemBound::analyze(&hir, MemoryBoundMode::Dynamic);
@@ -449,6 +451,8 @@ mod static_memory_bound_tests {
             .check_types(&frontend_config)
             .unwrap()
             .analyze_dependencies(&frontend_config)
+            .unwrap()
+            .privacy_stage(&frontend_config)
             .unwrap()
             .determine_evaluation_order(&frontend_config)
             .unwrap();

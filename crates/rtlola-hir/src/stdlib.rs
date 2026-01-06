@@ -275,10 +275,25 @@ lazy_static! {
         parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Vec3]),
         return_type: AnnotatedType::Tuple(vec![AnnotatedType::Float(64), AnnotatedType::Float(64), AnnotatedType::Float(64)])
     };
+
+    static ref LAPLACE: FuncDecl = FuncDecl {
+        name: FunctionName::new("laplace".to_string(), &[Some("scale".into())]),
+        generics: vec![AnnotatedType::Float(0)],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Float(64)
+    };
+
+    static ref CLAMP: FuncDecl = FuncDecl {
+        name: FunctionName::new("clamp".to_string(), &[None, None, None]),
+        generics: vec![AnnotatedType::Numeric],
+        parameters: ParameterDecl::FixedAmount(vec![AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string()), AnnotatedType::Param(0, "T".to_string())]),
+        return_type: AnnotatedType::Param(0, "T".to_string())
+    };
+
 }
 
 pub(crate) fn implicit_module() -> Vec<&'static FuncDecl> {
-    vec![&WIDEN, &CAST, &BYTES_AT, &FORMAT]
+    vec![&WIDEN, &CAST, &BYTES_AT, &FORMAT, &CLAMP]
 }
 
 pub(crate) fn math_module() -> Vec<&'static FuncDecl> {
@@ -307,6 +322,10 @@ pub(crate) fn vec_module() -> Vec<&'static FuncDecl> {
         &UNWRAP2,
         &UNWRAP3,
     ]
+}
+
+pub(crate) fn noise_module() -> Vec<&'static FuncDecl> {
+    vec![&LAPLACE]
 }
 
 lazy_static! {
