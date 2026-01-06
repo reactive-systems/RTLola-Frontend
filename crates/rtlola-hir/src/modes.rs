@@ -2,7 +2,7 @@ pub(crate) mod ast_conversion;
 pub(crate) mod dependencies;
 pub(crate) mod memory_bounds;
 pub(crate) mod ordering;
-mod privacy;
+pub(crate) mod privacy;
 pub(crate) mod types;
 
 use std::collections::HashMap;
@@ -290,7 +290,7 @@ impl HirStage for Hir<DepAnaMode> {
 
     fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let hir = if let Some(parameter) = cfg.privacy_parameter() {
-            self.add_privacy_barriers(parameter)?
+            self.add_privacy_barriers(parameter, cfg.privacy_heuristic())?
         } else {
             self
         };

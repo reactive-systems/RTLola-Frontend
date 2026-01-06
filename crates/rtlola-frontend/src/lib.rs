@@ -114,3 +114,14 @@ pub fn parse_to_base_hir(cfg: &ParserConfig) -> Result<RtLolaHir<BaseMode>, RtLo
 pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
     rtlola_parser::parse(cfg)
 }
+
+#[test]
+fn test() {
+    let spec = "
+    #[sensitivity=\"5\"]
+    input a : UInt64
+    output b := a + 1
+    ";
+    let mir = parse(ParserConfig::for_string(spec.into()).with_privacy_parameter(1.0)).unwrap();
+    dbg!(mir);
+}

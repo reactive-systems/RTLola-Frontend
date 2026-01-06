@@ -2,6 +2,8 @@
 
 use rtlola_parser::ParserConfig;
 
+use crate::modes::privacy::PrivacyHeuristic;
+
 /// Represents the configuration for the whole frontend.
 ///
 /// This includes the configuration of the parser, as well as
@@ -11,6 +13,7 @@ pub struct FrontendConfig<'a> {
     parser_config: &'a ParserConfig,
     memory_bound_mode: MemoryBoundMode,
     privacy_parameter: Option<f64>,
+    privacy_heuristic: PrivacyHeuristic,
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +34,7 @@ impl<'a> From<&'a ParserConfig> for FrontendConfig<'a> {
             parser_config,
             memory_bound_mode: MemoryBoundMode::default(),
             privacy_parameter: None,
+            privacy_heuristic: PrivacyHeuristic::Inputs,
         }
     }
 }
@@ -76,6 +80,13 @@ impl<'a> FrontendConfig<'a> {
         }
     }
 
+    fn with_privacy_heuristic(self, heuristic: PrivacyHeuristic) -> FrontendConfig<'a> {
+        Self {
+            privacy_heuristic: heuristic,
+            ..self
+        }
+    }
+
     /// Returns the configuration for the parser
     pub fn parser_config(&self) -> &ParserConfig {
         self.parser_config
@@ -83,6 +94,10 @@ impl<'a> FrontendConfig<'a> {
 
     pub fn privacy_parameter(&self) -> Option<f64> {
         self.privacy_parameter
+    }
+
+    pub fn privacy_heuristic(&self) -> PrivacyHeuristic {
+        self.privacy_heuristic
     }
 }
 

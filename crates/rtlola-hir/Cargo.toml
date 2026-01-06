@@ -31,6 +31,7 @@ rusttyc = { git = "https://github.com/Schwenger/RustTyC.git", branch = "context_
 serde = { version = "1.0.130", features = ["derive"] }
 num-rational = { version = "*", features = ["serde"] }
 rust_decimal = "1.36.0"
+ordered-float = "5.1.0"
 
 [features]
 shift_layer = []
