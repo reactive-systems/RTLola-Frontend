@@ -118,10 +118,12 @@ pub fn parse_to_ast(cfg: &ParserConfig) -> Result<RtLolaAst, RtLolaError> {
 #[test]
 fn test() {
     let spec = "
-    #[sensitivity=\"5\"]
+    #[range_from=\"0\"]
+    #[range_to=\"5\"]
     input a : UInt64
     output b := a + 1
+    output c := b * 2
     ";
     let mir = parse(ParserConfig::for_string(spec.into()).with_privacy_parameter(1.0)).unwrap();
-    dbg!(mir);
+    println!("{mir}");
 }

@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter, Result};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter, Result},
+};
 
 use itertools::Itertools;
 use rtlola_hir::hir::OutputKind;
@@ -436,10 +439,29 @@ impl Display for RtLolaMirPrinter<'_, Expression> {
     }
 }
 
+fn format_tags(tags: &HashMap<String, Option<String>>, f: &mut Formatter<'_>) -> Result {
+    if !tags.is_empty() {
+        write!(f, "#[")?;
+        for (i, (key, value)) in tags.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            if let Some(value) = value.as_ref() {
+                write!(f, "{key}=\"{value}\"")?;
+            } else {
+                write!(f, "{key}")?;
+            }
+        }
+        write!(f, "]\n")?;
+    }
+    Ok(())
+}
+
 impl Display for InputStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let name = &self.name;
         let ty = &self.ty;
+        format_tags(&self.tags, f)?;
         write!(f, "input {name} : {ty}")
     }
 }
@@ -453,9 +475,11 @@ impl Display for RtLolaMirPrinter<'_, UnparameterizedOutputStream> {
             eval,
             close,
             kind,
+            tags,
             ..
         }) = self.inner;
 
+        format_tags(tags, f)?;
         match kind {
             OutputKind::NamedOutput(name) => write!(f, "output {name} : {ty}")?,
             OutputKind::Trigger(_) => write!(f, "trigger")?,
@@ -490,6 +514,7 @@ impl Display for RtLolaMirPrinter<'_, ParameterizedOutputStream> {
                     eval,
                     close,
                     kind,
+                    tags,
                     ..
                 },
         } = self.inner;
@@ -504,6 +529,7 @@ impl Display for RtLolaMirPrinter<'_, ParameterizedOutputStream> {
             "".into()
         };
 
+        format_tags(tags, f)?;
         match kind {
             OutputKind::NamedOutput(name) => write!(f, "output {name}{display_parameters} : {ty}")?,
             OutputKind::Trigger(_) => write!(f, "trigger{display_parameters}")?,
