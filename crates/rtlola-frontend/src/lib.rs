@@ -120,9 +120,8 @@ fn test() {
     let spec = "
     #[range_from=\"0\"]
     #[range_to=\"5\"]
-    input a : UInt64
-    output b := a + 1
-    output c := b * 2
+    input a : Float64
+    output b := a +1.0
     ";
     let mir = parse(ParserConfig::for_string(spec.into()).with_privacy_parameter(1.0)).unwrap();
     println!("{mir}");

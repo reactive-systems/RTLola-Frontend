@@ -1,18 +1,27 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     convert::{TryFrom, TryInto},
     ops::{Add, Mul, Sub},
 };
 
 use num::ToPrimitive;
+use num::{traits::Inv, FromPrimitive};
 use ordered_float::NotNan;
-use petgraph::{algo::toposort, prelude::StableGraph};
+use petgraph::{algo::toposort, graph::NodeIndex, prelude::StableGraph, Direction};
 use rtlola_parser::ast::Tag;
 use rtlola_reporting::{RtLolaError, Span};
+use rust_decimal::Decimal;
+use uom::si::time::second;
+use uom::si::{rational64::Time as UOM_Time, time::nanosecond};
 
-use crate::hir::{
-    ArithLogOp, Constant, DepAnaMode, DepAnaTrait, EdgeWeight, Expression, ExpressionKind, Hir,
-    Inlined, Literal, SRef, StreamAccessKind, StreamReference,
+use crate::{
+    hir::{
+        AnnotatedPacingType, AnnotatedType, ArithLogOp, ConcretePacingType, Constant, DepAnaMode,
+        DepAnaTrait, DependencyGraph, EdgeWeight, Eval, ExprId, Expression, ExpressionKind,
+        FnExprKind, Hir, Inlined, Literal, Output, OutputKind, SRef, StreamAccessKind,
+        StreamReference, TypedTrait,
+    },
+    stdlib, BaseMode,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +34,15 @@ pub(crate) enum PrivacyHeuristic {
 enum SensitivityBound {
     Bounded(NotNan<f64>),
     Unbounded,
+}
+
+impl SensitivityBound {
+    fn unwrap(self) -> f64 {
+        match self {
+            SensitivityBound::Bounded(f) => f.into_inner(),
+            SensitivityBound::Unbounded => panic!(),
+        }
+    }
 }
 
 impl std::fmt::Display for SensitivityBound {
@@ -53,6 +71,19 @@ impl Mul for SensitivityBound {
         match (self, rhs) {
             (SensitivityBound::Bounded(b1), SensitivityBound::Bounded(b2)) => {
                 SensitivityBound::Bounded(b1 * b2)
+            }
+            _ => SensitivityBound::Unbounded,
+        }
+    }
+}
+
+impl Mul<u64> for SensitivityBound {
+    type Output = SensitivityBound;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        match (self, rhs) {
+            (SensitivityBound::Bounded(b1), rhs) => {
+                SensitivityBound::Bounded(b1 * NotNan::<f64>::try_from(rhs as f64).unwrap())
             }
             _ => SensitivityBound::Unbounded,
         }
@@ -151,8 +182,8 @@ impl Sub for ValueRange {
                     upper: u2,
                 },
             ) => ValueRange::Bounded {
-                lower: l1 - l2,
-                upper: u1 - u2,
+                lower: l1 - u2,
+                upper: u1 - l2,
             },
             _ => ValueRange::Unbounded,
         }
@@ -190,6 +221,27 @@ impl Mul for ValueRange {
     }
 }
 
+impl ValueRange {
+    fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (
+                ValueRange::Bounded {
+                    lower: l1,
+                    upper: u1,
+                },
+                ValueRange::Bounded {
+                    lower: l2,
+                    upper: u2,
+                },
+            ) => ValueRange::Bounded {
+                lower: l1.min(l2),
+                upper: u1.max(u2),
+            },
+            _ => ValueRange::Unbounded,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum NumInfluencedValues {
     Bounded(u32),
@@ -215,31 +267,6 @@ struct AugmentedNode {
     value_range: ValueRange,
 }
 
-impl AugmentedNode {
-    fn as_tags(&self) -> HashMap<String, Tag> {
-        vec![
-            (
-                "derived_sensitivity".to_string(),
-                Tag {
-                    key: "derived_sensitivity".into(),
-                    value: Some(self.sensitivity.to_string()),
-                    span: Span::Unknown,
-                },
-            ),
-            (
-                "derived_value_range".to_string(),
-                Tag {
-                    key: "derived_value_range".into(),
-                    value: Some(self.value_range.to_string()),
-                    span: Span::Unknown,
-                },
-            ),
-        ]
-        .into_iter()
-        .collect()
-    }
-}
-
 type AugmentedDependencyGraph = StableGraph<AugmentedNode, EdgeWeight>;
 
 impl Hir<DepAnaMode> {
@@ -247,24 +274,217 @@ impl Hir<DepAnaMode> {
         mut self,
         parameters: f64,
         heuristic: PrivacyHeuristic,
-    ) -> Result<Self, RtLolaError> {
-        let graph = self.analyze_dependency_graph();
+    ) -> Result<Hir<BaseMode>, RtLolaError> {
+        let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
+        let public_nodes = self.find_public_nodes(&loop_free_graph);
+        let annotated_graph = self.analyze_dependency_graph(loop_free_graph);
 
         // debug annotations
-        for node in graph.node_indices() {
-            let node = graph.node_weight(node).unwrap();
-            match node.sref {
-                StreamReference::In(i) => self.inputs[i].tags.extend(node.as_tags()),
-                StreamReference::Out(o) => self.outputs[o].tags.extend(node.as_tags()),
+        for node in annotated_graph.node_indices() {
+            let weight = annotated_graph.node_weight(node).unwrap();
+            self.add_tag(
+                weight.sref,
+                "derived_sensitivity",
+                Some(&weight.sensitivity.to_string()),
+            );
+            self.add_tag(
+                weight.sref,
+                "derived_range",
+                Some(&weight.value_range.to_string()),
+            );
+            if public_nodes.contains(&node) {
+                self.add_tag(weight.sref, "derived_public", None);
             }
         }
 
-        Ok(self)
+        let cut_points = match heuristic {
+            PrivacyHeuristic::Inputs => annotated_graph
+                .node_indices()
+                .filter(|i| annotated_graph.node_weight(*i).unwrap().sref.is_input())
+                .collect(),
+            PrivacyHeuristic::Deep => public_nodes,
+        };
+
+        for node in &cut_points {
+            let weight = annotated_graph.node_weight(*node).unwrap();
+            self.add_noise(
+                weight.sref,
+                cut_points.len() as f64 * weight.sensitivity.unwrap(),
+            );
+        }
+
+        for (_, expr) in &self.expr_maps.exprid_to_expr {
+            println!("{expr}");
+        }
+
+        let Hir {
+            inputs,
+            outputs,
+            next_input_ref,
+            next_output_ref,
+            expr_maps,
+            global_tags,
+            mode: _,
+        } = self;
+
+        Ok(Hir {
+            inputs,
+            outputs,
+            next_input_ref,
+            next_output_ref,
+            expr_maps,
+            global_tags,
+            mode: BaseMode {},
+        })
     }
 
-    fn analyze_dependency_graph(&self) -> AugmentedDependencyGraph {
-        let graph = self.graph();
+    fn find_public_nodes(&self, loop_free_graph: &DependencyGraph) -> HashSet<NodeIndex> {
+        let loop_free_nodes: HashSet<_> = loop_free_graph.node_indices().collect();
 
+        let public_nodes: HashSet<_> = self
+            .graph()
+            .node_indices()
+            .filter(|p| {
+                let sr = self.graph().node_weight(*p).unwrap();
+                match sr {
+                    StreamReference::In(_) => false,
+                    StreamReference::Out(o) => {
+                        matches!(self.outputs[*o].kind, OutputKind::Trigger(_))
+                            || self.outputs[*o].tags.contains_key("public")
+                    }
+                }
+            })
+            .collect();
+
+        let mut public_loop_free_nodes = HashSet::new();
+        for node in public_nodes {
+            let mut visited_nodes = HashSet::new();
+            Self::find_public_nodes_prime(
+                self.graph(),
+                node,
+                &loop_free_nodes,
+                &mut public_loop_free_nodes,
+                &mut visited_nodes,
+            );
+        }
+
+        public_loop_free_nodes
+    }
+
+    fn find_public_nodes_prime(
+        graph: &DependencyGraph,
+        cur_node: NodeIndex,
+        loop_free_nodes: &HashSet<NodeIndex>,
+        public_loop_free_nodes: &mut HashSet<NodeIndex>,
+        visited_nodes: &mut HashSet<NodeIndex>,
+    ) {
+        if loop_free_nodes.contains(&cur_node) {
+            public_loop_free_nodes.insert(cur_node);
+            return;
+        }
+        if visited_nodes.contains(&cur_node) {
+            return;
+        }
+        visited_nodes.insert(cur_node);
+
+        for node in graph.neighbors_directed(cur_node, Direction::Outgoing) {
+            Self::find_public_nodes_prime(
+                graph,
+                node,
+                loop_free_nodes,
+                public_loop_free_nodes,
+                visited_nodes,
+            );
+        }
+    }
+
+    fn extract_loop_free_segment(&mut self, mut graph: DependencyGraph) -> DependencyGraph {
+        let cycle_nodes = self.find_cycle_nodes(&graph);
+        let all_aggregations = self.find_all_aggregation_sucessors(&graph);
+
+        let mut queue = cycle_nodes
+            .into_iter()
+            .chain(all_aggregations)
+            .collect::<VecDeque<NodeIndex>>();
+        let mut visited_nodes = HashSet::new();
+        while let Some(idx) = queue.pop_front() {
+            if visited_nodes.contains(&idx) {
+                continue;
+            }
+            visited_nodes.insert(idx);
+            for neighbor in graph.neighbors_directed(idx, Direction::Incoming) {
+                queue.push_back(neighbor);
+            }
+        }
+
+        for node in visited_nodes {
+            graph.remove_node(node);
+        }
+        graph
+    }
+
+    fn find_all_aggregation_sucessors(&mut self, graph: &DependencyGraph) -> Vec<NodeIndex> {
+        graph
+            .node_indices()
+            .filter(|i| {
+                let weight = graph.node_weight(*i).unwrap();
+                let is_all_aggregation = match *weight {
+                    StreamReference::In(_) => {
+                        return false;
+                    }
+                    StreamReference::Out(_) => self.eval_expr(*weight).unwrap().iter().any(|e| {
+                        matches!(
+                            &e.kind,
+                            ExpressionKind::StreamAccess(_, StreamAccessKind::AllAggregation(_), _)
+                        )
+                    }),
+                };
+                is_all_aggregation
+            })
+            .flat_map(|a| graph.neighbors_directed(a, Direction::Incoming))
+            .collect()
+    }
+
+    fn find_cycle_nodes(&mut self, graph: &DependencyGraph) -> Vec<NodeIndex> {
+        let mut visited = HashSet::new();
+        let mut cycle_nodes = HashSet::new();
+
+        for node in graph.node_indices() {
+            let mut path = Vec::new();
+            Self::find_cycle_nodes_prime(graph, node, &mut path, &mut visited, &mut cycle_nodes);
+        }
+
+        for node in &cycle_nodes {
+            let sr = graph.node_weight(*node).unwrap();
+            self.add_tag(*sr, "is_cycle", None);
+        }
+        cycle_nodes.into_iter().collect()
+    }
+
+    fn find_cycle_nodes_prime(
+        graph: &DependencyGraph,
+        cur_node: NodeIndex,
+        path: &mut Vec<NodeIndex>,
+        visited: &mut HashSet<NodeIndex>,
+        cycle_nodes: &mut HashSet<NodeIndex>,
+    ) {
+        if let Some(position) = path.iter().position(|n| n == &cur_node) {
+            cycle_nodes.extend(&path[position..]);
+        }
+        if visited.contains(&cur_node) {
+            return;
+        }
+        visited.insert(cur_node);
+        path.push(cur_node);
+
+        for neighbor in graph.neighbors_directed(cur_node, Direction::Incoming) {
+            Self::find_cycle_nodes_prime(graph, neighbor, path, visited, cycle_nodes);
+        }
+
+        path.pop();
+    }
+
+    fn analyze_dependency_graph(&self, graph: DependencyGraph) -> AugmentedDependencyGraph {
         let (mut sensitivities, mut value_ranges) = self.get_input_annotations();
         let mut num_influenced_values: HashMap<_, _> = self
             .inputs
@@ -272,7 +492,7 @@ impl Hir<DepAnaMode> {
             .map(|i| (i.sr, NumInfluencedValues::Bounded(1)))
             .collect();
 
-        for node in toposort(graph, None).expect("no cycles").into_iter().rev() {
+        for node in toposort(&graph, None).expect("no cycles").into_iter().rev() {
             let sr = *graph.node_weight(node).unwrap();
             if let StreamReference::In(_) = sr {
                 // already handled
@@ -288,7 +508,7 @@ impl Hir<DepAnaMode> {
             let value_range = Self::calculate_value_range(expression, &value_ranges);
             let num_influenced_value =
                 Self::calculate_num_influenced_values(expression, &num_influenced_values);
-            let sensitivity = Self::calculate_sensitivity(
+            let sensitivity = self.calculate_sensitivity(
                 expression,
                 &sensitivities,
                 &value_range,
@@ -316,6 +536,7 @@ impl Hir<DepAnaMode> {
     }
 
     fn calculate_sensitivity(
+        &self,
         expression: &Expression,
         sensitivities: &HashMap<SRef, SensitivityBound>,
         value_range: &ValueRange,
@@ -327,13 +548,13 @@ impl Hir<DepAnaMode> {
                 assert_eq!(subexps.len(), 2);
                 let lhs = &subexps[0];
                 let rhs = &subexps[1];
-                let lhs_sens = Self::calculate_sensitivity(
+                let lhs_sens = self.calculate_sensitivity(
                     lhs,
                     sensitivities,
                     value_range,
                     num_influenced_values,
                 );
-                let rhs_sens = Self::calculate_sensitivity(
+                let rhs_sens = self.calculate_sensitivity(
                     rhs,
                     sensitivities,
                     value_range,
@@ -351,14 +572,35 @@ impl Hir<DepAnaMode> {
             ExpressionKind::StreamAccess(_sr, StreamAccessKind::Hold, _) => {
                 SensitivityBound::Unbounded
             }
+            ExpressionKind::StreamAccess(sr, StreamAccessKind::SlidingWindow(w), _) => {
+                let w = self.single_sliding(*w);
+                let window_duration = w.aggr.duration.as_nanos() as u64;
+                let caller_pacing = self.eval_pacing_type(w.caller, 0);
+                let pacing_nanos = match caller_pacing {
+                    ConcretePacingType::FixedGlobalPeriodic(freq)
+                    | ConcretePacingType::FixedLocalPeriodic(freq) => {
+                        UOM_Time::new::<second>(freq.get::<uom::si::frequency::hertz>().inv())
+                            .get::<nanosecond>()
+                    }
+                    _ => unreachable!(),
+                }
+                .to_integer()
+                .to_u64()
+                .unwrap();
+                let factor = window_duration.div_ceil(pacing_nanos);
+                *sensitivities
+                    .get(sr)
+                    .expect("dependencies should already be processed")
+                    * factor
+            }
             ExpressionKind::Default { expr, default } => {
-                let expr_bound = Self::calculate_sensitivity(
+                let expr_bound = self.calculate_sensitivity(
                     expr,
                     sensitivities,
                     value_range,
                     num_influenced_values,
                 );
-                let default_bound = Self::calculate_sensitivity(
+                let default_bound = self.calculate_sensitivity(
                     default,
                     sensitivities,
                     value_range,
@@ -400,7 +642,20 @@ impl Hir<DepAnaMode> {
                     _ => unimplemented!(),
                 }
             }
-            ExpressionKind::StreamAccess(target, _, _) => value_ranges[target],
+            ExpressionKind::StreamAccess(
+                target,
+                StreamAccessKind::Sync | StreamAccessKind::Offset(_) | StreamAccessKind::Hold,
+                _,
+            ) => value_ranges[target],
+            ExpressionKind::StreamAccess(
+                _,
+                StreamAccessKind::SlidingWindow(_) | StreamAccessKind::AllAggregation(_),
+                _,
+            ) => ValueRange::Unbounded,
+            ExpressionKind::Default { expr, default } => {
+                Self::calculate_value_range(expr, value_ranges)
+                    .union(Self::calculate_value_range(default, value_ranges))
+            }
             _ => ValueRange::Unbounded,
         }
     }
@@ -422,6 +677,159 @@ impl Hir<DepAnaMode> {
                 _,
             ) => num_influenced_values[&target],
             _ => NumInfluencedValues::Unbounded,
+        }
+    }
+
+    fn add_noise(&mut self, stream: SRef, amount: f64) {
+        match stream {
+            StreamReference::In(idx) => {
+                let input_id = self.next_expr_id();
+                let input = &self.inputs[idx];
+                let expr = Expression {
+                    kind: ExpressionKind::StreamAccess(input.sr, StreamAccessKind::Sync, vec![]),
+                    eid: input_id,
+                    span: Span::Unknown,
+                };
+                self.expr_maps.exprid_to_expr.insert(input_id, expr);
+                let sr = StreamReference::Out(self.outputs.len());
+                let copy = Output {
+                    kind: OutputKind::NamedOutput(format!("{}'", input.name)),
+                    annotated_type: None,
+                    params: vec![],
+                    spawn: None,
+                    eval: vec![Eval {
+                        annotated_pacing_type: AnnotatedPacingType::NotAnnotated(Span::Unknown),
+                        condition: None,
+                        expr: input_id,
+                        span: Span::Unknown,
+                    }],
+                    close: None,
+                    sr,
+                    tags: HashMap::new(),
+                    span: Span::Unknown,
+                };
+                self.outputs.push(copy);
+                self.replace_sr(stream, sr, input_id);
+                self.add_noise(sr, amount);
+            }
+            StreamReference::Out(idx) => {
+                assert!(
+                    self.outputs[idx].eval.len() == 1,
+                    "for now we only support single eval clauses"
+                );
+
+                let old_expr = self.outputs[idx].eval[0].expr;
+
+                let amount_id = self.next_expr_id();
+                let amount_expr = Expression {
+                    kind: ExpressionKind::LoadConstant(Constant::Basic(Literal::Decimal(
+                        Decimal::from_f64(amount).unwrap(),
+                    ))),
+                    eid: amount_id,
+                    span: Span::Unknown,
+                };
+                self.expr_maps
+                    .exprid_to_expr
+                    .insert(amount_id, amount_expr.clone());
+
+                let noise_expr_id = self.next_expr_id();
+                let noise_expr = Expression {
+                    kind: ExpressionKind::Function(FnExprKind {
+                        name: "laplace".into(),
+                        args: vec![amount_expr],
+                        type_param: vec![],
+                    }),
+                    eid: noise_expr_id,
+                    span: Span::Unknown,
+                };
+                self.expr_maps
+                    .exprid_to_expr
+                    .insert(noise_expr_id, noise_expr.clone());
+
+                let new_expr_id = self.next_expr_id();
+                let new_expr = Expression {
+                    kind: ExpressionKind::ArithLog(
+                        ArithLogOp::Add,
+                        vec![self.expr_maps.exprid_to_expr[&old_expr].clone(), noise_expr],
+                    ),
+                    eid: new_expr_id,
+                    span: Span::Unknown,
+                };
+                self.expr_maps.exprid_to_expr.insert(new_expr_id, new_expr);
+                self.outputs[idx].eval[0].expr = new_expr_id;
+                self.expr_maps.func_table.insert(
+                    "laplace".into(),
+                    (*stdlib::noise_module()
+                        .iter()
+                        .find(|s| s.name.name() == "laplace")
+                        .unwrap())
+                    .clone(),
+                );
+            }
+        }
+    }
+
+    fn next_expr_id(&mut self) -> ExprId {
+        let id = self
+            .expr_maps
+            .exprid_to_expr
+            .keys()
+            .max()
+            .map(|v| v.0 + 1)
+            .unwrap_or(0);
+        ExprId(id)
+    }
+
+    fn replace_sr(&mut self, from: StreamReference, to: StreamReference, exclude: ExprId) {
+        for (id, expr) in self.expr_maps.exprid_to_expr.iter_mut() {
+            if *id == exclude {
+                continue;
+            }
+            Self::replace_sr_prime(expr, from, to);
+        }
+    }
+
+    fn replace_sr_prime(expr: &mut Expression, from: StreamReference, to: StreamReference) {
+        match &mut expr.kind {
+            ExpressionKind::LoadConstant(_) => {}
+            ExpressionKind::Tuple(expressions) | ExpressionKind::ArithLog(_, expressions) => {
+                for expr in expressions {
+                    Self::replace_sr_prime(expr, from, to);
+                }
+            }
+            ExpressionKind::StreamAccess(stream_reference, _, expressions) => {
+                if *stream_reference == from {
+                    *stream_reference = to;
+                }
+                for expr in expressions {
+                    Self::replace_sr_prime(expr, from, to);
+                }
+            }
+            ExpressionKind::ParameterAccess(_, _) => {}
+            ExpressionKind::LambdaParameterAccess { .. } => {}
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                for expr in [condition, consequence, alternative] {
+                    Self::replace_sr_prime(expr, from, to);
+                }
+            }
+            ExpressionKind::Function(fn_expr_kind) => {
+                for expr in &mut fn_expr_kind.args {
+                    Self::replace_sr_prime(expr, from, to);
+                }
+            }
+            ExpressionKind::Widen(_) => todo!(),
+            ExpressionKind::Default { expr, default } => {
+                for expr in [expr, default] {
+                    Self::replace_sr_prime(expr, from, to);
+                }
+            }
+            ExpressionKind::TupleAccess(expression, _) => {
+                Self::replace_sr_prime(expression, from, to);
+            }
         }
     }
 
@@ -475,5 +883,20 @@ impl Hir<DepAnaMode> {
         }
 
         (sensitivities, value_ranges)
+    }
+
+    fn add_tag(&mut self, sr: SRef, key: &str, value: Option<&str>) {
+        let tags = match sr {
+            StreamReference::In(i) => &mut self.inputs[i].tags,
+            StreamReference::Out(o) => &mut self.outputs[o].tags,
+        };
+        tags.insert(
+            key.into(),
+            Tag {
+                key: key.into(),
+                value: value.map(|v| v.into()),
+                span: Span::Unknown,
+            },
+        );
     }
 }

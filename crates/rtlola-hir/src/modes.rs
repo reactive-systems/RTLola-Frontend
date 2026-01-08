@@ -291,6 +291,8 @@ impl HirStage for Hir<DepAnaMode> {
     fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let hir = if let Some(parameter) = cfg.privacy_parameter() {
             self.add_privacy_barriers(parameter, cfg.privacy_heuristic())?
+                .progress(cfg)?
+                .progress(cfg)?
         } else {
             self
         };

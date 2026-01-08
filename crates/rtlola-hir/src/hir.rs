@@ -467,12 +467,12 @@ impl<M: HirMode> Hir<M> {
 /// A collection of maps for expression-related lookups, i.e., expressions, functions, and windows.
 #[derive(Clone, Debug)]
 pub(crate) struct ExpressionMaps {
-    exprid_to_expr: HashMap<ExprId, Expression>,
+    pub(crate) exprid_to_expr: HashMap<ExprId, Expression>,
     sliding_windows: HashMap<WRef, Window<SlidingAggr>>,
     discrete_windows: HashMap<WRef, Window<DiscreteAggr>>,
     instance_aggregations: HashMap<WRef, InstanceAggregation>,
     all_aggregations: HashMap<WRef, AllAggregation>,
-    func_table: HashMap<String, FuncDecl>,
+    pub(crate) func_table: HashMap<String, FuncDecl>,
 }
 
 impl ExpressionMaps {
