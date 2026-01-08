@@ -2,7 +2,7 @@
 
 use rtlola_parser::ParserConfig;
 
-use crate::modes::privacy::PrivacyHeuristic;
+pub use crate::modes::privacy::PrivacyHeuristic;
 
 /// Represents the configuration for the whole frontend.
 ///
@@ -73,14 +73,14 @@ impl<'a> FrontendConfig<'a> {
         }
     }
 
-    fn with_privacy_parameter(self, parameter: f64) -> FrontendConfig<'a> {
+    pub fn with_privacy_parameter(self, parameter: f64) -> FrontendConfig<'a> {
         Self {
             privacy_parameter: Some(parameter),
             ..self
         }
     }
 
-    fn with_privacy_heuristic(self, heuristic: PrivacyHeuristic) -> FrontendConfig<'a> {
+    pub fn with_privacy_heuristic(self, heuristic: PrivacyHeuristic) -> FrontendConfig<'a> {
         Self {
             privacy_heuristic: heuristic,
             ..self

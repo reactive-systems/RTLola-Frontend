@@ -25,7 +25,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum PrivacyHeuristic {
+pub enum PrivacyHeuristic {
     Inputs,
     Deep,
 }
@@ -277,6 +277,9 @@ impl Hir<DepAnaMode> {
     ) -> Result<Hir<BaseMode>, RtLolaError> {
         let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
         let public_nodes = self.find_public_nodes(&loop_free_graph);
+        if public_nodes.is_empty() {
+            panic!("no stream marked as public");
+        }
         let annotated_graph = self.analyze_dependency_graph(loop_free_graph);
 
         // debug annotations
@@ -311,10 +314,6 @@ impl Hir<DepAnaMode> {
                 weight.sref,
                 cut_points.len() as f64 * weight.sensitivity.unwrap(),
             );
-        }
-
-        for (_, expr) in &self.expr_maps.exprid_to_expr {
-            println!("{expr}");
         }
 
         let Hir {

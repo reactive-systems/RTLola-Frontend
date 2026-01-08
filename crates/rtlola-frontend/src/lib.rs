@@ -44,7 +44,7 @@ use rtlola_parser::RtLolaAst;
 #[cfg(test)]
 mod tests;
 
-pub use rtlola_hir::config::{FrontendConfig, MemoryBoundMode, ParserConfigExt};
+pub use rtlola_hir::config::{FrontendConfig, MemoryBoundMode, ParserConfigExt, PrivacyHeuristic};
 pub(crate) use rtlola_hir::hir::RtLolaHir;
 pub use rtlola_parser::ParserConfig;
 pub use rtlola_reporting::{Diagnostic, Handler, RawDiagnostic, RtLolaError, Span};
@@ -121,8 +121,14 @@ fn test() {
     #[range_from=\"0\"]
     #[range_to=\"5\"]
     input a : Float64
+    #[public]
     output b := a +1.0
     ";
-    let mir = parse(ParserConfig::for_string(spec.into()).with_privacy_parameter(1.0)).unwrap();
+    let mir = parse(
+        ParserConfig::for_string(spec.into())
+            .with_privacy_parameter(1.0)
+            .with_privacy_heuristic(PrivacyHeuristic::Deep),
+    )
+    .unwrap();
     println!("{mir}");
 }
