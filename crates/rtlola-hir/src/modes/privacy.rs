@@ -1,9 +1,10 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     convert::{TryFrom, TryInto},
     ops::{Add, Mul, Sub},
 };
 
+use bitset::BitSet;
 use num::ToPrimitive;
 use num::{traits::Inv, FromPrimitive};
 use ordered_float::NotNan;
@@ -23,6 +24,61 @@ use crate::{
     },
     stdlib, BaseMode,
 };
+
+fn iterate_cutpoints(
+    graph: &AugmentedDependencyGraph,
+    cut_set: &HashSet<NodeIndex>,
+    visited: &mut HashSet<Vec<NodeIndex>>,
+) {
+    // canonical key: sorted vector
+    let mut key: Vec<NodeIndex> = cut_set.iter().copied().collect();
+    key.sort_unstable();
+    if !visited.insert(key) {
+        return; // already visited
+    }
+
+    // snapshot current nodes to iterate
+    let elems: Vec<NodeIndex> = cut_set.iter().copied().collect();
+
+    'outer: for &node in &elems {
+        // start neighbors from outgoing edges
+        let mut neighbors: Vec<NodeIndex> =
+            graph.neighbors_directed(node, Direction::Outgoing).collect();
+
+        // check each other node in cut set
+        for &n in &elems {
+            if n == node {
+                continue;
+            }
+
+            let n_sr = graph.node_weight(n).unwrap().sref;
+
+            let all_reachable = neighbors.iter().all(|&m| {
+                graph.node_weight(m).unwrap().reachable_from.contains(&n_sr)
+            });
+
+            let none_reachable = neighbors.iter().all(|&m| {
+                !graph.node_weight(m).unwrap().reachable_from.contains(&n_sr)
+            });
+
+            if all_reachable {
+                // do nothing
+            } else if none_reachable {
+                neighbors.push(n);
+            } else {
+                continue 'outer; // inconsistent, skip this node
+            }
+        }
+
+        // ---- make a fresh copy for recursion ----
+        let mut new_cut_set = cut_set.clone();
+        new_cut_set.remove(&node);
+        new_cut_set.extend(neighbors.iter().copied());
+
+        // recurse
+        iterate_cutpoints(graph, &new_cut_set, visited);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrivacyHeuristic {
@@ -111,7 +167,7 @@ impl From<NumInfluencedValues> for SensitivityBound {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ValueRange {
     Bounded {
         lower: NotNan<f64>,
@@ -261,10 +317,12 @@ impl Add for NumInfluencedValues {
     }
 }
 
+#[derive(Debug, Clone)]
 struct AugmentedNode {
     sref: SRef,
     sensitivity: SensitivityBound,
     value_range: ValueRange,
+    reachable_from: HashSet<SRef>
 }
 
 type AugmentedDependencyGraph = StableGraph<AugmentedNode, EdgeWeight>;
@@ -313,6 +371,13 @@ impl Hir<DepAnaMode> {
                 self.add_tag(weight.sref, "derived_public", None);
             }
         }
+
+        let mut inputs: HashSet<_> = annotated_graph
+                .node_indices()
+                .filter(|i| annotated_graph.node_weight(*i).unwrap().sref.is_input())
+                .collect();
+            let mut visited =  HashSet::new();
+        iterate_cutpoints(&annotated_graph, &mut inputs, &mut visited);
 
         let mut tracer = BENCHMARK_TRACER.lock().unwrap();
         tracer.start_privacy_heuristic();
@@ -507,6 +572,7 @@ impl Hir<DepAnaMode> {
             .iter()
             .map(|i| (i.sr, NumInfluencedValues::Bounded(1)))
             .collect();
+        let mut reachable_from: HashMap<_,HashSet<_>> = self.inputs.iter().map(|i| (i.sr, vec![i.sr].into_iter().collect())).collect();
 
         for node in toposort(&graph, None).expect("no cycles").into_iter().rev() {
             let sr = *graph.node_weight(node).unwrap();
@@ -533,6 +599,11 @@ impl Hir<DepAnaMode> {
             value_ranges.insert(sr, value_range);
             sensitivities.insert(sr, sensitivity);
             num_influenced_values.insert(sr, num_influenced_value);
+
+            let reachable_set = graph.neighbors_directed(node, Direction::Outgoing).flat_map(|n| {
+                reachable_from[graph.node_weight(n).unwrap()].iter()
+            }).copied().chain(Some(sr)).collect();
+            reachable_from.insert(sr, reachable_set);
         }
 
         let graph = graph.map(
@@ -544,6 +615,7 @@ impl Hir<DepAnaMode> {
                 value_range: *value_ranges
                     .get(&sref)
                     .expect("each node should have a value range"),
+                reachable_from: reachable_from.remove(&sref).unwrap_or_default()
             },
             |_, e| *e,
         );
@@ -914,5 +986,54 @@ impl Hir<DepAnaMode> {
                 span: Span::Unknown,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::{HashMap, HashSet}, convert::TryInto};
+
+    use rtlola_parser::{ParserConfig, parse};
+
+    use crate::{from_ast, hir::{DepAnaTrait, HirStage, StreamReference}, modes::privacy::{SensitivityBound, ValueRange, iterate_cutpoints}};
+
+    #[test]
+    fn simple_spec() {
+        let spec = "
+        #[range_from=\"0\", range_to=\"5\"]
+        input a : UInt64
+        output b := a + 1
+        output c := a + 2
+        output d := b + c";
+        let config = ParserConfig::for_string(spec.into());
+        let ast = parse(&config).unwrap();
+        let base = from_ast(ast).unwrap();
+        let config = (&config).into();
+        let hir = base.progress(&config).unwrap().progress(&config).unwrap();
+        let graph = hir.analyze_dependency_graph(hir.graph().clone());
+        let nodes : HashMap<_, _> = graph.node_indices().map(|n| {
+            let w = graph.node_weight(n).unwrap();
+        (w.sref, w)}).collect();
+        assert_eq!(nodes[&StreamReference::In(0)].reachable_from, vec![StreamReference::In(0)].into_iter().collect());
+        assert_eq!(nodes[&StreamReference::In(0)].sensitivity, SensitivityBound::from(5.0));
+        assert_eq!(nodes[&StreamReference::In(0)].value_range, ValueRange::Bounded { lower: 0.0f64.try_into().unwrap(), upper: 5.0f64.try_into().unwrap() });
+
+        assert_eq!(nodes[&StreamReference::Out(0)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(0)].into_iter().collect());
+        assert_eq!(nodes[&StreamReference::Out(0)].sensitivity, SensitivityBound::from(5.0));
+        assert_eq!(nodes[&StreamReference::Out(0)].value_range, ValueRange::Bounded { lower: 1.0f64.try_into().unwrap(), upper: 6.0f64.try_into().unwrap() });
+
+        assert_eq!(nodes[&StreamReference::Out(1)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(1)].into_iter().collect());
+        assert_eq!(nodes[&StreamReference::Out(1)].sensitivity, SensitivityBound::from(5.0));
+        assert_eq!(nodes[&StreamReference::Out(1)].value_range, ValueRange::Bounded { lower: 2.0f64.try_into().unwrap(), upper: 7.0f64.try_into().unwrap() });
+
+        assert_eq!(nodes[&StreamReference::Out(2)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(0), StreamReference::Out(1), StreamReference::Out(2)].into_iter().collect());
+        assert_eq!(nodes[&StreamReference::Out(2)].sensitivity, SensitivityBound::from(10.0));
+        assert_eq!(nodes[&StreamReference::Out(2)].value_range, ValueRange::Bounded { lower: 3.0f64.try_into().unwrap(), upper: 13.0f64.try_into().unwrap() });
+
+        let mut inputs: HashSet<_> = graph
+                .node_indices()
+                .filter(|i| graph.node_weight(*i).unwrap().sref.is_input())
+                .collect();
+        iterate_cutpoints(&graph, &mut inputs, &mut HashSet::new());
     }
 }
