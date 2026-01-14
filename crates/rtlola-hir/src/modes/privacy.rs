@@ -15,16 +15,16 @@ use uom::si::time::second;
 use uom::si::{rational64::Time as UOM_Time, time::nanosecond};
 
 use crate::{
+    benchmark::BENCHMARK_TRACER,
     hir::{
-        AnnotatedPacingType, AnnotatedType, ArithLogOp, ConcretePacingType, Constant, DepAnaMode,
-        DepAnaTrait, DependencyGraph, EdgeWeight, Eval, ExprId, Expression, ExpressionKind,
-        FnExprKind, Hir, Inlined, Literal, Output, OutputKind, SRef, StreamAccessKind,
-        StreamReference, TypedTrait,
+        AnnotatedPacingType, ArithLogOp, ConcretePacingType, Constant, DepAnaMode, DepAnaTrait,
+        DependencyGraph, EdgeWeight, Eval, ExprId, Expression, ExpressionKind, FnExprKind, Hir,
+        Inlined, Literal, Output, OutputKind, SRef, StreamAccessKind, StreamReference, TypedTrait,
     },
     stdlib, BaseMode,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrivacyHeuristic {
     Inputs,
     Deep,
@@ -272,14 +272,28 @@ type AugmentedDependencyGraph = StableGraph<AugmentedNode, EdgeWeight>;
 impl Hir<DepAnaMode> {
     pub(crate) fn add_privacy_barriers(
         mut self,
-        parameters: f64,
+        parameter: f64,
         heuristic: PrivacyHeuristic,
     ) -> Result<Hir<BaseMode>, RtLolaError> {
-        let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
-        let public_nodes = self.find_public_nodes(&loop_free_graph);
-        if public_nodes.is_empty() {
-            panic!("no stream marked as public");
-        }
+        let (loop_free_graph, public_nodes) = if heuristic == PrivacyHeuristic::Inputs {
+            let loop_free_graph = self.graph().filter_map(
+                |_, n| match n {
+                    StreamReference::In(_) => Some(*n),
+                    _ => None,
+                },
+                |_, e| Some(*e),
+            );
+            let public_nodes = loop_free_graph.node_indices().collect();
+            (loop_free_graph, public_nodes)
+        } else {
+            let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
+            let public_nodes = self.find_public_nodes(&loop_free_graph);
+            if public_nodes.is_empty() {
+                panic!("no stream marked as public");
+            }
+            (loop_free_graph, public_nodes)
+        };
+
         let annotated_graph = self.analyze_dependency_graph(loop_free_graph);
 
         // debug annotations
@@ -300,6 +314,8 @@ impl Hir<DepAnaMode> {
             }
         }
 
+        let mut tracer = BENCHMARK_TRACER.lock().unwrap();
+        tracer.start_privacy_heuristic();
         let cut_points = match heuristic {
             PrivacyHeuristic::Inputs => annotated_graph
                 .node_indices()
@@ -307,12 +323,13 @@ impl Hir<DepAnaMode> {
                 .collect(),
             PrivacyHeuristic::Deep => public_nodes,
         };
+        tracer.end_privacy_heuristic();
 
         for node in &cut_points {
             let weight = annotated_graph.node_weight(*node).unwrap();
             self.add_noise(
                 weight.sref,
-                cut_points.len() as f64 * weight.sensitivity.unwrap(),
+                (cut_points.len() as f64 * weight.sensitivity.unwrap()) / parameter,
             );
         }
 
@@ -624,7 +641,7 @@ impl Hir<DepAnaMode> {
                 Literal::Integer(i) => ValueRange::constant((*i) as f64),
                 Literal::SInt(i) => ValueRange::constant((*i) as f64),
                 Literal::Decimal(decimal) => ValueRange::constant(decimal.to_f64().unwrap()),
-                Literal::Str(_) => unimplemented!(),
+                Literal::Str(_) => ValueRange::Unbounded,
             },
             ExpressionKind::ArithLog(
                 op @ (ArithLogOp::Add | ArithLogOp::Sub | ArithLogOp::Mul),

@@ -26,6 +26,7 @@
     unused_qualifications
 )]
 
+pub mod benchmark;
 pub mod config;
 mod features;
 pub mod hir;

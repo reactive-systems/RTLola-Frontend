@@ -14,6 +14,7 @@ use self::dependencies::{
     DependencyGraph, Origin, StreamDependencies, TransitiveDependencies, WindowDependencies,
 };
 use self::types::HirType;
+use crate::benchmark::BENCHMARK_TRACER;
 use crate::config::FrontendConfig;
 use crate::hir::{ConcretePacingType, ExprId, Hir, SRef, StreamAccessKind, WRef};
 use crate::modes::memory_bounds::MemorizationBound;
@@ -327,7 +328,10 @@ impl HirStage for Hir<DepAnaMode> {
 
 impl Hir<DepAnaMode> {
     pub fn privacy_stage(self, cfg: &FrontendConfig) -> Result<Hir<PrivacyMode>, RtLolaError> {
-        self.progress(cfg)
+        BENCHMARK_TRACER.lock().unwrap().start_privacy_analysis();
+        let res = self.progress(cfg);
+        BENCHMARK_TRACER.lock().unwrap().end_privacy_analysis();
+        res
     }
 }
 
