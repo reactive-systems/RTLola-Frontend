@@ -1197,6 +1197,16 @@ impl<'a> RtLolaParser<'a> {
                                         );
                                         ExpressionKind::Default(Box::new(lhs), Box::new(args[0].clone()))
                                     }
+                                    "hold(for_discrete:)" => {
+                                        assert_eq!(args.len(), 1);
+                                        let ExpressionKind::Lit(Literal { kind: LitKind::Numeric(n, None), ..}) = &args[0].kind else {
+                                            return Err(Diagnostic::error("hold(for_discrete:) requires a constant argument").into());
+                                        };
+                                        let Ok(n) : Result<u32, _> = n.parse() else {
+                                            return Err(Diagnostic::error("hold(for_discrete:) requires an unsigned integer argument").into());
+                                        };
+                                        ExpressionKind::StreamAccess(inner, StreamAccessKind::BoundedHold(n))
+                                    }
                                     "get()" => {
                                         assert_eq!(args.len(), 0);
                                         ExpressionKind::StreamAccess(inner, StreamAccessKind::Get)

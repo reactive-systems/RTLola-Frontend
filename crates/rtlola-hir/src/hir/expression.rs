@@ -293,6 +293,8 @@ pub enum StreamAccessKind {
     AllAggregation(WRef),
     /// Representation of sample and hold accesses
     Hold,
+    /// Representation of sample and hold accesses (bounded)
+    BoundedHold(u32),
     /// Representation of offset accesses
     ///
     /// The argument contains the [Offset] of the stream access.

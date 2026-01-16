@@ -9,7 +9,7 @@ use num::ToPrimitive;
 use num::{traits::Inv, FromPrimitive};
 use ordered_float::NotNan;
 use petgraph::{algo::toposort, graph::NodeIndex, prelude::StableGraph, Direction};
-use rtlola_parser::ast::Tag;
+use rtlola_parser::ast::{Tag, WindowOperation};
 use rtlola_reporting::{RtLolaError, Span};
 use rust_decimal::Decimal;
 use uom::si::time::second;
@@ -20,70 +20,17 @@ use crate::{
     hir::{
         AnnotatedPacingType, ArithLogOp, ConcretePacingType, Constant, DepAnaMode, DepAnaTrait,
         DependencyGraph, EdgeWeight, Eval, ExprId, Expression, ExpressionKind, FnExprKind, Hir,
-        Inlined, Literal, Output, OutputKind, SRef, StreamAccessKind, StreamReference, TypedTrait,
+        Inlined, InputReference, Literal, Output, OutputKind, SRef, StreamAccessKind,
+        StreamReference, TypedTrait,
     },
     stdlib, BaseMode,
 };
-
-fn iterate_cutpoints(
-    graph: &AugmentedDependencyGraph,
-    cut_set: &HashSet<NodeIndex>,
-    visited: &mut HashSet<Vec<NodeIndex>>,
-) {
-    // canonical key: sorted vector
-    let mut key: Vec<NodeIndex> = cut_set.iter().copied().collect();
-    key.sort_unstable();
-    if !visited.insert(key) {
-        return; // already visited
-    }
-
-    // snapshot current nodes to iterate
-    let elems: Vec<NodeIndex> = cut_set.iter().copied().collect();
-
-    'outer: for &node in &elems {
-        // start neighbors from outgoing edges
-        let mut neighbors: Vec<NodeIndex> =
-            graph.neighbors_directed(node, Direction::Outgoing).collect();
-
-        // check each other node in cut set
-        for &n in &elems {
-            if n == node {
-                continue;
-            }
-
-            let n_sr = graph.node_weight(n).unwrap().sref;
-
-            let all_reachable = neighbors.iter().all(|&m| {
-                graph.node_weight(m).unwrap().reachable_from.contains(&n_sr)
-            });
-
-            let none_reachable = neighbors.iter().all(|&m| {
-                !graph.node_weight(m).unwrap().reachable_from.contains(&n_sr)
-            });
-
-            if all_reachable {
-                // do nothing
-            } else if none_reachable {
-                neighbors.push(n);
-            } else {
-                continue 'outer; // inconsistent, skip this node
-            }
-        }
-
-        // ---- make a fresh copy for recursion ----
-        let mut new_cut_set = cut_set.clone();
-        new_cut_set.remove(&node);
-        new_cut_set.extend(neighbors.iter().copied());
-
-        // recurse
-        iterate_cutpoints(graph, &new_cut_set, visited);
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrivacyHeuristic {
     Inputs,
     Deep,
+    LeastCutpoints,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
@@ -97,6 +44,13 @@ impl SensitivityBound {
         match self {
             SensitivityBound::Bounded(f) => f.into_inner(),
             SensitivityBound::Unbounded => panic!(),
+        }
+    }
+
+    fn is_bounded(&self) -> bool {
+        match self {
+            SensitivityBound::Bounded(_) => true,
+            SensitivityBound::Unbounded => false,
         }
     }
 }
@@ -322,7 +276,6 @@ struct AugmentedNode {
     sref: SRef,
     sensitivity: SensitivityBound,
     value_range: ValueRange,
-    reachable_from: HashSet<SRef>
 }
 
 type AugmentedDependencyGraph = StableGraph<AugmentedNode, EdgeWeight>;
@@ -333,24 +286,37 @@ impl Hir<DepAnaMode> {
         parameter: f64,
         heuristic: PrivacyHeuristic,
     ) -> Result<Hir<BaseMode>, RtLolaError> {
-        let (loop_free_graph, public_nodes) = if heuristic == PrivacyHeuristic::Inputs {
-            let loop_free_graph = self.graph().filter_map(
-                |_, n| match n {
-                    StreamReference::In(_) => Some(*n),
-                    _ => None,
-                },
-                |_, e| Some(*e),
-            );
-            let public_nodes = loop_free_graph.node_indices().collect();
-            (loop_free_graph, public_nodes)
-        } else {
-            let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
-            let public_nodes = self.find_public_nodes(&loop_free_graph);
-            if public_nodes.is_empty() {
-                panic!("no stream marked as public");
-            }
-            (loop_free_graph, public_nodes)
-        };
+        // Fast path for Inputs heuristic
+        if heuristic == PrivacyHeuristic::Inputs {
+            let (sensitivities, _) = self.get_input_annotations();
+            let input_refs = self.inputs.iter().map(|i| i.sr).collect::<Vec<_>>();
+            let input_noise = input_refs
+                .into_iter()
+                .map(|i| {
+                    (
+                        i.in_ix(),
+                        self.inputs.len() as f64 * sensitivities[&i].unwrap() / parameter,
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.add_noise_to_inputs(&input_noise);
+
+            return Ok(Hir {
+                inputs: self.inputs,
+                outputs: self.outputs,
+                next_input_ref: self.next_input_ref,
+                next_output_ref: self.next_output_ref,
+                expr_maps: self.expr_maps,
+                global_tags: self.global_tags,
+                mode: BaseMode {},
+            });
+        }
+
+        let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
+        let public_nodes = self.find_public_nodes(&loop_free_graph);
+        if public_nodes.is_empty() {
+            panic!("no stream marked as public");
+        }
 
         let annotated_graph = self.analyze_dependency_graph(loop_free_graph);
 
@@ -372,21 +338,19 @@ impl Hir<DepAnaMode> {
             }
         }
 
-        let mut inputs: HashSet<_> = annotated_graph
-                .node_indices()
-                .filter(|i| annotated_graph.node_weight(*i).unwrap().sref.is_input())
-                .collect();
-            let mut visited =  HashSet::new();
-        iterate_cutpoints(&annotated_graph, &mut inputs, &mut visited);
-
         let mut tracer = BENCHMARK_TRACER.lock().unwrap();
         tracer.start_privacy_heuristic();
         let cut_points = match heuristic {
-            PrivacyHeuristic::Inputs => annotated_graph
-                .node_indices()
-                .filter(|i| annotated_graph.node_weight(*i).unwrap().sref.is_input())
-                .collect(),
-            PrivacyHeuristic::Deep => public_nodes,
+            PrivacyHeuristic::Inputs => unreachable!("fast path above"),
+            PrivacyHeuristic::Deep => {
+                let cutpoints = Self::enumerate_cuts(&annotated_graph, true);
+                assert_eq!(cutpoints.len(), 1);
+                cutpoints.into_iter().next().unwrap()
+            }
+            PrivacyHeuristic::LeastCutpoints => {
+                let cutpoints = Self::enumerate_cuts(&annotated_graph, false);
+                cutpoints.into_iter().min_by_key(|c| c.len()).unwrap()
+            }
         };
         tracer.end_privacy_heuristic();
 
@@ -417,6 +381,55 @@ impl Hir<DepAnaMode> {
             global_tags,
             mode: BaseMode {},
         })
+    }
+
+    fn enumerate_cuts(
+        graph: &AugmentedDependencyGraph,
+        return_first: bool,
+    ) -> Vec<HashSet<NodeIndex>> {
+        let mut cuts = Vec::new();
+
+        // toposort: outputs first, inputs last
+        let topo = toposort(graph, None).unwrap();
+
+        let mut remaining_succ: HashMap<_, _> = graph
+            .node_indices()
+            .map(|n| (n, graph.neighbors_directed(n, Direction::Outgoing).count()))
+            .collect();
+
+        let mut frontier: HashSet<_> = graph
+            .node_indices()
+            .filter(|n| graph.neighbors_directed(*n, Direction::Incoming).count() == 0)
+            .collect();
+
+        let mut d: HashSet<_> = HashSet::new();
+
+        for node in topo {
+            frontier.insert(node);
+
+            for downstream in graph.neighbors_directed(node, Direction::Incoming) {
+                d.insert(downstream);
+                let count = remaining_succ.get_mut(&downstream).unwrap();
+                *count -= 1;
+                if *count == 0 {
+                    frontier.remove(&downstream);
+                }
+            }
+
+            if !frontier.iter().any(|n| d.contains(n)) {
+                if frontier
+                    .iter()
+                    .all(|n| graph.node_weight(*n).unwrap().sensitivity.is_bounded())
+                {
+                    cuts.push(frontier.clone());
+                    if return_first {
+                        break;
+                    }
+                }
+            }
+        }
+
+        cuts
     }
 
     fn find_public_nodes(&self, loop_free_graph: &DependencyGraph) -> HashSet<NodeIndex> {
@@ -572,9 +585,9 @@ impl Hir<DepAnaMode> {
             .iter()
             .map(|i| (i.sr, NumInfluencedValues::Bounded(1)))
             .collect();
-        let mut reachable_from: HashMap<_,HashSet<_>> = self.inputs.iter().map(|i| (i.sr, vec![i.sr].into_iter().collect())).collect();
 
-        for node in toposort(&graph, None).expect("no cycles").into_iter().rev() {
+        let toposort = toposort(&graph, None).expect("no cycles");
+        for &node in toposort.iter().rev() {
             let sr = *graph.node_weight(node).unwrap();
             if let StreamReference::In(_) = sr {
                 // already handled
@@ -599,11 +612,6 @@ impl Hir<DepAnaMode> {
             value_ranges.insert(sr, value_range);
             sensitivities.insert(sr, sensitivity);
             num_influenced_values.insert(sr, num_influenced_value);
-
-            let reachable_set = graph.neighbors_directed(node, Direction::Outgoing).flat_map(|n| {
-                reachable_from[graph.node_weight(n).unwrap()].iter()
-            }).copied().chain(Some(sr)).collect();
-            reachable_from.insert(sr, reachable_set);
         }
 
         let graph = graph.map(
@@ -615,7 +623,6 @@ impl Hir<DepAnaMode> {
                 value_range: *value_ranges
                     .get(&sref)
                     .expect("each node should have a value range"),
-                reachable_from: reachable_from.remove(&sref).unwrap_or_default()
             },
             |_, e| *e,
         );
@@ -660,6 +667,12 @@ impl Hir<DepAnaMode> {
             ExpressionKind::StreamAccess(_sr, StreamAccessKind::Hold, _) => {
                 SensitivityBound::Unbounded
             }
+            ExpressionKind::StreamAccess(sr, StreamAccessKind::BoundedHold(n), _) => {
+                *sensitivities
+                    .get(sr)
+                    .expect("dependencies should already be processed")
+                    * (*n as u64)
+            }
             ExpressionKind::StreamAccess(sr, StreamAccessKind::SlidingWindow(w), _) => {
                 let w = self.single_sliding(*w);
                 let window_duration = w.aggr.duration.as_nanos() as u64;
@@ -676,10 +689,18 @@ impl Hir<DepAnaMode> {
                 .to_u64()
                 .unwrap();
                 let factor = window_duration.div_ceil(pacing_nanos);
-                *sensitivities
-                    .get(sr)
-                    .expect("dependencies should already be processed")
-                    * factor
+                match w.aggr.op {
+                    WindowOperation::Count => SensitivityBound::from(0.0),
+                    WindowOperation::Sum
+                    | WindowOperation::Conjunction
+                    | WindowOperation::Disjunction => {
+                        *sensitivities
+                            .get(sr)
+                            .expect("dependencies should already be processed")
+                            * factor
+                    }
+                    _ => SensitivityBound::Unbounded,
+                }
             }
             ExpressionKind::Default { expr, default } => {
                 let expr_bound = self.calculate_sensitivity(
@@ -696,6 +717,15 @@ impl Hir<DepAnaMode> {
                 );
                 expr_bound.max(default_bound)
             }
+            ExpressionKind::Function(f) => match f.name.as_str() {
+                "cast" => self.calculate_sensitivity(
+                    &f.args[0],
+                    sensitivities,
+                    value_range,
+                    num_influenced_values,
+                ),
+                _ => SensitivityBound::Unbounded,
+            },
             _ => value_range.sensitivity() * SensitivityBound::from(num_influenced_values),
         }
     }
@@ -732,7 +762,10 @@ impl Hir<DepAnaMode> {
             }
             ExpressionKind::StreamAccess(
                 target,
-                StreamAccessKind::Sync | StreamAccessKind::Offset(_) | StreamAccessKind::Hold,
+                StreamAccessKind::Sync
+                | StreamAccessKind::Offset(_)
+                | StreamAccessKind::Hold
+                | StreamAccessKind::BoundedHold(_),
                 _,
             ) => value_ranges[target],
             ExpressionKind::StreamAccess(
@@ -744,6 +777,10 @@ impl Hir<DepAnaMode> {
                 Self::calculate_value_range(expr, value_ranges)
                     .union(Self::calculate_value_range(default, value_ranges))
             }
+            ExpressionKind::Function(f) => match f.name.as_str() {
+                "cast" => Self::calculate_value_range(&f.args[0], value_ranges),
+                _ => ValueRange::Unbounded,
+            },
             _ => ValueRange::Unbounded,
         }
     }
@@ -764,41 +801,72 @@ impl Hir<DepAnaMode> {
                 StreamAccessKind::Offset(_) | StreamAccessKind::Sync,
                 _,
             ) => num_influenced_values[&target],
+            ExpressionKind::StreamAccess(target, StreamAccessKind::BoundedHold(n), _) => {
+                match num_influenced_values[&target] {
+                    NumInfluencedValues::Bounded(b) => NumInfluencedValues::Bounded(b * *n),
+                    NumInfluencedValues::Unbounded => NumInfluencedValues::Unbounded,
+                }
+            }
+            // functions only ever operate on a single value
+            ExpressionKind::Function(f) => f
+                .args
+                .iter()
+                .map(|e| Self::calculate_num_influenced_values(e, num_influenced_values))
+                .reduce(|a, b| a + b)
+                .unwrap(),
             _ => NumInfluencedValues::Unbounded,
+        }
+    }
+
+    fn add_noise_to_inputs(&mut self, inputs: &[(InputReference, f64)]) {
+        let mut mapping = HashMap::new();
+        let mut exclude = HashSet::new();
+        let mut noise_additions = Vec::new();
+        for (input, amount) in inputs {
+            let input_id = self.next_expr_id();
+            let input = &self.inputs[*input];
+            let expr = Expression {
+                kind: ExpressionKind::StreamAccess(input.sr, StreamAccessKind::Sync, vec![]),
+                eid: input_id,
+                span: Span::Unknown,
+            };
+            assert!(self
+                .expr_maps
+                .exprid_to_expr
+                .insert(input_id, expr)
+                .is_none());
+            let sr = StreamReference::Out(self.outputs.len());
+            let copy = Output {
+                kind: OutputKind::NamedOutput(format!("{}'", input.name)),
+                annotated_type: None,
+                params: vec![],
+                spawn: None,
+                eval: vec![Eval {
+                    annotated_pacing_type: AnnotatedPacingType::NotAnnotated(Span::Unknown),
+                    condition: None,
+                    expr: input_id,
+                    span: Span::Unknown,
+                }],
+                close: None,
+                sr,
+                tags: HashMap::new(),
+                span: Span::Unknown,
+            };
+            self.outputs.push(copy);
+            mapping.insert(input.sr, sr);
+            exclude.insert(input_id);
+            noise_additions.push((sr, amount));
+        }
+        self.replace_srs(mapping, exclude);
+        for (sr, amount) in noise_additions {
+            self.add_noise(sr, *amount);
         }
     }
 
     fn add_noise(&mut self, stream: SRef, amount: f64) {
         match stream {
             StreamReference::In(idx) => {
-                let input_id = self.next_expr_id();
-                let input = &self.inputs[idx];
-                let expr = Expression {
-                    kind: ExpressionKind::StreamAccess(input.sr, StreamAccessKind::Sync, vec![]),
-                    eid: input_id,
-                    span: Span::Unknown,
-                };
-                self.expr_maps.exprid_to_expr.insert(input_id, expr);
-                let sr = StreamReference::Out(self.outputs.len());
-                let copy = Output {
-                    kind: OutputKind::NamedOutput(format!("{}'", input.name)),
-                    annotated_type: None,
-                    params: vec![],
-                    spawn: None,
-                    eval: vec![Eval {
-                        annotated_pacing_type: AnnotatedPacingType::NotAnnotated(Span::Unknown),
-                        condition: None,
-                        expr: input_id,
-                        span: Span::Unknown,
-                    }],
-                    close: None,
-                    sr,
-                    tags: HashMap::new(),
-                    span: Span::Unknown,
-                };
-                self.outputs.push(copy);
-                self.replace_sr(stream, sr, input_id);
-                self.add_noise(sr, amount);
+                self.add_noise_to_inputs(&[(idx, amount)]);
             }
             StreamReference::Out(idx) => {
                 assert!(
@@ -816,9 +884,11 @@ impl Hir<DepAnaMode> {
                     eid: amount_id,
                     span: Span::Unknown,
                 };
-                self.expr_maps
+                assert!(self
+                    .expr_maps
                     .exprid_to_expr
-                    .insert(amount_id, amount_expr.clone());
+                    .insert(amount_id, amount_expr.clone())
+                    .is_none(),);
 
                 let noise_expr_id = self.next_expr_id();
                 let noise_expr = Expression {
@@ -830,9 +900,11 @@ impl Hir<DepAnaMode> {
                     eid: noise_expr_id,
                     span: Span::Unknown,
                 };
-                self.expr_maps
+                assert!(self
+                    .expr_maps
                     .exprid_to_expr
-                    .insert(noise_expr_id, noise_expr.clone());
+                    .insert(noise_expr_id, noise_expr.clone())
+                    .is_none());
 
                 let new_expr_id = self.next_expr_id();
                 let new_expr = Expression {
@@ -843,7 +915,11 @@ impl Hir<DepAnaMode> {
                     eid: new_expr_id,
                     span: Span::Unknown,
                 };
-                self.expr_maps.exprid_to_expr.insert(new_expr_id, new_expr);
+                assert!(self
+                    .expr_maps
+                    .exprid_to_expr
+                    .insert(new_expr_id, new_expr)
+                    .is_none());
                 self.outputs[idx].eval[0].expr = new_expr_id;
                 self.expr_maps.func_table.insert(
                     "laplace".into(),
@@ -868,29 +944,36 @@ impl Hir<DepAnaMode> {
         ExprId(id)
     }
 
-    fn replace_sr(&mut self, from: StreamReference, to: StreamReference, exclude: ExprId) {
+    fn replace_srs(
+        &mut self,
+        mapping: HashMap<StreamReference, StreamReference>,
+        exclude: HashSet<ExprId>,
+    ) {
         for (id, expr) in self.expr_maps.exprid_to_expr.iter_mut() {
-            if *id == exclude {
+            if exclude.contains(id) {
                 continue;
             }
-            Self::replace_sr_prime(expr, from, to);
+            Self::replace_sr_prime(expr, &mapping);
         }
     }
 
-    fn replace_sr_prime(expr: &mut Expression, from: StreamReference, to: StreamReference) {
+    fn replace_sr_prime(
+        expr: &mut Expression,
+        mapping: &HashMap<StreamReference, StreamReference>,
+    ) {
         match &mut expr.kind {
             ExpressionKind::LoadConstant(_) => {}
             ExpressionKind::Tuple(expressions) | ExpressionKind::ArithLog(_, expressions) => {
                 for expr in expressions {
-                    Self::replace_sr_prime(expr, from, to);
+                    Self::replace_sr_prime(expr, mapping);
                 }
             }
             ExpressionKind::StreamAccess(stream_reference, _, expressions) => {
-                if *stream_reference == from {
-                    *stream_reference = to;
+                if let Some(to) = mapping.get(&stream_reference) {
+                    *stream_reference = *to;
                 }
                 for expr in expressions {
-                    Self::replace_sr_prime(expr, from, to);
+                    Self::replace_sr_prime(expr, mapping);
                 }
             }
             ExpressionKind::ParameterAccess(_, _) => {}
@@ -901,22 +984,22 @@ impl Hir<DepAnaMode> {
                 alternative,
             } => {
                 for expr in [condition, consequence, alternative] {
-                    Self::replace_sr_prime(expr, from, to);
+                    Self::replace_sr_prime(expr, mapping);
                 }
             }
             ExpressionKind::Function(fn_expr_kind) => {
                 for expr in &mut fn_expr_kind.args {
-                    Self::replace_sr_prime(expr, from, to);
+                    Self::replace_sr_prime(expr, mapping);
                 }
             }
             ExpressionKind::Widen(_) => todo!(),
             ExpressionKind::Default { expr, default } => {
                 for expr in [expr, default] {
-                    Self::replace_sr_prime(expr, from, to);
+                    Self::replace_sr_prime(expr, mapping);
                 }
             }
             ExpressionKind::TupleAccess(expression, _) => {
-                Self::replace_sr_prime(expression, from, to);
+                Self::replace_sr_prime(expression, mapping);
             }
         }
     }
@@ -991,11 +1074,19 @@ impl Hir<DepAnaMode> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::{HashMap, HashSet}, convert::TryInto};
+    use std::{
+        collections::{HashMap, HashSet},
+        convert::TryInto,
+    };
 
-    use rtlola_parser::{ParserConfig, parse};
+    use rtlola_parser::{parse, ParserConfig};
 
-    use crate::{from_ast, hir::{DepAnaTrait, HirStage, StreamReference}, modes::privacy::{SensitivityBound, ValueRange, iterate_cutpoints}};
+    use crate::{
+        from_ast,
+        hir::{DepAnaMode, DepAnaTrait, HirStage, StreamReference},
+        modes::privacy::{SensitivityBound, ValueRange},
+        RtLolaHir,
+    };
 
     #[test]
     fn simple_spec() {
@@ -1011,29 +1102,90 @@ mod tests {
         let config = (&config).into();
         let hir = base.progress(&config).unwrap().progress(&config).unwrap();
         let graph = hir.analyze_dependency_graph(hir.graph().clone());
-        let nodes : HashMap<_, _> = graph.node_indices().map(|n| {
-            let w = graph.node_weight(n).unwrap();
-        (w.sref, w)}).collect();
-        assert_eq!(nodes[&StreamReference::In(0)].reachable_from, vec![StreamReference::In(0)].into_iter().collect());
-        assert_eq!(nodes[&StreamReference::In(0)].sensitivity, SensitivityBound::from(5.0));
-        assert_eq!(nodes[&StreamReference::In(0)].value_range, ValueRange::Bounded { lower: 0.0f64.try_into().unwrap(), upper: 5.0f64.try_into().unwrap() });
+        let nodes: HashMap<_, _> = graph
+            .node_indices()
+            .map(|n| {
+                let w = graph.node_weight(n).unwrap();
+                (w.sref, w)
+            })
+            .collect();
 
-        assert_eq!(nodes[&StreamReference::Out(0)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(0)].into_iter().collect());
-        assert_eq!(nodes[&StreamReference::Out(0)].sensitivity, SensitivityBound::from(5.0));
-        assert_eq!(nodes[&StreamReference::Out(0)].value_range, ValueRange::Bounded { lower: 1.0f64.try_into().unwrap(), upper: 6.0f64.try_into().unwrap() });
+        assert_eq!(
+            nodes[&StreamReference::In(0)].sensitivity,
+            SensitivityBound::from(5.0)
+        );
+        assert_eq!(
+            nodes[&StreamReference::In(0)].value_range,
+            ValueRange::Bounded {
+                lower: 0.0f64.try_into().unwrap(),
+                upper: 5.0f64.try_into().unwrap()
+            }
+        );
 
-        assert_eq!(nodes[&StreamReference::Out(1)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(1)].into_iter().collect());
-        assert_eq!(nodes[&StreamReference::Out(1)].sensitivity, SensitivityBound::from(5.0));
-        assert_eq!(nodes[&StreamReference::Out(1)].value_range, ValueRange::Bounded { lower: 2.0f64.try_into().unwrap(), upper: 7.0f64.try_into().unwrap() });
+        assert_eq!(
+            nodes[&StreamReference::Out(0)].sensitivity,
+            SensitivityBound::from(5.0)
+        );
+        assert_eq!(
+            nodes[&StreamReference::Out(0)].value_range,
+            ValueRange::Bounded {
+                lower: 1.0f64.try_into().unwrap(),
+                upper: 6.0f64.try_into().unwrap()
+            }
+        );
 
-        assert_eq!(nodes[&StreamReference::Out(2)].reachable_from, vec![StreamReference::In(0), StreamReference::Out(0), StreamReference::Out(1), StreamReference::Out(2)].into_iter().collect());
-        assert_eq!(nodes[&StreamReference::Out(2)].sensitivity, SensitivityBound::from(10.0));
-        assert_eq!(nodes[&StreamReference::Out(2)].value_range, ValueRange::Bounded { lower: 3.0f64.try_into().unwrap(), upper: 13.0f64.try_into().unwrap() });
+        assert_eq!(
+            nodes[&StreamReference::Out(1)].sensitivity,
+            SensitivityBound::from(5.0)
+        );
+        assert_eq!(
+            nodes[&StreamReference::Out(1)].value_range,
+            ValueRange::Bounded {
+                lower: 2.0f64.try_into().unwrap(),
+                upper: 7.0f64.try_into().unwrap()
+            }
+        );
 
-        let mut inputs: HashSet<_> = graph
-                .node_indices()
-                .filter(|i| graph.node_weight(*i).unwrap().sref.is_input())
-                .collect();
-        iterate_cutpoints(&graph, &mut inputs, &mut HashSet::new());
+        assert_eq!(
+            nodes[&StreamReference::Out(2)].sensitivity,
+            SensitivityBound::from(10.0)
+        );
+        assert_eq!(
+            nodes[&StreamReference::Out(2)].value_range,
+            ValueRange::Bounded {
+                lower: 3.0f64.try_into().unwrap(),
+                upper: 13.0f64.try_into().unwrap()
+            }
+        );
+
+        let cut_sets = RtLolaHir::<DepAnaMode>::enumerate_cuts(&graph, false);
+        // assert_eq!(cut_sets.len(), 3);
+
+        let cut_sets_as_srefs: Vec<HashSet<_>> = cut_sets
+            .iter()
+            .map(|cut_set| {
+                cut_set
+                    .iter()
+                    .map(|n| graph.node_weight(*n).unwrap().sref)
+                    .collect::<HashSet<_>>()
+            })
+            .collect();
+
+        let expected: Vec<HashSet<_>> = vec![
+            vec![StreamReference::In(0)].into_iter().collect(),
+            vec![StreamReference::Out(0), StreamReference::Out(1)]
+                .into_iter()
+                .collect(),
+            vec![StreamReference::Out(2)].into_iter().collect(),
+        ];
+
+        for cs in expected {
+            assert!(
+                cut_sets_as_srefs.iter().any(|cut_set| cut_set == &cs),
+                "{:?} not in {:?}",
+                cs,
+                &cut_sets_as_srefs
+            );
+        }
     }
 }

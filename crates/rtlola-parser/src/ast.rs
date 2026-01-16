@@ -595,6 +595,8 @@ pub enum StreamAccessKind {
     Sync,
     /// Hold access for *incompatible* stream types, returns previous known value
     Hold,
+    /// Hold access for *incompatible* stream types, returns previous known value (bounded to number of accesses)
+    BoundedHold(u32),
     /// Optional access, returns value if it exists, called by `.get()`
     Get,
     /// Boolean Typed access, returning true if the target stream received a new value at the current timestamp. Called with `.is_fresh()`.

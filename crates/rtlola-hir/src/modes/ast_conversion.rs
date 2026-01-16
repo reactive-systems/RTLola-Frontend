@@ -754,6 +754,7 @@ impl ExpressionTransformer {
                     StreamAccessKind::Sync => IRAccess::Sync,
                     StreamAccessKind::Get => IRAccess::Get,
                     StreamAccessKind::Fresh => IRAccess::Fresh,
+                    StreamAccessKind::BoundedHold(n) => IRAccess::BoundedHold(n),
                 };
                 let (expr_ref, args) = self.get_stream_ref(
                     expr.as_ref(),

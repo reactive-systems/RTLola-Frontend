@@ -27,6 +27,7 @@ impl Expression {
                     match kind {
                         StreamAccessKind::Offset(o) => format!(".offset(by: {o})"),
                         StreamAccessKind::Hold => ".hold()".into(),
+                        StreamAccessKind::BoundedHold(n) => format!(".hold(for_discrete: {n})"),
                         StreamAccessKind::SlidingWindow(r)
                         | StreamAccessKind::DiscreteWindow(r)
                         | StreamAccessKind::AllAggregation(r)
@@ -143,6 +144,7 @@ impl Display for Expression {
                 match kind {
                     StreamAccessKind::Offset(o) => write!(f, ".offset(by: {o})"),
                     StreamAccessKind::Hold => write!(f, ".hold()"),
+                    StreamAccessKind::BoundedHold(n) => write!(f, ".hold(for_discrete: {n})"),
                     StreamAccessKind::SlidingWindow(r)
                     | StreamAccessKind::DiscreteWindow(r)
                     | StreamAccessKind::AllAggregation(r)

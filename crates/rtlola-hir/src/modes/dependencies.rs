@@ -59,6 +59,7 @@ impl EdgeWeight {
             | StreamAccessKind::Fresh
             | StreamAccessKind::Sync
             | StreamAccessKind::Hold
+            | StreamAccessKind::BoundedHold(_)
             | StreamAccessKind::Offset(_) => None,
             StreamAccessKind::DiscreteWindow(wref)
             | StreamAccessKind::SlidingWindow(wref)
@@ -79,7 +80,9 @@ impl EdgeWeight {
             | StreamAccessKind::SlidingWindow(_) => {
                 MemorizationBound::default_value(memory_bound_mode)
             }
-            StreamAccessKind::Hold => MemorizationBound::Bounded(1),
+            StreamAccessKind::Hold | StreamAccessKind::BoundedHold(_) => {
+                MemorizationBound::Bounded(1)
+            }
             StreamAccessKind::Offset(o) => o.as_memory_bound(),
         }
     }
@@ -111,7 +114,8 @@ pub(crate) trait ExtendedDepGraph {
             | StreamAccessKind::SlidingWindow(_)
             | StreamAccessKind::InstanceAggregation(_)
             | StreamAccessKind::AllAggregation(_)
-            | StreamAccessKind::Hold => false,
+            | StreamAccessKind::Hold
+            | StreamAccessKind::BoundedHold(_) => false,
             StreamAccessKind::Offset(o) => o.has_negative_offset(),
         }
     }

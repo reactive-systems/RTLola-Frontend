@@ -691,7 +691,9 @@ where
                             }
                         }
                     }
-                    StreamAccessKind::Hold | StreamAccessKind::Get => {
+                    StreamAccessKind::Hold
+                    | StreamAccessKind::BoundedHold(_)
+                    | StreamAccessKind::Get => {
                         self.tyc
                             .impose(term_key.concretizes_explicit(AbstractValueType::Option))?;
                         let inner_key = self.tyc.get_child_key(term_key, 0)?;

@@ -720,7 +720,7 @@ impl Mir {
             Literal::Decimal(f) => match ty {
                 mir::Type::Float(_) => mir::Constant::Float(f.to_f64().unwrap()),
                 mir::Type::Fixed(_) | mir::Type::UFixed(_) => mir::Constant::Decimal(*f),
-                _ => unreachable!(),
+                other => unreachable!("{:?}: {:?}", other, f),
             },
         }
     }
@@ -829,7 +829,9 @@ impl Mir {
                 mir::StreamAccessKind::InstanceAggregation(wref)
             }
             StreamAccessKind::AllAggregation(wref) => mir::StreamAccessKind::AllAggregation(wref),
-            StreamAccessKind::Hold => mir::StreamAccessKind::Hold,
+            StreamAccessKind::Hold | StreamAccessKind::BoundedHold(_) => {
+                mir::StreamAccessKind::Hold
+            }
             StreamAccessKind::Offset(o) => mir::StreamAccessKind::Offset(Self::lower_offset(o)),
             StreamAccessKind::Get => mir::StreamAccessKind::Get,
             StreamAccessKind::Fresh => mir::StreamAccessKind::Fresh,

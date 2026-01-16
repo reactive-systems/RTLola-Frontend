@@ -291,9 +291,10 @@ impl HirStage for Hir<DepAnaMode> {
 
     fn progress(self, cfg: &FrontendConfig) -> Result<Hir<Self::NextStage>, RtLolaError> {
         let hir = if let Some(parameter) = cfg.privacy_parameter() {
-            self.add_privacy_barriers(parameter, cfg.privacy_heuristic())?
-                .progress(cfg)?
-                .progress(cfg)?
+            BENCHMARK_TRACER.lock().unwrap().start_privacy_analysis();
+            let result = self.add_privacy_barriers(parameter, cfg.privacy_heuristic())?;
+            BENCHMARK_TRACER.lock().unwrap().end_privacy_analysis();
+            result.progress(cfg)?.progress(cfg)?
         } else {
             self
         };
@@ -328,10 +329,7 @@ impl HirStage for Hir<DepAnaMode> {
 
 impl Hir<DepAnaMode> {
     pub fn privacy_stage(self, cfg: &FrontendConfig) -> Result<Hir<PrivacyMode>, RtLolaError> {
-        BENCHMARK_TRACER.lock().unwrap().start_privacy_analysis();
-        let res = self.progress(cfg);
-        BENCHMARK_TRACER.lock().unwrap().end_privacy_analysis();
-        res
+        self.progress(cfg)
     }
 }
 

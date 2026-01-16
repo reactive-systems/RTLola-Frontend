@@ -220,6 +220,7 @@ impl Display for Expression {
             ExpressionKind::StreamAccess(expr, access) => match access {
                 StreamAccessKind::Sync => write!(f, "{expr}"),
                 StreamAccessKind::Hold => write!(f, "{expr}.hold()"),
+                StreamAccessKind::BoundedHold(n) => write!(f, "{expr}.hold(for_discrete: {n})"),
                 StreamAccessKind::Get => write!(f, "{expr}.get()"),
                 StreamAccessKind::Fresh => write!(f, "{expr}.is_fresh()"),
             },

@@ -81,15 +81,14 @@ impl AnalysisTracer {
             .duration_since(self.analysis_start.unwrap())
     }
 
-    fn privacy_duration(&self) -> Duration {
+    fn privacy_duration(&self) -> Option<Duration> {
         self.privacy_end
-            .unwrap()
-            .duration_since(self.privacy_start.unwrap())
+            .map(|end| end.duration_since(self.privacy_start.unwrap()))
     }
 
     fn privacy_heuristic_duration(&self) -> Option<Duration> {
-        self.privacy_heuristic_start
-            .map(|start| start.duration_since(self.privacy_heuristic_end.unwrap()))
+        self.privacy_heuristic_end
+            .map(|start| start.duration_since(self.privacy_heuristic_start.unwrap()))
     }
 
     fn reset(&mut self) {
@@ -103,8 +102,8 @@ pub struct BenchmarkResults {
     parse_duration: Duration,
     #[serde(serialize_with = "duration_secs")]
     analysis_duration: Duration,
-    #[serde(serialize_with = "duration_secs")]
-    privacy_duration: Duration,
+    #[serde(serialize_with = "optional_duration")]
+    privacy_duration: Option<Duration>,
     #[serde(serialize_with = "optional_duration")]
     heuristic_duration: Option<Duration>,
 }

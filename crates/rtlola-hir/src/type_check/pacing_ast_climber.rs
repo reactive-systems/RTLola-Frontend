@@ -554,7 +554,10 @@ where
                             }
                         }
                     }
-                    StreamAccessKind::Hold | StreamAccessKind::Get | StreamAccessKind::Fresh => {}
+                    StreamAccessKind::Hold
+                    | StreamAccessKind::BoundedHold(_)
+                    | StreamAccessKind::Get
+                    | StreamAccessKind::Fresh => {}
                     StreamAccessKind::SlidingWindow(_) => {
                         self.pacing_tyc
                             .impose(term_keys.eval_pacing.concretizes_explicit(AnyPeriodic))?;
