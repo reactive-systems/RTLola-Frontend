@@ -601,14 +601,27 @@ impl Hir<DepAnaMode> {
             );
             let expression = eval_clauses[0];
             let value_range = Self::calculate_value_range(expression, &value_ranges);
-            let num_influenced_value =
+            let mut num_influenced_value =
                 Self::calculate_num_influenced_values(expression, &num_influenced_values);
-            let sensitivity = self.calculate_sensitivity(
+            let mut sensitivity = self.calculate_sensitivity(
                 expression,
                 &sensitivities,
                 &value_range,
                 num_influenced_value,
             );
+
+            if self.output(sr).unwrap().eval()[0].condition.is_some()
+                || self
+                    .output(sr)
+                    .unwrap()
+                    .spawn()
+                    .is_some_and(|s| s.condition.is_some())
+            {
+                // now the timing starts leaking information, so we have to disallow adding cutpoints
+                sensitivity = SensitivityBound::Unbounded;
+                num_influenced_value = NumInfluencedValues::Unbounded;
+            }
+
             value_ranges.insert(sr, value_range);
             sensitivities.insert(sr, sensitivity);
             num_influenced_values.insert(sr, num_influenced_value);
@@ -781,6 +794,15 @@ impl Hir<DepAnaMode> {
                 "cast" => Self::calculate_value_range(&f.args[0], value_ranges),
                 _ => ValueRange::Unbounded,
             },
+            ExpressionKind::Ite {
+                condition: _,
+                consequence,
+                alternative,
+            } => {
+                let cons_range = Self::calculate_value_range(consequence, value_ranges);
+                let alt_range = Self::calculate_value_range(alternative, value_ranges);
+                cons_range.union(alt_range)
+            }
             _ => ValueRange::Unbounded,
         }
     }
@@ -790,6 +812,8 @@ impl Hir<DepAnaMode> {
         num_influenced_values: &HashMap<SRef, NumInfluencedValues>,
     ) -> NumInfluencedValues {
         match &expression.kind {
+            // the parameter is not private because we don't have a spawn condition (otherwise num_influenced_values is set to Unbounded)
+            ExpressionKind::ParameterAccess(_, _) => NumInfluencedValues::Bounded(0),
             ExpressionKind::LoadConstant(_) => NumInfluencedValues::Bounded(0),
             ExpressionKind::ArithLog(_, exprs) => exprs
                 .iter()
@@ -807,13 +831,26 @@ impl Hir<DepAnaMode> {
                     NumInfluencedValues::Unbounded => NumInfluencedValues::Unbounded,
                 }
             }
-            // functions only ever operate on a single value
+            // functions only ever operate on a single timestamps
             ExpressionKind::Function(f) => f
                 .args
                 .iter()
                 .map(|e| Self::calculate_num_influenced_values(e, num_influenced_values))
                 .reduce(|a, b| a + b)
                 .unwrap(),
+            ExpressionKind::Ite {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                Self::calculate_num_influenced_values(condition, num_influenced_values)
+                    + Self::calculate_num_influenced_values(consequence, num_influenced_values)
+                    + Self::calculate_num_influenced_values(alternative, num_influenced_values)
+            }
+            ExpressionKind::Default { expr, default } => {
+                Self::calculate_num_influenced_values(expr, num_influenced_values)
+                    + Self::calculate_num_influenced_values(default, num_influenced_values)
+            }
             _ => NumInfluencedValues::Unbounded,
         }
     }
@@ -1046,10 +1083,15 @@ impl Hir<DepAnaMode> {
                     .value
                     .as_ref()
                     .expect("sensitivity annotation must have a value");
-                let sensitivity: f64 = sensitivity
-                    .parse()
-                    .expect("sensitivity annotation must be a number");
-                sensitivities.insert(input.sr, sensitivity.try_into().unwrap());
+                let sensitivity = if sensitivity == "unbounded" {
+                    SensitivityBound::Unbounded
+                } else {
+                    let sensitivity: f64 = sensitivity
+                        .parse()
+                        .expect("sensitivity annotation must be a number");
+                    sensitivity.try_into().unwrap()
+                };
+                sensitivities.insert(input.sr, sensitivity);
             }
         }
 
