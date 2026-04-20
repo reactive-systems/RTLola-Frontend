@@ -1,3 +1,5 @@
+//! Provides a method to measure the runtime of individual analysis stages
+
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -97,6 +99,7 @@ impl AnalysisTracer {
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
+/// The results of the benchmark
 pub struct BenchmarkResults {
     #[serde(serialize_with = "duration_secs")]
     parse_duration: Duration,
@@ -125,6 +128,7 @@ where
     }
 }
 
+/// Run a benchmark of the analysis in the frontend
 pub fn benchmark(config: &FrontendConfig) -> Result<BenchmarkResults, RtLolaError> {
     let mut tracer = BENCHMARK_TRACER.lock().unwrap();
     tracer.reset();
@@ -133,7 +137,7 @@ pub fn benchmark(config: &FrontendConfig) -> Result<BenchmarkResults, RtLolaErro
     tracer.end_parse();
     tracer.start_analysis();
     drop(tracer);
-    let hir = fully_analyzed(ast, &config)?;
+    let hir = fully_analyzed(ast, config)?;
     std::hint::black_box(hir);
     let mut tracer = BENCHMARK_TRACER.lock().unwrap();
     tracer.end_analysis();

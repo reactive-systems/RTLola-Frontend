@@ -18,7 +18,7 @@ use crate::modes::HirMode;
 
 impl<M: HirMode + TypedTrait> Hir<M> {
     /// Creates a [StreamSelector] to query the HIR for different classes of output streams.
-    pub fn select(&self) -> StreamSelector<M, All> {
+    pub fn select(&self) -> StreamSelector<'_, M, All> {
         StreamSelector::all(self)
     }
 }

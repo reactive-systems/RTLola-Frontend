@@ -25,7 +25,7 @@
     unused_import_braces,
     unused_qualifications
 )]
-
+#![allow(clippy::result_large_err)]
 pub mod benchmark;
 pub mod config;
 mod features;

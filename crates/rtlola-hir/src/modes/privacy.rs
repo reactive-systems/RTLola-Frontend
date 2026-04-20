@@ -1,10 +1,9 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     convert::{TryFrom, TryInto},
     ops::{Add, Mul, Sub},
 };
 
-use bitset::BitSet;
 use num::ToPrimitive;
 use num::{traits::Inv, FromPrimitive};
 use ordered_float::NotNan;
@@ -27,9 +26,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The heuristic that is used to decide where barriers are placed in the specification
 pub enum PrivacyHeuristic {
+    /// Add barriers directly after the inputs
     Inputs,
+    /// Add barriers as close as possible to the outputs
     Deep,
+    /// Add the least number of barriers possible
     LeastCutpoints,
 }
 
@@ -139,9 +142,7 @@ impl std::fmt::Display for ValueRange {
 impl ValueRange {
     fn sensitivity(&self) -> SensitivityBound {
         match self {
-            ValueRange::Bounded { lower, upper } => {
-                SensitivityBound::Bounded((upper - lower).try_into().unwrap())
-            }
+            ValueRange::Bounded { lower, upper } => SensitivityBound::Bounded(upper - lower),
             ValueRange::Unbounded => SensitivityBound::Unbounded,
         }
     }
@@ -217,12 +218,10 @@ impl Mul for ValueRange {
             ) => ValueRange::Bounded {
                 lower: vec![l1 * l2, l1 * u2, u1 * l2, u1 * u2]
                     .into_iter()
-                    .map(|n| NotNan::try_from(n).unwrap())
                     .min()
                     .unwrap(),
                 upper: vec![l1 * l2, l1 * u2, u1 * l2, u1 * u2]
                     .into_iter()
-                    .map(|n| NotNan::try_from(n).unwrap())
                     .max()
                     .unwrap(),
             },
@@ -416,15 +415,14 @@ impl Hir<DepAnaMode> {
                 }
             }
 
-            if !frontier.iter().any(|n| d.contains(n)) {
-                if frontier
+            if !frontier.iter().any(|n| d.contains(n))
+                && frontier
                     .iter()
                     .all(|n| graph.node_weight(*n).unwrap().sensitivity.is_bounded())
-                {
-                    cuts.push(frontier.clone());
-                    if return_first {
-                        break;
-                    }
+            {
+                cuts.push(frontier.clone());
+                if return_first {
+                    break;
                 }
             }
         }
@@ -824,9 +822,9 @@ impl Hir<DepAnaMode> {
                 target,
                 StreamAccessKind::Offset(_) | StreamAccessKind::Sync,
                 _,
-            ) => num_influenced_values[&target],
+            ) => num_influenced_values[target],
             ExpressionKind::StreamAccess(target, StreamAccessKind::BoundedHold(n), _) => {
-                match num_influenced_values[&target] {
+                match num_influenced_values[target] {
                     NumInfluencedValues::Bounded(b) => NumInfluencedValues::Bounded(b * *n),
                     NumInfluencedValues::Unbounded => NumInfluencedValues::Unbounded,
                 }
@@ -1006,7 +1004,7 @@ impl Hir<DepAnaMode> {
                 }
             }
             ExpressionKind::StreamAccess(stream_reference, _, expressions) => {
-                if let Some(to) = mapping.get(&stream_reference) {
+                if let Some(to) = mapping.get(stream_reference) {
                     *stream_reference = *to;
                 }
                 for expr in expressions {
@@ -1069,7 +1067,7 @@ impl Hir<DepAnaMode> {
 
             if let ValueRange::Bounded { .. } = value_range {
                 assert!(
-                    input.tags.get("sensitivity").is_none(),
+                    input.tags.contains_key("sensitivity"),
                     "give either sensitivity or range on input"
                 );
                 let sensitivity = value_range.sensitivity();
@@ -1089,7 +1087,7 @@ impl Hir<DepAnaMode> {
                     let sensitivity: f64 = sensitivity
                         .parse()
                         .expect("sensitivity annotation must be a number");
-                    sensitivity.try_into().unwrap()
+                    sensitivity.into()
                 };
                 sensitivities.insert(input.sr, sensitivity);
             }

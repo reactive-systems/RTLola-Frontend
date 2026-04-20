@@ -328,6 +328,7 @@ impl HirStage for Hir<DepAnaMode> {
 }
 
 impl Hir<DepAnaMode> {
+    /// Ensure the specification satisfies the given privacy requirements
     pub fn privacy_stage(self, cfg: &FrontendConfig) -> Result<Hir<PrivacyMode>, RtLolaError> {
         self.progress(cfg)
     }

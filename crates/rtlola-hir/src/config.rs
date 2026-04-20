@@ -73,6 +73,7 @@ impl<'a> FrontendConfig<'a> {
         }
     }
 
+    /// Configure the frontend config to automatically make specification private with the given privacy parameter
     pub fn with_privacy_parameter(self, parameter: f64) -> FrontendConfig<'a> {
         Self {
             privacy_parameter: Some(parameter),
@@ -80,6 +81,7 @@ impl<'a> FrontendConfig<'a> {
         }
     }
 
+    /// Configure the heuristic that is used to decide where privacy barriers are placed
     pub fn with_privacy_heuristic(self, heuristic: PrivacyHeuristic) -> FrontendConfig<'a> {
         Self {
             privacy_heuristic: heuristic,
@@ -92,10 +94,12 @@ impl<'a> FrontendConfig<'a> {
         self.parser_config
     }
 
+    /// Returns the configured privacy parameter (if configured)
     pub fn privacy_parameter(&self) -> Option<f64> {
         self.privacy_parameter
     }
 
+    /// Returns the configured privacy heuristic
     pub fn privacy_heuristic(&self) -> PrivacyHeuristic {
         self.privacy_heuristic
     }

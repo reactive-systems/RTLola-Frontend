@@ -627,7 +627,7 @@ mod test {
     use crate::fully_analyzed;
     use crate::hir::{ConcreteValueType, FeatureSelector};
 
-    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler) {
+    fn builder(cfg: &ParserConfig) -> (FeatureSelector, Handler<'_>) {
         use rtlola_parser::parse;
         let handler = Handler::from(cfg);
         let ast = parse(&cfg).map_err(|e| handler.emit_error(&e)).unwrap();

@@ -452,7 +452,7 @@ fn format_tags(tags: &HashMap<String, Option<String>>, f: &mut Formatter<'_>) ->
                 write!(f, "{key}")?;
             }
         }
-        write!(f, "]\n")?;
+        writeln!(f, "]")?;
     }
     Ok(())
 }
