@@ -9,7 +9,7 @@ use num::{traits::Inv, FromPrimitive};
 use ordered_float::NotNan;
 use petgraph::{algo::toposort, graph::NodeIndex, prelude::StableGraph, Direction};
 use rtlola_parser::ast::{Tag, WindowOperation};
-use rtlola_reporting::{RtLolaError, Span};
+use rtlola_reporting::{Diagnostic, RtLolaError, Span};
 use rust_decimal::Decimal;
 use uom::si::time::second;
 use uom::si::{rational64::Time as UOM_Time, time::nanosecond};
@@ -19,7 +19,7 @@ use crate::{
     hir::{
         AnnotatedPacingType, ArithLogOp, ConcretePacingType, Constant, DepAnaMode, DepAnaTrait,
         DependencyGraph, EdgeWeight, Eval, ExprId, Expression, ExpressionKind, FnExprKind, Hir,
-        Inlined, InputReference, Literal, Output, OutputKind, SRef, StreamAccessKind,
+        Inlined, InputReference, Literal, Origin, Output, OutputKind, SRef, StreamAccessKind,
         StreamReference, TypedTrait,
     },
     stdlib, BaseMode,
@@ -251,7 +251,7 @@ impl ValueRange {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 enum NumInfluencedValues {
     Bounded(u32),
     Unbounded,
@@ -287,7 +287,14 @@ impl Hir<DepAnaMode> {
     ) -> Result<Hir<BaseMode>, RtLolaError> {
         // Fast path for Inputs heuristic
         if heuristic == PrivacyHeuristic::Inputs {
-            let (sensitivities, _) = self.get_input_annotations();
+            let (sensitivities, _) = self.get_input_annotations()?;
+            if let Some((sr, _)) = sensitivities
+                .iter()
+                .find(|&(_, s)| *s == SensitivityBound::Unbounded)
+            {
+                let i = self.input(*sr).unwrap();
+                return Err(Diagnostic::error("For input sensitivity each input has to be annotated with a bounded sensitivity").add_span_with_label(i.span(), Some(&format!("The input \"{}\" has unbounded sensitivity.", i.name)), true).into());
+            }
             let input_refs = self.inputs.iter().map(|i| i.sr).collect::<Vec<_>>();
             let input_noise = input_refs
                 .into_iter()
@@ -314,10 +321,14 @@ impl Hir<DepAnaMode> {
         let loop_free_graph = self.extract_loop_free_segment(self.graph().clone());
         let public_nodes = self.find_public_nodes(&loop_free_graph);
         if public_nodes.is_empty() {
-            panic!("no stream marked as public");
+            return Err(Diagnostic::error("At least one output stream has to be marked with #[public] in order to use privacy features.").into());
         }
 
-        let annotated_graph = self.analyze_dependency_graph(loop_free_graph);
+        let annotated_graph = self.analyze_dependency_graph(loop_free_graph)?;
+        let annotated_graph = annotated_graph.filter_map(
+            |_, n| Some(n.clone()),
+            |_, e| (e.origin != Origin::Spawn).then_some(*e),
+        );
 
         // debug annotations
         for node in annotated_graph.node_indices() {
@@ -337,28 +348,39 @@ impl Hir<DepAnaMode> {
             }
         }
 
-        let mut tracer = BENCHMARK_TRACER.lock().unwrap();
-        tracer.start_privacy_heuristic();
-        let cut_points = match heuristic {
-            PrivacyHeuristic::Inputs => unreachable!("fast path above"),
-            PrivacyHeuristic::Deep => {
-                let cutpoints = Self::enumerate_cuts(&annotated_graph, true);
-                assert_eq!(cutpoints.len(), 1);
-                cutpoints.into_iter().next().unwrap()
-            }
-            PrivacyHeuristic::LeastCutpoints => {
-                let cutpoints = Self::enumerate_cuts(&annotated_graph, false);
-                cutpoints.into_iter().min_by_key(|c| c.len()).unwrap()
-            }
-        };
-        tracer.end_privacy_heuristic();
+        if true {
+            let mut tracer = BENCHMARK_TRACER.lock().unwrap();
+            tracer.start_privacy_heuristic();
 
-        for node in &cut_points {
-            let weight = annotated_graph.node_weight(*node).unwrap();
-            self.add_noise(
-                weight.sref,
-                (cut_points.len() as f64 * weight.sensitivity.unwrap()) / parameter,
-            );
+            let no_cutpoint_error = Diagnostic::error("No valid set of barrier found. This is possible if some inputs are annotated with \"unbounded\".").into();
+
+            let cut_points = match heuristic {
+                PrivacyHeuristic::Inputs => unreachable!("fast path above"),
+                PrivacyHeuristic::Deep => {
+                    let cutpoints = Self::enumerate_cuts(&annotated_graph, true);
+                    if cutpoints.len() < 1 {
+                        return Err(no_cutpoint_error);
+                    }
+                    assert_eq!(cutpoints.len(), 1);
+                    cutpoints.into_iter().next().unwrap()
+                }
+                PrivacyHeuristic::LeastCutpoints => {
+                    let cutpoints = Self::enumerate_cuts(&annotated_graph, false);
+                    cutpoints
+                        .into_iter()
+                        .min_by_key(|c| c.len())
+                        .ok_or(no_cutpoint_error)?
+                }
+            };
+            tracer.end_privacy_heuristic();
+
+            for node in &cut_points {
+                let weight = annotated_graph.node_weight(*node).unwrap();
+                self.add_noise(
+                    weight.sref,
+                    (cut_points.len() as f64 * weight.sensitivity.unwrap()) / parameter,
+                );
+            }
         }
 
         let Hir {
@@ -576,8 +598,11 @@ impl Hir<DepAnaMode> {
         path.pop();
     }
 
-    fn analyze_dependency_graph(&self, graph: DependencyGraph) -> AugmentedDependencyGraph {
-        let (mut sensitivities, mut value_ranges) = self.get_input_annotations();
+    fn analyze_dependency_graph(
+        &self,
+        graph: DependencyGraph,
+    ) -> Result<AugmentedDependencyGraph, RtLolaError> {
+        let (mut sensitivities, mut value_ranges) = self.get_input_annotations()?;
         let mut num_influenced_values: HashMap<_, _> = self
             .inputs
             .iter()
@@ -592,11 +617,17 @@ impl Hir<DepAnaMode> {
                 continue;
             }
             let eval_clauses = self.eval_expr(sr).unwrap();
-            assert_eq!(
-                eval_clauses.len(),
-                1,
-                "multiple eval clauses not supported for privacy analysis"
-            );
+            if eval_clauses.len() > 1 {
+                return Err(Diagnostic::error(
+                    "Multiple Eval clauses are not supported for privacy analysis.",
+                )
+                .add_span_with_label(
+                    eval_clauses[1].span(),
+                    Some("Found second eval clause here".into()),
+                    true,
+                )
+                .into());
+            }
             let expression = eval_clauses[0];
             let value_range = Self::calculate_value_range(expression, &value_ranges);
             let mut num_influenced_value =
@@ -638,7 +669,7 @@ impl Hir<DepAnaMode> {
             |_, e| *e,
         );
 
-        graph
+        Ok(graph)
     }
 
     fn calculate_sensitivity(
@@ -840,11 +871,10 @@ impl Hir<DepAnaMode> {
                 condition,
                 consequence,
                 alternative,
-            } => {
-                Self::calculate_num_influenced_values(condition, num_influenced_values)
-                    + Self::calculate_num_influenced_values(consequence, num_influenced_values)
-                    + Self::calculate_num_influenced_values(alternative, num_influenced_values)
-            }
+            } => Self::calculate_num_influenced_values(consequence, num_influenced_values).max(
+                Self::calculate_num_influenced_values(alternative, num_influenced_values)
+                    + Self::calculate_num_influenced_values(condition, num_influenced_values),
+            ),
             ExpressionKind::Default { expr, default } => {
                 Self::calculate_num_influenced_values(expr, num_influenced_values)
                     + Self::calculate_num_influenced_values(default, num_influenced_values)
@@ -1041,59 +1071,116 @@ impl Hir<DepAnaMode> {
 
     fn get_input_annotations(
         &self,
-    ) -> (HashMap<SRef, SensitivityBound>, HashMap<SRef, ValueRange>) {
+    ) -> Result<(HashMap<SRef, SensitivityBound>, HashMap<SRef, ValueRange>), RtLolaError> {
         let mut sensitivities = HashMap::new();
         let mut value_ranges = HashMap::new();
+
+        fn parse_bound(
+            value: Option<&String>,
+            span: Span,
+            missing_msg: &str,
+            parse_msg: &str,
+        ) -> Result<f64, Diagnostic> {
+            let v = match value {
+                Some(v) => v,
+                None => {
+                    return Err(Diagnostic::error(missing_msg)
+                        .add_span_with_label(span, Some("Missing value here".into()), true)
+                        .into());
+                }
+            };
+            match v.parse() {
+                Ok(n) => Ok(n),
+                Err(_) => Err(Diagnostic::error(parse_msg)
+                    .add_span_with_label(span, Some("Faulty tag here".into()), true)
+                    .into()),
+            }
+        }
 
         for input in &self.inputs {
             let value_range_from = input.tags.get("range_from");
             let value_range_to = input.tags.get("range_to");
             let value_range = match (value_range_from, value_range_to) {
                 (Some(lower), Some(upper)) => {
-                    let lower = lower.value.as_ref().expect("lower bound must have a value");
-                    let lower: f64 = lower.parse().expect("lower bound must be a number");
-                    let upper = upper.value.as_ref().expect("upper bound must have a value");
-                    let upper: f64 = upper.parse().expect("upper bound must be a number");
+                    let lower = parse_bound(
+                        lower.value.as_ref(),
+                        lower.span,
+                        "Each range_from tag must have associated value",
+                        "range_from tag must be a number",
+                    )?;
+
+                    let upper = parse_bound(
+                        upper.value.as_ref(),
+                        upper.span,
+                        "Each range_to tag must have associated value",
+                        "range_to tag must be a number",
+                    )?;
                     ValueRange::Bounded {
                         lower: lower.try_into().unwrap(),
                         upper: upper.try_into().unwrap(),
                     }
                 }
                 (None, None) => ValueRange::Unbounded,
-                _ => panic!("Both lower and upper must be annotated for value range"),
+                _ => {
+                    return Err(Diagnostic::error("Input stream must be either annotated with both `range_from` and `range_to` or neither.").add_span_with_label(input.span, Some("Found on this input stream"), true).into());
+                }
             };
 
             value_ranges.insert(input.sr, value_range);
 
             if let ValueRange::Bounded { .. } = value_range {
-                assert!(
-                    input.tags.contains_key("sensitivity"),
-                    "give either sensitivity or range on input"
-                );
+                if input.tags.contains_key("sensitivity") {
+                    return Err(Diagnostic::error("A stream was already tagged with a value range. Then a sensitivity should not be given.").add_span_with_label(input.tags.get("sensitivity").unwrap().span, Some("Found sensitivity tag here"), true).into());
+                }
                 let sensitivity = value_range.sensitivity();
                 sensitivities.insert(input.sr, sensitivity);
             } else {
-                let sensitivity = input
-                    .tags
-                    .get("sensitivity")
-                    .expect("each unput must be annotated with a sensitivity");
-                let sensitivity = sensitivity
-                    .value
-                    .as_ref()
-                    .expect("sensitivity annotation must have a value");
-                let sensitivity = if sensitivity == "unbounded" {
+                let Some(sensitivity) = input.tags.get("sensitivity") else {
+                    return Err(Diagnostic::error(
+                        "Each input stream must be annotated with a sensitivity or value bound.",
+                    )
+                    .add_span_with_label(
+                        input.span,
+                        Some("Found input stream without annotations here"),
+                        true,
+                    )
+                    .into());
+                };
+                let Some(sensitivity_value) = sensitivity.value.as_ref() else {
+                    return Err(Diagnostic::error(
+                        "Each sensitivity tag must have associated value.",
+                    )
+                    .add_span_with_label(
+                        sensitivity.span,
+                        Some("Found sensitivity tag without associated value here"),
+                        true,
+                    )
+                    .into());
+                };
+                let sensitivity = if sensitivity_value == "unbounded" {
                     SensitivityBound::Unbounded
                 } else {
-                    let sensitivity: f64 = sensitivity
-                        .parse()
-                        .expect("sensitivity annotation must be a number");
+                    let sensitivity: f64 = match sensitivity_value.parse() {
+                        Ok(sens) => sens,
+                        Err(_) => {
+                            return Err(Diagnostic::error(
+                                "A sensitivity tag must be either \"unbounded\" or a number.",
+                            )
+                            .add_span_with_label(
+                                sensitivity.span,
+                                Some("Found faulty sensitivity tag here."),
+                                true,
+                            )
+                            .into());
+                        }
+                    };
                     sensitivity.into()
                 };
                 sensitivities.insert(input.sr, sensitivity);
             }
         }
 
-        (sensitivities, value_ranges)
+        Ok((sensitivities, value_ranges))
     }
 
     fn add_tag(&mut self, sr: SRef, key: &str, value: Option<&str>) {
@@ -1141,7 +1228,7 @@ mod tests {
         let base = from_ast(ast).unwrap();
         let config = (&config).into();
         let hir = base.progress(&config).unwrap().progress(&config).unwrap();
-        let graph = hir.analyze_dependency_graph(hir.graph().clone());
+        let graph = hir.analyze_dependency_graph(hir.graph().clone()).unwrap();
         let nodes: HashMap<_, _> = graph
             .node_indices()
             .map(|n| {
